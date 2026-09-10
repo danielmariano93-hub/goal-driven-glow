@@ -6,6 +6,13 @@ import type {
   MultiFinanceProactiveContext,
   PerformanceHighlightInput,
 } from "./contracts.ts";
+import {
+  DEBT_OBLIGATION_TRUTH_VERSION,
+  civilDateBR,
+  dueWording,
+  isOverdue,
+  shouldAlert,
+} from "./debtObligations.ts";
 
 /** Confiança textual do motor de performance → 0..1. */
 function confidenceOf(label: string): number {
@@ -265,33 +272,47 @@ export function collectFinancialSignals(ctx: MultiFinanceProactiveContext): Fina
     }
   }
 
-  // ---------------- Dívidas ----------------
-  for (const debt of (ctx.domains.debts as any[])) {
-    const installment = num(debt.installment_amount);
-    const dueDay = debt.due_day == null ? null : Number(debt.due_day);
-    if (installment <= 0 || dueDay == null) continue;
-    const day = Number(ctx.as_of.slice(8, 10));
-    const daysUntil = dueDay >= day ? dueDay - day : dueDay - day + 30;
-    if (daysUntil > 7) continue;
+  // ---------------- Dívidas (debt_obligation_truth.v1) ----------------
+  // Só a fonte canônica define vencimento, atraso e ciclo pago. Ciclo pago não
+  // gera sinal algum — logo, não gera situação, sugestão nem mensagem.
+  for (const obligation of (ctx.domains.debt_obligations ?? [])) {
+    if (!shouldAlert(obligation)) continue;
+    const overdue = isOverdue(obligation);
+    const dueDate = overdue
+      ? (obligation.cycle_due_date ?? obligation.next_due_date)
+      : (obligation.cycle_due_date ?? obligation.next_due_date);
     out.push({
-      key: `debt_due:${debt.id}`,
+      key: `debt_due:${obligation.debt_id}`,
       domain: "debts",
-      label: `Parcela de ${debt.name} (${brl(installment)}) vence em ${daysUntil} dia(s)`,
-      amount: installment,
+      label: `Parcela de ${obligation.name} (${brl(obligation.installment_amount)}) ${dueWording(obligation.days_until)}`,
+      amount: obligation.installment_amount,
       direction: "risk",
-      date: null,
-      days_until: daysUntil,
-      confidence: 0.9,
+      date: dueDate,
+      days_until: obligation.days_until,
+      confidence: 0.95,
       actionable: true,
       route: "/app/mais/dividas",
       evidence: {
-        source: "debt_status.v2",
-        debt_id: debt.id,
-        debt_name: debt.name,
-        installment_amount: installment,
-        outstanding_balance: num(debt.outstanding_balance),
-        due_day: dueDay,
-        formula_version: ctx.snapshot_ref.formula_version,
+        source: obligation.canonical_source,
+        canonical_source: obligation.canonical_source,
+        truth_version: DEBT_OBLIGATION_TRUTH_VERSION,
+        debt_id: obligation.debt_id,
+        debt_name: obligation.name,
+        creditor: obligation.creditor,
+        installment_amount: obligation.installment_amount,
+        outstanding_balance: obligation.outstanding,
+        debt_situation: obligation.situation,
+        cycle_status: obligation.cycle_status,
+        cycle_due_date: obligation.cycle_due_date,
+        cycle_paid_at: obligation.cycle_paid_at,
+        next_due_date: obligation.next_due_date,
+        days_until: obligation.days_until,
+        days_overdue: obligation.days_overdue,
+        overdue_amount: obligation.overdue_amount,
+        due_state: overdue ? "overdue" : obligation.days_until === 0 ? "due_today" : "due_soon",
+        due_wording: dueWording(obligation.days_until),
+        due_date_label: civilDateBR(dueDate),
+        formula_version: obligation.formula_version,
       },
     });
   }

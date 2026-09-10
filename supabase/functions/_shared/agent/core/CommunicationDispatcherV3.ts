@@ -23,7 +23,8 @@ import { applyCommunicationInstruction, instructionFromEvidence } from "../chang
 import { isEnabled } from "./FeatureFlags.ts";
 import { buildNarrativeEvidencePack, NARRATIVE_EVIDENCE_PACK_VERSION } from "../narrative/NarrativeEvidencePack.ts";
 import { narrativeEligibility } from "../narrative/TonePolicy.ts";
-import { composeNarrative, formatNarrativeForWhatsapp, type NarrativeResult } from "../narrative/NarrativeComposer.ts";
+import { composeNarrative, type NarrativeResult } from "../narrative/NarrativeComposer.ts";
+import { COMM_CONTRACT_VERSION, applyMessageContract, renderWhatsappMessage } from "./MessageContract.ts";
 import { loadNarrativeContext } from "../narrative/NarrativeMemory.ts";
 import { subjectKeyOf } from "../narrative/SignalGrouping.ts";
 
@@ -35,52 +36,66 @@ import { subjectKeyOf } from "../narrative/SignalGrouping.ts";
  * evidência na FONTE CANÔNICA (`debt_obligation_state`) imediatamente antes de
  * enfileirar/entregar — não recalculamos regra própria.
  */
+/**
+ * Identificador canônico da obrigação. Evidências antigas guardavam o id
+ * aninhado dentro dos sinais — este é o ÚNICO ponto de compatibilidade.
+ */
+export function canonicalDebtId(evidence: Record<string, unknown> | null | undefined): string | null {
+  const ev = (evidence ?? {}) as Record<string, unknown>;
+  const direct = String(ev.debt_id ?? (ev as any).debtId ?? "").trim();
+  if (direct) return direct;
+  const signals = Array.isArray((ev as any).signals) ? (ev as any).signals as any[] : [];
+  for (const signal of signals) {
+    const nested = String(signal?.evidence?.debt_id ?? signal?.debt_id ?? "").trim();
+    if (nested) return nested;
+  }
+  return null;
+}
+
+export type FreshnessVerdict = {
+  fresh: boolean;
+  reason: string | null;
+  /** Fonte indisponível: adiar, nunca enviar sem validação. */
+  defer: boolean;
+  source: "debt_obligation_state" | "not_applicable" | "unavailable";
+};
+
 async function revalidateBeforeSend(
   sb: any,
   userId: string,
   candidate: { evidence?: Record<string, unknown> | null },
-): Promise<{ fresh: boolean; reason: string | null }> {
-  const evidence = (candidate.evidence ?? {}) as Record<string, unknown>;
-  const debtId = String(evidence.debt_id ?? (evidence as any).debtId ?? "").trim();
-  if (!debtId) return { fresh: true, reason: null };
+): Promise<FreshnessVerdict> {
+  const debtId = canonicalDebtId(candidate.evidence);
+  if (!debtId) return { fresh: true, reason: null, defer: false, source: "not_applicable" };
   try {
     const { data, error } = await sb.rpc("debt_obligation_state", {
       _user_id: userId,
       _as_of: new Date().toISOString().slice(0, 10),
       _due_soon_days: 7,
     });
-    if (error) return { fresh: true, reason: null }; // fonte indisponível não inventa bloqueio
+    // Fail-safe: sem fonte canônica, cobrança de obrigação é ADIADA.
+    if (error) return { fresh: false, reason: "revalidation_source_unavailable", defer: true, source: "unavailable" };
     const rows = (Array.isArray(data) ? data : []) as Array<Record<string, unknown>>;
     const row = rows.find((r) => String(r.debt_id ?? "") === debtId);
-    if (!row) return { fresh: true, reason: null };
+    if (!row) return { fresh: false, reason: "obligation_no_longer_exists", defer: false, source: "debt_obligation_state" };
     const cycleStatus = String(row.current_cycle_status ?? "");
     const situation = String(row.situation ?? "");
     if (cycleStatus === "paid" && situation !== "em_atraso") {
-      return { fresh: false, reason: "revalidated_obligation_already_paid" };
+      return { fresh: false, reason: "revalidated_obligation_already_paid", defer: false, source: "debt_obligation_state" };
     }
-    return { fresh: true, reason: null };
+    return { fresh: true, reason: null, defer: false, source: "debt_obligation_state" };
   } catch {
-    return { fresh: true, reason: null };
+    return { fresh: false, reason: "revalidation_source_unavailable", defer: true, source: "unavailable" };
   }
 }
 
 /**
- * Composição final do WhatsApp: título só entra quando o corpo ainda não o
- * repete (heading duplicado era a causa da mensagem com a mesma frase duas
- * vezes).
+ * Composição final do WhatsApp — agora um único renderizador (`comm_contract.v1`)
+ * para mensagem determinística e narrativa: sem fato repetido, uma pergunta só,
+ * sem marcador técnico.
  */
 export function composeWhatsappBody(title: string, body: string): string {
-  const t = String(title ?? "").trim();
-  const b = String(body ?? "").trim();
-  if (!t) return b;
-  if (!b) return t;
-  const norm = (v: string) => v.toLowerCase().replace(/[\s\p{P}]+/gu, " ").trim();
-  const nt = norm(t);
-  const nb = norm(b);
-  if (!nt || nb.startsWith(nt)) return b;
-  const firstSentence = norm(b.split(/(?<=[.!?])\s/)[0] ?? "");
-  if (firstSentence && (firstSentence === nt || nt.startsWith(firstSentence))) return b;
-  return `${t}\n\n${b}`;
+  return renderWhatsappMessage(title, body).message;
 }
 
 
@@ -653,6 +668,13 @@ export async function dispatchSuggestions(
         }
       }
 
+      // comm_contract.v1 — contrato final: sem fato repetido, uma pergunta só,
+      // sem marcador técnico. Vale para app e WhatsApp, texto determinístico
+      // ou narrativo.
+      const contract = applyMessageContract(rendered.title, rendered.body);
+      rendered.title = contract.title;
+      rendered.body = contract.body;
+
       if (dryRun) {
         results.push({
           id: candidate.id,
@@ -660,18 +682,29 @@ export async function dispatchSuggestions(
           status: "simulated",
           reason: template ? `template_v${template.version}` : "deterministic_fallback",
           title: rendered.title,
-          body: rendered.body,
+          body: target === "whatsapp"
+            ? renderWhatsappMessage(rendered.title, rendered.body).message
+            : rendered.body,
         });
         continue;
       }
 
       const freshness = await revalidateBeforeSend(sb, userId, candidate);
       if (!freshness.fresh) {
+        // Fonte canônica indisponível: adia e tenta de novo. Nunca envia
+        // cobrança sem validar a obrigação.
+        if (freshness.defer) deferUntil = deferUntil ?? new Date(Date.now() + 1_800_000).toISOString();
         await record(sb, {
           user_id: userId, suggestion_id: candidate.id, kind: candidate.kind, channel: target,
           status: "suppressed", reason: freshness.reason ?? "revalidated_stale",
           dedup_key: candidate.dedup_key, evidence: candidate.evidence,
-          block_context: { policy_reason: freshness.reason ?? "revalidated_stale", target, ...policyContext },
+          block_context: {
+            policy_reason: freshness.reason ?? "revalidated_stale",
+            target,
+            revalidation_source: freshness.source,
+            debt_id: canonicalDebtId(candidate.evidence),
+            ...policyContext,
+          },
         });
         results.push({ id: candidate.id, channel: target, status: "skipped", reason: freshness.reason ?? "revalidated_stale" });
         continue;
@@ -738,12 +771,11 @@ export async function dispatchSuggestions(
             results.push({ id: candidate.id, channel: target, status: "skipped", reason: "no_active_whatsapp_link" });
             continue;
           }
+          const whatsapp = renderWhatsappMessage(rendered.title, rendered.body);
           const { error: outboundError } = await sb.from("outbound_messages").insert({
             user_id: userId,
             to_phone: (link as any).phone_e164,
-            body: narrative?.mode === "narrative"
-              ? formatNarrativeForWhatsapp(rendered.title, rendered.body)
-              : composeWhatsappBody(rendered.title, rendered.body),
+            body: whatsapp.message,
             provider: "waha",
             status: "queued",
             kind: "proactive",
@@ -759,6 +791,18 @@ export async function dispatchSuggestions(
               evidence: candidate.evidence,
               template_id: template?.id ?? null,
               template_version: template?.version ?? null,
+              // Observabilidade do contrato de comunicação.
+              contract_version: COMM_CONTRACT_VERSION,
+              source_title: candidate.title,
+              source_body: candidate.body,
+              rendered_title: rendered.title,
+              rendered_body: rendered.body,
+              final_message: whatsapp.message,
+              guards_applied: [...contract.guards, ...whatsapp.guards],
+              canonical_source: (candidate.evidence as any)?.canonical_source ?? null,
+              revalidation_source: freshness.source,
+              debt_id: canonicalDebtId(candidate.evidence),
+              narrative_mode: narrative?.mode ?? "deterministic",
             },
           });
           if (outboundError?.code === "23505") {

@@ -68,6 +68,9 @@ export interface MultiFinanceProactiveContext {
     goals: unknown[];
     commitments: unknown[];
     debts: unknown[];
+    /** debt_obligation_truth.v1 — única verdade de vencimento/pagamento. */
+    debt_obligations: import("./debtObligations.ts").DebtObligation[];
+    debt_obligations_available: boolean;
     patterns: unknown[];
   };
   learning: Record<string, { dismissals: number; actions: number; false_positives: number }>;

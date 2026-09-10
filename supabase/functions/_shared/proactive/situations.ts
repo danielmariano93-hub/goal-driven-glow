@@ -149,18 +149,29 @@ export function composeFinancialSituations(
     }));
   }
 
-  // 2) Dívidas com vencimento próximo (uma situação por dívida).
+  // 2) Dívidas (debt_obligation_truth.v1): título sintetiza, corpo complementa.
   for (const signal of byDomain(signals, "debts")) {
     if (used.has(signal.key)) continue;
     used.add(signal.key);
-    const overdue = (signal.days_until ?? 9) <= 0;
+    const ev = (signal.evidence ?? {}) as Record<string, unknown>;
+    const dueState = String(ev.due_state ?? "due_soon");
+    const overdue = dueState === "overdue";
+    const name = String(ev.debt_name ?? "sua dívida");
+    const wording = String(ev.due_wording ?? "");
+    const dateLabel = ev.due_date_label ? String(ev.due_date_label) : null;
+    const outstanding = Number(ev.outstanding_balance ?? 0);
+    const bodyParts = [
+      `São ${brl(signal.amount)}${dateLabel ? ` com vencimento em ${dateLabel}` : ""}.`,
+      outstanding > 0 ? `O saldo dessa dívida hoje é ${brl(outstanding)}.` : "",
+      overdue ? "Quanto mais tempo passa, maior o custo do atraso." : "",
+    ].filter(Boolean);
     out.push(situation({
       ctx,
       type: overdue ? "debt_overdue" : "debt_due_soon",
       communication_kind: overdue ? "debt_overdue" : "debt_due_soon",
       severity: overdue ? "critical" : "attention",
-      title: signal.label,
-      body: `${signal.label}. Confirme o pagamento para manter o histórico da dívida em dia.`,
+      title: `Parcela de ${name} ${wording}`.trim(),
+      body: bodyParts.join(" "),
       primary_domain: "debts",
       signals: [signal],
       impact_amount: signal.amount,
