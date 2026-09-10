@@ -83,6 +83,26 @@ export {
 export { learnFromTurn, type TurnSignal } from "./LearningLoop.ts";
 export { dispatchSuggestions, type DispatchOutcome } from "./NotificationDispatcher.ts";
 
+// `nino_adaptive.v1` — inteligência proporcional ao problema.
+export { classifyTurn, domainsIn, type TurnSignals } from "./TurnComplexityClassifier.ts";
+export {
+  planExecution, selectTier, escalate, canEarlyExit, tierTargets,
+  TIER_LATENCY_TARGETS, type ExecutionTier, type ExecutionPlan, type EscalationGate,
+} from "./AdaptiveExecutionRouter.ts";
+export { selectContext, isCacheable, ALL_CONTEXT_BLOCKS, type ContextBlock } from "./ContextSelector.ts";
+export { createExecutionTrace, latencyBreakdown, type ExecutionTrace } from "./ExecutionTrace.ts";
+export { prepareAdaptiveTurn, deterministicTierColumns, type AdaptiveTurn } from "./AdaptiveTurn.ts";
+
+// `nino_threads.v1` — continuidade de assunto de longo alcance.
+export {
+  createTopicRepository, topicScore, keywordsOf,
+  type TopicRepository, type TopicThread, type TopicStatus,
+} from "./TopicRepository.ts";
+export { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
+export {
+  linkTurnMessages, anchorProactiveMessage, topicForQuotedMessage, stampOutboundTopic,
+} from "./MessageTopicLinker.ts";
+
 // Adapters
 export { handleWhatsAppTurn, type WhatsAppTurn } from "./adapters/WhatsAppAdapter.ts";
 export { handleAppAction, handleAppMessage, type AppTurnResult } from "./adapters/AppAdapter.ts";
