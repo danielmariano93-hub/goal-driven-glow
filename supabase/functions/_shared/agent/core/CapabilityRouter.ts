@@ -561,6 +561,26 @@ export function classifyCapability(
     };
   }
 
+  // `nino_language.v1` — correção natural do sentimento registrado:
+  // "não foi atento, foi ansioso", "não era triste, era cansado".
+  // Vem antes de tudo porque cita duas emoções e antes caía como pergunta nova,
+  // repetindo o mesmo erro que a pessoa estava corrigindo.
+  const emotionCorrection = parseEmotionCorrection(String(text ?? ""));
+  const insistedCustom = /\b(e (?:apatia|saudade)|do meu jeito|registra (?:assim|do meu jeito)|e (?:isso|essa palavra) mesmo|pode registrar assim)\b/.test(t);
+  if (emotionCorrection || (insistedCustom && candidateFeelingTerm(String(text ?? "")))) {
+    return {
+      name: "emotional_checkin", execution: "deterministic",
+      allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+      required_tool: "log_emotional_checkin",
+      tool_args: {
+        emotion: emotionCorrection?.toTerm ?? candidateFeelingTerm(String(text ?? "")) ?? undefined,
+        correction: true,
+        register_custom: true,
+      },
+      context: {}, reason: "canonical_emotional_correction",
+    };
+  }
+
   // Emoção × gasto: pergunta de padrão, não de registro. Vem antes do check-in
   // porque "quando eu fico ansioso eu gasto mais?" também cita sentimento.
   const emotionWord = /\b(ansios\w+|ansiedade|estress\w+|cansad\w+|triste|tristeza|feliz|felicidade|animad\w+|tranquil\w+|calm\w+|impulsiv\w+|frustrad\w+|culpad\w+|culpa|preocupad\w+|emocao|emocoes|emocional|humor|sentimento|sentindo)\b/.test(t);

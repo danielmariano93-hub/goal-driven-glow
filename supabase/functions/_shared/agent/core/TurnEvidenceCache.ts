@@ -62,11 +62,17 @@ export type TurnEvidenceCache = {
   run(tool: string, args: unknown, exec: () => Promise<CachedExecution>): Promise<CachedExecution>;
   /** Registra manualmente uma execução já feita fora do cache. */
   remember(tool: string, args: unknown, execution: CachedExecution): void;
+  /** true quando essa ferramenta de escrita já rodou neste turno (qualquer args). */
+  hasWrite(tool: string): boolean;
   stats(): { executions: number; reuses: number; write_reuses: number; keys: string[] };
 };
 
 export function createTurnEvidenceCache(): TurnEvidenceCache {
   const store = new Map<string, CachedExecution>();
+  // `nino_language.v1`: escrita é bloqueada por NOME, não por argumentos. O
+  // resgate do Truth Gate chamava a mesma capability com args levemente
+  // diferentes e gravava duas vezes (check-in emocional duplicado).
+  const writes = new Map<string, CachedExecution>();
   const inflight = new Map<string, Promise<CachedExecution>>();
   let executions = 0;
   let reuses = 0;
@@ -85,6 +91,10 @@ export function createTurnEvidenceCache(): TurnEvidenceCache {
       // WRITE: reutiliza qualquer resultado (sucesso OU falha).
       // READ: só reutiliza sucesso — falha transitória pode ser tentada de novo.
       if (hit && (isWriteTool(tool) || hit.ok)) return reuse(tool, hit);
+      if (isWriteTool(tool)) {
+        const previousWrite = writes.get(tool);
+        if (previousWrite) return reuse(tool, previousWrite);
+      }
 
       const running = inflight.get(key);
       if (running) {
@@ -95,6 +105,7 @@ export function createTurnEvidenceCache(): TurnEvidenceCache {
       const promise = (async () => {
         const out = await exec();
         store.set(key, out);
+        if (isWriteTool(tool) && !writes.has(tool)) writes.set(tool, out);
         executions++;
         return out;
       })();
@@ -107,6 +118,10 @@ export function createTurnEvidenceCache(): TurnEvidenceCache {
     },
     remember(tool, args, execution) {
       store.set(evidenceKey(tool, args), execution);
+      if (isWriteTool(tool) && !writes.has(tool)) writes.set(tool, execution);
+    },
+    hasWrite(tool) {
+      return isWriteTool(tool) && writes.has(tool);
     },
     stats() {
       return {

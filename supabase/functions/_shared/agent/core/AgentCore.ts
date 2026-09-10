@@ -63,7 +63,7 @@ import { groundReply } from "./GroundingGateV3.ts";
 import { buildClarification } from "./ClarificationResponse.ts";
 import { recordAiStage } from "./AiStageMetrics.ts";
 import { runTool } from "./ToolRuntime.ts";
-import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
+import { createTurnEvidenceCache, isWriteTool } from "./TurnEvidenceCache.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
@@ -1799,13 +1799,20 @@ ${episodic}
         routeIntent(turnPlan.effective_text).intent,
         interpretSemanticQuery(turnPlan.effective_text),
       );
-    const rescue = rescueCapability.execution === "deterministic" && rescueCapability.required_tool
+    // `nino_language.v1`: o resgate NUNCA executa ferramenta de escrita. Prova
+    // de número não pode custar um segundo registro no banco — foi assim que o
+    // check-in emocional gravou duas vezes no mesmo turno.
+    const rescueIsWrite = !!rescueCapability.required_tool
+      && (isWriteTool(rescueCapability.required_tool) || evidenceCache.hasWrite(rescueCapability.required_tool));
+    if (rescueIsWrite) metrics.errors.push("truth_rescue_blocked_write:" + rescueCapability.required_tool);
+    const rescue = !rescueIsWrite && rescueCapability.execution === "deterministic" && rescueCapability.required_tool
       ? await guard(
         () => executeDeterministicCapability(sb, {
           user_id: input.user_id,
           conversation_id: input.conversation_id,
           user_text: turnPlan.effective_text,
           capability: rescueCapability,
+          evidenceCache,
         }),
         (m) => metrics.errors.push("truth_rescue:" + m),
         null,
