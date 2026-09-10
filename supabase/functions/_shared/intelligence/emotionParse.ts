@@ -160,8 +160,10 @@ export function parseEmotionCorrection(text?: string | null): EmotionCorrection 
   const normalized = normalize(text ?? "");
   if (!normalized) return null;
 
+  // O verbo se repete depois da negação: "não foi X, foi Y". Sem essa
+  // exigência, "não foi fácil, mas consegui economizar" virava correção.
   const pair = normalized.match(
-    /\bnao\s+(?:foi|era|e|eh|estava|esta|sou|estou)\s+([a-z\s]{3,30}?)\s*[,;]?\s*(?:e|eh|foi|era|estava|esta|mas|sim)\s+([a-z]+(?:\s+[a-z]+)?)\b/,
+    /\bnao\s+(?:foi|era|e|eh|estava|esta|sou|estou)\s+([a-z]{3,20}(?:\s+[a-z]{2,20})?)\s*[,;]?\s*(?:mas\s+|e\s+)?(?:foi|era|e|eh|estava|esta|sou|estou)\s+([a-z]+(?:\s+[a-z]+)?)\b/,
   );
   if (pair) {
     const toTerm = pair[2].trim();
