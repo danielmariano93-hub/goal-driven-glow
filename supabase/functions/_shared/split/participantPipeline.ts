@@ -222,7 +222,7 @@ export async function handleParticipantInbound(
         out.storage_path = path;
       }
     } else {
-      out.media_error = download.code;
+      out.media_error = (download as { code?: string }).code ?? "download_failed";
     }
 
     const reported = extractReportedAmount(input.text ?? "") ?? remaining;
