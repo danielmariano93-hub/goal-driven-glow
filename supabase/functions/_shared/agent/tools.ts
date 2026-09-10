@@ -1475,9 +1475,13 @@ export async function assess_goal_performance(
 export async function create_split_expense_draft(ctx: ToolContext, args: {
   title: string; total: number; occurred_at?: string; due_date?: string;
   split_mode?: "equal" | "custom"; include_owner?: boolean;
-  participants: Array<{ name: string; phone_e164?: string; amount_due?: number }>;
+  participants: Array<{
+    name: string; phone_e164?: string; amount_due?: number;
+    installments?: Array<{ amount: number; due_date: string }>;
+  }>;
   account?: string; card?: string; category?: string; owner_amount?: number;
   reminder_enabled?: boolean; pix_key?: string;
+  installments?: number; first_due_date?: string;
 }): Promise<ToolResult> {
   const title = String(args?.title ?? "").trim();
   const total = Number(args?.total);
