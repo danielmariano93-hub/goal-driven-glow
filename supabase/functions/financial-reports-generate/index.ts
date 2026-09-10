@@ -634,7 +634,26 @@ Deno.serve(async (req) => {
           processed++;
         } catch (e) {
           failed++;
-          logEvent({ event: "cron_user_error", user_id: uid, err: (e as Error).message });
+          const diag = describeGenerationFailure((e as Error).message);
+          logEvent({ event: "cron_user_error", user_id: uid, err: (e as Error).message, ...diag });
+          // Falha individual do cron deixa rastro próprio: heartbeat agregado
+          // (processed 0 / failed 7) não dizia POR QUE cada usuário falhou.
+          await recordIncident({
+            functionName: FN,
+            errorCode: `cron_user_${diag.error_code}`.slice(0, 60),
+            requestId,
+            status: 500,
+            retryable: diag.retryable,
+            userId: uid,
+            details: {
+              report_type: reportType,
+              stage: diag.stage,
+              source: diag.source,
+              schema_contract_version: REPORT_SCHEMA_CONTRACT_VERSION,
+              finance_contract_version: FINANCE_CONTRACT_VERSION,
+              message: String((e as Error).message).slice(0, 200),
+            },
+          });
         }
       }
       await writeJobHeartbeat({
@@ -669,7 +688,27 @@ Deno.serve(async (req) => {
     });
     return respond(result);
   } catch (e) {
-    logEvent({ event: "user_generate_error", err: (e as Error).message });
-    return fail("report_generation_failed", { status: 500, functionName: FN, details: { message: (e as Error).message } });
+    const diag = describeGenerationFailure((e as Error).message);
+    logEvent({ event: "user_generate_error", err: (e as Error).message, report_type: reportType, ...diag });
+    return fail("report_generation_failed", {
+      status: 500,
+      functionName: FN,
+      requestId,
+      retryable: diag.retryable,
+      userId: userData.user.id,
+      details: {
+        request_id: requestId,
+        report_type: reportType,
+        period_start: customPeriod?.start ?? null,
+        period_end: customPeriod?.end ?? null,
+        stage: diag.stage,
+        source: diag.source,
+        error_code: diag.error_code,
+        retryable: diag.retryable,
+        schema_contract_version: REPORT_SCHEMA_CONTRACT_VERSION,
+        finance_contract_version: FINANCE_CONTRACT_VERSION,
+        message: String((e as Error).message).slice(0, 200),
+      },
+    });
   }
 });
