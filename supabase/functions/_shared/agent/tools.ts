@@ -2834,7 +2834,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "create_split_expense_draft",
-    description: "Cria um RASCUNHO de divisão de rolê. Conduza a conversa pedindo somente os campos faltantes: título, valor, data, pessoas, fonte do pagamento e divisão igual/personalizada. Nunca confirme sem CONFIRMAR do usuário.",
+    description: "Cria um RASCUNHO de divisão de rolê, à vista ou parcelada. Conduza a conversa pedindo somente os campos faltantes: título, valor, data, pessoas, fonte do pagamento, divisão igual/personalizada e, se houver, número de parcelas (2 a 24) com a data da primeira. Nunca confirme sem CONFIRMAR do usuário.",
     parameters: {
       type: "object",
       properties: {
