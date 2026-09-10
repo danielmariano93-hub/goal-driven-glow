@@ -10,6 +10,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
+import { activeReceivables, buildInstallmentSchedule } from "../_shared/split/installmentSchedule.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
