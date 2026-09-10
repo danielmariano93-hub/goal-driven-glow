@@ -1557,10 +1557,23 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
     category_id: categoryId,
     reminder_enabled: Boolean(args.reminder_enabled), pix_key: args.pix_key ?? null,
   };
-  const summary = `Rolê “${title}” de ${BRL.format(total)} para dividir com ${participants.length} pessoa${participants.length > 1 ? "s" : ""}, em ${occurredAt}.`;
+  const installmentCount = installmentsPayload?.[0]?.rows.length ?? 1;
+  const installmentSummary = installmentsPayload
+    ? ` Cada pessoa paga em ${installmentCount}x, começando em ${firstDue}.`
+    : "";
+  const summary = `Rolê “${title}” de ${BRL.format(total)} para dividir com ${participants.length} pessoa${participants.length > 1 ? "s" : ""}, em ${occurredAt}.${installmentSummary}`;
   const id = await upsertDraft(ctx, "shared_expense", payload, summary);
   if (!id) return { ok: false, error: "draft_failed" };
-  return { ok: true, result: { draft_id: id, summary, participants: participants.length } };
+  return {
+    ok: true,
+    result: {
+      draft_id: id,
+      summary,
+      participants: participants.length,
+      installments: installmentCount,
+      first_due_date: installmentsPayload ? firstDue : null,
+    },
+  };
 }
 
 
