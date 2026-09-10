@@ -8,7 +8,7 @@
 //   - user  : JWT do dono; gera/regenera o próprio relatório (on-demand).
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { fail, respond } from "../_shared/http.ts";
+import { fail, recordIncident, respond } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
 
@@ -25,7 +25,9 @@ import {
 } from "../_shared/reports-core/narrative.ts";
 import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
+import { FINANCE_CONTRACT_VERSION } from "../_shared/finance-core/index.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
+import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 
@@ -42,6 +44,40 @@ const AI_TIMEOUT_MS = 12000;
 function logEvent(event: Record<string, unknown>) {
   try { console.log(JSON.stringify({ fn: FN, ...event })); } catch { /* noop */ }
 }
+
+/**
+ * Diagnóstico operacional da falha de geração — sem vazar detalhe técnico ao
+ * usuário (a UI continua mostrando a mensagem genérica).
+ *
+ * `stage` = etapa da pipeline; `source` = query/recurso que falhou.
+ */
+export function describeGenerationFailure(message: string): {
+  stage: string;
+  source: string | null;
+  error_code: string;
+  retryable: boolean;
+} {
+  const raw = String(message ?? "").slice(0, 300);
+  const [head, second] = raw.split(":");
+  const stageMap: Record<string, string> = {
+    query_failed: "load_context",
+    load_transactions: "load_transactions",
+    insert_report: "persist_report",
+    update_report: "persist_report",
+    custom_period_mismatch: "resolve_period",
+  };
+  const code = (head ?? "unknown").trim() || "unknown";
+  const stage = stageMap[code] ?? "generate";
+  // Erro de schema não se resolve tentando de novo; falha de rede/IA sim.
+  const schemaDrift = /does not exist|column .* of relation|schema cache/i.test(raw);
+  return {
+    stage,
+    source: code === "query_failed" ? (second ?? null) : null,
+    error_code: schemaDrift ? "schema_drift" : code,
+    retryable: !schemaDrift && code !== "custom_period_mismatch",
+  };
+}
+
 
 type Sb = SupabaseClient;
 
@@ -100,20 +136,25 @@ async function loadContext(sb: Sb, userId: string) {
   const [cats, accounts, snapshots, goals, contributions, cards, statements, installments] = await Promise.all([
     // Categorias globais (user_id IS NULL) precisam entrar: a maioria dos
     // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
-    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+    sb.from("categories").select(projection("categories")).or(`user_id.eq.${userId},user_id.is.null`),
 
-    sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
-    sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
-    sb.from("goals").select("id,name,target_amount,status,target_date").eq("user_id", userId),
-    sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
+    sb.from("accounts").select(projection("accounts")).eq("user_id", userId),
+    sb.from("account_balance_snapshots").select(projection("account_balance_snapshots")).eq("user_id", userId),
+    sb.from("goals").select(projection("goals")).eq("user_id", userId),
+    sb.from("goal_contributions").select(projection("goal_contributions")).eq("user_id", userId),
     // Exposição oficial de cartão: fatura registrada manda sobre o cálculo legado.
-    sb.from("credit_cards").select("id,name,closing_day,due_day,active").eq("user_id", userId),
+    sb.from("credit_cards").select(projection("credit_cards")).eq("user_id", userId),
     sb.from("credit_card_statements")
-      .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,status,requires_manual_review")
+      .select(projection("credit_card_statements"))
       .eq("user_id", userId),
+    // Projeção canônica (report_projection.v1): inclui legacy_transaction_id e
+    // absorbed_by_statement_id, exigidos pelo anti-dupla-contagem do
+    // computeCardExposure(). NUNCA voltar a pedir installments_total: a coluna
+    // não existe nesta tabela.
     sb.from("credit_card_installments")
-      .select("id,credit_card_id,purchase_id,competence_month,amount,status,installment_number,installments_total")
+      .select(projection("credit_card_installments"))
       .eq("user_id", userId),
+
   ]);
   // Falha de query NUNCA vira lista vazia: relatório com array vazio por erro
   // de schema já produziu "nenhuma meta" para quem tinha metas.
@@ -355,6 +396,9 @@ async function generateForUser(
     status: "published",
     published_at: new Date().toISOString(),
     generated_at: new Date().toISOString(),
+    // Versão dos motores que REALMENTE produziram este número — fonte única de
+    // constante, nunca literal solto (observabilidade enganosa antes disso).
+    finance_contract_version: FINANCE_CONTRACT_VERSION,
     insight_catalog_version: report.catalogVersion,
     template_version: report.templateVersion,
     health_score: report.healthScore,
@@ -590,7 +634,26 @@ Deno.serve(async (req) => {
           processed++;
         } catch (e) {
           failed++;
-          logEvent({ event: "cron_user_error", user_id: uid, err: (e as Error).message });
+          const diag = describeGenerationFailure((e as Error).message);
+          logEvent({ event: "cron_user_error", user_id: uid, err: (e as Error).message, ...diag });
+          // Falha individual do cron deixa rastro próprio: heartbeat agregado
+          // (processed 0 / failed 7) não dizia POR QUE cada usuário falhou.
+          await recordIncident({
+            functionName: FN,
+            errorCode: `cron_user_${diag.error_code}`.slice(0, 60),
+            requestId,
+            status: 500,
+            retryable: diag.retryable,
+            userId: uid,
+            details: {
+              report_type: reportType,
+              stage: diag.stage,
+              source: diag.source,
+              schema_contract_version: REPORT_SCHEMA_CONTRACT_VERSION,
+              finance_contract_version: FINANCE_CONTRACT_VERSION,
+              message: String((e as Error).message).slice(0, 200),
+            },
+          });
         }
       }
       await writeJobHeartbeat({
@@ -625,7 +688,27 @@ Deno.serve(async (req) => {
     });
     return respond(result);
   } catch (e) {
-    logEvent({ event: "user_generate_error", err: (e as Error).message });
-    return fail("report_generation_failed", { status: 500, functionName: FN, details: { message: (e as Error).message } });
+    const diag = describeGenerationFailure((e as Error).message);
+    logEvent({ event: "user_generate_error", err: (e as Error).message, report_type: reportType, ...diag });
+    return fail("report_generation_failed", {
+      status: 500,
+      functionName: FN,
+      requestId,
+      retryable: diag.retryable,
+      userId: userData.user.id,
+      details: {
+        request_id: requestId,
+        report_type: reportType,
+        period_start: customPeriod?.start ?? null,
+        period_end: customPeriod?.end ?? null,
+        stage: diag.stage,
+        source: diag.source,
+        error_code: diag.error_code,
+        retryable: diag.retryable,
+        schema_contract_version: REPORT_SCHEMA_CONTRACT_VERSION,
+        finance_contract_version: FINANCE_CONTRACT_VERSION,
+        message: String((e as Error).message).slice(0, 200),
+      },
+    });
   }
 });

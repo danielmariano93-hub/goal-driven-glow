@@ -1650,11 +1650,14 @@ export async function plan_installment_decision(ctx: ToolContext, args: {
   // Parcelas de cartão já contratadas, por mês de competência futuro.
   const cardByMonth: Record<string, number> = {};
   const instRes = await ctx.sb.from("credit_card_installments")
-    .select("competence_month,amount,status")
+    .select("competence_month,amount,status,absorbed_by_statement_id")
     .eq("user_id", ctx.user_id)
     .gte("competence_month", snap.today.slice(0, 7));
   for (const row of (instRes?.data ?? []) as any[]) {
     if (String(row.status ?? "") === "paid") continue;
+    // Parcela já absorvida por fatura oficial não pode contar de novo como
+    // compromisso futuro (anti-dupla-contagem do card_exposure.v3).
+    if (row.absorbed_by_statement_id) continue;
     const key = String(row.competence_month ?? "").slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(key)) continue;
     cardByMonth[key] = Math.round(((cardByMonth[key] ?? 0) + Number(row.amount ?? 0)) * 100) / 100;
