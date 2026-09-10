@@ -58,10 +58,14 @@ describe("contrato de projeção do relatório: schema real → loader → motor
     });
   }
 
-  it("não volta a pedir installments_total (coluna inexistente — causa do incidente)", () => {
+  it("não volta a pedir installments_total de parcelas (coluna inexistente — causa do incidente)", () => {
+    // `transactions.installments_total` existe e é legítimo; a tabela de
+    // parcelas de cartão é que nunca teve essa coluna.
     expect(REPORT_PROJECTIONS.credit_card_installments as readonly string[]).not.toContain("installments_total");
-    expect(LOADER).not.toContain("installments_total");
+    expect(projection("credit_card_installments")).not.toContain("installments_total");
+    expect(actualColumns("credit_card_installments")).not.toContain("installments_total");
   });
+
 
   for (const [table, required] of Object.entries(ENGINE_REQUIRED_FIELDS)) {
     it(`carrega todos os campos que o motor exige de ${table}`, () => {
