@@ -35,6 +35,7 @@ import {
 } from "../finance-core/emotionFinance.ts";
 
 import { cycleFor } from "../finance-core/cardExposure.ts";
+import { buildEqualInstallmentDrafts, equalInstallmentAmounts, installmentsSum } from "../split/installmentSchedule.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
 import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
