@@ -54,26 +54,30 @@ export function dedupeFacts(title: string, body: string): { body: string; remove
   if (titleNorm) seen.add(titleNorm);
   let removed = 0;
 
+  let titleCovered = false;
+
   const blocks = splitBlocks(body).map((block) => {
     const kept = splitSentences(block).filter((sentence) => {
       const norm = normalizeForCompare(sentence);
       if (!norm) return false;
-      const duplicate = [...seen].some((prev) =>
-        prev === norm ||
-        (prev.length > 18 && norm.startsWith(prev)) ||
-        (norm.length > 18 && prev.startsWith(norm))
+      // Frase que apenas repete um fato já dito sai da mensagem.
+      const repeats = [...seen].some((prev) =>
+        prev === norm || (norm.length > 18 && prev.startsWith(norm))
       );
-      if (duplicate) {
+      if (repeats) {
         removed += 1;
         return false;
       }
+      // Frase que começa com o título mas acrescenta informação fica: o título
+      // é que deixa de ser repetido acima dela.
+      if (titleNorm && titleNorm.length > 12 && norm.startsWith(titleNorm)) titleCovered = true;
       seen.add(norm);
       return true;
     });
     return kept.join(" ").trim();
   }).filter(Boolean);
 
-  return { body: blocks.join("\n\n"), removed };
+  return { body: blocks.join("\n\n"), removed, titleCovered };
 }
 
 /** Uma pergunta por mensagem: a primeira permanece, as seguintes saem. */
