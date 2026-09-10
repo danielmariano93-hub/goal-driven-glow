@@ -100,20 +100,25 @@ async function loadContext(sb: Sb, userId: string) {
   const [cats, accounts, snapshots, goals, contributions, cards, statements, installments] = await Promise.all([
     // Categorias globais (user_id IS NULL) precisam entrar: a maioria dos
     // lançamentos aponta para elas e sem isso tudo virava "Sem categoria".
-    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+    sb.from("categories").select(projection("categories")).or(`user_id.eq.${userId},user_id.is.null`),
 
-    sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
-    sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
-    sb.from("goals").select("id,name,target_amount,status,target_date").eq("user_id", userId),
-    sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
+    sb.from("accounts").select(projection("accounts")).eq("user_id", userId),
+    sb.from("account_balance_snapshots").select(projection("account_balance_snapshots")).eq("user_id", userId),
+    sb.from("goals").select(projection("goals")).eq("user_id", userId),
+    sb.from("goal_contributions").select(projection("goal_contributions")).eq("user_id", userId),
     // Exposição oficial de cartão: fatura registrada manda sobre o cálculo legado.
-    sb.from("credit_cards").select("id,name,closing_day,due_day,active").eq("user_id", userId),
+    sb.from("credit_cards").select(projection("credit_cards")).eq("user_id", userId),
     sb.from("credit_card_statements")
-      .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,status,requires_manual_review")
+      .select(projection("credit_card_statements"))
       .eq("user_id", userId),
+    // Projeção canônica (report_projection.v1): inclui legacy_transaction_id e
+    // absorbed_by_statement_id, exigidos pelo anti-dupla-contagem do
+    // computeCardExposure(). NUNCA voltar a pedir installments_total: a coluna
+    // não existe nesta tabela.
     sb.from("credit_card_installments")
-      .select("id,credit_card_id,purchase_id,competence_month,amount,status,installment_number,installments_total")
+      .select(projection("credit_card_installments"))
       .eq("user_id", userId),
+
   ]);
   // Falha de query NUNCA vira lista vazia: relatório com array vazio por erro
   // de schema já produziu "nenhuma meta" para quem tinha metas.
