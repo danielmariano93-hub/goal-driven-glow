@@ -3180,6 +3180,9 @@ export const AGENT_TOOLS: ToolSpec[] = [
       properties: {
         only_pending: { type: "boolean", description: "Padrão true: só parcelas com saldo em aberto." },
         person: optionalStr,
+        split: { ...optionalStr, description: "Filtra por nome do rolê." },
+        month: { ...optionalStr, description: "Mês de vencimento no formato YYYY-MM." },
+        overdue_only: { type: "boolean", description: "Só parcelas atrasadas." },
       },
       additionalProperties: false,
     },
