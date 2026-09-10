@@ -735,6 +735,56 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     turnPlan.followup = false;
   }
 
+  // `nino_language.v1` — COMPREENDER ANTES DE EXECUTAR.
+  // Mensagem humana curta que o determinístico não resolveu passa por uma
+  // leitura de linguagem antes de qualquer execução. A leitura devolve só
+  // estrutura (qual sentimento, é correção); número e registro seguem
+  // determinísticos. Falha da leitura não derruba o turno.
+  let humanReading: Awaited<ReturnType<typeof understandHumanMessage>> | null = null;
+  const wantsHumanReading = isShortHumanMessage(input.text)
+    && capability.name !== "emotion_finance"
+    && (capability.name === "emotional_checkin"
+      || awaiting?.kind === "emotional_checkin"
+      || capability.name === "general"
+      || !capability.required_tool);
+  if (wantsHumanReading) {
+    humanReading = await guard(
+      () => understandHumanMessage({
+        text: input.text,
+        model: "google/gemini-3.6-flash",
+        sb,
+        user_id: input.user_id,
+        run_id: runId,
+      }),
+      (m) => metrics.errors.push("human_understanding:" + m),
+      null,
+    );
+    const understood = humanReading
+      && (humanReading.kind === "emotion_checkin" || humanReading.kind === "emotion_correction")
+      && (humanReading.emotion_key || humanReading.custom_candidate);
+    if (understood && humanReading) {
+      capability = {
+        ...capability,
+        name: "emotional_checkin",
+        execution: "deterministic",
+        allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+        required_tool: "log_emotional_checkin",
+        tool_args: {
+          emotion: humanReading.emotion_key ?? humanReading.emotion_term ?? undefined,
+          correction: humanReading.correction,
+          register_custom: humanReading.custom_candidate,
+        },
+        context: {} as typeof capability.context,
+        clarification: null,
+        reason: `human_reading_${humanReading.kind}_${humanReading.source}`,
+      };
+      turnPlan.effective_text = input.text;
+      turnPlan.followup = false;
+    }
+  }
+
+
+
 
   // Pergunta composta não é só detectada: ela é EXECUTADA. Roteamos cada
   // sub-pergunta, unimos o escopo de ferramentas e exigimos que todas as
