@@ -7,7 +7,9 @@ import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
-import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
+import {
+  candidateFeelingTerm, parseEmotionCorrection, parseEmotionFromText,
+} from "../../intelligence/emotionParse.ts";
 import { detectCategory } from "./ConversationMemory.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
 
