@@ -1503,10 +1503,52 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
     const parts = participants.reduce((sum, p) => sum + Number(p.amount_due || 0), 0) + (args.include_owner === false ? 0 : Number(args.owner_amount || 0));
     if (Math.abs(parts - total) > 0.009) return { ok: false, error: "custom_split_total_mismatch", details: { expected: total, received: parts } };
   }
+  // ---- Parcelamento (paridade com a tela de criação) ----
+  const includeOwner = args.include_owner !== false;
+  const requestedInstallments = Number(args.installments ?? 1);
+  const perParticipantCustom = participants.some((p) => Array.isArray(p.installments) && p.installments.length > 1);
+  const firstDue = /^\d{4}-\d{2}-\d{2}$/.test(args.first_due_date ?? "")
+    ? String(args.first_due_date)
+    : /^\d{4}-\d{2}-\d{2}$/.test(args.due_date ?? "")
+      ? String(args.due_date)
+      : occurredAt;
+  if (!perParticipantCustom && args.installments !== undefined) {
+    if (!Number.isInteger(requestedInstallments) || requestedInstallments < 1 || requestedInstallments > 24) {
+      return { ok: false, error: "invalid_installments", details: { min: 1, max: 24 } };
+    }
+  }
+  const equalShares = equalInstallmentAmounts(total, participants.length + (includeOwner ? 1 : 0));
+  const shareFor = (index: number, p: { amount_due?: number }) =>
+    splitMode === "custom" ? Number(p.amount_due ?? 0) : Number(equalShares[index] ?? 0);
+
+  let installmentsPayload: Array<{ participant_index: number; rows: Array<{ amount: number; due_date: string }> }> | null = null;
+  if (perParticipantCustom || requestedInstallments > 1) {
+    installmentsPayload = [];
+    for (let i = 0; i < participants.length; i++) {
+      const p = participants[i]!;
+      const share = shareFor(i, p);
+      const rows = Array.isArray(p.installments) && p.installments.length
+        ? p.installments.map((r) => ({ amount: Number(r.amount), due_date: String(r.due_date) }))
+        : buildEqualInstallmentDrafts(share, Math.max(1, requestedInstallments), firstDue);
+      if (rows.some((r) => !Number.isFinite(r.amount) || r.amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(r.due_date))) {
+        return { ok: false, error: "invalid_installment_row", details: { participant: String(p.name).trim() } };
+      }
+      if (share > 0 && Math.abs(installmentsSum(rows) - share) > 0.009) {
+        return {
+          ok: false,
+          error: "installments_total_mismatch",
+          details: { participant: String(p.name).trim(), expected: share, received: installmentsSum(rows) },
+        };
+      }
+      installmentsPayload.push({ participant_index: i, rows });
+    }
+  }
+
   const payload = {
     title, total, occurred_at: occurredAt,
     due_date: /^\d{4}-\d{2}-\d{2}$/.test(args.due_date ?? "") ? args.due_date : null,
-    split_mode: splitMode, include_owner: args.include_owner !== false,
+    split_mode: splitMode, include_owner: includeOwner,
+    installments: installmentsPayload,
     participants: participants.map((p) => ({ name: String(p.name).trim(), phone_e164: p.phone_e164 ?? null, amount_due: p.amount_due ?? null })),
     owner_amount: args.owner_amount ?? null,
     source_account_id: account?.id ?? null,
