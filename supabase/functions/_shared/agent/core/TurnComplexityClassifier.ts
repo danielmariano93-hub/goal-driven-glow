@@ -92,10 +92,17 @@ export function classifyTurn(input: ClassifierInput): TurnSignals {
     };
   }
 
+  // "esse mês", "essa semana" são recortes de tempo, não anáfora. Sem isso
+  // toda pergunta com período parecia depender de contexto anterior.
+  const tAnaphora = t
+    .replace(/\b(esse|este|aquele|nesse|neste|desse|deste)\s+(mes|ano|semestre|trimestre|periodo)\b/g, " ")
+    .replace(/\b(essa|esta|aquela|nessa|nesta|dessa|desta)\s+(semana|quinzena|fatura)\b/g, " ");
+  // Pergunta ("quanto gastei…") não é escrita: interrogativo zera risco de WRITE.
+  const interrogative = /\b(quanto|quantos|quais|qual|quando|onde|por que|porque|pq|como)\b/.test(t);
   const domains = domainsIn(t);
   const questionMarks = (raw.match(/\?/g) ?? []).length;
   const hasReasoning = REASONING_RX.test(t);
-  const anaphora = ANAPHORA_RX.test(t);
+  const anaphora = ANAPHORA_RX.test(tAnaphora);
   // "quanto gastei em transporte esse mês?" começa com pronome interrogativo,
   // mas traz assunto próprio: não é follow-up dependente de contexto.
   const followup = FOLLOWUP_RX.test(t) && (domains.length === 0 || words.length <= 4);
@@ -138,7 +145,7 @@ export function classifyTurn(input: ClassifierInput): TurnSignals {
   );
 
   const risk_score = clamp01(
-    (WRITE_RX.test(t) ? 0.7 : 0) +
+    (WRITE_RX.test(t) && !interrogative ? 0.7 : 0) +
     (input.has_pending_confirmation ? 0.2 : 0),
   );
 
