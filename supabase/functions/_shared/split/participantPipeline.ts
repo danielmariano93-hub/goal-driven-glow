@@ -13,6 +13,14 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { downloadInboundMedia, type MediaHint } from "../messaging/wahaMedia.ts";
+import {
+  activeReceivables,
+  buildInstallmentSchedule,
+  type CanonicalReceivable,
+  formatCivilBR,
+  installmentSentence,
+  summarizeSchedule,
+} from "./installmentSchedule.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
