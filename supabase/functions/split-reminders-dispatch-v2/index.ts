@@ -159,7 +159,8 @@ function messageFor(
     split_context_sentence: splitContextSentence,
     installment_label: installmentLabel(receivable),
     installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
-    first_due_sentence: !due
+    // Com a agenda completa impressa, repetir a 1ª data seria redundante.
+    first_due_sentence: !due || scheduleLines
       ? ""
       : installments > 1
         ? ` A primeira parcela vence em *${due}*.`
