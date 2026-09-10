@@ -2843,8 +2843,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
         include_owner: { type: "boolean" },
         participants: {
           type: "array", minItems: 1,
-          items: { type: "object", properties: { name: requiredStr, phone_e164: optionalStr, amount_due: num }, required: ["name"], additionalProperties: false },
+          items: {
+            type: "object",
+            properties: {
+              name: requiredStr, phone_e164: optionalStr, amount_due: num,
+              installments: {
+                type: "array",
+                description: "Parcelas personalizadas desta pessoa (valor e vencimento por parcela). A soma precisa fechar com a parte dela.",
+                items: { type: "object", properties: { amount: num, due_date: requiredStr }, required: ["amount", "due_date"], additionalProperties: false },
+              },
+            },
+            required: ["name"], additionalProperties: false,
+          },
         },
+        installments: { type: "integer", minimum: 1, maximum: 24, description: "Número de parcelas iguais para cada pessoa. 1 ou ausente = à vista." },
+        first_due_date: { ...optionalStr, description: "Vencimento da 1ª parcela (YYYY-MM-DD). As demais vencem mês a mês." },
         account: optionalStr, card: optionalStr, category: optionalStr,
         owner_amount: num, reminder_enabled: { type: "boolean" }, pix_key: optionalStr,
       },
