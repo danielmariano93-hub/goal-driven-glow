@@ -48,7 +48,7 @@ export function stripTechnicalMarkers(text: string): { text: string; removed: bo
  * título ou um fato já dito antes. Funciona quando a repetição vem depois E
  * quando vem antes (moldura acima do conteúdo).
  */
-export function dedupeFacts(title: string, body: string): { body: string; removed: number } {
+export function dedupeFacts(title: string, body: string): { body: string; removed: number; titleCovered: boolean } {
   const seen = new Set<string>();
   const titleNorm = normalizeForCompare(title);
   if (titleNorm) seen.add(titleNorm);
@@ -115,12 +115,13 @@ export function applyMessageContract(title: string, body: string): MessageGuardR
 
   const deduped = dedupeFacts(cleanTitle.text, cleanBody.text);
   if (deduped.removed > 0) guards.push(`duplicate_fact_removed:${deduped.removed}`);
+  if (deduped.titleCovered) guards.push("title_absorbed_by_body");
 
   const single = enforceSingleQuestion(deduped.body);
   if (single.removed > 0) guards.push(`extra_cta_removed:${single.removed}`);
 
   return {
-    title: cleanTitle.text,
+    title: deduped.titleCovered ? "" : cleanTitle.text,
     body: single.body || cleanBody.text,
     guards,
     contract_version: COMM_CONTRACT_VERSION,
