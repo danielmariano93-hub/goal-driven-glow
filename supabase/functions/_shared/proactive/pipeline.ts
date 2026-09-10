@@ -5,6 +5,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { buildMultiFinanceProactiveContext } from "./context.ts";
 import { collectFinancialSignals } from "./signals.ts";
+import { reconcilePaidDebtCommunications } from "./debtReconciliation.ts";
 import { composeFinancialSituations } from "./situations.ts";
 import { allocateAttention } from "./ranking.ts";
 import { computeNextBestAction } from "../agent/behaviorWealth.ts";
@@ -166,6 +167,9 @@ export async function runMultiFinanceProactive(
   // Entregas já confirmadas (inclui ack assíncrono do WhatsApp) viram check-in
   // antes de recalcular follow-ups. Nenhum check-in nasce do ranking.
   if (persist) {
+    // debt_obligation_truth.v1 — obrigação já paga não pode continuar viva em
+    // situação, sugestão ou antecipação.
+    await reconcilePaidDebtCommunications(sb, userId, base.as_of).catch(() => undefined);
     await reconcileChangeFollowupDeliveries(sb, userId).catch(() => undefined);
     // Dispensa feita no app também é resposta do usuário: entra no aprendizado
     // antes de decidir a próxima abordagem.

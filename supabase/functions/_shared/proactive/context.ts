@@ -10,6 +10,7 @@ import {
   type MultiFinanceProactiveContext,
 } from "./contracts.ts";
 import { buildCashHorizon, round2 } from "./cashHorizon.ts";
+import { loadDebtObligations } from "./debtObligations.ts";
 
 export { buildCashHorizon };
 
@@ -53,6 +54,10 @@ export async function buildMultiFinanceProactiveContext(
       .order("priority", { ascending: false })
       .limit(20),
   ]);
+
+  // debt_obligation_truth.v1 — a verdade de ciclo/vencimento vem da fonte
+  // canônica, com a data de referência do próprio snapshot.
+  const debtObligations = await loadDebtObligations(sb, userId, snapshot.today);
 
   const agenda = (snapshot as any).commitment_agenda ?? { items: [] };
   const commitments = (agenda.items ?? []) as any[];
@@ -111,6 +116,8 @@ export async function buildMultiFinanceProactiveContext(
       goals: snapshot.active_category_goals ?? [],
       commitments,
       debts: snapshot.active_debts ?? [],
+      debt_obligations: debtObligations.obligations,
+      debt_obligations_available: debtObligations.available,
       patterns: ((itemsRes as any)?.data as any[]) ?? [],
     },
     learning,

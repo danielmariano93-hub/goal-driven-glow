@@ -25,6 +25,8 @@ function ctxOf(overrides: Partial<MultiFinanceProactiveContext> = {}): MultiFina
       goals: [],
       commitments: [],
       debts: [],
+      debt_obligations: [],
+      debt_obligations_available: true,
       patterns: [],
     },
     learning: {},
