@@ -385,6 +385,17 @@ Deno.serve(async (req) => {
       // reconsultamos a parcela: se ela foi paga, cancelada ou o saldo zerou
       // entre a criação do job e este instante, a mensagem NÃO sai.
       let receivable: Receivable | null = null;
+      // O convite é por PARTICIPANTE (job sem installment_id): a agenda inteira
+      // vem da fonte canônica, ordenada por parcela, sem recálculo.
+      let schedule: Receivable[] = [];
+      if (kind === "invite") {
+        const { data: scheduleRows, error: scheduleError } = await sb.from("split_receivables_v1")
+          .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
+          .eq("participant_id", job.participant_id)
+          .order("installment_number", { ascending: true });
+        if (scheduleError) throw new Error(`schedule:${scheduleError.message}`);
+        schedule = ((scheduleRows as Receivable[] | null) ?? []);
+      }
       if (job.installment_id) {
         const { data: rowData, error: rowError } = await sb.from("split_receivables_v1")
           .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
