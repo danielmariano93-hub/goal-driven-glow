@@ -2246,7 +2246,7 @@ export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
  */
 export async function list_split_receivables(
   ctx: ToolContext,
-  args: { only_pending?: boolean; person?: string } = {},
+  args: { only_pending?: boolean; person?: string; month?: string; overdue_only?: boolean; split?: string } = {},
 ): Promise<ToolResult> {
   const { data, error } = await ctx.sb
     .from("split_receivables_v1")
