@@ -96,10 +96,6 @@ type Receivable = {
   state: string;
 };
 
-function formatCivilBR(date: string | null | undefined): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date ?? ""));
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
-}
 
 function installmentLabel(receivable: Receivable | null): string {
   if (!receivable || Number(receivable.total_installments) <= 1) return "parte do rolê";
