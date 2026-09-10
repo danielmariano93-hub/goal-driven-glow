@@ -10,6 +10,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
+import { activeReceivables, buildInstallmentSchedule, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -95,10 +96,6 @@ type Receivable = {
   state: string;
 };
 
-function formatCivilBR(date: string | null | undefined): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date ?? ""));
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
-}
 
 function installmentLabel(receivable: Receivable | null): string {
   if (!receivable || Number(receivable.total_installments) <= 1) return "parte do rolê";
@@ -115,12 +112,17 @@ function messageFor(
   split: { participantsCount: number; totalAmount: number },
   receivable: Receivable | null,
   participantRemaining: number,
+  schedule: Receivable[] = [],
 ): string {
+  const activeSchedule = activeReceivables(schedule as any) as unknown as Receivable[];
+  const scheduleFirst = activeSchedule[0] ?? null;
   const due = receivable?.due_date
     ? formatCivilBR(receivable.due_date)
-    : expense?.due_date
-      ? formatCivilBR(expense.due_date)
-      : null;
+    : kind === "invite" && scheduleFirst?.due_date
+      ? formatCivilBR(scheduleFirst.due_date)
+      : expense?.due_date
+        ? formatCivilBR(expense.due_date)
+        : null;
   const participantsCount = Math.max(1, Number(split.participantsCount || 0));
   const totalAmount = Number(split.totalAmount || 0);
   const splitContextSentence = totalAmount > 0
@@ -130,10 +132,17 @@ function messageFor(
   const partialSentence = paidOnInstallment > 0
     ? `\n\n💰 *Pagamento parcial:* já foram pagos *${formatBRL(paidOnInstallment)}*. Restam *${formatBRL(remaining)}*.`
     : "";
-  const installments = Number(receivable?.total_installments ?? 1);
+  const installments = Number(
+    receivable?.total_installments ?? scheduleFirst?.total_installments ?? activeSchedule.length ?? 1,
+  );
   const remainingSentence = participantRemaining > remaining
     ? `\n\nTotal ainda a receber de você: *${formatBRL(participantRemaining)}*.`
     : "";
+  // Agenda completa só no convite: os lembretes falam de UMA parcela.
+  const scheduleLines = kind === "invite"
+    ? buildInstallmentSchedule(activeSchedule as any)
+    : "";
+
 
   return renderMessageTemplate(kind, persona, {
     participant_name: String(participant.name ?? "").trim() || "tudo bem",
@@ -146,7 +155,14 @@ function messageFor(
     split_context_sentence: splitContextSentence,
     installment_label: installmentLabel(receivable),
     installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
-    first_due_sentence: due ? ` A primeira parcela vence em *${due}*.` : "",
+    // Com a agenda completa impressa, repetir a 1ª data seria redundante.
+    first_due_sentence: !due || scheduleLines
+      ? ""
+      : installments > 1
+        ? ` A primeira parcela vence em *${due}*.`
+        : ` O vencimento é em *${due}*.`,
+    installment_schedule: scheduleLines,
+    installment_schedule_block: scheduleLines ? `\n\n${scheduleLines}` : "",
     partial_sentence: partialSentence,
     remaining_sentence: remainingSentence,
     due_date: due ?? "",
@@ -366,6 +382,17 @@ Deno.serve(async (req) => {
       // reconsultamos a parcela: se ela foi paga, cancelada ou o saldo zerou
       // entre a criação do job e este instante, a mensagem NÃO sai.
       let receivable: Receivable | null = null;
+      // O convite é por PARTICIPANTE (job sem installment_id): a agenda inteira
+      // vem da fonte canônica, ordenada por parcela, sem recálculo.
+      let schedule: Receivable[] = [];
+      if (kind === "invite") {
+        const { data: scheduleRows, error: scheduleError } = await sb.from("split_receivables_v1")
+          .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
+          .eq("participant_id", job.participant_id)
+          .order("installment_number", { ascending: true });
+        if (scheduleError) throw new Error(`schedule:${scheduleError.message}`);
+        schedule = ((scheduleRows as Receivable[] | null) ?? []);
+      }
       if (job.installment_id) {
         const { data: rowData, error: rowError } = await sb.from("split_receivables_v1")
           .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
@@ -436,7 +463,7 @@ Deno.serve(async (req) => {
       const linkSentence = buildLinkSentence({ isRegistered: registered, appLink, signupLink });
       const message = messageFor(
         kind, participant, expense, remaining, persona, linkSentence,
-        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining,
+        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule,
       );
 
 
@@ -472,7 +499,19 @@ Deno.serve(async (req) => {
             context_type: "shared_expense",
             context_id: job.shared_expense_id,
             participant_id: job.participant_id,
-            metadata: { job_id: job.id, origin: "split_reminder_v2", template: kind, installment_id: job.installment_id ?? null },
+            metadata: {
+              job_id: job.id,
+              origin: "split_reminder_v2",
+              template: kind,
+              shared_expense_id: job.shared_expense_id,
+              participant_id: job.participant_id,
+              installment_id: job.installment_id ?? null,
+              installment_number: receivable?.installment_number ?? null,
+              total_installments: receivable?.total_installments ?? schedule[0]?.total_installments ?? 1,
+              schedule_rows_loaded: schedule.length,
+              canonical_source: "split_receivables_v1",
+              message_preview: message.slice(0, 900),
+            },
             surface: "whatsapp",
             feature: "split_reminder",
           })

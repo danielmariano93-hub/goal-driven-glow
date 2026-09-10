@@ -35,6 +35,7 @@ import {
 } from "../finance-core/emotionFinance.ts";
 
 import { cycleFor } from "../finance-core/cardExposure.ts";
+import { buildEqualInstallmentDrafts, equalInstallmentAmounts, installmentsSum } from "../split/installmentSchedule.ts";
 import { executeWeekdayPattern } from "../intelligence/weekdayTool.ts";
 import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
@@ -1475,9 +1476,13 @@ export async function assess_goal_performance(
 export async function create_split_expense_draft(ctx: ToolContext, args: {
   title: string; total: number; occurred_at?: string; due_date?: string;
   split_mode?: "equal" | "custom"; include_owner?: boolean;
-  participants: Array<{ name: string; phone_e164?: string; amount_due?: number }>;
+  participants: Array<{
+    name: string; phone_e164?: string; amount_due?: number;
+    installments?: Array<{ amount: number; due_date: string }>;
+  }>;
   account?: string; card?: string; category?: string; owner_amount?: number;
   reminder_enabled?: boolean; pix_key?: string;
+  installments?: number; first_due_date?: string;
 }): Promise<ToolResult> {
   const title = String(args?.title ?? "").trim();
   const total = Number(args?.total);
@@ -1499,10 +1504,52 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
     const parts = participants.reduce((sum, p) => sum + Number(p.amount_due || 0), 0) + (args.include_owner === false ? 0 : Number(args.owner_amount || 0));
     if (Math.abs(parts - total) > 0.009) return { ok: false, error: "custom_split_total_mismatch", details: { expected: total, received: parts } };
   }
+  // ---- Parcelamento (paridade com a tela de criação) ----
+  const includeOwner = args.include_owner !== false;
+  const requestedInstallments = Number(args.installments ?? 1);
+  const perParticipantCustom = participants.some((p) => Array.isArray(p.installments) && p.installments.length > 1);
+  const firstDue = /^\d{4}-\d{2}-\d{2}$/.test(args.first_due_date ?? "")
+    ? String(args.first_due_date)
+    : /^\d{4}-\d{2}-\d{2}$/.test(args.due_date ?? "")
+      ? String(args.due_date)
+      : occurredAt;
+  if (!perParticipantCustom && args.installments !== undefined) {
+    if (!Number.isInteger(requestedInstallments) || requestedInstallments < 1 || requestedInstallments > 24) {
+      return { ok: false, error: "invalid_installments", details: { min: 1, max: 24 } };
+    }
+  }
+  const equalShares = equalInstallmentAmounts(total, participants.length + (includeOwner ? 1 : 0));
+  const shareFor = (index: number, p: { amount_due?: number }) =>
+    splitMode === "custom" ? Number(p.amount_due ?? 0) : Number(equalShares[index] ?? 0);
+
+  let installmentsPayload: Array<{ participant_index: number; rows: Array<{ amount: number; due_date: string }> }> | null = null;
+  if (perParticipantCustom || requestedInstallments > 1) {
+    installmentsPayload = [];
+    for (let i = 0; i < participants.length; i++) {
+      const p = participants[i]!;
+      const share = shareFor(i, p);
+      const rows = Array.isArray(p.installments) && p.installments.length
+        ? p.installments.map((r) => ({ amount: Number(r.amount), due_date: String(r.due_date) }))
+        : buildEqualInstallmentDrafts(share, Math.max(1, requestedInstallments), firstDue);
+      if (rows.some((r) => !Number.isFinite(r.amount) || r.amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(r.due_date))) {
+        return { ok: false, error: "invalid_installment_row", details: { participant: String(p.name).trim() } };
+      }
+      if (share > 0 && Math.abs(installmentsSum(rows) - share) > 0.009) {
+        return {
+          ok: false,
+          error: "installments_total_mismatch",
+          details: { participant: String(p.name).trim(), expected: share, received: installmentsSum(rows) },
+        };
+      }
+      installmentsPayload.push({ participant_index: i, rows });
+    }
+  }
+
   const payload = {
     title, total, occurred_at: occurredAt,
     due_date: /^\d{4}-\d{2}-\d{2}$/.test(args.due_date ?? "") ? args.due_date : null,
-    split_mode: splitMode, include_owner: args.include_owner !== false,
+    split_mode: splitMode, include_owner: includeOwner,
+    installments: installmentsPayload,
     participants: participants.map((p) => ({ name: String(p.name).trim(), phone_e164: p.phone_e164 ?? null, amount_due: p.amount_due ?? null })),
     owner_amount: args.owner_amount ?? null,
     source_account_id: account?.id ?? null,
@@ -1511,10 +1558,23 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
     category_id: categoryId,
     reminder_enabled: Boolean(args.reminder_enabled), pix_key: args.pix_key ?? null,
   };
-  const summary = `Rolê “${title}” de ${BRL.format(total)} para dividir com ${participants.length} pessoa${participants.length > 1 ? "s" : ""}, em ${occurredAt}.`;
+  const installmentCount = installmentsPayload?.[0]?.rows.length ?? 1;
+  const installmentSummary = installmentsPayload
+    ? ` Cada pessoa paga em ${installmentCount}x, começando em ${firstDue}.`
+    : "";
+  const summary = `Rolê “${title}” de ${BRL.format(total)} para dividir com ${participants.length} pessoa${participants.length > 1 ? "s" : ""}, em ${occurredAt}.${installmentSummary}`;
   const id = await upsertDraft(ctx, "shared_expense", payload, summary);
   if (!id) return { ok: false, error: "draft_failed" };
-  return { ok: true, result: { draft_id: id, summary, participants: participants.length } };
+  return {
+    ok: true,
+    result: {
+      draft_id: id,
+      summary,
+      participants: participants.length,
+      installments: installmentCount,
+      first_due_date: installmentsPayload ? firstDue : null,
+    },
+  };
 }
 
 
@@ -2186,7 +2246,7 @@ export async function list_shared_goals(ctx: ToolContext): Promise<ToolResult> {
  */
 export async function list_split_receivables(
   ctx: ToolContext,
-  args: { only_pending?: boolean; person?: string } = {},
+  args: { only_pending?: boolean; person?: string; month?: string; overdue_only?: boolean; split?: string } = {},
 ): Promise<ToolResult> {
   const { data, error } = await ctx.sb
     .from("split_receivables_v1")
@@ -2198,6 +2258,11 @@ export async function list_split_receivables(
   let rows = (data ?? []) as any[];
   if (args.only_pending !== false) rows = rows.filter((r) => Number(r.balance_due ?? 0) > 0.004);
   if (person) rows = rows.filter((r) => String(r.participant_name ?? "").toLowerCase().includes(person));
+  const splitName = String(args.split ?? "").trim().toLowerCase();
+  if (splitName) rows = rows.filter((r) => String(r.title ?? "").toLowerCase().includes(splitName));
+  const month = /^\d{4}-\d{2}$/.test(String(args.month ?? "")) ? String(args.month) : null;
+  if (month) rows = rows.filter((r) => String(r.due_date ?? "").startsWith(month));
+  if (args.overdue_only) rows = rows.filter((r) => String(r.state ?? "") === "overdue");
   const pending = rows.reduce((s, r) => s + Number(r.balance_due ?? 0), 0);
   const received = (data ?? []).reduce((s: number, r: any) => s + Number(r.paid_amount ?? 0), 0);
   return {
@@ -2774,7 +2839,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "create_split_expense_draft",
-    description: "Cria um RASCUNHO de divisão de rolê. Conduza a conversa pedindo somente os campos faltantes: título, valor, data, pessoas, fonte do pagamento e divisão igual/personalizada. Nunca confirme sem CONFIRMAR do usuário.",
+    description: "Cria um RASCUNHO de divisão de rolê, à vista ou parcelada. Conduza a conversa pedindo somente os campos faltantes: título, valor, data, pessoas, fonte do pagamento, divisão igual/personalizada e, se houver, número de parcelas (2 a 24) com a data da primeira. Nunca confirme sem CONFIRMAR do usuário.",
     parameters: {
       type: "object",
       properties: {
@@ -2783,8 +2848,21 @@ export const AGENT_TOOLS: ToolSpec[] = [
         include_owner: { type: "boolean" },
         participants: {
           type: "array", minItems: 1,
-          items: { type: "object", properties: { name: requiredStr, phone_e164: optionalStr, amount_due: num }, required: ["name"], additionalProperties: false },
+          items: {
+            type: "object",
+            properties: {
+              name: requiredStr, phone_e164: optionalStr, amount_due: num,
+              installments: {
+                type: "array",
+                description: "Parcelas personalizadas desta pessoa (valor e vencimento por parcela). A soma precisa fechar com a parte dela.",
+                items: { type: "object", properties: { amount: num, due_date: requiredStr }, required: ["amount", "due_date"], additionalProperties: false },
+              },
+            },
+            required: ["name"], additionalProperties: false,
+          },
         },
+        installments: { type: "integer", minimum: 1, maximum: 24, description: "Número de parcelas iguais para cada pessoa. 1 ou ausente = à vista." },
+        first_due_date: { ...optionalStr, description: "Vencimento da 1ª parcela (YYYY-MM-DD). As demais vencem mês a mês." },
         account: optionalStr, card: optionalStr, category: optionalStr,
         owner_amount: num, reminder_enabled: { type: "boolean" }, pix_key: optionalStr,
       },
@@ -3102,6 +3180,9 @@ export const AGENT_TOOLS: ToolSpec[] = [
       properties: {
         only_pending: { type: "boolean", description: "Padrão true: só parcelas com saldo em aberto." },
         person: optionalStr,
+        split: { ...optionalStr, description: "Filtra por nome do rolê." },
+        month: { ...optionalStr, description: "Mês de vencimento no formato YYYY-MM." },
+        overdue_only: { type: "boolean", description: "Só parcelas atrasadas." },
       },
       additionalProperties: false,
     },

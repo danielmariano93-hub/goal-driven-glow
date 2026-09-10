@@ -13,12 +13,23 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { downloadInboundMedia, type MediaHint } from "../messaging/wahaMedia.ts";
+import {
+  activeReceivables,
+  buildInstallmentSchedule,
+  type CanonicalReceivable,
+  formatCivilBR,
+  installmentSentence,
+  summarizeSchedule,
+} from "./installmentSchedule.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 export type ParticipantIntent =
   | "receipt_sent"
   | "payment_reported"
+  | "asking_schedule"
+  | "asking_next"
+  | "asking_month"
   | "asking_amount"
   | "asking_pix"
   | "opt_out"
@@ -32,9 +43,28 @@ export function detectParticipantIntent(text: string, hasMedia: boolean): Partic
   if (hasMedia) return "receipt_sent";
   if (/\b(nao vou pagar|nao participo|me tira|para de mandar|sai(r)? do role)\b/.test(t)) return "opt_out";
   if (/\b(paguei|ja paguei|pagamento feito|transferi|pix feito|fiz o pix|acabei de pagar)\b/.test(t)) return "payment_reported";
+  if (/\bproxim/.test(t)) return "asking_next";
+  if (/(esse|este|neste|nesse|atual)\s+mes|\bmes atual\b|\bpago esse mes\b/.test(t)) return "asking_month";
+  if (/\bparcela|\bparcelas\b|parcelamento|\bparcelad/.test(t)) return "asking_schedule";
   if (/\b(pix|chave)\b/.test(t)) return "asking_pix";
-  if (/\b(valor|quanto|devo|pendente|venc)\b/.test(t)) return "asking_amount";
+  if (/\b(valor|quanto|devo|pendente|venc|falta)\b/.test(t)) return "asking_amount";
   return "other";
+}
+
+/** Parcelas canônicas do participante (fonte única: split_receivables_v1). */
+export async function loadParticipantReceivables(
+  sb: SupabaseClient,
+  participantId: string,
+): Promise<CanonicalReceivable[]> {
+  const { data, error } = await sb.from("split_receivables_v1")
+    .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
+    .eq("participant_id", participantId)
+    .order("installment_number", { ascending: true });
+  if (error) {
+    console.warn("[split_receipt] receivables_query_failed", String(error.message).slice(0, 160));
+    return [];
+  }
+  return activeReceivables(((data as CanonicalReceivable[] | null) ?? []));
 }
 
 /** Valor informado em texto livre ("paguei 45,90"). Retorna null quando não há. */
@@ -192,7 +222,7 @@ export async function handleParticipantInbound(
         out.storage_path = path;
       }
     } else {
-      out.media_error = download.code;
+      out.media_error = (download as { code?: string }).code ?? "download_failed";
     }
 
     const reported = extractReportedAmount(input.text ?? "") ?? remaining;
@@ -267,19 +297,63 @@ export async function handleParticipantInbound(
   }
 
   await upsertContext(sb, participant, expense, { last_intent: intent, awaiting_receipt: false });
-  const due = expense.due_date
-    ? `, com vencimento em ${new Date(`${expense.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`
-    : "";
+
+  // Consultas do participante leem a verdade canônica por parcela.
+  const rows = await loadParticipantReceivables(sb, participant.id);
+  const summary = summarizeSchedule(rows);
+  const pending = rows.length ? summary.pending_total : remaining;
+  const nextRow = summary.next;
+  const due = nextRow?.due_date
+    ? `, com vencimento em ${formatCivilBR(nextRow.due_date)}`
+    : expense.due_date
+      ? `, com vencimento em ${formatCivilBR(expense.due_date)}`
+      : "";
+
+  if (intent === "asking_schedule") {
+    if (summary.count > 1) {
+      const schedule = buildInstallmentSchedule(rows, { withState: true });
+      out.reply = `Sua parte em “${expense.title}” é ${BRL.format(summary.total)} em ${summary.count}x:\n${schedule}\n\nAinda em aberto: ${BRL.format(pending)}.`;
+    } else {
+      out.reply = `“${expense.title}” não está parcelado: sua parte é ${BRL.format(pending)}${due}.`;
+    }
+    return out;
+  }
+
+  if (intent === "asking_next") {
+    out.reply = nextRow
+      ? `A próxima parcela em aberto de “${expense.title}” é a ${installmentSentence(nextRow)}.`
+      : `Você não tem parcelas em aberto em “${expense.title}” — está tudo quitado 💛`;
+    return out;
+  }
+
+  if (intent === "asking_month") {
+    const monthRows = summary.current_month;
+    if (!monthRows.length) {
+      out.reply = nextRow
+        ? `Neste mês não vence nenhuma parcela de “${expense.title}”. A próxima é a ${installmentSentence(nextRow)}.`
+        : `Neste mês não vence nenhuma parcela de “${expense.title}” — está tudo quitado 💛`;
+      return out;
+    }
+    const monthTotal = monthRows.reduce((s, r) => s + Math.max(0, Number(r.balance_due ?? 0)), 0);
+    out.reply = monthRows.length === 1
+      ? `Neste mês vence a ${installmentSentence(monthRows[0])} de “${expense.title}”.`
+      : `Neste mês vencem ${monthRows.length} parcelas de “${expense.title}”, somando ${BRL.format(monthTotal)}:\n${buildInstallmentSchedule(monthRows, { withState: true })}`;
+    return out;
+  }
+
   if (intent === "asking_pix") {
     out.reply = expense.pix_key
-      ? `Sua parte em “${expense.title}” é ${BRL.format(remaining)}${due}. A chave Pix é ${expense.pix_key}. Depois de pagar, me manda o comprovante que eu anexo ao rolê.`
-      : `Sua parte em “${expense.title}” é ${BRL.format(remaining)}${due}. A chave Pix ainda não foi informada — vou avisar quem organizou.`;
+      ? `Sua parte em aberto em “${expense.title}” é ${BRL.format(pending)}${due}. A chave Pix é ${expense.pix_key}. Depois de pagar, me manda o comprovante que eu anexo ao rolê.`
+      : `Sua parte em aberto em “${expense.title}” é ${BRL.format(pending)}${due}. A chave Pix ainda não foi informada — vou avisar quem organizou.`;
     return out;
   }
   if (intent === "asking_amount") {
-    out.reply = `Sua parte pendente em “${expense.title}” é ${BRL.format(remaining)}${due}. Se já pagou, me envie o comprovante (imagem ou PDF) que eu registro para confirmação.`;
+    const parcelado = summary.count > 1 && nextRow
+      ? ` A próxima é a ${installmentSentence(nextRow)}.`
+      : "";
+    out.reply = `Sua parte pendente em “${expense.title}” é ${BRL.format(pending)}${parcelado ? "." : `${due}.`}${parcelado} Se já pagou, me envie o comprovante (imagem ou PDF) que eu registro para confirmação.`;
     return out;
   }
-  out.reply = `Posso ajudar com “${expense.title}”, ${firstName}. Sua parte pendente é ${BRL.format(remaining)}${due}. Você pode perguntar o valor, o vencimento, a chave Pix — ou me enviar o comprovante do pagamento.`;
+  out.reply = `Posso ajudar com “${expense.title}”, ${firstName}. Sua parte pendente é ${BRL.format(pending)}${due}. Você pode perguntar o valor, as parcelas, a próxima a vencer, a chave Pix — ou me enviar o comprovante do pagamento.`;
   return out;
 }
