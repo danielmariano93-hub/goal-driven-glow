@@ -115,12 +115,17 @@ function messageFor(
   split: { participantsCount: number; totalAmount: number },
   receivable: Receivable | null,
   participantRemaining: number,
+  schedule: Receivable[] = [],
 ): string {
+  const activeSchedule = activeReceivables(schedule as any) as unknown as Receivable[];
+  const scheduleFirst = activeSchedule[0] ?? null;
   const due = receivable?.due_date
     ? formatCivilBR(receivable.due_date)
-    : expense?.due_date
-      ? formatCivilBR(expense.due_date)
-      : null;
+    : kind === "invite" && scheduleFirst?.due_date
+      ? formatCivilBR(scheduleFirst.due_date)
+      : expense?.due_date
+        ? formatCivilBR(expense.due_date)
+        : null;
   const participantsCount = Math.max(1, Number(split.participantsCount || 0));
   const totalAmount = Number(split.totalAmount || 0);
   const splitContextSentence = totalAmount > 0
