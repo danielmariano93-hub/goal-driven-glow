@@ -14,7 +14,7 @@ export type MessagePersona = {
 // falam SEMPRE de uma parcela específica e trazem o saldo real — nunca o valor
 // cheio quando já houve pagamento parcial.
 const DEFAULTS: Record<string, string> = {
-  invite: "👋 *{{title}} — sua parte*\n\n{{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte é *{{participant_total}}*{{installments_sentence}}.{{first_due_sentence}}{{pix_sentence}}{{link_sentence}}",
+  invite: "👋 *{{title}} — sua parte*\n\n{{owner_name}} incluiu você na divisão “{{title}}”{{split_context_sentence}}. Sua parte é *{{participant_total}}*{{installments_sentence}}.{{first_due_sentence}}{{installment_schedule_block}}{{pix_sentence}}{{link_sentence}}",
   reminder: "💸 *{{title}} — sua parte*\n\nOi, {{participant_name}}! Sobre a divisão “{{title}}” com {{owner_name}}: a *{{installment_label}}*, no valor de *{{amount}}*, está em aberto.{{due_sentence}}{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
   due_soon: "💸 *{{title}} — vence amanhã*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence em *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
   due_today: "💸 *{{title}} — vence hoje*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence hoje, *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
