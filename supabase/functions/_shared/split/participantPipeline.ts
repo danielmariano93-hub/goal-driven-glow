@@ -19,6 +19,9 @@ const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" 
 export type ParticipantIntent =
   | "receipt_sent"
   | "payment_reported"
+  | "asking_schedule"
+  | "asking_next"
+  | "asking_month"
   | "asking_amount"
   | "asking_pix"
   | "opt_out"
@@ -32,9 +35,28 @@ export function detectParticipantIntent(text: string, hasMedia: boolean): Partic
   if (hasMedia) return "receipt_sent";
   if (/\b(nao vou pagar|nao participo|me tira|para de mandar|sai(r)? do role)\b/.test(t)) return "opt_out";
   if (/\b(paguei|ja paguei|pagamento feito|transferi|pix feito|fiz o pix|acabei de pagar)\b/.test(t)) return "payment_reported";
+  if (/\bproxim/.test(t)) return "asking_next";
+  if (/(esse|este|neste|nesse|atual)\s+mes|\bmes atual\b|\bpago esse mes\b/.test(t)) return "asking_month";
+  if (/\bparcela|\bparcelas\b|parcelamento|\bparcelad/.test(t)) return "asking_schedule";
   if (/\b(pix|chave)\b/.test(t)) return "asking_pix";
-  if (/\b(valor|quanto|devo|pendente|venc)\b/.test(t)) return "asking_amount";
+  if (/\b(valor|quanto|devo|pendente|venc|falta)\b/.test(t)) return "asking_amount";
   return "other";
+}
+
+/** Parcelas canônicas do participante (fonte única: split_receivables_v1). */
+export async function loadParticipantReceivables(
+  sb: SupabaseClient,
+  participantId: string,
+): Promise<CanonicalReceivable[]> {
+  const { data, error } = await sb.from("split_receivables_v1")
+    .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
+    .eq("participant_id", participantId)
+    .order("installment_number", { ascending: true });
+  if (error) {
+    console.warn("[split_receipt] receivables_query_failed", String(error.message).slice(0, 160));
+    return [];
+  }
+  return activeReceivables(((data as CanonicalReceivable[] | null) ?? []));
 }
 
 /** Valor informado em texto livre ("paguei 45,90"). Retorna null quando não há. */
