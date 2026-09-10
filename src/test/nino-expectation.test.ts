@@ -18,7 +18,7 @@ describe("emotionParse — respostas curtas de humor", () => {
 
   it("entende resposta de uma palavra", () => {
     expect(parseEmotionFromText("cansado")?.key).toBe("frustrado");
-    expect(resolveEmotionTerm("ansioso")?.key).toBe("atento");
+    expect(resolveEmotionTerm("ansioso")?.key).toBe("ansioso");
   });
 
   it("preserva tristeza sem converter em preocupação", () => {
