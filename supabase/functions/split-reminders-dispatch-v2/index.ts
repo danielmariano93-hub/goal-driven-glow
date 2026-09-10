@@ -158,7 +158,13 @@ function messageFor(
     split_context_sentence: splitContextSentence,
     installment_label: installmentLabel(receivable),
     installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
-    first_due_sentence: due ? ` A primeira parcela vence em *${due}*.` : "",
+    first_due_sentence: !due
+      ? ""
+      : installments > 1
+        ? ` A primeira parcela vence em *${due}*.`
+        : ` O vencimento é em *${due}*.`,
+    installment_schedule: scheduleLines,
+    installment_schedule_block: scheduleLines ? `\n\n${scheduleLines}` : "",
     partial_sentence: partialSentence,
     remaining_sentence: remainingSentence,
     due_date: due ?? "",
