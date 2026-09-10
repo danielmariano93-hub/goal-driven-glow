@@ -7,6 +7,7 @@ import type { LLMTurn } from "../llm.ts";
 import { runTool } from "./ToolRuntime.ts";
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
 import { classifyOutcome, isClarification } from "./ToolOutcome.ts";
+import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
 
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -387,16 +388,27 @@ export function formatEngineNarrative(result: any): string | null {
 
 export async function executeDeterministicCapability(
   sb: SupabaseClient,
-  args: { user_id: string; conversation_id: string; user_text: string; capability: CapabilityDecision },
+  args: {
+    user_id: string;
+    conversation_id: string;
+    user_text: string;
+    capability: CapabilityDecision;
+    /** `nino_language.v1`: cache do turno — impede reexecutar ferramenta de escrita. */
+    evidenceCache?: TurnEvidenceCache;
+  },
 ): Promise<LLMTurn | null> {
   const capability = args.capability;
   if (capability.clarification) {
     return { reply: capability.clarification, steps: 0, tokensIn: 0, tokensOut: 0, toolCalls: [], finish: "stop" };
   }
   if (!capability.required_tool) return null;
-  const execution = await runTool({
+  const baseCtx = {
     sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
-  }, capability.required_tool, capability.tool_args ?? {}, { timeoutMs: 12_000, maxRetries: 1 });
+    evidenceCache: args.evidenceCache,
+  };
+  const execution = await runTool(
+    baseCtx, capability.required_tool, capability.tool_args ?? {}, { timeoutMs: 12_000, maxRetries: 1 },
+  );
   const call = {
     step_index: 1, tool_name: execution.tool_name, args: execution.args,
     result: execution.ok ? execution.result : null, ok: execution.ok,
@@ -413,9 +425,9 @@ export async function executeDeterministicCapability(
     // o snapshot canônico consegue provar e diz explicitamente o que faltou.
     const calls = [call];
     if (capability.required_tool !== "get_financial_snapshot") {
-      const degraded = await runTool({
-        sb, user_id: args.user_id, conversation_id: args.conversation_id, user_text: args.user_text,
-      }, "get_financial_snapshot", {}, { timeoutMs: 12_000, maxRetries: 0 });
+      const degraded = await runTool(
+        baseCtx, "get_financial_snapshot", {}, { timeoutMs: 12_000, maxRetries: 0 },
+      );
       calls.push({
         step_index: 2, tool_name: degraded.tool_name, args: degraded.args,
         result: degraded.ok ? degraded.result : null, ok: degraded.ok,

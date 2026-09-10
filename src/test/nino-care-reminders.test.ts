@@ -60,7 +60,7 @@ describe("lembrete de humor", () => {
 
 describe("leitura de sentimento em pt-BR", () => {
   it("entende sinônimos naturais", () => {
-    expect(resolveEmotionTerm("ansioso")?.key).toBe("atento");
+    expect(resolveEmotionTerm("ansioso")?.key).toBe("ansioso");
     expect(resolveEmotionTerm("cansada")?.key).toBe("frustrado");
     expect(parseEmotionFromText("hoje eu me senti bem tranquilo")?.key).toBe("tranquilo");
     expect(parseEmotionFromText("fiquei com culpa depois dessa compra")?.key).toBe("culpado");

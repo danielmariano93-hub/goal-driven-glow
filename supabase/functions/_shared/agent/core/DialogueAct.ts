@@ -14,6 +14,13 @@ export type DialogueAct = {
 
 const REPAIR_RX =
   /\b(n[aã]o foi isso(?: que eu (?:perguntei|pedi))?|n[aã]o era isso|voc[eê] n[aã]o respondeu(?: o que eu perguntei)?|isso n[aã]o respondeu(?: minha pergunta)?|respondeu outra coisa|entendeu errado|faltou responder|eu perguntei .{0,40} n[aã]o|eu queria .{0,40} n[aã]o)\b/i;
+// `nino_language.v1`: a forma mais natural de corrigir em pt-BR é
+// "não foi atento, foi ansioso" / "não era triste, era cansado". Antes isso
+// era lido como mensagem nova e o erro se repetia.
+// O verbo TEM de se repetir depois da negação ("não foi X, foi Y"): sem isso,
+// "não foi fácil, mas consegui economizar" virava correção — e não é.
+const SUBSTITUTION_RX =
+  /\bn[aã]o\s+(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,20}(?:\s+[\wÀ-ú]{2,20})?\s*[,;]?\s*(?:mas\s+|e\s+|)(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,}/i;
 const CLARIFICATION_RX =
   /\b(quis dizer|na verdade eu quis|corrigindo o que eu disse|melhor dizendo|quando eu disse .{0,30} quis dizer)\b/i;
 const SMALL_TALK_RX =
@@ -22,7 +29,13 @@ const FINANCIAL_ANCHOR =
   /\b(gast|despesa|receita|renda|saldo|categoria|estabelecimento|cart[aã]o|fatura|conta|d[ií]vida|meta|patrim[oô]nio|investimento|lan[cç]amento|transa[cç][aã]o|econom)\w*/i;
 
 export function isExplicitRepair(text: string): boolean {
-  return REPAIR_RX.test(String(text ?? "").trim());
+  const raw = String(text ?? "").trim();
+  return REPAIR_RX.test(raw) || SUBSTITUTION_RX.test(raw);
+}
+
+/** "não foi X, foi Y" — substituição explícita do valor anterior. */
+export function isExplicitSubstitution(text: string): boolean {
+  return SUBSTITUTION_RX.test(String(text ?? "").trim());
 }
 
 export function classifyDialogueAct(text: string, parsed: ParsedIntent): DialogueAct {

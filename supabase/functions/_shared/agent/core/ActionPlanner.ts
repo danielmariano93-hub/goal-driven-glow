@@ -133,6 +133,7 @@ export async function plan(
       conversation_id: args.conversation_id,
       user_text: args.user_text,
       capability: args.capability,
+      evidenceCache: args.evidenceCache,
     });
     if (turn) {
       return {
@@ -167,6 +168,7 @@ export async function plan(
         user_id: args.user_id,
         conversation_id: args.conversation_id,
         user_text: args.user_text,
+        evidenceCache: args.evidenceCache,
         capability: {
           name: read.name,
           execution: "deterministic",

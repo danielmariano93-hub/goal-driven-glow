@@ -46,7 +46,8 @@ import { confirmAndBuildReceipt } from "./core/ConfirmAndReceipt.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
 import {
-  emotionByKey, emotionOptionsSentence, moodToEmotion, parseEmotionFromText, resolveEmotionTerm,
+  candidateFeelingTerm, customEmotionOption, emotionByKey, emotionOptionsSentence, emotionSlug,
+  moodToEmotion, parseEmotionCorrection, parseEmotionFromText, resolveEmotionTerm,
 } from "../intelligence/emotionParse.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -2320,22 +2321,77 @@ export async function explain_shared_goal_ranking(ctx: ToolContext, args: { goal
 }
 
 
-/** Registro emocional por conversa: o Nino grava o catálogo canônico, nunca texto livre. */
+/** Sentimento pessoal já cadastrado por essa pessoa (`nino_language.v1`). */
+async function findCustomEmotion(ctx: ToolContext, term?: string | null) {
+  const slug = term ? emotionSlug(term) : "";
+  if (!slug) return null;
+  const { data } = await ctx.sb.from("user_emotions")
+    .select("emotion_key,label,mood,emoji")
+    .eq("user_id", ctx.user_id).eq("emotion_key", slug).maybeSingle();
+  return data ? customEmotionOption(data as any) : null;
+}
+
+async function rememberCustomEmotion(ctx: ToolContext, term: string, mood: number) {
+  const slug = emotionSlug(term);
+  if (!slug) return null;
+  const label = term.charAt(0).toUpperCase() + term.slice(1);
+  const existing = await findCustomEmotion(ctx, slug);
+  if (existing) {
+    await ctx.sb.from("user_emotions")
+      .update({ use_count: 1, last_used_at: new Date().toISOString() })
+      .eq("user_id", ctx.user_id).eq("emotion_key", slug);
+    return existing;
+  }
+  const { error } = await ctx.sb.from("user_emotions")
+    .insert({ user_id: ctx.user_id, emotion_key: slug, label, mood, emoji: "🫥" });
+  if (error) return null;
+  return customEmotionOption({ emotion_key: slug, label, mood, emoji: "🫥" });
+}
+
+/**
+ * Registro emocional por conversa.
+ * `nino_language.v1`:
+ * - o sentimento gravado é o que a pessoa disse (ansioso é ansioso);
+ * - "não foi X, foi Y" corrige o registro do dia em vez de criar outro;
+ * - palavra que ela insiste e o catálogo não tem vira sentimento pessoal dela.
+ */
 async function log_emotional_checkin(ctx: ToolContext, args: {
   emotion?: string; mood?: number; notes?: string;
+  /** true quando o turno foi entendido como correção do registro anterior */
+  correction?: boolean;
+  /** true quando a pessoa insistiu num sentimento fora do catálogo */
+  register_custom?: boolean;
 }): Promise<ToolResult> {
-  const option = resolveEmotionTerm(args?.emotion)
-    ?? emotionByKey(args?.emotion)
-    ?? moodToEmotion(args?.mood)
-    ?? parseEmotionFromText(args?.emotion)
-    ?? parseEmotionFromText(ctx.user_text);
+  const rawText = String(ctx.user_text ?? "").trim().slice(0, 500);
+  const correctionMatch = parseEmotionCorrection(args?.emotion) ?? parseEmotionCorrection(rawText);
+  const isCorrection = Boolean(args?.correction) || Boolean(correctionMatch);
+  // Numa correção, o termo AFIRMADO manda — nunca o termo negado.
+  const declaredTerm = correctionMatch?.toTerm ?? args?.emotion ?? rawText;
+
+  let option = (correctionMatch
+    ? correctionMatch.option
+    : resolveEmotionTerm(args?.emotion) ?? emotionByKey(args?.emotion))
+    ?? await findCustomEmotion(ctx, declaredTerm)
+    ?? (correctionMatch ? null : moodToEmotion(args?.mood) ?? parseEmotionFromText(args?.emotion) ?? parseEmotionFromText(rawText));
+
   if (!option) {
-    return {
-      ok: false,
-      error: "emotion_not_recognized",
-      details: { options: emotionOptionsSentence() },
-      result: { ask: `Como você se sentiu? Pode ser: ${emotionOptionsSentence()}.` },
-    };
+    const candidate = candidateFeelingTerm(declaredTerm) ?? candidateFeelingTerm(rawText);
+    // Insistiu (corrigiu ou pediu explicitamente): o sentimento dela passa a existir.
+    if (candidate && (isCorrection || args?.register_custom)) {
+      option = await rememberCustomEmotion(ctx, candidate, Number(args?.mood ?? 3));
+    }
+    if (!option) {
+      return {
+        ok: false,
+        error: "emotion_not_recognized",
+        details: { options: emotionOptionsSentence(), candidate: candidate ?? null },
+        result: {
+          ask: candidate
+            ? `Não tenho "${candidate}" na minha lista ainda. Quer que eu registre esse sentimento do seu jeito, ou prefere um destes: ${emotionOptionsSentence()}?`
+            : `Como você se sentiu? Pode ser: ${emotionOptionsSentence()}.`,
+        },
+      };
+    }
   }
 
   const today = todaySaoPaulo();
@@ -2343,18 +2399,17 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
   const dayEnd = `${today}T23:59:59-03:00`;
   // A fala original vira observação: preserva o que a pessoa contou sem
   // inventar sentimento que ela não disse.
-  const rawText = String(ctx.user_text ?? "").trim().slice(0, 500);
-  const declared = resolveEmotionTerm(args?.emotion) ?? parseEmotionFromText(rawText) ?? option;
+  const declared = option;
   const notes = String(args?.notes ?? "").trim().slice(0, 500)
     || (rawText.split(/\s+/).length > 2 ? rawText : null);
 
 
   const { data: existing } = await ctx.sb.from("emotional_checkins")
-    .select("id").eq("user_id", ctx.user_id)
+    .select("id,emotion_key").eq("user_id", ctx.user_id)
     .gte("occurred_at", dayStart).lte("occurred_at", dayEnd)
     .order("occurred_at", { ascending: false }).limit(1).maybeSingle();
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     user_id: ctx.user_id,
     mood: option.mood,
     emotion_key: option.key,
@@ -2363,6 +2418,14 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
     declared_emotion_key: declared.key,
     notes,
   };
+
+  const previousKey = (existing as any)?.emotion_key as string | undefined;
+  const replaced = Boolean(existing?.id) && isCorrection && previousKey && previousKey !== option.key;
+  if (replaced) {
+    payload.revised_at = new Date().toISOString();
+    payload.revised_from_emotion_key = previousKey;
+    payload.revision_reason = "user_correction";
+  }
 
   if (existing?.id) {
     const { error } = await ctx.sb.from("emotional_checkins")
@@ -2383,12 +2446,16 @@ async function log_emotional_checkin(ctx: ToolContext, args: {
     result: {
       registered: true,
       updated: Boolean(existing?.id),
+      corrected: replaced,
+      custom_emotion: Boolean(option.custom),
       emotion_key: option.key,
       emotion_label: declared.label,
       emoji: declared.emoji,
       mood: option.mood,
       local_date: today,
-      card: `${declared.emoji} Registrei: hoje você se sentiu ${declared.label.toLowerCase()}.`,
+      card: replaced
+        ? `${declared.emoji} Corrigi: hoje você se sentiu ${declared.label.toLowerCase()}.`
+        : `${declared.emoji} Registrei: hoje você se sentiu ${declared.label.toLowerCase()}.`,
       prospective_signal: signal,
     },
   };

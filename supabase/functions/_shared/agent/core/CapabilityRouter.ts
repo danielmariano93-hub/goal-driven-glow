@@ -7,7 +7,9 @@ import type { SemanticQuery } from "../../intelligence/contracts.ts";
 import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
-import { parseEmotionFromText } from "../../intelligence/emotionParse.ts";
+import {
+  candidateFeelingTerm, parseEmotionCorrection, parseEmotionFromText,
+} from "../../intelligence/emotionParse.ts";
 import { detectCategory } from "./ConversationMemory.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
 
@@ -558,6 +560,26 @@ export function classifyCapability(
     return {
       name: "transaction_management", execution: "llm_scoped", allowed_tools: GROUPS.transactionManagement,
       required_tool: "search_transactions", context: { accounts: true, cards: true }, reason: "transaction_crud",
+    };
+  }
+
+  // `nino_language.v1` — correção natural do sentimento registrado:
+  // "não foi atento, foi ansioso", "não era triste, era cansado".
+  // Vem antes de tudo porque cita duas emoções e antes caía como pergunta nova,
+  // repetindo o mesmo erro que a pessoa estava corrigindo.
+  const emotionCorrection = parseEmotionCorrection(String(text ?? ""));
+  const insistedCustom = /\b(e (?:apatia|saudade)|do meu jeito|registra (?:assim|do meu jeito)|e (?:isso|essa palavra) mesmo|pode registrar assim)\b/.test(t);
+  if (emotionCorrection || (insistedCustom && candidateFeelingTerm(String(text ?? "")))) {
+    return {
+      name: "emotional_checkin", execution: "deterministic",
+      allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+      required_tool: "log_emotional_checkin",
+      tool_args: {
+        emotion: emotionCorrection?.toTerm ?? candidateFeelingTerm(String(text ?? "")) ?? undefined,
+        correction: true,
+        register_custom: true,
+      },
+      context: {}, reason: "canonical_emotional_correction",
     };
   }
 

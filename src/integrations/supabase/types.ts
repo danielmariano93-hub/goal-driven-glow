@@ -5171,6 +5171,9 @@ export type Database = {
           mood: number
           notes: string | null
           occurred_at: string
+          revised_at: string | null
+          revised_from_emotion_key: string | null
+          revision_reason: string | null
           transaction_id: string | null
           trigger_label: string | null
           user_id: string
@@ -5184,6 +5187,9 @@ export type Database = {
           mood: number
           notes?: string | null
           occurred_at?: string
+          revised_at?: string | null
+          revised_from_emotion_key?: string | null
+          revision_reason?: string | null
           transaction_id?: string | null
           trigger_label?: string | null
           user_id: string
@@ -5197,6 +5203,9 @@ export type Database = {
           mood?: number
           notes?: string | null
           occurred_at?: string
+          revised_at?: string | null
+          revised_from_emotion_key?: string | null
+          revision_reason?: string | null
           transaction_id?: string | null
           trigger_label?: string | null
           user_id?: string
@@ -12228,6 +12237,45 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      user_emotions: {
+        Row: {
+          created_at: string
+          emoji: string
+          emotion_key: string
+          id: string
+          label: string
+          last_used_at: string
+          mood: number
+          updated_at: string
+          use_count: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          emoji?: string
+          emotion_key: string
+          id?: string
+          label: string
+          last_used_at?: string
+          mood?: number
+          updated_at?: string
+          use_count?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          emoji?: string
+          emotion_key?: string
+          id?: string
+          label?: string
+          last_used_at?: string
+          mood?: number
+          updated_at?: string
+          use_count?: number
+          user_id?: string
+        }
+        Relationships: []
       }
       user_financial_settings: {
         Row: {

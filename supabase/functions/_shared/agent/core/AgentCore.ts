@@ -51,6 +51,7 @@ import {
   classifyDialogueAct, classifyDialogueState, findRepairBaseQuery, repairEffectiveQuery,
 } from "./DialogueAct.ts";
 import { compileFinancialQuery } from "./SemanticCompiler.ts";
+import { isShortHumanMessage, understandHumanMessage } from "./HumanUnderstanding.ts";
 import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabilityAdapter.ts";
 import { MAX_IR_QUERIES, normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import { validateFinancialPlan, type PlanValidation } from "./FinancialPlanValidator.ts";
@@ -63,7 +64,7 @@ import { groundReply } from "./GroundingGateV3.ts";
 import { buildClarification } from "./ClarificationResponse.ts";
 import { recordAiStage } from "./AiStageMetrics.ts";
 import { runTool } from "./ToolRuntime.ts";
-import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
+import { createTurnEvidenceCache, isWriteTool } from "./TurnEvidenceCache.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
@@ -734,6 +735,56 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     turnPlan.effective_text = input.text;
     turnPlan.followup = false;
   }
+
+  // `nino_language.v1` — COMPREENDER ANTES DE EXECUTAR.
+  // Mensagem humana curta que o determinístico não resolveu passa por uma
+  // leitura de linguagem antes de qualquer execução. A leitura devolve só
+  // estrutura (qual sentimento, é correção); número e registro seguem
+  // determinísticos. Falha da leitura não derruba o turno.
+  let humanReading: Awaited<ReturnType<typeof understandHumanMessage>> | null = null;
+  const wantsHumanReading = isShortHumanMessage(input.text)
+    && capability.name !== "emotion_finance"
+    && (capability.name === "emotional_checkin"
+      || awaiting?.kind === "emotional_checkin"
+      || capability.name === "general"
+      || !capability.required_tool);
+  if (wantsHumanReading) {
+    humanReading = await guard(
+      () => understandHumanMessage({
+        text: input.text,
+        model: "google/gemini-3.6-flash",
+        sb,
+        user_id: input.user_id,
+        run_id: run_id ?? null,
+      }),
+      (m) => metrics.errors.push("human_understanding:" + m),
+      null,
+    );
+    const understood = humanReading
+      && (humanReading.kind === "emotion_checkin" || humanReading.kind === "emotion_correction")
+      && (humanReading.emotion_key || humanReading.custom_candidate);
+    if (understood && humanReading) {
+      capability = {
+        ...capability,
+        name: "emotional_checkin",
+        execution: "deterministic",
+        allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],
+        required_tool: "log_emotional_checkin",
+        tool_args: {
+          emotion: humanReading.emotion_key ?? humanReading.emotion_term ?? undefined,
+          correction: humanReading.correction,
+          register_custom: humanReading.custom_candidate,
+        },
+        context: {} as typeof capability.context,
+        clarification: null,
+        reason: `human_reading_${humanReading.kind}_${humanReading.source}`,
+      };
+      turnPlan.effective_text = input.text;
+      turnPlan.followup = false;
+    }
+  }
+
+
 
 
   // Pergunta composta não é só detectada: ela é EXECUTADA. Roteamos cada
@@ -1799,13 +1850,20 @@ ${episodic}
         routeIntent(turnPlan.effective_text).intent,
         interpretSemanticQuery(turnPlan.effective_text),
       );
-    const rescue = rescueCapability.execution === "deterministic" && rescueCapability.required_tool
+    // `nino_language.v1`: o resgate NUNCA executa ferramenta de escrita. Prova
+    // de número não pode custar um segundo registro no banco — foi assim que o
+    // check-in emocional gravou duas vezes no mesmo turno.
+    const rescueIsWrite = !!rescueCapability.required_tool
+      && (isWriteTool(rescueCapability.required_tool) || evidenceCache.hasWrite(rescueCapability.required_tool));
+    if (rescueIsWrite) metrics.errors.push("truth_rescue_blocked_write:" + rescueCapability.required_tool);
+    const rescue = !rescueIsWrite && rescueCapability.execution === "deterministic" && rescueCapability.required_tool
       ? await guard(
         () => executeDeterministicCapability(sb, {
           user_id: input.user_id,
           conversation_id: input.conversation_id,
           user_text: turnPlan.effective_text,
           capability: rescueCapability,
+          evidenceCache,
         }),
         (m) => metrics.errors.push("truth_rescue:" + m),
         null,
