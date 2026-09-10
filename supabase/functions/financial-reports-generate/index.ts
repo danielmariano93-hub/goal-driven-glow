@@ -8,7 +8,7 @@
 //   - user  : JWT do dono; gera/regenera o próprio relatório (on-demand).
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
-import { fail, respond } from "../_shared/http.ts";
+import { fail, recordIncident, respond } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { periodReviewKey } from "../_shared/intelligence/logicalDedup.ts";
 
@@ -25,7 +25,9 @@ import {
 } from "../_shared/reports-core/narrative.ts";
 import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
+import { FINANCE_CONTRACT_VERSION } from "../_shared/finance-core/index.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
+import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 
@@ -360,6 +362,9 @@ async function generateForUser(
     status: "published",
     published_at: new Date().toISOString(),
     generated_at: new Date().toISOString(),
+    // Versão dos motores que REALMENTE produziram este número — fonte única de
+    // constante, nunca literal solto (observabilidade enganosa antes disso).
+    finance_contract_version: FINANCE_CONTRACT_VERSION,
     insight_catalog_version: report.catalogVersion,
     template_version: report.templateVersion,
     health_score: report.healthScore,
