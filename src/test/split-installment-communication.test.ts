@@ -10,6 +10,8 @@ import {
 import { renderMessageTemplate } from "../../supabase/functions/_shared/agent/messageTemplates";
 import { detectParticipantIntent } from "../../supabase/functions/_shared/split/participantPipeline";
 
+const nb = (s: string) => s.replace(/\u00a0/g, " ");
+
 function row(p: Partial<CanonicalReceivable> & { installment_number: number; amount: number }): CanonicalReceivable {
   return {
     installment_id: `i${p.installment_number}`,
@@ -52,7 +54,7 @@ function invite(schedule: CanonicalReceivable[], participantTotal: number) {
 
 describe("Divisão do Rolê — comunicação do parcelamento", () => {
   it("A: convite 3x traz cada parcela com valor e vencimento exatos", () => {
-    const msg = invite(REAL, 280);
+    const msg = nb(invite(REAL, 280));
     expect(msg).toContain("em *3x*");
     expect(msg).toContain("*1/3 — R$ 93,34* · vence em *30/09/2026*");
     expect(msg).toContain("*2/3 — R$ 93,33* · vence em *30/10/2026*");
@@ -66,7 +68,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
       row({ installment_number: 2, amount: 70, due_date: "2026-11-20" }),
       row({ installment_number: 3, amount: 110, due_date: "2027-01-05" }),
     ];
-    const msg = invite(custom, 280);
+    const msg = nb(invite(custom, 280));
     expect(msg).toContain("*1/3 — R$ 100,00* · vence em *10/10/2026*");
     expect(msg).toContain("*2/3 — R$ 70,00* · vence em *20/11/2026*");
     expect(msg).toContain("*3/3 — R$ 110,00* · vence em *05/01/2027*");
@@ -74,7 +76,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
 
   it("C: à vista não usa linguagem de parcelamento", () => {
     const single = [row({ installment_number: 1, amount: 280, total_installments: 1, due_date: "2026-09-30" })];
-    const msg = invite(single, 280);
+    const msg = nb(invite(single, 280));
     expect(msg).toContain("O vencimento é em *30/09/2026*");
     expect(msg).not.toContain("x*");
     expect(msg).not.toContain("1/1");
@@ -87,7 +89,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
       { ...REAL[1]!, paid_amount: 40, balance_due: 53.33, settlement_status: "partial" },
       REAL[2]!,
     ];
-    const schedule = buildInstallmentSchedule(rows, { withState: true });
+    const schedule = nb(buildInstallmentSchedule(rows, { withState: true }));
     expect(schedule.split("\n")).toHaveLength(3);
     expect(schedule).toContain("· paga");
     expect(schedule).toContain("parcial, restam *R$ 53,33*");
@@ -97,7 +99,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
     const rows = [{ ...REAL[0]!, paid_amount: 93.34, balance_due: 0, settlement_status: "paid" }, REAL[1]!, REAL[2]!];
     const next = summarizeSchedule(rows).next;
     expect(next?.installment_number).toBe(2);
-    expect(installmentSentence(next!)).toBe("2/3 de R$ 93,33, com vencimento em 30/10/2026");
+    expect(nb(installmentSentence(next!))).toBe("2/3 de R$ 93,33, com vencimento em 30/10/2026");
   });
 
   it("F: parcela paga não entra no saldo em aberto", () => {
@@ -111,7 +113,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
   });
 
   it("H: lembrete individual não repete a agenda", () => {
-    const msg = renderMessageTemplate("reminder", null, {
+    const msg = nb(renderMessageTemplate("reminder", null, {
       participant_name: "Teste",
       owner_name: "Daniel",
       title: "Teste",
@@ -122,7 +124,7 @@ describe("Divisão do Rolê — comunicação do parcelamento", () => {
       remaining_sentence: "",
       pix_sentence: "",
       link_sentence: "",
-    });
+    }));
     expect(msg).toContain("2ª parcela de 3");
     expect(msg).not.toContain("1/3");
     expect(msg).not.toContain("3/3");
