@@ -2258,6 +2258,11 @@ export async function list_split_receivables(
   let rows = (data ?? []) as any[];
   if (args.only_pending !== false) rows = rows.filter((r) => Number(r.balance_due ?? 0) > 0.004);
   if (person) rows = rows.filter((r) => String(r.participant_name ?? "").toLowerCase().includes(person));
+  const splitName = String(args.split ?? "").trim().toLowerCase();
+  if (splitName) rows = rows.filter((r) => String(r.title ?? "").toLowerCase().includes(splitName));
+  const month = /^\d{4}-\d{2}$/.test(String(args.month ?? "")) ? String(args.month) : null;
+  if (month) rows = rows.filter((r) => String(r.due_date ?? "").startsWith(month));
+  if (args.overdue_only) rows = rows.filter((r) => String(r.state ?? "") === "overdue");
   const pending = rows.reduce((s, r) => s + Number(r.balance_due ?? 0), 0);
   const received = (data ?? []).reduce((s: number, r: any) => s + Number(r.paid_amount ?? 0), 0);
   return {
