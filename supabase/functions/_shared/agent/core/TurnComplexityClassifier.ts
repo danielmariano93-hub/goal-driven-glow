@@ -96,7 +96,9 @@ export function classifyTurn(input: ClassifierInput): TurnSignals {
   const questionMarks = (raw.match(/\?/g) ?? []).length;
   const hasReasoning = REASONING_RX.test(t);
   const anaphora = ANAPHORA_RX.test(t);
-  const followup = FOLLOWUP_RX.test(t);
+  // "quanto gastei em transporte esse mês?" começa com pronome interrogativo,
+  // mas traz assunto próprio: não é follow-up dependente de contexto.
+  const followup = FOLLOWUP_RX.test(t) && (domains.length === 0 || words.length <= 4);
   const resume = RESUME_RX.test(t);
   const short = words.length <= 6;
 
