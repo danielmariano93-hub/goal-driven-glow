@@ -297,19 +297,63 @@ export async function handleParticipantInbound(
   }
 
   await upsertContext(sb, participant, expense, { last_intent: intent, awaiting_receipt: false });
-  const due = expense.due_date
-    ? `, com vencimento em ${new Date(`${expense.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`
-    : "";
+
+  // Consultas do participante leem a verdade canônica por parcela.
+  const rows = await loadParticipantReceivables(sb, participant.id);
+  const summary = summarizeSchedule(rows);
+  const pending = rows.length ? summary.pending_total : remaining;
+  const nextRow = summary.next;
+  const due = nextRow?.due_date
+    ? `, com vencimento em ${formatCivilBR(nextRow.due_date)}`
+    : expense.due_date
+      ? `, com vencimento em ${formatCivilBR(expense.due_date)}`
+      : "";
+
+  if (intent === "asking_schedule") {
+    if (summary.count > 1) {
+      const schedule = buildInstallmentSchedule(rows, { withState: true });
+      out.reply = `Sua parte em “${expense.title}” é ${BRL.format(summary.total)} em ${summary.count}x:\n${schedule}\n\nAinda em aberto: ${BRL.format(pending)}.`;
+    } else {
+      out.reply = `“${expense.title}” não está parcelado: sua parte é ${BRL.format(pending)}${due}.`;
+    }
+    return out;
+  }
+
+  if (intent === "asking_next") {
+    out.reply = nextRow
+      ? `A próxima parcela em aberto de “${expense.title}” é a ${installmentSentence(nextRow)}.`
+      : `Você não tem parcelas em aberto em “${expense.title}” — está tudo quitado 💛`;
+    return out;
+  }
+
+  if (intent === "asking_month") {
+    const monthRows = summary.current_month;
+    if (!monthRows.length) {
+      out.reply = nextRow
+        ? `Neste mês não vence nenhuma parcela de “${expense.title}”. A próxima é a ${installmentSentence(nextRow)}.`
+        : `Neste mês não vence nenhuma parcela de “${expense.title}” — está tudo quitado 💛`;
+      return out;
+    }
+    const monthTotal = monthRows.reduce((s, r) => s + Math.max(0, Number(r.balance_due ?? 0)), 0);
+    out.reply = monthRows.length === 1
+      ? `Neste mês vence a ${installmentSentence(monthRows[0])} de “${expense.title}”.`
+      : `Neste mês vencem ${monthRows.length} parcelas de “${expense.title}”, somando ${BRL.format(monthTotal)}:\n${buildInstallmentSchedule(monthRows, { withState: true })}`;
+    return out;
+  }
+
   if (intent === "asking_pix") {
     out.reply = expense.pix_key
-      ? `Sua parte em “${expense.title}” é ${BRL.format(remaining)}${due}. A chave Pix é ${expense.pix_key}. Depois de pagar, me manda o comprovante que eu anexo ao rolê.`
-      : `Sua parte em “${expense.title}” é ${BRL.format(remaining)}${due}. A chave Pix ainda não foi informada — vou avisar quem organizou.`;
+      ? `Sua parte em aberto em “${expense.title}” é ${BRL.format(pending)}${due}. A chave Pix é ${expense.pix_key}. Depois de pagar, me manda o comprovante que eu anexo ao rolê.`
+      : `Sua parte em aberto em “${expense.title}” é ${BRL.format(pending)}${due}. A chave Pix ainda não foi informada — vou avisar quem organizou.`;
     return out;
   }
   if (intent === "asking_amount") {
-    out.reply = `Sua parte pendente em “${expense.title}” é ${BRL.format(remaining)}${due}. Se já pagou, me envie o comprovante (imagem ou PDF) que eu registro para confirmação.`;
+    const parcelado = summary.count > 1 && nextRow
+      ? ` A próxima é a ${installmentSentence(nextRow)}.`
+      : "";
+    out.reply = `Sua parte pendente em “${expense.title}” é ${BRL.format(pending)}${parcelado ? "." : `${due}.`}${parcelado} Se já pagou, me envie o comprovante (imagem ou PDF) que eu registro para confirmação.`;
     return out;
   }
-  out.reply = `Posso ajudar com “${expense.title}”, ${firstName}. Sua parte pendente é ${BRL.format(remaining)}${due}. Você pode perguntar o valor, o vencimento, a chave Pix — ou me enviar o comprovante do pagamento.`;
+  out.reply = `Posso ajudar com “${expense.title}”, ${firstName}. Sua parte pendente é ${BRL.format(pending)}${due}. Você pode perguntar o valor, as parcelas, a próxima a vencer, a chave Pix — ou me enviar o comprovante do pagamento.`;
   return out;
 }
