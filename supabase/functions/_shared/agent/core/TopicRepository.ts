@@ -55,11 +55,25 @@ export type TopicRepository = {
 const TABLE = "nino_topic_threads";
 const LINKS = "nino_topic_messages";
 
+/**
+ * Palavras genéricas de pergunta não identificam assunto. Sem esta lista,
+ * "quanto gastei com mercado" casava com "quanto gastei em transporte" só
+ * porque as duas frases compartilham o verbo.
+ */
+const STOPWORDS = new Set([
+  "quanto", "quantos", "quais", "qual", "quando", "onde", "como", "porque",
+  "gastei", "gasto", "gastos", "gastar", "tenho", "tinha", "minha", "minhas",
+  "meus", "meu", "esse", "essa", "este", "esta", "aquele", "aquela", "isso",
+  "para", "pela", "pelo", "muito", "mais", "menos", "ainda", "sobre", "estou",
+  "esta", "fica", "ficou", "ficar", "voltando", "retomando", "pergunta",
+  "falamos", "lembra", "outra", "coisa", "assunto", "agora", "hoje", "ontem",
+]);
+
 export function keywordsOf(text: string): string[] {
   return String(text ?? "")
     .toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .split(/[^a-z0-9]+/)
-    .filter((w) => w.length > 3)
+    .filter((w) => w.length > 3 && !STOPWORDS.has(w))
     .slice(0, 12);
 }
 
