@@ -51,6 +51,7 @@ import {
   classifyDialogueAct, classifyDialogueState, findRepairBaseQuery, repairEffectiveQuery,
 } from "./DialogueAct.ts";
 import { compileFinancialQuery } from "./SemanticCompiler.ts";
+import { isShortHumanMessage, understandHumanMessage } from "./HumanUnderstanding.ts";
 import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabilityAdapter.ts";
 import { MAX_IR_QUERIES, normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import { validateFinancialPlan, type PlanValidation } from "./FinancialPlanValidator.ts";
