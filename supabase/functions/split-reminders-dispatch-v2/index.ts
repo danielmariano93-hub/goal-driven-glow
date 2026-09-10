@@ -466,7 +466,7 @@ Deno.serve(async (req) => {
       const linkSentence = buildLinkSentence({ isRegistered: registered, appLink, signupLink });
       const message = messageFor(
         kind, participant, expense, remaining, persona, linkSentence,
-        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining,
+        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule,
       );
 
 
@@ -502,7 +502,19 @@ Deno.serve(async (req) => {
             context_type: "shared_expense",
             context_id: job.shared_expense_id,
             participant_id: job.participant_id,
-            metadata: { job_id: job.id, origin: "split_reminder_v2", template: kind, installment_id: job.installment_id ?? null },
+            metadata: {
+              job_id: job.id,
+              origin: "split_reminder_v2",
+              template: kind,
+              shared_expense_id: job.shared_expense_id,
+              participant_id: job.participant_id,
+              installment_id: job.installment_id ?? null,
+              installment_number: receivable?.installment_number ?? null,
+              total_installments: receivable?.total_installments ?? schedule[0]?.total_installments ?? 1,
+              schedule_rows_loaded: schedule.length,
+              canonical_source: "split_receivables_v1",
+              message_preview: message.slice(0, 900),
+            },
             surface: "whatsapp",
             feature: "split_reminder",
           })
