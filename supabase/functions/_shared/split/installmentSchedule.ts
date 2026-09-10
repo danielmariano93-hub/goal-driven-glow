@@ -2,6 +2,8 @@
 // Divisão do Rolê. Todos os valores e datas vêm PRONTOS da fonte canônica
 // (`split_receivables_v1`); nada é recalculado aqui.
 
+
+import { civilAddMonths } from "../finance-core/civilDate.ts";
 export type CanonicalReceivable = {
   installment_id: string;
   installment_number: number;
@@ -102,4 +104,36 @@ export function installmentSentence(row: CanonicalReceivable): string {
   const balance = Math.max(0, Number(row.balance_due ?? 0));
   const base = `${label}${formatBRLSplit(balance)}`;
   return due ? `${base}, com vencimento em ${due}` : base;
+}
+
+// ---- Rascunho de parcelas (paridade com o app) ----
+// Mesma aritmética de `src/lib/split/installments.ts`: centavos residuais nas
+// primeiras parcelas e vencimentos mensais em data civil.
+
+export type InstallmentDraftRow = { amount: number; due_date: string };
+
+export function equalInstallmentAmounts(total: number, count: number): number[] {
+  const cents = Math.round(Number(total) * 100);
+  const base = Math.floor(cents / count);
+  let rest = cents - base * count;
+  return Array.from({ length: count }, () => {
+    const extra = rest > 0 ? 1 : 0;
+    rest = Math.max(0, rest - 1);
+    return (base + extra) / 100;
+  });
+}
+
+export function buildEqualInstallmentDrafts(
+  total: number,
+  count: number,
+  firstDue: string,
+): InstallmentDraftRow[] {
+  return equalInstallmentAmounts(total, count).map((amount, i) => ({
+    amount,
+    due_date: i === 0 ? firstDue : civilAddMonths(firstDue, i),
+  }));
+}
+
+export function installmentsSum(rows: InstallmentDraftRow[]): number {
+  return rows.reduce((s, r) => s + Math.round(Number(r.amount || 0) * 100), 0) / 100;
 }
