@@ -34,6 +34,10 @@ import { resolveAdvisorTopicKey } from "../../finance-core/advisorTopics.ts";
 import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
 import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.ts";
+import { runConfirmationFastPath } from "./ConfirmationFastPath.ts";
+import { confirmationExecutor } from "./PendingConfirmations.ts";
+import { parseBankNotification } from "./BankNotificationParser.ts";
+import { create_transaction_draft } from "../tools.ts";
 
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
 import { asEvidence } from "../../intelligence/evidence.ts";
@@ -86,6 +90,7 @@ import {
   applyMemoryToText, detectCategory, loadConversationMemory, saveConversationMemory,
 } from "./ConversationMemory.ts";
 import { findPending } from "./PendingConfirmations.ts";
+
 import {
   assignCategoryToEntry, findRecentUncategorized, readCategoryAnswer,
 } from "./PendingAction.ts";
@@ -333,6 +338,101 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   }
 
 
+  // ---- CONFIRMATION FAST PATH (`nino_confirmation.v1`) --------------------
+  // Uma confirmação pendente é ESTADO. "Salvar", "pode salvar", "cancela" são
+  // resolvidos aqui: zero chamadas de modelo, zero diagnóstico, zero snapshot.
+  // Nunca cai na camada analítica nem nega capability falsamente.
+  const fastConfirm = await guard(
+    () => runConfirmationFastPath(sb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      inbound_message_id: input.inbound_message_id ?? null,
+      text: input.text,
+    }),
+    (m) => metrics.errors.push("confirmation_fast_path:" + m),
+    null,
+  );
+  if (fastConfirm?.handled) {
+    const body = fastConfirm.reply;
+    if (input.channel !== "app" && input.to_phone) {
+      await enqueueReply(sb, {
+        user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+        body, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+        source: input.channel === "simulator" ? "simulator" : "whatsapp",
+      });
+    }
+    metrics.path = "deterministic_tool" as any;
+    metrics.capability = "confirmation_fast_path";
+    metrics.stages.total = Date.now() - t0;
+    await finishEarlyRun({
+      path: "confirmation_fast_path",
+      capability: `confirm_${fastConfirm.pending_state}`,
+      tools: fastConfirm.reply_kind === "receipt" ? [confirmationExecutor(fastConfirm.pending_kind ?? "")] : [],
+      error: fastConfirm.error,
+      finalPath: "confirmation_fast_path",
+    });
+    await logDecision(sb, buildRecord({
+      run_id: run_id ?? null, user_id: input.user_id, conversation_id: input.conversation_id,
+      channel: input.channel, intent: `confirmation:${fastConfirm.act ?? "none"}`,
+      policy_decision: `${fastConfirm.reply_kind}:${fastConfirm.pending_state}`,
+      metrics, validations: [],
+    }));
+    return {
+      reply: body,
+      reply_kind: fastConfirm.reply_kind === "question" ? "question" : fastConfirm.reply_kind,
+      path: "deterministic_tool", run_id, session_id,
+    };
+  }
+
+  // ---- STRUCTURED BANK ENTRY FAST PATH (`nino_confirmation.v1`) -----------
+  // Notificação de banco colada. Fail-closed: só evento concluído inequívoco
+  // (saída/entrada) com valor e data vira rascunho sem modelo. Agendado,
+  // recusado, cancelado, estornado, pagamento de fatura, transferência interna
+  // e ambíguo seguem o pipeline normal.
+  const bankEvent = parseBankNotification(input.text);
+  if (bankEvent.draftable && bankEvent.amount && bankEvent.event_class !== "unknown") {
+    const draft = await guard(
+      () => create_transaction_draft(
+        { sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text },
+        {
+          type: bankEvent.event_class === "completed_inflow" ? "income" : "expense",
+          amount: bankEvent.amount!,
+          occurred_at: bankEvent.occurred_at ?? undefined,
+          description: bankEvent.counterparty ?? undefined,
+          account: bankEvent.account_hint ?? undefined,
+        },
+      ),
+      (m) => metrics.errors.push("bank_fast_path:" + m),
+      null,
+    );
+    const ok = draft && (draft as any).ok === true;
+    if (ok) {
+      const result = (draft as any).result ?? {};
+      const body = String(result.card_text ?? result.summary ?? "");
+      if (body) {
+        if (input.channel !== "app" && input.to_phone) {
+          await enqueueReply(sb, {
+            user_id: input.user_id, conversation_id: input.conversation_id, to_phone: input.to_phone,
+            body, idempotency_key: idem, inbound_message_id: input.inbound_message_id,
+            source: input.channel === "simulator" ? "simulator" : "whatsapp",
+          });
+        }
+        metrics.path = "deterministic_tool" as any;
+        metrics.capability = "structured_entry_fast_path";
+        metrics.stages.total = Date.now() - t0;
+        await finishEarlyRun({
+          path: "structured_entry_fast_path",
+          capability: `bank_${bankEvent.event_class}`,
+          tools: ["create_transaction_draft"],
+          finalPath: "structured_entry_fast_path",
+        });
+        return {
+          reply: body, reply_kind: "draft", path: "deterministic_tool",
+          draft_id: result.draft_id, run_id, session_id,
+        };
+      }
+    }
+  }
 
 
   // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
@@ -880,6 +980,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     capability_name: capability.name,
     acts: dialogueState.acts,
     has_clarification: !!capability.clarification,
+    // Escrita pendente + "salvar/cancelar" nunca é leitura semântica.
+    has_pending_confirmation: fastConfirm?.pending_state === "fresh",
+    confirmation_act: fastConfirm?.act ?? null,
   });
 
   if (semanticV3 && semanticEligible) {

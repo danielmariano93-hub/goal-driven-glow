@@ -8,7 +8,7 @@ import type { ContextRequest } from "./FinancialContext360.ts";
 import { classifyAdvisorIntent, installmentsFromText } from "./AdvisorConsult.ts";
 import { allowsEntryDraft } from "./HypotheticalGuard.ts";
 import {
-  candidateFeelingTerm, parseEmotionCorrection, parseEmotionFromText,
+  candidateFeelingTerm, parseEmotionCorrection, parseEmotionFromText, resolveEmotionTerm,
 } from "../../intelligence/emotionParse.ts";
 import { detectCategory } from "./ConversationMemory.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
@@ -567,9 +567,21 @@ export function classifyCapability(
   // "não foi atento, foi ansioso", "não era triste, era cansado".
   // Vem antes de tudo porque cita duas emoções e antes caía como pergunta nova,
   // repetindo o mesmo erro que a pessoa estava corrigindo.
-  const emotionCorrection = parseEmotionCorrection(String(text ?? ""));
+  // GUARDA: "não foi X, foi Y" é padrão puramente sintático. "não foi mercado,
+  // foi farmácia" é correção de LANÇAMENTO, não de humor. Só roteia para
+  // check-in quando há evidência emocional real: um dos termos é emoção
+  // conhecida (catálogo/sinônimo) ou a frase fala explicitamente de sentimento.
+  const rawText = String(text ?? "");
+  const emotionalFraming = /\b(me sent|sentindo|senti|sentimento|humor|emocional|emocao|animo|estado de espirito|check ?in)\b/.test(t);
+  const rawCorrection = parseEmotionCorrection(rawText);
+  const correctionIsEmotional = !!rawCorrection && (
+    !!rawCorrection.option
+    || !!resolveEmotionTerm(rawCorrection.fromTerm)
+    || emotionalFraming
+  );
+  const emotionCorrection = correctionIsEmotional ? rawCorrection : null;
   const insistedCustom = /\b(e (?:apatia|saudade)|do meu jeito|registra (?:assim|do meu jeito)|e (?:isso|essa palavra) mesmo|pode registrar assim)\b/.test(t);
-  if (emotionCorrection || (insistedCustom && candidateFeelingTerm(String(text ?? "")))) {
+  if (emotionCorrection || (insistedCustom && candidateFeelingTerm(rawText))) {
     return {
       name: "emotional_checkin", execution: "deterministic",
       allowed_tools: ["log_emotional_checkin", "get_emotional_checkins"],

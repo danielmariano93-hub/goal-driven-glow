@@ -106,8 +106,16 @@ export type MessageGuardResult = {
   contract_version: string;
 };
 
-/** Passagem única de contrato, usada por app e WhatsApp. */
-export function applyMessageContract(title: string, body: string): MessageGuardResult {
+/**
+ * Passagem única de contrato, usada por app e WhatsApp.
+ * `suppressTitleWhenCovered` só vale para o WhatsApp: no app o título é o
+ * cabeçalho do card e nunca pode ficar vazio.
+ */
+export function applyMessageContract(
+  title: string,
+  body: string,
+  opts: { suppressTitleWhenCovered?: boolean } = {},
+): MessageGuardResult {
   const guards: string[] = [];
   const cleanTitle = stripTechnicalMarkers(title);
   const cleanBody = stripTechnicalMarkers(body);
@@ -121,7 +129,7 @@ export function applyMessageContract(title: string, body: string): MessageGuardR
   if (single.removed > 0) guards.push(`extra_cta_removed:${single.removed}`);
 
   return {
-    title: deduped.titleCovered ? "" : cleanTitle.text,
+    title: deduped.titleCovered && opts.suppressTitleWhenCovered === true ? "" : cleanTitle.text,
     body: single.body || cleanBody.text,
     guards,
     contract_version: COMM_CONTRACT_VERSION,
@@ -133,7 +141,7 @@ export function applyMessageContract(title: string, body: string): MessageGuardR
  * por linha em branco, pergunta final destacada, sem repetição.
  */
 export function renderWhatsappMessage(title: string, body: string): { message: string; guards: string[] } {
-  const contract = applyMessageContract(title, body);
+  const contract = applyMessageContract(title, body, { suppressTitleWhenCovered: true });
   const blocks = splitBlocks(contract.body).map((block) =>
     block.endsWith("?") ? `*${block}*` : block
   );

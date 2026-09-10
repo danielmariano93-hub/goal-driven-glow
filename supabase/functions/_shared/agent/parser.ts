@@ -5,6 +5,7 @@
 
 import { parseSpelledMoney } from "./amountWords.ts";
 import { allowsEntryDraft } from "./core/HypotheticalGuard.ts";
+import { classifyConfirmationAct } from "./core/ConfirmationVocabulary.ts";
 
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
@@ -216,6 +217,15 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
+  }
+
+  // `nino_confirmation.v1`: vocabulário único de confirmação/cancelamento.
+  // "Salvar", "salva isso", "registra", "lança" são atos de confirmação tanto
+  // aqui quanto no fast path — um só vocabulário, sem divergência.
+  if (wordCount <= 3 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
+    const act = classifyConfirmationAct(raw);
+    if (act === "confirm") return { kind: "confirm" };
+    if (act === "cancel") return { kind: "cancel" };
   }
 
 
