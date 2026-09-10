@@ -5,13 +5,37 @@
 // resposta a essa pergunta — não como assunto novo nem como complemento de
 // uma pergunta financeira antiga. Puro e testável: só olha textos.
 
-export type ExpectationKind = "emotional_checkin" | "entry_slot" | "category_scope";
+export type ExpectationKind =
+  | "emotional_checkin" | "entry_slot" | "category_scope" | "confirmation";
 
 export type ConversationExpectation = {
   kind: ExpectationKind;
   slots?: string[];
   asked_at: string;
+  /** `confirmation`: id da pendência canônica (`pending_confirmations`). */
+  pending_id?: string;
+  /** `confirmation`: kind da operação pendente (transaction, transfer, …). */
+  operation_kind?: string;
 };
+
+/**
+ * Expectativa de confirmação criada PROGRAMATICAMENTE quando uma tool `*_draft`
+ * devolve `draft_id` — nunca por regex sobre a prosa gerada depois.
+ * `pending_confirmations` continua sendo a verdade da operação; isto é só
+ * contexto conversacional.
+ */
+export function confirmationExpectation(args: {
+  pending_id: string;
+  operation_kind: string;
+  now?: Date;
+}): ConversationExpectation {
+  return {
+    kind: "confirmation",
+    pending_id: args.pending_id,
+    operation_kind: args.operation_kind,
+    asked_at: (args.now ?? new Date()).toISOString(),
+  };
+}
 
 /** Expectativa vale por 12h — depois disso a conversa já é outra. */
 export const EXPECTATION_TTL_MS = 12 * 60 * 60 * 1000;

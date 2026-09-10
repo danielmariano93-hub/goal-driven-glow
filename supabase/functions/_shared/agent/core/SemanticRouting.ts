@@ -20,8 +20,16 @@ export function isSemanticReadEligible(args: {
   capability_name: string;
   acts: DialogueActLabel[];
   has_clarification: boolean;
+  /** `nino_confirmation.v1`: escrita pendente + "salvar/cancelar" nunca é leitura. */
+  has_pending_confirmation?: boolean;
+  confirmation_act?: "confirm" | "cancel" | "ambiguous" | "unrelated" | null;
 }): boolean {
   if (args.has_clarification) return false;
+  if (
+    args.has_pending_confirmation
+    && (args.confirmation_act === "confirm" || args.confirmation_act === "cancel"
+      || args.confirmation_act === "ambiguous")
+  ) return false;
   if (args.acts.includes("write") || args.acts.includes("conversational")) return false;
   return !NON_READ_CAPABILITIES.has(args.capability_name);
 }
