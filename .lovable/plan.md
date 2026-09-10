@@ -23,8 +23,10 @@ Ou seja: existia estado suficiente para salvar; o Nino tratou uma palavra de con
 - `findPending(conversation_id, user_id)`; se fresco, classifica o texto (`classifyConfirmationAct`): `confirm | cancel | ambiguous | unrelated`.
 - `confirm` → `confirmAndBuildReceipt` (que já usa `executeConfirmation` → `agent_execute_transaction_confirmation_v2` e `PersistenceProof`). Nenhum caminho paralelo novo.
 - `cancel` → marca `cancelled` e responde.
-- `unrelated`/sem pendência → segue pipeline normal.
-- Idempotência: o dedupe de inbound e a checagem `status='pending'` garantem WRITE única em retry.
+- **Sem pendência fresca + ato forte de confirmação/cancelamento** → consulta `findLatestPendingOrExpired` e classifica o estado real: `none` (nunca houve), `expired`, `confirmed`, `cancelled`. Cada um tem resposta própria e determinística; nenhum deles vai para Semantic IR.
+- `unrelated` → segue pipeline normal.
+
+**Idempotência transacional** — dedupe de inbound e `status='pending'` não bastam. Migração ajusta os RPCs de confirmação (`agent_execute_transaction_confirmation_v2`, `agent_execute_confirmation`, `agent_execute_shared_expense_confirmation`) para fazer a transição de estado com trava atômica (`UPDATE ... WHERE status='pending' RETURNING`, ou `SELECT ... FOR UPDATE`) antes de qualquer escrita financeira; o perdedor da corrida devolve `idempotent=true`, nunca uma segunda escrita. Teste de corrida: dois `inbound_message_id` diferentes ("Salvar" e "Sim") confirmando o mesmo `pending_id` em paralelo → 1 execução financeira, 2 respostas coerentes, 0 duplicações.
 
 **Vocabulário** — extraído para `core/ConfirmationVocabulary.ts` (puro, testável) e reaproveitado por `parser.ts`, que passa a reconhecer os mesmos termos quando há contexto de rascunho.
 
