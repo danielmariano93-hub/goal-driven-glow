@@ -38,7 +38,11 @@ Ou seja: existia estado suficiente para salvar; o Nino tratou uma palavra de con
 
 **Orçamento por rota** — `core/TurnBudget.ts` define teto por capability: confirmação/cancelamento = 0 chamadas de IA e prompt zero; entrada estruturada = 0–1; entrada simples = 1; análise = pipeline completo. Diagnóstico (`nino_diagnosis_context_for_user`), snapshot financeiro, contexto de assessor e comparação de período deixam de ser carregados em confirmação, cancelamento e rascunho determinístico. Auditoria do prompt de 25,8k chars com registro de qual bloco consome o quê.
 
-**Observabilidade** — `path = confirmation_fast_path | structured_entry_fast_path` em `agent_runs`, com `pending_found`, `pending_id`, `confirm_act`, `execution_ms`, `persistence_proof_ms`, `total_ms`, `llm_calls=0`, `tokens=0`. Latência percebida separada em marcos (inbound → agente → outbound → provider → ack) com `backend_latency`, `provider_latency`, `perceived_latency`.
+**Observabilidade** — `path = confirmation_fast_path | structured_entry_fast_path` em `agent_runs`, com `pending_found`, `pending_id`, `pending_state`, `confirm_act`, `execution_ms`, `persistence_proof_ms`, `total_ms`, `llm_calls=0`, `tokens=0`. Marcos separados (inbound recebido → agente iniciado → agente concluído → outbound na fila → enviado pelo provedor → ack) rendendo três números distintos: `backend_latency`, `provider_latency`, `perceived_latency`. `agent_runs.latency_ms` deixa de ser chamado de ponta a ponta.
+
+**Metas de performance (só backend, sem transporte do WhatsApp)** — `confirmation_fast_path`: 0 chamadas de IA, p50 < 1s, p95 < 2s. `structured_entry_fast_path`: 0 chamadas de IA no cenário reconhecido, p50 < 2s, p95 < 3s.
+
+**Escopo de latência declarado** — esta rodada resolve confirmação/cancelamento, comprovante estruturado e escritas determinísticas simples. A latência das consultas analíticas é medida separadamente no relatório final; se o p95 dela continuar alto, será reportada como frente própria, sem ser diluída na média dos fast paths.
 
 **Correções dos alertas** — em `CapabilityRouter.ts`, `parseEmotionCorrection` só roteia para `emotional_checkin` quando ambos os termos são emoções conhecidas (catálogo ou `user_emotions`); caso contrário segue para correção de lançamento. Em `CommunicationDispatcherV3`, a supressão de título passa a valer só no WhatsApp; a notificação no app sempre grava título.
 
