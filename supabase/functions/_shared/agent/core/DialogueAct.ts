@@ -16,10 +16,11 @@ const REPAIR_RX =
   /\b(n[aã]o foi isso(?: que eu (?:perguntei|pedi))?|n[aã]o era isso|voc[eê] n[aã]o respondeu(?: o que eu perguntei)?|isso n[aã]o respondeu(?: minha pergunta)?|respondeu outra coisa|entendeu errado|faltou responder|eu perguntei .{0,40} n[aã]o|eu queria .{0,40} n[aã]o)\b/i;
 // `nino_language.v1`: a forma mais natural de corrigir em pt-BR é
 // "não foi atento, foi ansioso" / "não era triste, era cansado". Antes isso
-// era lido como mensagem nova e o erro se repetia. Exige um termo AFIRMADO
-// depois da negação — negação solta continua sendo clarificação.
+// era lido como mensagem nova e o erro se repetia.
+// O verbo TEM de se repetir depois da negação ("não foi X, foi Y"): sem isso,
+// "não foi fácil, mas consegui economizar" virava correção — e não é.
 const SUBSTITUTION_RX =
-  /\bn[aã]o\s+(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú\s]{3,30}?\s*[,;]?\s*(?:e|[eé]|foi|era|estava|est[aá]|mas|sim)\s+[\wÀ-ú]{3,}/i;
+  /\bn[aã]o\s+(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,20}(?:\s+[\wÀ-ú]{2,20})?\s*[,;]?\s*(?:mas\s+|e\s+|)(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,}/i;
 const CLARIFICATION_RX =
   /\b(quis dizer|na verdade eu quis|corrigindo o que eu disse|melhor dizendo|quando eu disse .{0,30} quis dizer)\b/i;
 const SMALL_TALK_RX =
