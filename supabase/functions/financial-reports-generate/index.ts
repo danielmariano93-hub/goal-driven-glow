@@ -45,6 +45,40 @@ function logEvent(event: Record<string, unknown>) {
   try { console.log(JSON.stringify({ fn: FN, ...event })); } catch { /* noop */ }
 }
 
+/**
+ * Diagnóstico operacional da falha de geração — sem vazar detalhe técnico ao
+ * usuário (a UI continua mostrando a mensagem genérica).
+ *
+ * `stage` = etapa da pipeline; `source` = query/recurso que falhou.
+ */
+export function describeGenerationFailure(message: string): {
+  stage: string;
+  source: string | null;
+  error_code: string;
+  retryable: boolean;
+} {
+  const raw = String(message ?? "").slice(0, 300);
+  const [head, second] = raw.split(":");
+  const stageMap: Record<string, string> = {
+    query_failed: "load_context",
+    load_transactions: "load_transactions",
+    insert_report: "persist_report",
+    update_report: "persist_report",
+    custom_period_mismatch: "resolve_period",
+  };
+  const code = (head ?? "unknown").trim() || "unknown";
+  const stage = stageMap[code] ?? "generate";
+  // Erro de schema não se resolve tentando de novo; falha de rede/IA sim.
+  const schemaDrift = /does not exist|column .* of relation|schema cache/i.test(raw);
+  return {
+    stage,
+    source: code === "query_failed" ? (second ?? null) : null,
+    error_code: schemaDrift ? "schema_drift" : code,
+    retryable: !schemaDrift && code !== "custom_period_mismatch",
+  };
+}
+
+
 type Sb = SupabaseClient;
 
 /**
