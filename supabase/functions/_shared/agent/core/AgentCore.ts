@@ -37,6 +37,7 @@ import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.t
 import { runConfirmationFastPath } from "./ConfirmationFastPath.ts";
 import { confirmationExecutor } from "./PendingConfirmations.ts";
 import { parseBankNotification } from "./BankNotificationParser.ts";
+import { prepareAdaptiveTurn, deterministicTierColumns, type AdaptiveTurn } from "./AdaptiveTurn.ts";
 import { create_transaction_draft } from "../tools.ts";
 
 import { buildChannelEnvelope } from "../../intelligence/channelEnvelope.ts";
@@ -225,6 +226,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     tools?: string[];
     error?: string | null;
     finalPath?: string;
+    /** `nino_adaptive.v1` — telemetria de tier dos atalhos determinísticos. */
+    tier?: 0 | 1;
+    tierReason?: string;
   }) => {
     if (!run_id) return;
     await guard(async () => {
@@ -243,6 +247,9 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         error_sanitized: args.error ?? null,
         error_masked: args.error ?? null,
         context_layers: runtimeContext(args.finalPath ?? "early_return"),
+        ...(args.tier !== undefined
+          ? deterministicTierColumns({ tier: args.tier, reason: args.tierReason ?? args.path, started_at: t0 })
+          : {}),
       }).eq("id", run_id);
       if (error) throw error;
     }, (m) => metrics.errors.push("runs_finish_early:" + m), null);
@@ -367,6 +374,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     await finishEarlyRun({
       path: "confirmation_fast_path",
       capability: `confirm_${fastConfirm.pending_state}`,
+      tier: 0, tierReason: "state_transition",
       tools: fastConfirm.reply_kind === "receipt" ? [confirmationExecutor(fastConfirm.pending_kind ?? "")] : [],
       error: fastConfirm.error,
       finalPath: "confirmation_fast_path",
@@ -423,6 +431,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         await finishEarlyRun({
           path: "structured_entry_fast_path",
           capability: `bank_${bankEvent.event_class}`,
+          tier: 1, tierReason: "structured_event",
           tools: ["create_transaction_draft"],
           finalPath: "structured_entry_fast_path",
         });
@@ -494,6 +503,25 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   // ---- Registro em lote (lista/fatura colada) ----------------------------
   // Precisa vir antes do IntentRouter: a confirmação de um lote é executada
   // em TypeScript (a RPC agent_execute_confirmation só conhece kinds simples).
+  // ---- INTELIGÊNCIA PROPORCIONAL + CONTINUIDADE (`nino_adaptive.v1`) ------
+  // Os atalhos acima já são o T0/T1 da escada. A partir daqui o turno declara
+  // quanta computação merece e a QUAL assunto pertence. Fail-closed: com as
+  // flags desligadas `adaptive` é null e nada muda no caminho canônico.
+  const adaptive: AdaptiveTurn | null = await guard(
+    () => prepareAdaptiveTurn({
+      sb, user_id: input.user_id, conversation_id: input.conversation_id, text: input.text,
+      quoted_message_id: input.reply_context?.quoted_message_id ?? null,
+      has_pending_confirmation: false,
+      awaiting_answer: Boolean(continuationMemory?.awaiting),
+      active_topic_id: null,
+    }),
+    (m) => metrics.errors.push("adaptive_turn:" + m),
+    null,
+  );
+  if (adaptive) {
+    metrics.route_reason = metrics.route_reason ?? `tier_${adaptive.plan.tier}:${adaptive.plan.selection_reason}`;
+  }
+
   const routed = await timeStage(metrics, "intent", async () => routeIntent(input.text));
   let capability = classifyCapability(input.text, routed.intent, interpretSemanticQuery(input.text));
   metrics.capability = capability.name;
@@ -2048,6 +2076,21 @@ ${episodic}
     reported_out: metrics.tokens_out ?? 0,
     layers_total: layerMeasures.total_tokens,
   };
+  // `nino_adaptive.v1` — fecha trace, persiste o assunto durável e vincula as
+  // mensagens do turno. Best-effort: nunca impede a resposta.
+  const adaptiveColumns = adaptive
+    ? await guard(
+        () => adaptive.finalize({
+          inbound_message_id: input.inbound_message_id ?? null,
+          engines: toolCallLog.map((c: any) => c.tool_name),
+          complete: !errorSanitized,
+          run_id: run_id ?? null,
+        }),
+        (m) => metrics.errors.push("adaptive_finalize:" + m),
+        null,
+      )
+    : null;
+
   if (run_id) {
     await guard(async () => {
       const { error: runError } = await sb.from("agent_runs").update({
@@ -2085,6 +2128,7 @@ ${episodic}
         // Telemetria completa (`nino_efficiency.v2`). `provider_cost_usd` fica
         // NULL de propósito: o gateway não reporta custo real, e custo estimado
         // nunca é apresentado como custo do provedor.
+        ...(adaptiveColumns ?? {}),
         provider: planner.provider ?? (metrics.model ? String(metrics.model).split("/")[0] : null),
         fallback_attempts: planner.fallbackAttempts ?? 0,
         provider_cost_usd: null,

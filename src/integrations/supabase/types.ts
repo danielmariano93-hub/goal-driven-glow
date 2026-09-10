@@ -864,20 +864,31 @@ export type Database = {
       }
       agent_runs: {
         Row: {
+          ambiguity_score: number | null
+          backend_latency_ms: number | null
           capability: string | null
           channel: string | null
           clarification_asked: boolean | null
+          complexity_score: number | null
           compression_ratio: number | null
+          context_blocks_loaded: string[] | null
+          context_blocks_skipped: string[] | null
           context_chars: number | null
+          context_dependency_score: number | null
           context_layers: Json | null
           context_ms: number | null
           conversation_id: string | null
           cost_cents: number
+          critical_path_ms: number | null
+          early_exit_stage: string | null
           ended_at: string | null
           error_masked: string | null
           error_sanitized: string | null
+          escalation_count: number | null
+          escalation_reason: string | null
           estimated_cost_usd: number | null
           evidence_chars: number | null
+          execution_tier: number | null
           fallback_attempts: number | null
           financial_context_chars: number | null
           formula_versions: Json | null
@@ -892,11 +903,16 @@ export type Database = {
           model: string | null
           model_attempts: Json
           model_tier: string | null
+          parallel_groups: Json | null
           path: string | null
+          perceived_latency_ms: number | null
           persist_ms: number | null
           prompt_version_id: string | null
           provider: string | null
           provider_cost_usd: number | null
+          provider_latency_ms: number | null
+          quoted_message_used: boolean | null
+          risk_score: number | null
           route_reason: string | null
           routing_ms: number | null
           semantic_memory_chars: number | null
@@ -914,25 +930,40 @@ export type Database = {
           tool_schema_chars: number | null
           tool_scope: string[]
           tools_used: string[] | null
+          topic_id: string | null
+          topic_match_score: number | null
+          topic_resolution_source: string | null
           truth_validation_failed: boolean | null
+          turn_marks: Json | null
           user_id: string
           working_memory_chars: number | null
         }
         Insert: {
+          ambiguity_score?: number | null
+          backend_latency_ms?: number | null
           capability?: string | null
           channel?: string | null
           clarification_asked?: boolean | null
+          complexity_score?: number | null
           compression_ratio?: number | null
+          context_blocks_loaded?: string[] | null
+          context_blocks_skipped?: string[] | null
           context_chars?: number | null
+          context_dependency_score?: number | null
           context_layers?: Json | null
           context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
+          critical_path_ms?: number | null
+          early_exit_stage?: string | null
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          escalation_count?: number | null
+          escalation_reason?: string | null
           estimated_cost_usd?: number | null
           evidence_chars?: number | null
+          execution_tier?: number | null
           fallback_attempts?: number | null
           financial_context_chars?: number | null
           formula_versions?: Json | null
@@ -947,11 +978,16 @@ export type Database = {
           model?: string | null
           model_attempts?: Json
           model_tier?: string | null
+          parallel_groups?: Json | null
           path?: string | null
+          perceived_latency_ms?: number | null
           persist_ms?: number | null
           prompt_version_id?: string | null
           provider?: string | null
           provider_cost_usd?: number | null
+          provider_latency_ms?: number | null
+          quoted_message_used?: boolean | null
+          risk_score?: number | null
           route_reason?: string | null
           routing_ms?: number | null
           semantic_memory_chars?: number | null
@@ -969,25 +1005,40 @@ export type Database = {
           tool_schema_chars?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
+          topic_id?: string | null
+          topic_match_score?: number | null
+          topic_resolution_source?: string | null
           truth_validation_failed?: boolean | null
+          turn_marks?: Json | null
           user_id: string
           working_memory_chars?: number | null
         }
         Update: {
+          ambiguity_score?: number | null
+          backend_latency_ms?: number | null
           capability?: string | null
           channel?: string | null
           clarification_asked?: boolean | null
+          complexity_score?: number | null
           compression_ratio?: number | null
+          context_blocks_loaded?: string[] | null
+          context_blocks_skipped?: string[] | null
           context_chars?: number | null
+          context_dependency_score?: number | null
           context_layers?: Json | null
           context_ms?: number | null
           conversation_id?: string | null
           cost_cents?: number
+          critical_path_ms?: number | null
+          early_exit_stage?: string | null
           ended_at?: string | null
           error_masked?: string | null
           error_sanitized?: string | null
+          escalation_count?: number | null
+          escalation_reason?: string | null
           estimated_cost_usd?: number | null
           evidence_chars?: number | null
+          execution_tier?: number | null
           fallback_attempts?: number | null
           financial_context_chars?: number | null
           formula_versions?: Json | null
@@ -1002,11 +1053,16 @@ export type Database = {
           model?: string | null
           model_attempts?: Json
           model_tier?: string | null
+          parallel_groups?: Json | null
           path?: string | null
+          perceived_latency_ms?: number | null
           persist_ms?: number | null
           prompt_version_id?: string | null
           provider?: string | null
           provider_cost_usd?: number | null
+          provider_latency_ms?: number | null
+          quoted_message_used?: boolean | null
+          risk_score?: number | null
           route_reason?: string | null
           routing_ms?: number | null
           semantic_memory_chars?: number | null
@@ -1024,7 +1080,11 @@ export type Database = {
           tool_schema_chars?: number | null
           tool_scope?: string[]
           tools_used?: string[] | null
+          topic_id?: string | null
+          topic_match_score?: number | null
+          topic_resolution_source?: string | null
           truth_validation_failed?: boolean | null
+          turn_marks?: Json | null
           user_id?: string
           working_memory_chars?: number | null
         }
@@ -9154,6 +9214,151 @@ export type Database = {
         }
         Relationships: []
       }
+      nino_topic_messages: {
+        Row: {
+          created_at: string
+          direction: string
+          id: string
+          message_id: string
+          provider_message_id: string | null
+          surface: string | null
+          topic_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          direction: string
+          id?: string
+          message_id: string
+          provider_message_id?: string | null
+          surface?: string | null
+          topic_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          direction?: string
+          id?: string
+          message_id?: string
+          provider_message_id?: string | null
+          surface?: string | null
+          topic_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_topic_messages_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "nino_topic_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nino_topic_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "nino_topic_messages_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      nino_topic_threads: {
+        Row: {
+          acts: string[]
+          closed_at: string | null
+          conversation_id: string
+          created_at: string
+          dormant_at: string | null
+          entities: string[]
+          evidence_reference: Json | null
+          execution_summary: Json | null
+          id: string
+          keywords: string[]
+          last_activity_at: string
+          last_query: string | null
+          opened_at: string
+          original_query: string | null
+          period_from: string | null
+          period_to: string | null
+          status: string
+          subject: string
+          summary: string | null
+          title: string | null
+          turn_count: number
+          user_id: string
+        }
+        Insert: {
+          acts?: string[]
+          closed_at?: string | null
+          conversation_id: string
+          created_at?: string
+          dormant_at?: string | null
+          entities?: string[]
+          evidence_reference?: Json | null
+          execution_summary?: Json | null
+          id?: string
+          keywords?: string[]
+          last_activity_at?: string
+          last_query?: string | null
+          opened_at?: string
+          original_query?: string | null
+          period_from?: string | null
+          period_to?: string | null
+          status?: string
+          subject: string
+          summary?: string | null
+          title?: string | null
+          turn_count?: number
+          user_id: string
+        }
+        Update: {
+          acts?: string[]
+          closed_at?: string | null
+          conversation_id?: string
+          created_at?: string
+          dormant_at?: string | null
+          entities?: string[]
+          evidence_reference?: Json | null
+          execution_summary?: Json | null
+          id?: string
+          keywords?: string[]
+          last_activity_at?: string
+          last_query?: string | null
+          opened_at?: string
+          original_query?: string | null
+          period_from?: string | null
+          period_to?: string | null
+          status?: string
+          subject?: string
+          summary?: string | null
+          title?: string | null
+          turn_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nino_topic_threads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "nino_topic_threads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       notification_preferences: {
         Row: {
           achievement: boolean
@@ -14968,6 +15173,17 @@ export type Database = {
           _title: string
         }
         Returns: string
+      }
+      nino_topic_thread_touch: {
+        Args: { p_patch: Json; p_topic_id: string }
+        Returns: undefined
+      }
+      nino_topic_threads_lifecycle: {
+        Args: { p_user_id: string }
+        Returns: {
+          closed: number
+          dormant: number
+        }[]
       }
       normalize_br_phone: { Args: { raw: string }; Returns: string }
       normalize_investment_name: { Args: { p_name: string }; Returns: string }
