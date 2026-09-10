@@ -754,7 +754,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         model: "google/gemini-3.6-flash",
         sb,
         user_id: input.user_id,
-        run_id: runId,
+        run_id: run_id ?? null,
       }),
       (m) => metrics.errors.push("human_understanding:" + m),
       null,
