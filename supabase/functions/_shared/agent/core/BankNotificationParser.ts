@@ -121,9 +121,12 @@ export function parseBankNotification(text: string, now: Date = new Date()): Ban
     `(?:enviado\\s+para|pago\\s+para|pagamento\\s+para|transferido\\s+para|compra\\s+em|para)\\s+([^\\n\\r]{2,60}?)${TAIL}`,
     `(?:recebido\\s+de|recebeu\\s+de|creditado\\s+por|de)\\s+([^\\n\\r]{2,60}?)${TAIL}`,
   ];
+  // O valor sai do texto antes: "de R$ 1.200,00 de Lucas" tem dois "de" e o
+  // primeiro é o valor, não a contraparte.
+  const rawNoAmount = raw.replace(/(?:de\s+)?r\$\s*[\d.]+(?:,\d{2})?/gi, " ");
   let cp: RegExpMatchArray | null = null;
   for (const pattern of outflow ? cpPatterns : [cpPatterns[1], cpPatterns[0]]) {
-    for (const m of raw.matchAll(new RegExp(pattern, "gi"))) {
+    for (const m of rawNoAmount.matchAll(new RegExp(pattern, "gi"))) {
       // "de R$ 6,00" é o VALOR, nunca a contraparte.
       if (!/^r\$|^\d/i.test(m[1].trim())) { cp = m as RegExpMatchArray; break; }
     }
