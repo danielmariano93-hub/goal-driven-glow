@@ -51,6 +51,9 @@ Ou seja: existia estado suficiente para salvar; o Nino tratou uma palavra de con
 ## Testes
 
 - Fixtures A–J pedidas: "Salvar", "Sim", "Pode salvar", "Ok" confirmam; "Cancelar" e "Não salva" cancelam; sem pendência não cria nada; pendente expirado avisa; retry duplicado escreve uma vez; falha do executor nunca diz que salvou.
+- Estados de rascunho: nunca existiu, expirado, já confirmado, cancelado — resposta certa em cada um e nenhum indo para a camada de análise.
+- Corrida real: dois inbounds distintos confirmando o mesmo rascunho ao mesmo tempo → 1 escrita financeira.
+- Comprovantes bancários: fixtures negativas (agendado, recusado, cancelado, estornado, devolvido, pagamento de fatura, transferência interna, texto ambíguo) não criam despesa.
 - Reprodução do incidente real (R$ 6,00 / Pagar Me Pagamentos / Banco Itaú / 10/09/2026) em fixture, com zero chamadas de IA no passo da confirmação.
 - Comparativo antes/depois de latência, tokens e chamadas de modelo para Pix estruturado, "Salvar", "Sim", "Cancelar" e as confirmações de transferência, fatura, meta e rolê.
 - Suíte completa (1.945 testes) + typecheck + guards.
