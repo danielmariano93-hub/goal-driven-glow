@@ -54,7 +54,8 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
   if (r.kind !== "spending_report") return null;
   const period = (r.period ?? {}) as Record<string, unknown>;
   return {
-    metric: String(r.metric ?? requested.metric),
+    // A engine fala "expense"/"income"; o contrato fala `expense_amount`.
+    metric: r.metric === "income" ? "income_amount" : r.metric === "expense" ? "expense_amount" : String(r.metric ?? requested.metric),
     filters: filtersFromRecord(r.filters),
     time: {
       aspect: requested.time.aspect,

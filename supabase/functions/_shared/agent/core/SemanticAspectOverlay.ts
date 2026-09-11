@@ -15,7 +15,7 @@
 import type { FinancialQueryIRv3, FinancialQueryV3 } from "./FinancialIRv3.ts";
 import { resolveTimeAspectPt, type ResolvedTimeAspect } from "../../analytics/periodResolver.ts";
 
-const FLOW_METRICS = new Set(["expense", "income", "cashflow", "savings_rate"]);
+const FLOW_METRICS = new Set(["expense_amount", "income_amount"]);
 const INFERRED_ASPECTS = new Set(["mtd", "calendar"]);
 
 export type AspectOverlayResult = {
