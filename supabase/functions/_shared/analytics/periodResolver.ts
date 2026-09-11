@@ -150,7 +150,134 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Aspecto temporal (`time_aspect.v1`) — o que faltava para diferenciar
+// "quanto gastei com alimentação?" (mês corrente, parcial, soma) de
+// "quanto eu gasto com alimentação por mês?" (hábito, meses fechados, mediana).
+// ---------------------------------------------------------------------------
+
+export type TimeAspectName =
+  | "point_in_time" | "mtd" | "calendar" | "rolling"
+  | "last_n_complete" | "habitual" | "projection" | "trend";
+
+export type ResolvedTimeAspect = {
+  aspect: TimeAspectName;
+  from: string | null;
+  to: string | null;
+  n: number | null;
+  exclude_partial: boolean;
+  grain: "none" | "day" | "month";
+  reduce: "none" | "sum" | "typical" | "mean" | "median" | "rate";
+  label: string;
+  matched: string;
+  /** Premissa a declarar na resposta ("Nos últimos 6 meses completos..."). */
+  assumption: string | null;
+  /** Verdadeiro quando o texto não permite escolher sem adivinhar. */
+  ambiguous: boolean;
+};
+
+/** Janela de N meses de calendário FECHADOS, mês corrente excluído. */
+export function lastCompleteMonths(n: number, now: Date = new Date()): { from: string; to: string } {
+  const today = todaySP(now);
+  const [year, month] = today.split("-").map(Number);
+  const endMonth = month === 1 ? 12 : month - 1;
+  const endYear = month === 1 ? year - 1 : year;
+  const to = `${endYear}-${String(endMonth).padStart(2, "0")}-${String(lastDayOfMonth(endYear, endMonth)).padStart(2, "0")}`;
+  const startIndex = endYear * 12 + (endMonth - 1) - (n - 1);
+  const startYear = Math.floor(startIndex / 12);
+  const startMonth = (startIndex % 12) + 1;
+  return { from: `${startYear}-${String(startMonth).padStart(2, "0")}-01`, to };
+}
+
+const HABITUAL_RX =
+  /\b(por mes|ao mes|mensalmente|em media por mes|normalmente|costumo|de habito|habitualmente|tipicamente|em geral|todo mes|cada mes)\b/;
+const MEAN_RX = /\b(media|media mensal|na media)\b/;
+const MEDIAN_RX = /\b(mediana|tipico|padrao|habitual)\b/;
+const PROJECTION_RX =
+  /\b(fechamento|projecao|ate o fim do mes|ate o final do mes|final do mes|(vou|devo|deve|vai) fechar)\b/;
+const TREND_RX = /\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes)\b/;
+
+export const HABITUAL_WINDOW_MONTHS = 6;
+
+/**
+ * Resolve o ASPECTO temporal da pergunta. Nunca chuta: quando o texto não
+ * permite decidir entre hábito e recorte pontual, devolve `ambiguous`.
+ */
+export function resolveTimeAspectPt(text: string, now: Date = new Date()): ResolvedTimeAspect {
+  const t = norm(text);
+  const explicitPeriod = resolvePeriodPt(text, now);
+
+  if (TREND_RX.test(t)) {
+    const window = explicitPeriod ?? { ...lastCompleteMonths(HABITUAL_WINDOW_MONTHS, now), label: "últimos 6 meses completos", matched: "", complete: true, kind: "range" as const };
+    return {
+      aspect: "trend", from: window.from, to: window.to, n: null, exclude_partial: false,
+      grain: "month", reduce: "none", label: window.label, matched: window.matched ?? "",
+      assumption: null, ambiguous: false,
+    };
+  }
+
+  if (PROJECTION_RX.test(t)) {
+    const p = currentMonthPeriod(now);
+    return {
+      aspect: "projection", from: p.from, to: p.to, n: null, exclude_partial: false,
+      grain: "none", reduce: "sum", label: "fechamento deste mês", matched: "",
+      assumption: "Projeção do fechamento deste mês.", ambiguous: false,
+    };
+  }
+
+  // Hábito: "por mês", "normalmente", "costumo". Sempre meses fechados.
+  if (HABITUAL_RX.test(t) || (MEDIAN_RX.test(t) && !explicitPeriod)) {
+    const n = HABITUAL_WINDOW_MONTHS;
+    const w = lastCompleteMonths(n, now);
+    const wantsMean = MEAN_RX.test(t) && !MEDIAN_RX.test(t);
+    return {
+      aspect: "habitual", from: w.from, to: w.to, n, exclude_partial: true,
+      grain: "month", reduce: wantsMean ? "mean" : "typical",
+      label: `últimos ${n} meses completos`, matched: t.match(HABITUAL_RX)?.[0] ?? "",
+      assumption: `Nos últimos ${n} meses completos (mês corrente fora da conta).`,
+      ambiguous: false,
+    };
+  }
+
+  // "média mensal dos últimos N meses" → janela fechada explícita com mean.
+  if (MEAN_RX.test(t)) {
+    const declared = t.match(/\bultimos?\s+(\d{1,2})\s+meses\b/);
+    const n = declared ? Math.max(2, Math.min(12, Number(declared[1]))) : HABITUAL_WINDOW_MONTHS;
+    const w = lastCompleteMonths(n, now);
+    return {
+      aspect: "last_n_complete", from: w.from, to: w.to, n, exclude_partial: true,
+      grain: "month", reduce: "mean", label: `últimos ${n} meses completos`,
+      matched: t.match(MEAN_RX)?.[0] ?? "",
+      assumption: `Média dos últimos ${n} meses completos.`, ambiguous: false,
+    };
+  }
+
+  if (explicitPeriod) {
+    const isCurrentPartial = !explicitPeriod.complete && explicitPeriod.kind === "month";
+    return {
+      aspect: explicitPeriod.kind === "rolling" ? "rolling" : isCurrentPartial ? "mtd" : "calendar",
+      from: explicitPeriod.from, to: explicitPeriod.to,
+      n: explicitPeriod.kind === "rolling"
+        ? Math.round((new Date(`${explicitPeriod.to}T12:00:00Z`).getTime() - new Date(`${explicitPeriod.from}T12:00:00Z`).getTime()) / 86400000) + 1
+        : null,
+      exclude_partial: false, grain: "none", reduce: "sum",
+      label: explicitPeriod.label, matched: explicitPeriod.matched,
+      assumption: isCurrentPartial ? "Este mês até hoje (parcial)." : null,
+      ambiguous: false,
+    };
+  }
+
+  // Sem período e sem marcador de hábito: MTD é uma ESCOLHA, não um fato.
+  const p = currentMonthPeriod(now);
+  return {
+    aspect: "mtd", from: p.from, to: p.to, n: null, exclude_partial: false,
+    grain: "none", reduce: "sum", label: "este mês até hoje", matched: "",
+    assumption: "Este mês até hoje (parcial).", ambiguous: true,
+  };
+}
+
 /** Período padrão quando a mensagem não cita nenhum: mês em curso. */
+
 export function currentMonthPeriod(now: Date = new Date()): ResolvedPeriod {
   const today = todaySP(now);
   const [year, month] = today.split("-").map(Number);
