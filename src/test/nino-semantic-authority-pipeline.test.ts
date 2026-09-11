@@ -137,6 +137,7 @@ describe("runSemanticTurn — preservação bloqueia resposta de outro recorte",
       ...DEPS_BASE,
       runEngine: async () => ({ ok: true, result: spending("Alimentação"), duration_ms: 5 }),
     } as never);
+    console.log("DBG", out.status, out.telemetry.executed_by, out.errors);
     expect(out.preservation?.compatible).toBe(true);
     expect(out.turn?.reply).not.toBe(PRESERVATION_FAILURE_REPLY);
   });
