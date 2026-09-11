@@ -37,6 +37,16 @@ import {
 } from "./ConversationTopicState.ts";
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
 import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
+import {
+  isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
+  type FinancialQueryIRv3, type FinancialQueryV3,
+} from "./FinancialIRv3.ts";
+import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
+import { executedIRFrom } from "./ExecutedIRBridge.ts";
+import {
+  planPreservation, PRESERVATION_FAILURE_REPLY,
+  type ExecutedIR, type PreservationResult,
+} from "./SemanticPreservation.ts";
 
 export type SemanticPipelineTurn = { reply: string; toolCalls: any[] };
 
