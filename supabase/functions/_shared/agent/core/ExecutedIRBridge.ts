@@ -65,7 +65,12 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
     },
     grain: requested.grain,
     reduce: requested.reduce,
-    group_by: r.view === "breakdown" || r.view === "rank" ? [String(r.group_by ?? "category")] : [],
+    // `breakdown` é a renderização DEFAULT da engine: quando a pergunta não
+    // pediu dimensão, isso não é troca de recorte — só apresentação. Dimensão
+    // pedida é comparada de verdade.
+    group_by: (requested.group_by ?? []).length
+      ? [String(r.group_by ?? "category")]
+      : [],
     partial: r.data_limit === "no_data",
   };
 }
