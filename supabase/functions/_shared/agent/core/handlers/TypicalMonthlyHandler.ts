@@ -181,3 +181,26 @@ export function typicalMonthlyExecutedIR(q: FinancialQueryV3, result: TypicalMon
     partial: result.months_with_data < result.months.length,
   };
 }
+
+/**
+ * Texto determinístico do handler. A estatística usada é DECLARADA, a base de
+ * meses aparece, e sem cobertura mínima o Nino diz que não tem padrão — nunca
+ * entrega um número de um mês só como se fosse hábito.
+ */
+export function typicalMonthlyText(
+  result: TypicalMonthlyResult,
+  scopeLabel: string | null,
+): string {
+  const brl = (n: number) =>
+    n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+  const scope = scopeLabel ? ` com ${scopeLabel}` : "";
+  if (result.headline == null) {
+    return `Não tenho lançamentos suficientes${scope} nos últimos ${result.window.n} meses fechados para dizer quanto é o seu padrão. ${result.caveats[0] ?? ""}`.trim();
+  }
+  const statistic = result.statistic === "mean" ? "média" : "mediana";
+  const lines = [
+    `Seu gasto típico${scope} é de ${brl(result.headline)} por mês (${statistic} dos últimos ${result.window.n} meses fechados).`,
+    ...result.caveats,
+  ];
+  return lines.join(" ");
+}
