@@ -511,10 +511,29 @@ export async function runSemanticTurn(
   // ---- 8. Resposta determinística + Grounding ----------------------------
   const deterministic = deterministicTextOf(execution);
   const grounding: GroundingResult | null = deterministic ? groundReply({ reply: deterministic, claims }) : null;
+
+  // Preservação pedido-vs-executado: a MESMA função usada pelo planner e pelo
+  // grounding. Filtro perdido, janela trocada ou estatística diferente do que
+  // foi pedido não é "aproximação" — é resposta a outra pergunta.
+  if (irV3) {
+    const byQuery = new Map(execution.outcomes.map((o) => [o.query_id, o]));
+    preservation = planPreservation(irV3.queries.map((q) => {
+      const outcome = byQuery.get(q.id);
+      const executed: ExecutedIR | null = outcome?.status === "ok"
+        ? executedIRFrom(q, outcome.result)
+        : null;
+      return { requested: q, executed };
+    }));
+  }
+  const preservationBlocked = input.preservation_enforced === true
+    && !!preservation && !preservation.compatible;
+
   const okToAnswer = !!deterministic
     && (completeness.complete || completeness.partial_allowed)
-    && (!grounding || grounding.ok);
+    && (!grounding || grounding.ok)
+    && !preservationBlocked;
   if (!okToAnswer) errors.push("semantic_gate_blocked");
+  if (preservationBlocked) errors.push("preservation_mismatch");
 
   // Falha de DOMÍNIO (entidade inexistente) não é falha de infraestrutura: a
   // resposta honesta e específica sai aqui mesmo, sem devolver autoridade ao
@@ -546,6 +565,28 @@ export async function runSemanticTurn(
         },
         domain_failure: { error: domainFailure.error, slot, options_count: options.length },
         executed_by: "honest_domain_failure",
+        action_planner_used_for_tool_choice: false,
+      },
+    };
+  }
+
+  if (preservationBlocked) {
+    state = upsertTopic(state, {
+      ...topic, ir: irV2,
+      execution_summary: { engines: execution.engines, complete: false },
+      status: "open", updated_at: new Date().toISOString(),
+    }, true);
+    return {
+      version: "nino_semantic_ir.v3",
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+      turn: { reply: PRESERVATION_FAILURE_REPLY, toolCalls: toolCallsOf(execution) },
+      deterministic_text: null,
+      engines: execution.engines,
+      topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+      telemetry: {
+        ...baseTelemetry(),
+        preservation: { compatible: false, enforced: true, mismatches: preservation!.mismatches },
+        executed_by: "preservation_blocked",
         action_planner_used_for_tool_choice: false,
       },
     };
@@ -594,6 +635,9 @@ export async function runSemanticTurn(
         missing: completeness.missing_targets.map((m) => m.id),
       },
       grounding: grounding ? { ok: grounding.ok, violations: grounding.violations } : null,
+      preservation: preservation
+        ? { compatible: preservation.compatible, enforced: input.preservation_enforced === true, mismatches: preservation.mismatches }
+        : null,
       investigation: wantsInvestigation
         ? { ran: true, replan_count: replanCount, max_replans: MAX_REPLANS, reasons: replanReasons, timed_out: investigationTimedOut }
         : { ran: false },
