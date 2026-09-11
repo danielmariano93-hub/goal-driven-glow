@@ -21,7 +21,7 @@ Patch único, em cima do `semantic_ir_v3` atual. Sem quarto pipeline, sem reescr
 | Grounding | `GroundingGateV3.ts` valida número/percentual/ranking/direção/ausência. Não existe comparação `requested_ir` × `executed_ir`. Tools não devolvem `executed_ir`. |
 | Estado de tópico | `ConversationTopicState.ts` guarda `ir`, `period`, `entities`, `pending_clarification`, `status`. Faltam `executed_ir`, `failed_slots`, `preserved_slots`, `repair_count`. |
 | Escrita | Tools reais: `create_split_expense_draft`, `create_transaction_draft`, `create_transfer_draft`, `pay_credit_card_bill_draft`, `create_goal_draft`, `add_goal_contribution_draft`, `create_debt_draft`, `create_shared_goal_draft`, `add_shared_goal_contribution_draft`, `draft_transaction_update`, `draft_transaction_delete`, `confirm_pending_action`, `cancel_pending_action`. **Não existe** draft canônico para: meta de gasto por categoria, recorrência, investimento, marcar recebível pago, pagamento de dívida. |
-| Workflow multi-turn | Não existe. Há `ConversationExpectation` (kind `entry_slot`, TTL 12h) e `ConfirmationFastPath`/`PendingConfirmations` (T0, transacional). Estado durável disponível: `agent_sessions.state` jsonb. |
+| Workflow multi-turn | Não existe. Continuação de slot hoje é heurística de texto: `AgentCore.ts:1862-1889` reconstrói a frase original quando a última pergunta casa regex e a resposta tem ≤6 palavras. `ConversationExpectation` é derivado do histórico (sem persistência). `agent_sessions.state` expira em 30 min e `agent_upsert_draft` em 15 min — insuficiente como estado durável. |
 
 ### Conflitos com a especificação
 
