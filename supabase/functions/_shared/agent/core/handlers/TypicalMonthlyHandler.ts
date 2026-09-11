@@ -204,3 +204,28 @@ export function typicalMonthlyText(
   ];
   return lines.join(" ");
 }
+
+/**
+ * Resolve o NOME da categoria para ids reais (pessoais + globais). Devolve
+ * lista vazia quando nada casa: o chamador falha honesto em vez de virar
+ * leitura global — filtro perdido já produziu resposta errada neste produto.
+ */
+export async function resolveCategoryIdsByName(
+  sb: any,
+  user_id: string,
+  name: string,
+): Promise<string[]> {
+  const wanted = String(name ?? "").trim().toLowerCase();
+  if (!wanted) return [];
+  const { data, error } = await sb.from("categories").select("id,name,user_id,type")
+    .or(`user_id.eq.${user_id},user_id.is.null`)
+    .is("archived_at", null)
+    .eq("type", "expense");
+  if (error) return [];
+  const rows = (data ?? []) as Array<{ id: string; name: string }>;
+  const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const target = norm(wanted);
+  const exact = rows.filter((r) => norm(r.name) === target);
+  if (exact.length) return exact.map((r) => r.id);
+  return rows.filter((r) => norm(r.name).includes(target) || target.includes(norm(r.name))).map((r) => r.id);
+}
