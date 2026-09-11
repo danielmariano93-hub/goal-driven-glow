@@ -62,6 +62,10 @@ export type SemanticPipelineResult = {
   status: SemanticStatus;
   ir: FinancialQueryIR | null;
   ir_v2: FinancialQueryIRv2 | null;
+  /** IR composicional (`financial_query_ir.v3`) — verdade executável do turno. */
+  ir_v3: FinancialQueryIRv3 | null;
+  /** Compatibilidade pedido-vs-executado do turno. */
+  preservation: PreservationResult | null;
   validation: PlanValidation | null;
   turn: SemanticPipelineTurn | null;
   deterministic_text: string | null;
@@ -97,6 +101,17 @@ export type SemanticPipelineDeps = {
   /** Opções canônicas do slot — sempre do banco do usuário, nunca da LLM. */
   loadOptions: (slot: string) => Promise<string[]>;
   recordStage: (telemetry: SemanticCompilerTelemetry, stage: "semantic_compiler" | "investigation_replan") => void;
+  /**
+   * Handler determinístico de gasto típico mensal. Recebe a query v3 já
+   * resolvida e devolve o texto pronto + o `executed_ir` real. Ausente = o
+   * turno segue pelo caminho de engines normal.
+   */
+  runTypicalMonthly?: (query: FinancialQueryV3) => Promise<{
+    text: string;
+    executed_ir: ExecutedIR;
+    engine: string;
+    result: unknown;
+  } | null>;
 };
 
 export type SemanticPipelineInput = {
@@ -111,6 +126,12 @@ export type SemanticPipelineInput = {
   max_queries?: number;
   /** Loop de investigação (replan) habilitado por flag. */
   investigation_enabled?: boolean;
+  /** Relógio do turno — injetado para o resolver temporal ser testável. */
+  now?: Date;
+  /** `semantic_preservation_v1`: mismatch pedido-vs-executado BLOQUEIA. */
+  preservation_enforced?: boolean;
+  /** `typical_monthly_v1`: handler determinístico de gasto típico mensal. */
+  typical_monthly_enabled?: boolean;
   failure_reply: string;
 };
 
