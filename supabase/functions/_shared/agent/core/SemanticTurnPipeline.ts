@@ -111,7 +111,7 @@ export type SemanticPipelineDeps = {
     executed_ir: ExecutedIR;
     engine: string;
     result: unknown;
-  } | null>;
+  } | { domain_error: "category_not_found" | "category_ambiguous" } | null>;
 };
 
 export type SemanticPipelineInput = {
@@ -429,8 +429,33 @@ export async function runSemanticTurn(
     ? irV3.queries[0]
     : null;
   if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {
-    const handled = await deps.runTypicalMonthly(typicalQuery).catch(() => null);
-    if (handled) {
+    let handlerFailed = false;
+    const handled = await deps.runTypicalMonthly(typicalQuery).catch(() => {
+      handlerFailed = true;
+      return null;
+    });
+    if (handled && "domain_error" in handled) {
+      const options = await deps.loadOptions("category").catch(() => [] as string[]);
+      const honest = handled.domain_error === "category_ambiguous"
+        ? `Encontrei mais de uma categoria parecida. Qual delas você quer usar${options.length ? `: ${options.slice(0, 5).join(", ")}` : ""}?`
+        : domainFailureReply("category", options);
+      state = upsertTopic(state, {
+        ...topic, ir: irV2, execution_summary: { engines: [], complete: false },
+        status: "answered", updated_at: new Date().toISOString(),
+      }, true);
+      return {
+        version: "nino_semantic_ir.v3",
+        status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+        turn: { reply: honest, toolCalls: [] }, deterministic_text: honest, engines: [],
+        topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+        telemetry: {
+          ...baseTelemetry(), typical_monthly: { ran: true, domain_error: handled.domain_error },
+          executed_by: "honest_domain_failure", early_exit_stage: "typical_monthly",
+          action_planner_used_for_tool_choice: false,
+        },
+      };
+    }
+    if (handled && "executed_ir" in handled) {
       preservation = planPreservation([{ requested: typicalQuery, executed: handled.executed_ir }]);
       const blocked = input.preservation_enforced === true && !preservation.compatible;
       state = upsertTopic(state, {
@@ -457,6 +482,27 @@ export async function runSemanticTurn(
           typical_monthly: { ran: true, blocked },
           preservation: { compatible: preservation.compatible, mismatches: preservation.mismatches },
           executed_by: blocked ? "preservation_blocked" : "typical_monthly_handler",
+          early_exit_stage: "typical_monthly",
+          action_planner_used_for_tool_choice: false,
+        },
+      };
+    }
+    // Um shape mensal típico nunca cai na engine genérica: ela executaria soma
+    // ou tendência de outro período e repetiria exatamente o incidente real.
+    if (handlerFailed || handled === null) {
+      errors.push(handlerFailed ? "typical_monthly_handler_failed" : "typical_monthly_unhandled");
+      state = upsertTopic(state, {
+        ...topic, ir: irV2, execution_summary: { engines: [], complete: false },
+        status: "open", updated_at: new Date().toISOString(),
+      }, true);
+      return {
+        version: "nino_semantic_ir.v3",
+        status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+        turn: { reply: input.failure_reply, toolCalls: [] }, deterministic_text: null, engines: [],
+        topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+        telemetry: {
+          ...baseTelemetry(), typical_monthly: { ran: true, failed: true },
+          executed_by: "typical_monthly_failed", early_exit_stage: "typical_monthly",
           action_planner_used_for_tool_choice: false,
         },
       };

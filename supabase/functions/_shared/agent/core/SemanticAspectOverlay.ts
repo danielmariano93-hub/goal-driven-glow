@@ -39,7 +39,12 @@ export function applyTurnAspect(
 
   const queries: FinancialQueryV3[] = ir.queries.map((q) => {
     if (!FLOW_METRICS.has(String(q.metric))) return q;
-    if (!INFERRED_ASPECTS.has(String(q.time.aspect))) return q;
+    // Um sinal habitual inequívoco no texto atual é autoridade sobre um
+    // `trend` emitido pelo compilador. Tendência real continua protegida porque
+    // o resolver a classifica como `trend`, não como `habitual`.
+    const correctsCompilerTrend = (aspect.aspect === "habitual" || aspect.aspect === "last_n_complete")
+      && q.time.aspect === "trend";
+    if (!INFERRED_ASPECTS.has(String(q.time.aspect)) && !correctsCompilerTrend) return q;
     changed.push(q.id);
     const windowed = aspect.aspect === "habitual" || aspect.aspect === "last_n_complete";
     return {

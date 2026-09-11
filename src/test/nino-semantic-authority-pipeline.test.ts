@@ -71,6 +71,27 @@ describe("applyTurnAspect — o aspecto do turno desce para a query", () => {
     const out = applyTurnAspect(normalizeToV3(base as never, { today: "2026-03-12" }), "quanto eu gasto por mês?", NOW);
     expect(out.ir.queries[0].time.aspect).toBe("point_in_time");
   });
+
+  it("corrige trend indevido quando o texto atual pede hábito mensal", () => {
+    const base = irV2({
+      queries: [{
+        id: "q1", metric: "expense_amount", operation: "trend",
+        filters: [{ field: "category", op: "eq", value: "Transporte" }],
+        group_by: [], limit: null, depends_on: [],
+      }],
+    });
+    const out = applyTurnAspect(
+      normalizeToV3(base as never, { today: "2026-03-12" }),
+      "Nino quanto que eu gasto aproximadamente por mês com transporte?",
+      NOW,
+    );
+    expect(out.applied).toBe(true);
+    expect(out.ir.queries[0]).toMatchObject({
+      filters: [{ field: "category", value: "Transporte" }],
+      time: { aspect: "habitual", from: "2025-09-01", to: "2026-02-28", exclude_partial: true },
+      grain: "month", reduce: "typical",
+    });
+  });
 });
 
 describe("executedIRFrom — verdade do que a engine rodou", () => {
@@ -191,5 +212,90 @@ describe("runSemanticTurn — handler de gasto típico mensal", () => {
     expect(out.telemetry.executed_by).toBe("typical_monthly_handler");
     expect(out.turn?.reply).toContain("por mês");
     expect(out.preservation?.compatible).toBe(true);
+  });
+
+  it("resolve a frase real no fast path, sem compilador nem engine comparativa", async () => {
+    let compileCalls = 0;
+    let engineCalls = 0;
+    let typicalCalls = 0;
+    const out = await runSemanticTurn(
+      input({
+        text: "Nino quanto que eu gasto aproximadamente por mês com transporte?",
+        previous_query: "quanto eu gasto com alimentação aproximadamente por mês",
+        constraints: { period: true, dimension: false, entity: true },
+        typical_monthly_enabled: true,
+        preservation_enforced: true,
+      }) as never,
+      {
+        ...DEPS_BASE,
+        compile: async () => {
+          compileCalls += 1;
+          return { ir: null, telemetry: null };
+        },
+        runEngine: async () => {
+          engineCalls += 1;
+          throw new Error("compare_financial_metric_nao_deveria_rodar");
+        },
+        runTypicalMonthly: async (query: never) => {
+          typicalCalls += 1;
+          const requested = query as { filters: unknown[] };
+          return {
+            text: "Seu gasto típico com Transporte é de R$ 1.588 por mês.",
+            engine: "typical_monthly_expense",
+            result: { headline: 1587.3, months_with_data: 6 },
+            executed_ir: {
+              metric: "expense_amount", filters: requested.filters,
+              time: { aspect: "habitual", from: "2025-09-01", to: "2026-02-28", n: 6, exclude_partial: true },
+              grain: "month", reduce: "typical", group_by: [], partial: false,
+            },
+          };
+        },
+      } as never,
+    );
+    expect(compileCalls).toBe(0);
+    expect(engineCalls).toBe(0);
+    expect(typicalCalls).toBe(1);
+    expect(out.telemetry).toMatchObject({
+      fast_path: true, executed_by: "typical_monthly_handler", early_exit_stage: "typical_monthly",
+    });
+    expect(out.ir_v3?.queries[0].filters).toEqual([{ field: "category", op: "eq", value: "transporte" }]);
+    expect(out.preservation?.compatible).toBe(true);
+  });
+
+  it("categoria inexistente encerra com clarificação específica e sem fallback genérico", async () => {
+    let engineCalls = 0;
+    const out = await runSemanticTurn(
+      input({ text: "quanto eu gasto por mês com foguetes?", typical_monthly_enabled: true }) as never,
+      {
+        ...DEPS_BASE,
+        runEngine: async () => {
+          engineCalls += 1;
+          throw new Error("nao_deveria_rodar");
+        },
+        runTypicalMonthly: async () => ({ domain_error: "category_not_found" }),
+      } as never,
+    );
+    expect(engineCalls).toBe(0);
+    expect(out.telemetry).toMatchObject({ executed_by: "honest_domain_failure", early_exit_stage: "typical_monthly" });
+    expect(out.turn?.reply).toContain("categoria");
+    expect(out.turn?.reply).not.toBe(PRESERVATION_FAILURE_REPLY);
+  });
+
+  it("falha do handler não dispara uma segunda ferramenta incompatível", async () => {
+    let engineCalls = 0;
+    const out = await runSemanticTurn(
+      input({ text: "quanto eu gasto por mês com transporte?", typical_monthly_enabled: true }) as never,
+      {
+        ...DEPS_BASE,
+        runEngine: async () => {
+          engineCalls += 1;
+          throw new Error("nao_deveria_rodar");
+        },
+        runTypicalMonthly: async () => { throw new Error("database_unavailable"); },
+      } as never,
+    );
+    expect(engineCalls).toBe(0);
+    expect(out.telemetry).toMatchObject({ executed_by: "typical_monthly_failed", early_exit_stage: "typical_monthly" });
+    expect(out.turn?.reply).toBe("falha honesta");
   });
 });

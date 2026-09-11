@@ -11,7 +11,7 @@ import { executableOntologyText } from "./IRCapabilityAdapter.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
 
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
 
 export type SemanticCompilerTelemetry = {
   model: string | null;
@@ -108,6 +108,17 @@ function compilerTool(maxQueries: number) {
   } as const;
 }
 
+function responsesCompilerTool(maxQueries: number) {
+  const tool = compilerTool(maxQueries).function;
+  return {
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    strict: false,
+  } as const;
+}
+
 const SYSTEM = `Você é o compilador semântico do Nino, um agente financeiro pessoal.
 Sua única tarefa é traduzir a pergunta para Financial Query IR.
 NÃO responda ao usuário. NÃO escolha, mencione ou invente tools/functions.
@@ -176,8 +187,6 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
   }
 
   const started = Date.now();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
     const user = [
       input.previous_query ? `Pergunta factual anterior:\n${input.previous_query}` : "",
@@ -204,17 +213,36 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       },
       body: JSON.stringify({
         model: input.model,
-        messages: [{ role: "system", content: systemPrompt(maxQueries) }, { role: "user", content: user }],
-        tools: [compilerTool(maxQueries)],
-        tool_choice: { type: "function", function: { name: "emit_financial_query_ir" } },
-        temperature: 0,
+        input: [
+          { role: "developer", content: systemPrompt(maxQueries) },
+          { role: "user", content: user },
+        ],
+        tools: [responsesCompilerTool(maxQueries)],
+        tool_choice: { type: "function", name: "emit_financial_query_ir" },
+        stream: true,
+        store: false,
+        reasoning: { effort: "low", summary: "concise" },
+        include: ["reasoning.encrypted_content"],
       }),
-
-      signal: controller.signal,
     });
     const text = await response.text();
     let body: any = null;
-    try { body = JSON.parse(text); } catch { /* handled below */ }
+    let functionArguments = "";
+    for (const line of text.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const event = JSON.parse(payload);
+        if (event.type === "response.function_call_arguments.delta") {
+          functionArguments += String(event.delta ?? "");
+        }
+        if (event.type === "response.function_call_arguments.done" && event.arguments) {
+          functionArguments = String(event.arguments);
+        }
+        if (event.type === "response.completed") body = event.response ?? body;
+      } catch { /* ignora linhas SSE incompletas */ }
+    }
 
     if (!response.ok || !body) {
       const error = `semantic_compiler_gateway_${response.status || "bad_json"}`;
@@ -249,8 +277,11 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       }, body);
     }
 
-    const call = body?.choices?.[0]?.message?.tool_calls?.[0];
-    if (call?.function?.name !== "emit_financial_query_ir") {
+    const call = (body?.output ?? []).find((item: any) =>
+      item?.type === "function_call" && item?.name === "emit_financial_query_ir"
+    );
+    const rawArguments = functionArguments || String(call?.arguments ?? "");
+    if (!rawArguments) {
       return {
         ir: null,
         telemetry: {
@@ -261,7 +292,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
     }
 
     let args: unknown;
-    try { args = JSON.parse(String(call.function.arguments ?? "{}")); }
+    try { args = JSON.parse(rawArguments); }
     catch {
       return {
         ir: null,
@@ -304,9 +335,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
     };
 
   } catch (error) {
-    const code = error instanceof DOMException && error.name === "AbortError"
-      ? "semantic_compiler_timeout"
-      : "semantic_compiler_error";
+    const code = "semantic_compiler_error";
     if (input.sb) {
       await recordAiUsage(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run",
@@ -323,7 +352,5 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         latency_ms: Date.now() - started, ok: false, error: code, source: "llm",
       },
     };
-  } finally {
-    clearTimeout(timeout);
   }
 }

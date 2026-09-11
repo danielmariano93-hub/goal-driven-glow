@@ -16,6 +16,7 @@ import {
 import {
   resolveTimeAspectPt, lastCompleteMonths, HABITUAL_WINDOW_MONTHS,
 } from "../../supabase/functions/_shared/analytics/periodResolver";
+import { fastFinancialIR } from "../../supabase/functions/_shared/agent/core/FinancialQueryIR";
 import {
   typicalMonthlyPolicy, monthsInWindow, median, mean,
   typicalMonthlyExecutedIR,
@@ -68,6 +69,41 @@ describe("resolveTimeAspectPt — hábito vs recorte pontual", () => {
     expect(r.from).toBe("2026-03-01");
     expect(r.assumption).toContain("6 meses completos");
     expect(r.ambiguous).toBe(false);
+  });
+
+  it("'aproximadamente por mês com transporte' preserva hábito e exclui o mês parcial", () => {
+    const r = resolveTimeAspectPt("Nino quanto que eu gasto aproximadamente por mês com transporte?", NOW);
+    expect(r.aspect).toBe("habitual");
+    expect(r.reduce).toBe("typical");
+    expect(r.from).toBe("2026-03-01");
+    expect(r.to).toBe("2026-08-31");
+    expect(r.exclude_partial).toBe(true);
+  });
+
+  it("a frase real entra no fast path com a categoria preservada", () => {
+    const ir = fastFinancialIR(
+      "Nino quanto que eu gasto aproximadamente por mês com transporte?",
+      { from: "2026-09-01", to: "2026-09-11", label: "este mês" },
+    );
+    expect(ir?.source).toBe("fast_path");
+    expect(ir?.queries[0]).toMatchObject({
+      metric: "expense_amount", operation: "value",
+      filters: [{ field: "category", op: "eq", value: "transporte" }],
+    });
+  });
+
+  it("em setembro usa março a agosto e nunca inclui o mês corrente", () => {
+    const september = new Date("2026-09-11T15:32:43Z");
+    const r = resolveTimeAspectPt("quanto gasto por mês com transporte?", september);
+    expect(r).toMatchObject({
+      aspect: "habitual", from: "2026-03-01", to: "2026-08-31",
+      n: 6, exclude_partial: true, reduce: "typical",
+    });
+  });
+
+  it("não confunde mês atual nem evolução mensal com gasto habitual", () => {
+    expect(resolveTimeAspectPt("quanto gastei este mês com transporte?", NOW).aspect).toBe("mtd");
+    expect(resolveTimeAspectPt("como foi minha evolução mensal com transporte?", NOW).aspect).toBe("trend");
   });
 
   it("'quanto gastei' sem período é MTD e AMBÍGUO (default declarado, não fato)", () => {

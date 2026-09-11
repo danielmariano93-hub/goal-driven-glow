@@ -1050,7 +1050,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       }, {
         compile: (args) => compileFinancialQuery({
           text: args.text,
-          model: "google/gemini-3.6-flash",
+          model: "openai/gpt-6-astra",
           period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
           comparison_period: turnPlan.previous_period,
           previous_query: args.previous_query,
@@ -1075,7 +1075,8 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
             ? await resolveCategoryIdsByName(sb, input.user_id, String(label))
             : null;
           // Categoria pedida que não existe na base não vira leitura global.
-          if (label && (!categoryIds || !categoryIds.length)) return null;
+          if (label && (!categoryIds || !categoryIds.length)) return { domain_error: "category_not_found" as const };
+          if (label && categoryIds && categoryIds.length > 1) return { domain_error: "category_ambiguous" as const };
           const window = {
             from: query.time.from!, to: query.time.to!,
             n: query.time.n ?? 6,
@@ -1215,7 +1216,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     const outcome = await guard(
       () => compileFinancialQuery({
         text: turnPlan.effective_text,
-        model: "google/gemini-3.6-flash",
+        model: "openai/gpt-6-astra",
         period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
         comparison_period: turnPlan.previous_period,
         previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
