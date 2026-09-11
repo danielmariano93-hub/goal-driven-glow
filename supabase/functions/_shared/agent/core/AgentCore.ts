@@ -884,7 +884,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     humanReading = await guard(
       () => understandHumanMessage({
         text: input.text,
-        model: "google/gemini-3.6-flash",
+        model: "openai/gpt-6-astra",
         sb,
         user_id: input.user_id,
         run_id: run_id ?? null,
@@ -1658,7 +1658,7 @@ ${episodic}
     // Resolução de continuidade continua com o histórico completo do turno.
     history, capability, evidenceCache,
   }, {
-    model: prompt?.model ?? "google/gemini-2.5-flash",
+    model: "openai/gpt-6-astra",
     maxSteps: prompt?.max_steps ?? 6,
     temperature: prompt?.temperature ?? 0.2,
     systemPrompt,
