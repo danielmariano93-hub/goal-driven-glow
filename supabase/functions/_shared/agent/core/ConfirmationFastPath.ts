@@ -12,6 +12,13 @@ import { classifyConfirmationAct, type ConfirmationAct } from "./ConfirmationVoc
 
 export type PendingState = "fresh" | "expired" | "confirmed" | "cancelled" | "none";
 
+/**
+ * Janela em que um rascunho já resolvido/expirado ainda explica um "sim"/"não"
+ * curto. Fora dela, a palavra pertence à conversa, não à confirmação.
+ */
+export const RECENT_PENDING_WINDOW_MS = 30 * 60 * 1000;
+
+
 export type FastPathOutcome = {
   handled: boolean;
   reply: string;
@@ -85,25 +92,36 @@ export async function runConfirmationFastPath(
     return idle({ pending_state: state, pending_id: row.id, pending_kind: row.kind, act });
   }
 
-  // Sem rascunho fresco: nada é escrito, mas a resposta é determinística e
-  // específica — nunca vai para a camada de análise nem nega capability.
+  // Sem rascunho fresco o fast path NÃO pode engolir o turno: "sim", "pode",
+  // "tudo certo" também são respostas a perguntas do Nino (check-in emocional,
+  // "quer ver o resumo?"). Só respondemos de forma determinística quando existe
+  // um rascunho recente cujo estado explica a confirmação; fora disso o
+  // pipeline normal continua.
   if (state !== "fresh" || !row) {
     if (act === "ambiguous") return idle({ pending_state: state, act });
+    const referenceAt = row ? new Date(row.expires_at).getTime() : 0;
+    const recent = Boolean(row) && Number.isFinite(referenceAt) &&
+      Date.now() - referenceAt < RECENT_PENDING_WINDOW_MS;
+    if (!row || !recent || state === "none") {
+      return idle({
+        pending_state: state, act,
+        pending_id: row?.id ?? null, pending_kind: row?.kind ?? null,
+      });
+    }
     const reply =
       state === "expired"
         ? "Esse rascunho já expirou por aqui. Me manda de novo que eu monto na hora."
         : state === "confirmed"
         ? "Esse lançamento já está salvo. Não precisa confirmar de novo. ✅"
-        : state === "cancelled"
-        ? "Esse rascunho foi cancelado. Se quiser registrar, me conta de novo."
-        : "Não tenho nada pendente pra confirmar agora. Me conta a operação primeiro (ex.: “gastei 42,90 no almoço hoje”).";
+        : "Esse rascunho foi cancelado. Se quiser registrar, me conta de novo.";
     return {
       handled: true, reply,
       reply_kind: state === "expired" ? "expired" : "info",
-      act, pending_state: state, pending_id: row?.id ?? null, pending_kind: row?.kind ?? null,
+      act, pending_state: state, pending_id: row.id, pending_kind: row.kind,
       execution_ms: 0, llm_calls: 0, tokens: 0, error: null,
     };
   }
+
 
   // Ambíguo com rascunho vivo: pergunta. Nunca escreve por palpite.
   if (act === "ambiguous") {

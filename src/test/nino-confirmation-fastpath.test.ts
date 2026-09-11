@@ -133,19 +133,41 @@ describe("B–E) estados da pendência", () => {
     expect(sb._state.rpcCalls).toEqual([]);
   });
 
-  it("E) cancelado e nunca houve rascunho têm respostas distintas", async () => {
+  it("E) cancelado responde; sem rascunho algum o turno segue no pipeline", async () => {
     const cancelled = fakeSb([pending({ status: "cancelled" })]);
     const a = await runConfirmationFastPath(cancelled, {
       user_id: "u1", conversation_id: "c1", inbound_message_id: "in-4", text: "salvar",
     });
     expect(a.pending_state).toBe("cancelled");
+    expect(a.handled).toBe(true);
     const none = fakeSb([]);
     const b = await runConfirmationFastPath(none, {
       user_id: "u1", conversation_id: "c1", inbound_message_id: "in-5", text: "salvar",
     });
     expect(b.pending_state).toBe("none");
+    expect(b.handled).toBe(false);
     expect(b.reply).not.toBe(a.reply);
   });
+
+  it("E2) 'sim'/'tudo certo' sem pendência não vira beco sem saída", async () => {
+    for (const text of ["sim", "pode", "tudo certo", "beleza", "não"]) {
+      const out = await runConfirmationFastPath(fakeSb([]), {
+        user_id: "u1", conversation_id: "c1", inbound_message_id: "in-x", text,
+      });
+      expect(out.handled).toBe(false);
+      expect(out.reply).toBe("");
+    }
+  });
+
+  it("E3) rascunho antigo já resolvido não sequestra um 'sim' de conversa", async () => {
+    const old = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+    const out = await runConfirmationFastPath(
+      fakeSb([pending({ status: "confirmed", expires_at: old })]),
+      { user_id: "u1", conversation_id: "c1", inbound_message_id: "in-6", text: "pode" },
+    );
+    expect(out.handled).toBe(false);
+  });
+
 });
 
 // ------------------------------------------------------- F) corrida/idempotência
