@@ -12,6 +12,13 @@ import { classifyConfirmationAct, type ConfirmationAct } from "./ConfirmationVoc
 
 export type PendingState = "fresh" | "expired" | "confirmed" | "cancelled" | "none";
 
+/**
+ * Janela em que um rascunho já resolvido/expirado ainda explica um "sim"/"não"
+ * curto. Fora dela, a palavra pertence à conversa, não à confirmação.
+ */
+export const RECENT_PENDING_WINDOW_MS = 30 * 60 * 1000;
+
+
 export type FastPathOutcome = {
   handled: boolean;
   reply: string;
