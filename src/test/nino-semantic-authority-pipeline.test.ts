@@ -18,7 +18,7 @@ const PERIOD = { from: "2026-03-01", to: "2026-03-12", label: "este mês até ho
 function irV2(overrides?: Partial<Record<string, unknown>>) {
   return {
     version: "financial_query_ir.v2",
-    intent: "read",
+    intent: "lookup",
     queries: [{
       id: "q1",
       metric: "expense_amount",
