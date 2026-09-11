@@ -85,7 +85,7 @@ Patch único, em cima do `semantic_ir_v3` atual. Sem quarto pipeline, sem reescr
 ### Fase 9 — Telemetria
 
 - `core/ExecutionTrace.ts` / `core/Observability.ts` / `core/AiStageMetrics.ts`: trace por READ com `dialogue_act`, `requested_ir`, `executed_ir`, `compatible`, `semantic_path/handler`, decisões dos resolvers, `ambiguous_slots`, `repair_slots`, resultado do grounding, `structural_mismatch`, `repair_after_answer_rate`, e latências de compiler/resolvers/engine/backend/critical path.
-- Migration: **apenas aditiva** em `agent_runs` para as novas colunas de trace, via repositório. Nenhuma tabela nova (workflow vive no state da sessão). Nenhuma alteração manual no painel e nenhum dado real tocado.
+- Migrations: aditiva em `agent_runs` (colunas de trace) + criação de `pending_write_workflows` com RLS/GRANTs. Nenhuma alteração de dado financeiro real, nenhum backfill destrutivo.
 
 ## Testes e critérios de aceite
 
