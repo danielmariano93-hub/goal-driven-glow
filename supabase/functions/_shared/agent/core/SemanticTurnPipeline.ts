@@ -37,6 +37,16 @@ import {
 } from "./ConversationTopicState.ts";
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
 import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
+import {
+  isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
+  type FinancialQueryIRv3, type FinancialQueryV3,
+} from "./FinancialIRv3.ts";
+import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
+import { executedIRFrom } from "./ExecutedIRBridge.ts";
+import {
+  planPreservation, PRESERVATION_FAILURE_REPLY,
+  type ExecutedIR, type PreservationResult,
+} from "./SemanticPreservation.ts";
 
 export type SemanticPipelineTurn = { reply: string; toolCalls: any[] };
 
@@ -52,6 +62,10 @@ export type SemanticPipelineResult = {
   status: SemanticStatus;
   ir: FinancialQueryIR | null;
   ir_v2: FinancialQueryIRv2 | null;
+  /** IR composicional (`financial_query_ir.v3`) — verdade executável do turno. */
+  ir_v3: FinancialQueryIRv3 | null;
+  /** Compatibilidade pedido-vs-executado do turno. */
+  preservation: PreservationResult | null;
   validation: PlanValidation | null;
   turn: SemanticPipelineTurn | null;
   deterministic_text: string | null;
@@ -87,6 +101,17 @@ export type SemanticPipelineDeps = {
   /** Opções canônicas do slot — sempre do banco do usuário, nunca da LLM. */
   loadOptions: (slot: string) => Promise<string[]>;
   recordStage: (telemetry: SemanticCompilerTelemetry, stage: "semantic_compiler" | "investigation_replan") => void;
+  /**
+   * Handler determinístico de gasto típico mensal. Recebe a query v3 já
+   * resolvida e devolve o texto pronto + o `executed_ir` real. Ausente = o
+   * turno segue pelo caminho de engines normal.
+   */
+  runTypicalMonthly?: (query: FinancialQueryV3) => Promise<{
+    text: string;
+    executed_ir: ExecutedIR;
+    engine: string;
+    result: unknown;
+  } | null>;
 };
 
 export type SemanticPipelineInput = {
@@ -101,6 +126,12 @@ export type SemanticPipelineInput = {
   max_queries?: number;
   /** Loop de investigação (replan) habilitado por flag. */
   investigation_enabled?: boolean;
+  /** Relógio do turno — injetado para o resolver temporal ser testável. */
+  now?: Date;
+  /** `semantic_preservation_v1`: mismatch pedido-vs-executado BLOQUEIA. */
+  preservation_enforced?: boolean;
+  /** `typical_monthly_v1`: handler determinístico de gasto típico mensal. */
+  typical_monthly_enabled?: boolean;
   failure_reply: string;
 };
 
@@ -185,7 +216,7 @@ export async function runSemanticTurn(
       return {
         version: "nino_semantic_ir.v3",
         status: "clarification_required",
-        ir: null, ir_v2: null, validation: null,
+        ir: null, ir_v2: null, ir_v3: null, preservation: null, validation: null,
         turn: { reply: question.reply, toolCalls: [] },
         deterministic_text: null, engines: [],
         topic_state: state, topic_id: pending.topic_id, rescue: null, errors,
@@ -253,6 +284,30 @@ export async function runSemanticTurn(
   let validation = irV2 ? validateFinancialPlan(irV2) : null;
   let status = deriveSemanticStatus({ ir: irV2, validation });
 
+  // ---- 3b. IR composicional v3 + aspecto temporal determinístico ----------
+  // O período deixa de ser envelope do turno e passa a ser propriedade de CADA
+  // query; o aspecto (hábito, meses fechados, projeção, tendência) sai do
+  // resolver pt-BR, nunca da LLM.
+  const now = input.now ?? new Date();
+  const today = now.toISOString().slice(0, 10);
+  let irV3: FinancialQueryIRv3 | null = null;
+  let irV3Errors: string[] = [];
+  let aspectApplied = false;
+  let aspectName: string | null = null;
+  let preservation: PreservationResult | null = null;
+  if (irV2) {
+    const overlay = applyTurnAspect(
+      normalizeToV3(irV2, { today }),
+      input.text,
+      now,
+    );
+    irV3 = overlay.ir;
+    aspectApplied = overlay.applied;
+    aspectName = overlay.aspect.aspect;
+    irV3Errors = validateFinancialIRv3(irV3);
+    if (irV3Errors.length) errors.push(...irV3Errors.map((e) => `ir_v3:${e}`));
+  }
+
   const baseTelemetry = (): Record<string, unknown> => ({
     version: "nino_semantic_ir.v3",
     semantic_status: status,
@@ -276,6 +331,20 @@ export async function runSemanticTurn(
     mapped_tools: validation?.mapped.map((m) => m.tool) ?? [],
     plan_errors: validation?.errors ?? [],
     compiler: compilerTelemetry,
+    ir_v3: irV3
+      ? {
+        version: irV3.version,
+        aspect: aspectName,
+        aspect_overlay_applied: aspectApplied,
+        errors: irV3Errors,
+        queries: irV3.queries.map((q) => ({
+          id: q.id, metric: q.metric, aspect: q.time.aspect, grain: q.grain,
+          reduce: q.reduce, from: q.time.from, to: q.time.to,
+          exclude_partial: q.time.exclude_partial,
+          filters: q.filters.map((f) => `${f.field}=${String(f.value)}`),
+        })),
+      }
+      : null,
     ...(pendingTelemetry ?? {}),
   });
 
@@ -298,7 +367,7 @@ export async function runSemanticTurn(
     );
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: { reply: question.reply, toolCalls: [] },
       deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
@@ -321,7 +390,7 @@ export async function runSemanticTurn(
     const gaps = ontologyGaps(irV2, validation);
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       // Sem `turn`: quem decide é o AgentCore — motor canônico do turno, se
       // existir; senão o texto honesto abaixo, com o motivo VERDADEIRO.
       turn: null,
@@ -345,11 +414,53 @@ export async function runSemanticTurn(
   if (status !== "executable" || !irV2 || !validation) {
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: null, deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
       telemetry: { ...baseTelemetry(), executed_by: "legacy_router", action_planner_used_for_tool_choice: true },
     };
+  }
+
+  // ---- 6b. Handler determinístico: gasto típico mensal por categoria ------
+  // "quanto eu gasto por mês com alimentação?" não é soma de recorte: é
+  // estatística de meses FECHADOS, com mediana declarada e ressalva de
+  // cobertura. Antes essa pergunta era respondida com o mês corrente parcial.
+  const typicalQuery = irV3?.queries.length === 1 && isTypicalMonthlyShape(irV3.queries[0])
+    ? irV3.queries[0]
+    : null;
+  if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {
+    const handled = await deps.runTypicalMonthly(typicalQuery).catch(() => null);
+    if (handled) {
+      preservation = planPreservation([{ requested: typicalQuery, executed: handled.executed_ir }]);
+      const blocked = input.preservation_enforced === true && !preservation.compatible;
+      state = upsertTopic(state, {
+        ...topic, ir: irV2,
+        execution_summary: { engines: [handled.engine], complete: !blocked },
+        status: blocked ? "open" : "answered",
+        updated_at: new Date().toISOString(),
+      }, true);
+      return {
+        version: "nino_semantic_ir.v3",
+        status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+        turn: {
+          reply: blocked ? PRESERVATION_FAILURE_REPLY : handled.text,
+          toolCalls: [{
+            step_index: 1, tool_name: handled.engine, args: { query_id: typicalQuery.id },
+            result: handled.result, ok: true, duration_ms: 0, error: null,
+          }],
+        },
+        deterministic_text: blocked ? null : handled.text,
+        engines: [handled.engine],
+        topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+        telemetry: {
+          ...baseTelemetry(),
+          typical_monthly: { ran: true, blocked },
+          preservation: { compatible: preservation.compatible, mismatches: preservation.mismatches },
+          executed_by: blocked ? "preservation_blocked" : "typical_monthly_handler",
+          action_planner_used_for_tool_choice: false,
+        },
+      };
+    }
   }
 
   // ---- 7. Execução determinística + investigação --------------------------
@@ -400,10 +511,29 @@ export async function runSemanticTurn(
   // ---- 8. Resposta determinística + Grounding ----------------------------
   const deterministic = deterministicTextOf(execution);
   const grounding: GroundingResult | null = deterministic ? groundReply({ reply: deterministic, claims }) : null;
+
+  // Preservação pedido-vs-executado: a MESMA função usada pelo planner e pelo
+  // grounding. Filtro perdido, janela trocada ou estatística diferente do que
+  // foi pedido não é "aproximação" — é resposta a outra pergunta.
+  if (irV3) {
+    const byQuery = new Map(execution.outcomes.map((o) => [o.query_id, o]));
+    preservation = planPreservation(irV3.queries.map((q) => {
+      const outcome = byQuery.get(q.id);
+      const executed: ExecutedIR | null = outcome?.status === "ok"
+        ? executedIRFrom(q, outcome.result)
+        : null;
+      return { requested: q, executed };
+    }));
+  }
+  const preservationBlocked = input.preservation_enforced === true
+    && !!preservation && !preservation.compatible;
+
   const okToAnswer = !!deterministic
     && (completeness.complete || completeness.partial_allowed)
-    && (!grounding || grounding.ok);
+    && (!grounding || grounding.ok)
+    && !preservationBlocked;
   if (!okToAnswer) errors.push("semantic_gate_blocked");
+  if (preservationBlocked) errors.push("preservation_mismatch");
 
   // Falha de DOMÍNIO (entidade inexistente) não é falha de infraestrutura: a
   // resposta honesta e específica sai aqui mesmo, sem devolver autoridade ao
@@ -422,7 +552,7 @@ export async function runSemanticTurn(
     }, true);
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: { reply: honest, toolCalls: toolCallsOf(execution) },
       deterministic_text: honest,
       engines: execution.engines,
@@ -435,6 +565,28 @@ export async function runSemanticTurn(
         },
         domain_failure: { error: domainFailure.error, slot, options_count: options.length },
         executed_by: "honest_domain_failure",
+        action_planner_used_for_tool_choice: false,
+      },
+    };
+  }
+
+  if (preservationBlocked) {
+    state = upsertTopic(state, {
+      ...topic, ir: irV2,
+      execution_summary: { engines: execution.engines, complete: false },
+      status: "open", updated_at: new Date().toISOString(),
+    }, true);
+    return {
+      version: "nino_semantic_ir.v3",
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+      turn: { reply: PRESERVATION_FAILURE_REPLY, toolCalls: toolCallsOf(execution) },
+      deterministic_text: null,
+      engines: execution.engines,
+      topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+      telemetry: {
+        ...baseTelemetry(),
+        preservation: { compatible: false, enforced: true, mismatches: preservation!.mismatches },
+        executed_by: "preservation_blocked",
         action_planner_used_for_tool_choice: false,
       },
     };
@@ -483,6 +635,9 @@ export async function runSemanticTurn(
         missing: completeness.missing_targets.map((m) => m.id),
       },
       grounding: grounding ? { ok: grounding.ok, violations: grounding.violations } : null,
+      preservation: preservation
+        ? { compatible: preservation.compatible, enforced: input.preservation_enforced === true, mismatches: preservation.mismatches }
+        : null,
       investigation: wantsInvestigation
         ? { ran: true, replan_count: replanCount, max_replans: MAX_REPLANS, reasons: replanReasons, timed_out: investigationTimedOut }
         : { ran: false },

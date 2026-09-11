@@ -72,6 +72,9 @@ import { runTool } from "./ToolRuntime.ts";
 import { createTurnEvidenceCache, isWriteTool } from "./TurnEvidenceCache.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
+import {
+  loadMonthlyExpenseBuckets, typicalMonthlyExecutedIR, typicalMonthlyPolicy, typicalMonthlyText,
+} from "./handlers/TypicalMonthlyHandler.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
 import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
 import { rescueCapabilityDenial } from "./CapabilityRescue.ts";
@@ -1017,6 +1020,10 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     const multiQuery = await isEnabled("semantic_ir_multiquery_v1", input.user_id);
     const investigation = await isEnabled("semantic_investigation_loop_v1", input.user_id);
     const topicStateEnabled = await isEnabled("semantic_topic_state_v1", input.user_id);
+    // `nino_semantic_ir.v4`: preservação e handler típico entram por flag
+    // própria, sem tocar no rollout do v3.
+    const preservationEnforced = await isEnabled("semantic_preservation_v1", input.user_id);
+    const typicalMonthly = await isEnabled("typical_monthly_v1", input.user_id);
     const storedState = topicStateEnabled && session_id
       ? await guard(
         async () => (await getState(sb, session_id))?.semantic_topic_state ?? null,
@@ -1036,6 +1043,8 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         topic_state: storedState,
         max_queries: multiQuery ? MAX_IR_QUERIES : 1,
         investigation_enabled: investigation,
+        preservation_enforced: preservationEnforced,
+        typical_monthly_enabled: typicalMonthly,
         failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
       }, {
         compile: (args) => compileFinancialQuery({
@@ -1058,6 +1067,31 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
             tool, args, { timeoutMs: 12_000, maxRetries: 1 },
           );
           return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
+        },
+        runTypicalMonthly: async (query) => {
+          const label = query.filters.find((f) => f.field === "category")?.value ?? null;
+          const categoryIds = label
+            ? await resolveCategoryIdsByName(sb, input.user_id, String(label))
+            : null;
+          // Categoria pedida que não existe na base não vira leitura global.
+          if (label && (!categoryIds || !categoryIds.length)) return null;
+          const window = {
+            from: query.time.from!, to: query.time.to!,
+            n: query.time.n ?? 6,
+          };
+          const buckets = await loadMonthlyExpenseBuckets(sb, {
+            user_id: input.user_id, from: window.from, to: window.to, category_ids: categoryIds,
+          });
+          const result = typicalMonthlyPolicy({
+            buckets, window,
+            preferred: query.reduce === "mean" ? "mean" : "typical",
+          });
+          return {
+            text: typicalMonthlyText(result, label ? String(label) : null),
+            executed_ir: typicalMonthlyExecutedIR(query, result),
+            engine: "typical_monthly_expense",
+            result,
+          };
         },
         loadOptions: async (slot) => (await loadClarificationOptions({ sb, user_id: input.user_id, slot })).options,
         recordStage: (telemetry, stage) => {

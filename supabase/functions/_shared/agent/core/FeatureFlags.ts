@@ -47,7 +47,13 @@ export type FlagName =
   // continuidade de assunto. Nascem desligadas, com rollout fail-closed.
   | "adaptive_execution_v1"
   | "conversation_threads_v1"
-  | "semantic_topic_retrieval_v1";
+  | "semantic_topic_retrieval_v1"
+  // `nino_semantic_ir.v4` — IR composicional, preservação pedido-vs-executado
+  // e handler de gasto típico mensal. Nascem desligadas (fail-closed).
+  | "semantic_ir_v4"
+  | "semantic_preservation_v1"
+  | "typical_monthly_v1"
+  | "write_workflow_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -75,6 +81,10 @@ const DEFAULTS: Record<FlagName, boolean> = {
   adaptive_execution_v1: false,
   conversation_threads_v1: false,
   semantic_topic_retrieval_v1: false,
+  semantic_ir_v4: false,
+  semantic_preservation_v1: false,
+  typical_monthly_v1: false,
+  write_workflow_v1: false,
 };
 
 /**
