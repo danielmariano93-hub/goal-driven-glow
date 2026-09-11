@@ -48,7 +48,6 @@ export function fastPathIR(args: {
 }): FinancialQueryIR | null {
   if (args.acts.includes("repair") || args.acts.includes("clarification")) return null;
   if (args.acts.includes("constraint_update") || args.acts.includes("followup")) return null;
-  if (args.constraints.period || args.constraints.dimension || args.constraints.entity) return null;
   const t = String(args.text ?? "").toLowerCase();
   if (/\b(por que|porque|por qu[eê]|compar|vs|versus|maior|mais|top|ranking|por categoria|por cart[aã]o|por conta|explica)\b/.test(t)) {
     return null;
@@ -57,6 +56,11 @@ export function fastPathIR(args: {
   if (!ir) return null;
   const q = ir.queries[0];
   if (!q) return null;
+  const typicalMonthlyExpense = q.metric === "expense_amount"
+    && q.filters.every((filter) => filter.field === "category")
+    && /\b(por|ao)\s+m[eê]s\b/i.test(args.text);
+  if (typicalMonthlyExpense) return ir;
+  if (args.constraints.period || args.constraints.dimension || args.constraints.entity) return null;
   if (q.group_by.length || q.filters.length) return null;
   if (!["value", "sum"].includes(q.operation)) return null;
   return ir;

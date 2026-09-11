@@ -185,7 +185,7 @@ export function blocksForTools(tools: readonly string[] | null | undefined): Pro
 export const DEFAULT_SYSTEM_PROMPT = composeSystemPrompt(["entry", "analytics", "advisory"]);
 
 
-export const DEFAULT_MODEL = "google/gemini-3.6-flash";
+export const DEFAULT_MODEL = "openai/gpt-6-astra";
 
 export type ActivePrompt = {
   id: string | null;
@@ -225,7 +225,9 @@ export async function loadActivePrompt(sb: SupabaseClient): Promise<ActivePrompt
   return {
     id: (data?.id as string | undefined) ?? null,
     system_prompt: composedPrompt,
-    model: String(modelRoute?.primary_model ?? data?.model ?? DEFAULT_MODEL),
+    // O runtime conversacional usa um único modelo obrigatório. Configurações
+    // antigas no banco não podem reintroduzir um modelo divergente.
+    model: DEFAULT_MODEL,
     temperature: Number(data?.temperature ?? 0.2),
     max_steps: Number(modelRoute?.max_steps ?? data?.max_steps ?? 6),
   };

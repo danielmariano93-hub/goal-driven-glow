@@ -11,3 +11,5 @@
 - [x] Carimbar a versão do runtime em todos os caminhos de agent_runs
 - [x] Cobrir o incidente completo e falhas do motor com testes executáveis
 - [x] Validar suíte, typecheck e contratos de deploy sem publicar
+- [x] Corrigir gasto mensal típico antes da IA e eliminar fallback incompatível
+- [x] Validar a frase real, orçamento de turno e regressões sem publicar

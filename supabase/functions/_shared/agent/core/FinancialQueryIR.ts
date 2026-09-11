@@ -127,6 +127,21 @@ export function fastFinancialIR(
     source: "fast_path",
     unsupported_reason: null,
   });
+  const typicalExpense = t.match(
+    /^(?:nino\s+)?(?:quanto(?:\s+que)?\s+)?(?:eu\s+)?(?:gasto|costumo\s+gastar|estou\s+gastando)(?:\s+aproximadamente|\s+em\s+media)?\s+(?:por|ao)\s+mes(?:\s+com\s+(.+?))?[?.!]*$/,
+  );
+  if (typicalExpense) {
+    const category = String(typicalExpense[1] ?? "").trim();
+    const ir = make("expense_amount", "q1.money");
+    return {
+      ...ir,
+      assumptions: ["aspecto habitual resolvido deterministicamente"],
+      queries: [{
+        ...ir.queries[0],
+        filters: category ? [{ field: "category", op: "eq", value: category }] : [],
+      }],
+    };
+  }
   if (/^(qual (e )?(o )?)?(meu )?saldo\??$/.test(t) || /^quanto (eu )?tenho disponivel\??$/.test(t)) {
     return make("balance", "q1.balance");
   }
