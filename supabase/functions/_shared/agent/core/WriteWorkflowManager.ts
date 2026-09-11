@@ -149,7 +149,7 @@ export async function saveWorkflow(
     status: "open",
     expires_at: expires,
     updated_at: new Date().toISOString(),
-  }, { onConflict: "conversation_id,status" });
+  }, { onConflict: "user_id,conversation_id" });
 }
 
 export async function closeWorkflow(
