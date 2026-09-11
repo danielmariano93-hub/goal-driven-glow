@@ -297,7 +297,7 @@ export async function runSemanticTurn(
   let preservation: PreservationResult | null = null;
   if (irV2) {
     const overlay = applyTurnAspect(
-      normalizeToV3(irV2, { acts: input.acts, topic_id: topic.topic_id } as never, ),
+      normalizeToV3(irV2, { today }),
       input.text,
       now,
     );
@@ -331,6 +331,20 @@ export async function runSemanticTurn(
     mapped_tools: validation?.mapped.map((m) => m.tool) ?? [],
     plan_errors: validation?.errors ?? [],
     compiler: compilerTelemetry,
+    ir_v3: irV3
+      ? {
+        version: irV3.version,
+        aspect: aspectName,
+        aspect_overlay_applied: aspectApplied,
+        errors: irV3Errors,
+        queries: irV3.queries.map((q) => ({
+          id: q.id, metric: q.metric, aspect: q.time.aspect, grain: q.grain,
+          reduce: q.reduce, from: q.time.from, to: q.time.to,
+          exclude_partial: q.time.exclude_partial,
+          filters: q.filters.map((f) => `${f.field}=${String(f.value)}`),
+        })),
+      }
+      : null,
     ...(pendingTelemetry ?? {}),
   });
 
@@ -405,6 +419,48 @@ export async function runSemanticTurn(
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
       telemetry: { ...baseTelemetry(), executed_by: "legacy_router", action_planner_used_for_tool_choice: true },
     };
+  }
+
+  // ---- 6b. Handler determinístico: gasto típico mensal por categoria ------
+  // "quanto eu gasto por mês com alimentação?" não é soma de recorte: é
+  // estatística de meses FECHADOS, com mediana declarada e ressalva de
+  // cobertura. Antes essa pergunta era respondida com o mês corrente parcial.
+  const typicalQuery = irV3?.queries.length === 1 && isTypicalMonthlyShape(irV3.queries[0])
+    ? irV3.queries[0]
+    : null;
+  if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {
+    const handled = await deps.runTypicalMonthly(typicalQuery).catch(() => null);
+    if (handled) {
+      preservation = planPreservation([{ requested: typicalQuery, executed: handled.executed_ir }]);
+      const blocked = input.preservation_enforced === true && !preservation.compatible;
+      state = upsertTopic(state, {
+        ...topic, ir: irV2,
+        execution_summary: { engines: [handled.engine], complete: !blocked },
+        status: blocked ? "open" : "answered",
+        updated_at: new Date().toISOString(),
+      }, true);
+      return {
+        version: "nino_semantic_ir.v3",
+        status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+        turn: {
+          reply: blocked ? PRESERVATION_FAILURE_REPLY : handled.text,
+          toolCalls: [{
+            step_index: 1, tool_name: handled.engine, args: { query_id: typicalQuery.id },
+            result: handled.result, ok: true, duration_ms: 0, error: null,
+          }],
+        },
+        deterministic_text: blocked ? null : handled.text,
+        engines: [handled.engine],
+        topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
+        telemetry: {
+          ...baseTelemetry(),
+          typical_monthly: { ran: true, blocked },
+          preservation: { compatible: preservation.compatible, mismatches: preservation.mismatches },
+          executed_by: blocked ? "preservation_blocked" : "typical_monthly_handler",
+          action_planner_used_for_tool_choice: false,
+        },
+      };
+    }
   }
 
   // ---- 7. Execução determinística + investigação --------------------------
