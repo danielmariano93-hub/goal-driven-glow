@@ -10020,6 +10020,63 @@ export type Database = {
           },
         ]
       }
+      pending_write_workflows: {
+        Row: {
+          asked_slot: string | null
+          conversation_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          kind: string
+          slots: Json
+          status: string
+          turns: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          asked_slot?: string | null
+          conversation_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind: string
+          slots?: Json
+          status?: string
+          turns?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          asked_slot?: string | null
+          conversation_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind?: string
+          slots?: Json
+          status?: string
+          turns?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_write_workflows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pending_write_workflows_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       phone_link_codes: {
         Row: {
           attempts: number

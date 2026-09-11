@@ -612,7 +612,7 @@ export async function runSemanticTurn(
 
   return {
     version: "nino_semantic_ir.v3",
-    status, ir, ir_v2: irV2, validation,
+    status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
     turn: okToAnswer ? { reply: deterministic, toolCalls: toolCallsOf(execution) } : null,
     deterministic_text: deterministic || null,
     engines: execution.engines,

@@ -73,7 +73,8 @@ import { createTurnEvidenceCache, isWriteTool } from "./TurnEvidenceCache.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
 import {
-  loadMonthlyExpenseBuckets, typicalMonthlyExecutedIR, typicalMonthlyPolicy, typicalMonthlyText,
+  loadMonthlyExpenseBuckets, resolveCategoryIdsByName, typicalMonthlyExecutedIR,
+  typicalMonthlyPolicy, typicalMonthlyText,
 } from "./handlers/TypicalMonthlyHandler.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
 import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
