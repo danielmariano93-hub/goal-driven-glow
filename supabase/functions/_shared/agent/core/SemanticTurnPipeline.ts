@@ -216,7 +216,7 @@ export async function runSemanticTurn(
       return {
         version: "nino_semantic_ir.v3",
         status: "clarification_required",
-        ir: null, ir_v2: null, validation: null,
+        ir: null, ir_v2: null, ir_v3: null, preservation: null, validation: null,
         turn: { reply: question.reply, toolCalls: [] },
         deterministic_text: null, engines: [],
         topic_state: state, topic_id: pending.topic_id, rescue: null, errors,
@@ -284,6 +284,30 @@ export async function runSemanticTurn(
   let validation = irV2 ? validateFinancialPlan(irV2) : null;
   let status = deriveSemanticStatus({ ir: irV2, validation });
 
+  // ---- 3b. IR composicional v3 + aspecto temporal determinístico ----------
+  // O período deixa de ser envelope do turno e passa a ser propriedade de CADA
+  // query; o aspecto (hábito, meses fechados, projeção, tendência) sai do
+  // resolver pt-BR, nunca da LLM.
+  const now = input.now ?? new Date();
+  const today = now.toISOString().slice(0, 10);
+  let irV3: FinancialQueryIRv3 | null = null;
+  let irV3Errors: string[] = [];
+  let aspectApplied = false;
+  let aspectName: string | null = null;
+  let preservation: PreservationResult | null = null;
+  if (irV2) {
+    const overlay = applyTurnAspect(
+      normalizeToV3(irV2, { acts: input.acts, topic_id: topic.topic_id } as never, ),
+      input.text,
+      now,
+    );
+    irV3 = overlay.ir;
+    aspectApplied = overlay.applied;
+    aspectName = overlay.aspect.aspect;
+    irV3Errors = validateFinancialIRv3(irV3);
+    if (irV3Errors.length) errors.push(...irV3Errors.map((e) => `ir_v3:${e}`));
+  }
+
   const baseTelemetry = (): Record<string, unknown> => ({
     version: "nino_semantic_ir.v3",
     semantic_status: status,
@@ -329,7 +353,7 @@ export async function runSemanticTurn(
     );
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: { reply: question.reply, toolCalls: [] },
       deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
@@ -352,7 +376,7 @@ export async function runSemanticTurn(
     const gaps = ontologyGaps(irV2, validation);
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       // Sem `turn`: quem decide é o AgentCore — motor canônico do turno, se
       // existir; senão o texto honesto abaixo, com o motivo VERDADEIRO.
       turn: null,
@@ -376,7 +400,7 @@ export async function runSemanticTurn(
   if (status !== "executable" || !irV2 || !validation) {
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: null, deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
       telemetry: { ...baseTelemetry(), executed_by: "legacy_router", action_planner_used_for_tool_choice: true },
@@ -453,7 +477,7 @@ export async function runSemanticTurn(
     }, true);
     return {
       version: "nino_semantic_ir.v3",
-      status, ir, ir_v2: irV2, validation,
+      status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
       turn: { reply: honest, toolCalls: toolCallsOf(execution) },
       deterministic_text: honest,
       engines: execution.engines,
