@@ -12,6 +12,9 @@ import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsag
 
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
+/** Teto de latência do entendimento semântico (alinhado ao budget T3/T4). */
+export const COMPILER_DEADLINE_MS = 20_000;
+
 
 export type SemanticCompilerTelemetry = {
   model: string | null;
