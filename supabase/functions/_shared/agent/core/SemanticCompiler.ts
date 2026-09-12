@@ -346,7 +346,8 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
     };
 
   } catch (error) {
-    const code = "semantic_compiler_error";
+    const aborted = (error as { name?: string })?.name === "AbortError";
+    const code = aborted ? "semantic_compiler_timeout" : "semantic_compiler_error";
     if (input.sb) {
       await recordAiUsage(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run",
@@ -363,5 +364,8 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         latency_ms: Date.now() - started, ok: false, error: code, source: "llm",
       },
     };
+  } finally {
+    clearTimeout(timeout);
   }
+
 }
