@@ -187,7 +187,13 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
   }
 
   const started = Date.now();
+  // Prazo máximo do entendimento semântico. Não é timeout artificial curto: é o
+  // teto do orçamento de turno (T3/T4). Sem ele, um gateway travado deixa o
+  // usuário sem resposta; com ele, o turno cai para o roteador legado.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COMPILER_DEADLINE_MS);
   try {
+
     const user = [
       input.previous_query ? `Pergunta factual anterior:\n${input.previous_query}` : "",
       `Mensagem atual:\n${input.text}`,
