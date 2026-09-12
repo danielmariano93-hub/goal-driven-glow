@@ -12,6 +12,9 @@ import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsag
 
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
+/** Teto de latência do entendimento semântico (alinhado ao budget T3/T4). */
+export const COMPILER_DEADLINE_MS = 20_000;
+
 
 export type SemanticCompilerTelemetry = {
   model: string | null;
@@ -187,7 +190,13 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
   }
 
   const started = Date.now();
+  // Prazo máximo do entendimento semântico. Não é timeout artificial curto: é o
+  // teto do orçamento de turno (T3/T4). Sem ele, um gateway travado deixa o
+  // usuário sem resposta; com ele, o turno cai para o roteador legado.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COMPILER_DEADLINE_MS);
   try {
+
     const user = [
       input.previous_query ? `Pergunta factual anterior:\n${input.previous_query}` : "",
       `Mensagem atual:\n${input.text}`,
@@ -224,7 +233,9 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         reasoning: { effort: "low", summary: "concise" },
         include: ["reasoning.encrypted_content"],
       }),
+      signal: controller.signal,
     });
+
     const text = await response.text();
     let body: any = null;
     let functionArguments = "";
@@ -335,7 +346,8 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
     };
 
   } catch (error) {
-    const code = "semantic_compiler_error";
+    const aborted = (error as { name?: string })?.name === "AbortError";
+    const code = aborted ? "semantic_compiler_timeout" : "semantic_compiler_error";
     if (input.sb) {
       await recordAiUsage(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run",
@@ -352,5 +364,8 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         latency_ms: Date.now() - started, ok: false, error: code, source: "llm",
       },
     };
+  } finally {
+    clearTimeout(timeout);
   }
+
 }
