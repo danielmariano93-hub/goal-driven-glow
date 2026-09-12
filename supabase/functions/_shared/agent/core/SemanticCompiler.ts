@@ -233,7 +233,9 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         reasoning: { effort: "low", summary: "concise" },
         include: ["reasoning.encrypted_content"],
       }),
+      signal: controller.signal,
     });
+
     const text = await response.text();
     let body: any = null;
     let functionArguments = "";
