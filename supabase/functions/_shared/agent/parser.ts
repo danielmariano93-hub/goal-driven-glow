@@ -11,7 +11,7 @@ export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
   | { kind: "transfer"; amount: number; occurred_at: string; from_hint?: string; to_hint?: string }
   | { kind: "goal_contribution"; amount: number; occurred_at: string; goal_hint?: string }
-  | { kind: "goal"; name: string; target_amount: number }
+  | { kind: "goal"; name: string; target_amount: number; target_date?: string }
   | { kind: "query"; topic: "summary" | "recent" | "before_spending"; description?: string; amount?: number }
   | { kind: "confirm" }
   | { kind: "cancel" }
@@ -60,8 +60,6 @@ export function parseBrAmountWithScale(raw: string, trailing: string): number | 
   const scaled = base * factor;
   return Math.round(scaled * 100) / 100;
 }
-
-
 
 /** Today in America/Sao_Paulo as ISO yyyy-mm-dd */
 export function todaySaoPaulo(now: Date = new Date()): string {
@@ -155,6 +153,42 @@ const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
+/** Pedido explícito de criação de meta — separado de lançamento financeiro. */
+function isGoalCreateIntent(text: string): boolean {
+  const t = String(text ?? "").toLowerCase();
+  // Pergunta/hipótese sobre metas não é mutação.
+  if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
+  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t)
+    || /\b(meta|objetivo)\b.{0,70}\b(juntar|guardar|economizar|poupar)\b/i.test(t);
+}
+
+/** Data-alvo explícita da meta. Mantém a interpretação curta e previsível. */
+function goalTargetDate(text: string, now: Date): string | undefined {
+  const raw = String(text ?? "");
+  const lower = raw.toLowerCase();
+  const iso = lower.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
+  if (iso && isValidCalendarDate(iso)) return iso;
+
+  const br = lower.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
+  if (br) {
+    const candidate = `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+    if (isValidCalendarDate(candidate)) return candidate;
+  }
+
+  if (/\b(?:at[eé]\s+)?(?:o\s+)?(?:fim|final)\s+(?:deste|desse|do)\s+ano\b/i.test(raw)
+    || /\bat[eé]\s+(?:o\s+)?fim\s+do\s+ano\b/i.test(raw)) {
+    return `${todaySaoPaulo(now).slice(0, 4)}-12-31`;
+  }
+  return undefined;
+}
+
+function goalName(amount: number, text: string): string {
+  const value = amount.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  if (/\bjuntar\b/i.test(text)) return `Juntar R$ ${value}`;
+  if (/\b(?:guardar|economizar|poupar)\b/i.test(text)) return `Guardar R$ ${value}`;
+  return `Meta de R$ ${value}`;
+}
+
 /** Lê um cartão do próprio Nino colado de volta pelo usuário:
  *  "• *Despesa:* R$ 50,40 / • *Descrição:* KFC / • *Categoria:* Alimentação /
  *   • *Data:* 16/08/2026 / • *Conta:* Banco Itau".
@@ -212,7 +246,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
 
-
   const wordCount = raw.split(/\s+/).length;
   if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
@@ -227,8 +260,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     if (act === "confirm") return { kind: "confirm" };
     if (act === "cancel") return { kind: "cancel" };
   }
-
-
 
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
@@ -254,10 +285,21 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
 
   if (amount === null) return { kind: "unknown", text: raw };
 
+  // Meta explícita é um domínio de escrita próprio. Ela precisa ser reconhecida
+  // ANTES do fallback genérico de transação; foi exatamente essa ordem que
+  // transformou "cria uma meta de R$ 5.000" em um draft de Uber R$ 45.
+  if (isGoalCreateIntent(raw)) {
+    return {
+      kind: "goal",
+      name: goalName(amount, raw),
+      target_amount: amount,
+      target_date: goalTargetDate(raw, now),
+    };
+  }
+
   // Hipótese/consultoria ("se eu tivesse 3 mil por mês") carrega valor mas NÃO
   // é pedido de registro: nunca virar transação/transferência/aporte.
   if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
-
 
   // Transfer
   if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {
