@@ -6,6 +6,7 @@
 import { parseSpelledMoney } from "./amountWords.ts";
 import { allowsEntryDraft } from "./core/HypotheticalGuard.ts";
 import { classifyConfirmationAct } from "./core/ConfirmationVocabulary.ts";
+import { isExplicitRepair } from "./core/ConversationRepair.ts";
 
 export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
@@ -145,21 +146,19 @@ const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
 // Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
-// forte (sim/pode/cancela/...) e limita a ≤4 palavras. Retiramos gatilhos
-// ambíguos como "ta"/"tá"/"isso" que casavam frases naturais tipo
-// "Ta escrito na mensagem".
+// forte e limita a ≤4 palavras. Negação genérica (`não ...`) NÃO vive aqui:
+// só cancelamentos explícitos são resolvidos pelo vocabulário compartilhado.
 const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
-const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
+const CANCEL_LOOSE  = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
 /** Pedido explícito de criação de meta — separado de lançamento financeiro. */
 function isGoalCreateIntent(text: string): boolean {
   const t = String(text ?? "").toLowerCase();
-  // Pergunta/hipótese sobre metas não é mutação.
+  // Pergunta/hipótese/declaração sobre metas não é mutação.
   if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
-  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t)
-    || /\b(meta|objetivo)\b.{0,70}\b(juntar|guardar|economizar|poupar)\b/i.test(t);
+  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t);
 }
 
 /** Data-alvo explícita da meta. Mantém a interpretação curta e previsível. */
@@ -245,6 +244,7 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (card) return card;
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
+  if (isExplicitRepair(raw)) return { kind: "unknown", text: raw };
 
   const wordCount = raw.split(/\s+/).length;
   if (wordCount <= 4 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
