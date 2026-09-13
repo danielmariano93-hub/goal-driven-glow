@@ -121,12 +121,10 @@ function relativeDate(text: string, now: Date = new Date()): string {
 const CONFIRM_WORDS = /^\s*(confirmar|confirma|sim|ok|okay|yes|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 
-// Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
-// forte (sim/pode/cancela/...) e limita a ≤4 palavras. Retiramos gatilhos
-// ambíguos como "ta"/"tá"/"isso" que casavam frases naturais tipo
-// "Ta escrito na mensagem".
+// Loose confirm/cancel: exige marcador explícito. Uma frase que apenas começa
+// com "não" pode ser REPAIR e não deve virar cancelamento por prefixo.
 const CONFIRM_LOOSE = /^\s*(sim|pode|confirma(?:r|do)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
-const CANCEL_LOOSE  = /^\s*(n[aã]o|cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
+const CANCEL_LOOSE  = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
@@ -152,8 +150,7 @@ export function parseBrAmountWithScale(raw: string, trailing: string): number | 
 function isGoalCreateIntent(text: string): boolean {
   const t = String(text ?? "").toLowerCase();
   if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
-  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t)
-    || /\b(meta|objetivo)\b.{0,70}\b(juntar|guardar|economizar|poupar)\b/i.test(t);
+  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t);
 }
 
 function goalTargetDate(text: string, now: Date): string | undefined {
