@@ -53,7 +53,9 @@ export type FlagName =
   | "semantic_ir_v4"
   | "semantic_preservation_v1"
   | "typical_monthly_v1"
-  | "write_workflow_v1";
+  | "write_workflow_v1"
+  // Conversation Architecture V2: uma autoridade conversacional única.
+  | "conversation_brain_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -85,6 +87,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   semantic_preservation_v1: false,
   typical_monthly_v1: false,
   write_workflow_v1: false,
+  conversation_brain_v1: false,
 };
 
 /**
@@ -104,6 +107,7 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "adaptive_execution_v1",
   "conversation_threads_v1",
   "semantic_topic_retrieval_v1",
+  "conversation_brain_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
