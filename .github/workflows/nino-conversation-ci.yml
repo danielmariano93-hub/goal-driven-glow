@@ -49,6 +49,7 @@ jobs:
           src/test/nino-confirmation-fastpath.test.ts
           src/test/nino-conversation-authority-p0.test.ts
           src/test/nino-conversation-brain-v1.test.ts
+          src/test/nino-action-slot-resolver.test.ts
 
       - name: Typecheck Conversation Architecture V2
         run: >-
