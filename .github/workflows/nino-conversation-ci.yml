@@ -1,0 +1,53 @@
+name: Nino Conversation Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/agent/**'
+      - 'src/lib/agent/**'
+      - 'src/test/nino-*.test.ts'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/nino-conversation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nino-conversation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Conversation P0 + V2 regression tests
+        run: >-
+          npx vitest run
+          src/test/nino-confirmation-fastpath.test.ts
+          src/test/nino-conversation-authority-p0.test.ts
+          src/test/nino-conversation-brain-v1.test.ts
+
+      - name: Agent deploy contracts
+        run: npm run test:deploy-contract
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
