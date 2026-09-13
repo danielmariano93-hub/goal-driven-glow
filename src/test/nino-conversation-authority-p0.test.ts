@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { interpret } from "../../supabase/functions/_shared/agent/parser.ts";
 import { classifyDialogueState } from "../../supabase/functions/_shared/agent/core/DialogueAct.ts";
+import { routeIntent } from "../../supabase/functions/_shared/agent/core/IntentRouter.ts";
 import {
   emptyTopicState, resolveTopicForTurn, upsertTopic, type ConversationTopic,
 } from "../../supabase/functions/_shared/agent/core/ConversationTopicState.ts";
@@ -54,6 +55,12 @@ describe("Nino conversation authority P0 — regressões reais de produção", (
     expect(isDraftCompatibleWithIntent("create_transaction_draft", parsed)).toBe(false);
   });
 
+  it("repair não chega ao PolicyEngine como cancel, mesmo com parser legado permissivo", () => {
+    for (const text of ["não era isso", "não foi isso que te pedi", "você entendeu errado", "está errado"]) {
+      expect(routeIntent(text).intent.kind, text).toBe("unknown");
+    }
+  });
+
   it("'Quais os estabelecimentos?' é follow-up, não novo tópico", () => {
     const text = "Quais os estabelecimentos?";
     const parsed = interpret(text);
@@ -103,7 +110,7 @@ describe("Nino conversation authority P0 — regressões reais de produção", (
     const now = new Date("2026-09-13T15:49:00-03:00");
     const old = new Date(now.getTime() - 13 * 60 * 60 * 1000).toISOString();
     expect(expectationFromHistory([
-      { role: "assistant", content: "Como você está se sentindo hoje?", created_at: old },
+      { role: "assistant" as const, content: "Como você está se sentindo hoje?", created_at: old },
     ], now)).toBeNull();
   });
 
@@ -111,7 +118,7 @@ describe("Nino conversation authority P0 — regressões reais de produção", (
     const now = new Date("2026-09-13T15:49:00-03:00");
     const old = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
     const recent = new Date(now.getTime() - 20 * 60 * 1000).toISOString();
-    const history = [
+    const history: Array<{ role: "assistant"; content: string; created_at: string }> = [
       { role: "assistant", content: "Como você está se sentindo hoje?", created_at: old },
       {
         role: "assistant",
