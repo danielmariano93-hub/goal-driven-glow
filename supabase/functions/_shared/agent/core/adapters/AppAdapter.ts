@@ -1,13 +1,14 @@
-// AppAdapter — routes in-app assessor turns through the shared AgentCore
+// AppAdapter — routes in-app assessor turns through the shared agent core
 // while preserving only UI-specific confirm/cancel action buttons. Free-text
-// reasoning and tool routing are intentionally identical across channels.
+// reasoning uses the rollout-gated Conversation Architecture V2 entrypoint.
 //
 // The HTTP wrapper (agent-chat/index.ts) only handles auth, rate limit,
 // conversation lookup and the JSON contract; every decision the agent
 // makes lives here or deeper in the Core.
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { handleTurn, type HandleTurnResult } from "../AgentCore.ts";
+import { handleTurnV2 } from "../AgentCoreV2.ts";
+import type { HandleTurnResult } from "../AgentCore.ts";
 import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
 import { confirmAndBuildReceipt } from "../ConfirmAndReceipt.ts";
@@ -91,7 +92,6 @@ export async function handleAppAction(args: {
     await sb.from("pending_confirmations").update({ status: "cancelled" } as any).eq("id", pending.id);
     reply = "Combinado, cancelei este pedido.";
   } else {
-
     const outcome = await confirmAndBuildReceipt(sb, {
       id: pending.id, kind: pending.kind, user_id: args.user_id, payload: (pending as any).payload,
     });
@@ -118,15 +118,15 @@ export async function handleAppMessage(args: {
 }): Promise<AppTurnResult> {
   const sb = svc();
 
-  // Persist inbound message first so history is coherent (Core loader will
-  // exclude it via excludeMessageId when it inserts through handleTurn).
+  // Persist inbound message first so history is coherent.
   const { data: inbound } = await sb.from("conversation_messages").insert({
     conversation_id: args.conversation_id, user_id: args.user_id, direction: "inbound", body_masked: args.text,
   } as any).select("id").maybeSingle();
   const inbound_message_id = ((inbound as any)?.id as string | undefined) ?? crypto.randomUUID();
   const turnStartedAt = new Date().toISOString();
 
-  // Free-text CONFIRMAR / CANCELAR (parity with WhatsApp: PolicyEngine)
+  // Explicit UI-like free-text confirmation/cancel remains a state transition.
+  // Repair phrases are protected by IntentRouter and therefore do not enter here.
   const routed = routeIntent(args.text);
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
     const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id);
@@ -145,7 +145,6 @@ export async function handleAppMessage(args: {
       return { reply: bulkReply, pending: null, executed: null };
     }
     const decision = await evaluatePolicy(sb, {
-
       user_id: args.user_id, conversation_id: args.conversation_id,
       inbound_message_id: null, intent: routed.intent,
     });
@@ -157,10 +156,9 @@ export async function handleAppMessage(args: {
     return { reply, pending: null, executed: decision.kind === "reply" ? decision.result ?? null : null };
   }
 
-  // Every free-text turn goes through the same capability router and Core as
-  // WhatsApp. Channel-specific analytics/card shortcuts caused divergent
-  // answers and bypassed the unified telemetry/grounding contract.
-  const turn = await handleTurn({
+  // Free-text app e WhatsApp entram pelo mesmo entrypoint V2. Com a flag OFF,
+  // AgentCoreV2 delega integralmente ao Core legado.
+  const turn = await handleTurnV2({
     user_id: args.user_id,
     conversation_id: args.conversation_id,
     inbound_message_id,
@@ -187,7 +185,6 @@ export async function handleAppMessage(args: {
       if (chart.ok) {
         const artifact_id = (chart as any).result?.artifact_id as string | undefined;
         recent = artifact_id ? { artifact_id, payload: (chart as any).result?.artifact } : recent;
-        // Reescreve a resposta quando o LLM devolveu texto vazio/redundante.
         if (!reply || /não\s+conseg|não\s+entend/i.test(reply)) {
           reply = kind === "average_daily_trend"
             ? "Gerei o gráfico do seu gasto médio diário acumulado 👇"
@@ -224,9 +221,6 @@ export function wantsChart(text: string): boolean {
   return hasExplicitChartIntent(text || "");
 }
 
-// Escolhe o kind determinístico quando o LLM falha. Prioriza a série de média
-// acumulada quando o pedido menciona "média", "tendência", "reduzindo" etc.;
-// senão cai na série diária bruta ("dia a dia" sem contexto de média).
 function pickDeterministicChartKind(text: string): "average_daily_trend" | "timeseries" {
   const t = String(text || "");
   if (/\b(m[eé]dia|tend[eê]ncia|reduzindo|andando\s+de\s+lado|est[aá]\s+(?:caindo|subindo)|ritmo)\b/i.test(t)) {
