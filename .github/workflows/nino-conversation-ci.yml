@@ -22,7 +22,7 @@ concurrency:
 jobs:
   regressions:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,8 +33,15 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # O lockfile já estava fora de sincronia com package.json antes deste PR.
+      # CI instala pela fonte declarativa sem reescrever o lock no repositório.
       - name: Install
-        run: npm ci
+        run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Conversation P0 + V2 regression tests
         run: >-
@@ -42,6 +49,15 @@ jobs:
           src/test/nino-confirmation-fastpath.test.ts
           src/test/nino-conversation-authority-p0.test.ts
           src/test/nino-conversation-brain-v1.test.ts
+
+      - name: Typecheck Conversation Architecture V2
+        run: >-
+          deno check --no-config
+          supabase/functions/_shared/agent/core/ConversationTurnContract.ts
+          supabase/functions/_shared/agent/core/ActionSlotResolver.ts
+          supabase/functions/_shared/agent/core/ConversationBrain.ts
+          supabase/functions/_shared/agent/core/ConversationBrainRuntime.ts
+          supabase/functions/_shared/agent/core/AgentCoreV2.ts
 
       - name: Agent deploy contracts
         run: npm run test:deploy-contract
