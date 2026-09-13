@@ -18,8 +18,6 @@ export type ParsedIntent =
   | { kind: "cancel" }
   | { kind: "unknown"; text: string };
 
-/** Interpret a Brazilian currency literal without silently changing magnitude.
- *  "1.234,56" → 1234.56, "42,90" → 42.9, "100" → 100, "1,234.56" → 1234.56 */
 export function parseBrAmount(raw: string): number | null {
   if (!raw) return null;
   let s = raw.trim().replace(/^r\$\s*/i, "");
@@ -27,13 +25,9 @@ export function parseBrAmount(raw: string): number | null {
   if (!s) return null;
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");
-  if (hasComma && hasDot) {
-    s = s.replace(/\./g, "").replace(",", ".");
-  } else if (hasComma) {
-    s = s.replace(",", ".");
-  } else if (hasDot) {
-    if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
-  }
+  if (hasComma && hasDot) s = s.replace(/\./g, "").replace(",", ".");
+  else if (hasComma) s = s.replace(",", ".");
+  else if (hasDot && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100) / 100;
@@ -45,8 +39,7 @@ export function scaleAfter(text: string): { factor: number; consumed: number } {
   const m = String(text ?? "").match(SCALE_SUFFIX_RX);
   if (!m) return { factor: 1, consumed: 0 };
   const token = m[1].toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-  const factor = token === "mil" || token === "k" ? 1_000 : 1_000_000;
-  return { factor, consumed: m[0].length };
+  return { factor: token === "mil" || token === "k" ? 1_000 : 1_000_000, consumed: m[0].length };
 }
 
 export function parseBrAmountWithScale(raw: string, trailing: string): number | null {
@@ -112,15 +105,9 @@ export function resolveOccurredAt(input: { text?: string; modelValue?: string | 
 
 function relativeDate(text: string, now: Date = new Date()): string {
   const today = todaySaoPaulo(now);
-  const t = text.toLowerCase();
-  const shift = (days: number) => {
-    const [Y, M, D] = today.split("-").map(Number);
-    const dt = new Date(Date.UTC(Y, M - 1, D + days, 12, 0, 0));
-    return todaySaoPaulo(dt);
-  };
-  if (/\bhoje\b/.test(t)) return today;
-  if (/\bontem\b/.test(t)) return shift(-1);
-  if (/\banteontem\b/.test(t)) return shift(-2);
+  if (/\bhoje\b/.test(text)) return today;
+  if (/\bontem\b/.test(text)) return shiftSaoPaulo(today, -1);
+  if (/\banteontem\b/.test(text)) return shiftSaoPaulo(today, -2);
   return today;
 }
 
@@ -130,22 +117,19 @@ const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|
 const CANCEL_LOOSE = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
-/** Pedido explícito de criação de meta — separado de lançamento financeiro. */
 function isGoalCreateIntent(text: string): boolean {
   const t = String(text ?? "").toLowerCase();
   if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
   return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t);
 }
 
-/**
- * Menção/discussão de meta com valor não é lançamento de ledger.
- * O parser legado só pode promover para `goal` quando há verbo explícito de
- * criação. Fora disso ele falha fechado e deixa Conversation Brain/read path
- * interpretar a fala. Isso evita "Minha meta é juntar R$ 5.000" → despesa.
- */
+function isGoalContributionIntent(text: string): boolean {
+  return /\b(guardei|poupei|separei|aport(?:ei|e))\b.*\b(meta|objetivo|reserva|para )/i.test(text);
+}
+
+/** Goal discussion with an amount must never become a ledger transaction. */
 function isGoalDiscussion(text: string): boolean {
-  const t = String(text ?? "").toLowerCase();
-  return /\b(meta|objetivo)\b/i.test(t);
+  return /\b(meta|objetivo)\b/i.test(text) && !isGoalContributionIntent(text);
 }
 
 function goalTargetDate(text: string, now: Date): string | undefined {
@@ -159,9 +143,7 @@ function goalTargetDate(text: string, now: Date): string | undefined {
     if (isValidCalendarDate(candidate)) return candidate;
   }
   if (/\b(?:at[eé]\s+)?(?:o\s+)?(?:fim|final)\s+(?:deste|desse|do)\s+ano\b/i.test(raw)
-    || /\bat[eé]\s+(?:o\s+)?fim\s+do\s+ano\b/i.test(raw)) {
-    return `${todaySaoPaulo(now).slice(0, 4)}-12-31`;
-  }
+    || /\bat[eé]\s+(?:o\s+)?fim\s+do\s+ano\b/i.test(raw)) return `${todaySaoPaulo(now).slice(0, 4)}-12-31`;
   return undefined;
 }
 
@@ -193,7 +175,6 @@ export function parseStructuredCard(
   const digits = amountRaw.match(AMOUNT_RE);
   const amount = digits ? parseBrAmount(digits[1]) : parseSpelledMoney(amountRaw);
   if (amount === null || !(amount > 0)) return null;
-
   const dateRaw = field("data|quando");
   let occurred_at = relativeDate(String(dateRaw ?? clean).toLowerCase(), now);
   if (dateRaw) {
@@ -231,7 +212,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
-
   if (wordCount <= 3 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     const act = classifyConfirmationAct(raw);
     if (act === "confirm") return { kind: "confirm" };
@@ -245,12 +225,8 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     ? parseBrAmountWithScale(amountMatch[1], lower.slice((amountMatch.index ?? 0) + amountMatch[0].length))
     : parseSpelledMoney(lower);
 
-  if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {
-    return { kind: "query", topic: "summary" };
-  }
-  if (/\b(últim|ultim).*\b(transa|lanc|gasto)/.test(lower)) {
-    return { kind: "query", topic: "recent" };
-  }
+  if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) return { kind: "query", topic: "summary" };
+  if (/\b(últim|ultim).*\b(transa|lanc|gasto)/.test(lower)) return { kind: "query", topic: "recent" };
   if (/\b(posso gastar|antes de gastar|se eu gastar)\b/.test(lower) && amount !== null) {
     return { kind: "query", topic: "before_spending", amount, description: raw };
   }
@@ -258,29 +234,18 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (amount === null) return { kind: "unknown", text: raw };
 
   if (isGoalCreateIntent(raw)) {
-    return {
-      kind: "goal",
-      name: goalName(amount, raw),
-      target_amount: amount,
-      target_date: goalTargetDate(raw, now),
-    };
+    return { kind: "goal", name: goalName(amount, raw), target_amount: amount, target_date: goalTargetDate(raw, now) };
   }
 
-  // Goal-domain text without explicit mutation intent must never fall through
-  // to the generic transaction fallback merely because it contains an amount.
   if (isGoalDiscussion(raw)) return { kind: "unknown", text: raw };
-
   if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
 
   if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {
     const parts = lower.match(/\bde\s+([\wçãéíáóêô ]+?)\s+para\s+([\wçãéíáóêô ]+)/);
-    return {
-      kind: "transfer", amount, occurred_at,
-      from_hint: parts?.[1]?.trim(), to_hint: parts?.[2]?.trim(),
-    };
+    return { kind: "transfer", amount, occurred_at, from_hint: parts?.[1]?.trim(), to_hint: parts?.[2]?.trim() };
   }
 
-  if (/\b(guardei|poupei|separei|aport(ei|e))\b.*\b(meta|objetivo|reserva|para )/.test(lower)) {
+  if (isGoalContributionIntent(lower)) {
     const g = lower.match(/\b(?:meta|objetivo|reserva|para)\s+([\wçãéíáóêô ]+)/);
     return { kind: "goal_contribution", amount, occurred_at, goal_hint: g?.[1]?.trim() };
   }
@@ -288,14 +253,13 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const isIncome = /\b(recebi|ganhei|entrou|salário|salario|pix recebi|pagamento recebido)\b/.test(lower);
   const isExpense = /\b(gastei|paguei|comprei|almo[çc]|jantar|caf[eé]|uber|99|mercado|farm[aá]cia|conta|boleto|assinatura)\b/.test(lower);
   const descMatch = lower.match(/\b(?:no|na|em|com|de)\s+([\wçãéíáóêô]+(?:\s+[\wçãéíáóêô]+){0,3})/);
-  const description = descMatch?.[1]?.trim();
   const catMatch = lower.match(/\b(mercado|almoço|almoco|jantar|caf[eé]|uber|99|farm[aá]cia|lazer|assinatura|transporte|combust[íi]vel|educa[cç][aã]o|sa[uú]de|casa|contas)\b/);
   const accMatch = lower.match(/\b(nubank|itau|itaú|bradesco|santander|inter|caixa|carteira|dinheiro|c6|picpay|mercadopago)\b/);
 
   return {
     kind: "transaction",
     type: isIncome && !isExpense ? "income" : "expense",
-    amount, occurred_at, description,
+    amount, occurred_at, description: descMatch?.[1]?.trim(),
     category_hint: catMatch?.[1], account_hint: accMatch?.[1],
   };
 }
