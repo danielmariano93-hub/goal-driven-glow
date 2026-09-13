@@ -75,7 +75,10 @@ function compilerTool(maxQueries: number) {
           type: "array", minItems: 0, maxItems: Math.max(1, Math.min(MAX_IR_QUERIES, maxQueries)),
           items: {
             type: "object", additionalProperties: false,
-            required: ["id", "metric", "operation", "group_by", "filters", "limit"],
+            required: [
+              "id", "metric", "operation", "group_by", "filters", "limit",
+              ...(maxQueries > 1 ? ["depends_on"] : []),
+            ],
             properties: {
               id: { type: "string" },
               metric: { type: "string", enum: [...FINANCIAL_METRICS] },
@@ -111,14 +114,14 @@ function compilerTool(maxQueries: number) {
   } as const;
 }
 
-function responsesCompilerTool(maxQueries: number) {
+export function responsesCompilerTool(maxQueries: number) {
   const tool = compilerTool(maxQueries).function;
   return {
     type: "function",
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    strict: false,
+    strict: true,
   } as const;
 }
 

@@ -61,7 +61,7 @@ import { capabilityFromFinancialIR, isFalseCapabilityDenial } from "./IRCapabili
 import { MAX_IR_QUERIES, normalizeToV2, type FinancialQueryIR, type FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import { validateFinancialPlan, type PlanValidation } from "./FinancialPlanValidator.ts";
 import { deriveSemanticStatus, type SemanticStatus } from "./SemanticStatus.ts";
-import { fastPathIR, isSemanticReadEligible } from "./SemanticRouting.ts";
+import { fastPathIR, semanticAuthorityDecision } from "./SemanticRouting.ts";
 import { executeSemanticPlan } from "./SemanticQueryExecutor.ts";
 import { buildEvidenceClaims } from "./EvidenceClaims.ts";
 import { checkCompleteness } from "./CompletenessGate.ts";
@@ -1008,14 +1008,16 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
   const semanticV3 = await isEnabled("semantic_ir_v3", input.user_id);
   const capabilityRescueEnabled = await isEnabled("semantic_capability_rescue_v1", input.user_id);
 
-  const semanticEligible = isSemanticReadEligible({
+  const semanticAuthority = semanticAuthorityDecision({
     capability_name: capability.name,
     acts: dialogueState.acts,
+    // Clarificação do roteador lexical é sugestão, não veto ao entendimento.
     has_clarification: !!capability.clarification,
     // Escrita pendente + "salvar/cancelar" nunca é leitura semântica.
     has_pending_confirmation: fastConfirm?.pending_state === "fresh",
     confirmation_act: fastConfirm?.act ?? null,
   });
+  const semanticEligible = semanticAuthority.eligible;
 
   if (semanticV3 && semanticEligible) {
     const multiQuery = await isEnabled("semantic_ir_multiquery_v1", input.user_id);
@@ -1046,6 +1048,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         investigation_enabled: investigation,
         preservation_enforced: preservationEnforced,
         typical_monthly_enabled: typicalMonthly,
+        authoritative: semanticAuthority.authoritative,
         failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
       }, {
         compile: (args) => compileFinancialQuery({
@@ -1202,8 +1205,16 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
         );
       }
     } else {
+      // Exceção do pipeline também termina no mesmo caminho. Não liberar o
+      // planner legado para responder algo diferente por causa de uma falha.
       semanticStatus = "compiler_failed";
-      semanticIRTelemetry = { version: "nino_semantic_ir.v3", semantic_status: "compiler_failed", executed_by: "legacy_router" };
+      semanticTurn = { reply: PROTECTED_ENGINE_FAILURE_REPLY, toolCalls: [] };
+      semanticIRTelemetry = {
+        version: "nino_semantic_ir.v3",
+        semantic_status: "compiler_failed",
+        executed_by: "honest_pipeline_failure",
+        authority_reason: semanticAuthority.reason,
+      };
     }
   } else if (!semanticV3
     // v1 é DEPRECADO: só entra quando o v3 não é a autoridade do turno.
@@ -1522,7 +1533,11 @@ ${episodic}
   // é reconhecido, o fluxo padrão segue igual. Se o plano é reconhecido e o
   // motor obrigatório falha, respondemos honestamente — nunca uma análise
   // semanticamente diferente vinda do fluxo antigo.
-  const analyticalOutcome = (await isEnabled("composite_analysis_v1"))
+  // O CompositeAnalysis permanece somente como compatibilidade para turnos
+  // que o pipeline semântico não possui. Nunca executar dois cérebros no mesmo
+  // READ: além de custo e latência, isso criava evidências concorrentes.
+  const semanticOwnsRead = semanticV3 && semanticEligible && semanticStatus !== null;
+  const analyticalOutcome = (!semanticOwnsRead && await isEnabled("composite_analysis_v1"))
     ? await guard(
       () => runCompositeAnalysis(sb, {
         user_id: input.user_id,

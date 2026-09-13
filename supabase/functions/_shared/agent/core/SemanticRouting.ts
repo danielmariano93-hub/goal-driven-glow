@@ -16,22 +16,57 @@ const NON_READ_CAPABILITIES = new Set([
   "emotion_finance", "bulk_entry", "document_import", "audio_transcription",
 ]);
 
-export function isSemanticReadEligible(args: {
+export type SemanticAuthorityDecision = {
+  eligible: boolean;
+  authoritative: boolean;
+  reason:
+    | "semantic_read"
+    | "pending_write_confirmation"
+    | "write"
+    | "conversation"
+    | "non_read_capability";
+};
+
+/**
+ * Autoridade única para READ financeiro.
+ *
+ * O roteador legado pode sugerir uma clarificação lexical, mas não pode impedir
+ * o compilador semântico de compreender a pergunta. Foi esse bloqueio que fazia
+ * frases naturais como "quanto gastei na sexta?" pararem numa regra fixa antes
+ * de chegar ao cérebro novo.
+ */
+export function semanticAuthorityDecision(args: {
   capability_name: string;
   acts: DialogueActLabel[];
+  /** Sinal legado mantido apenas para telemetria/compatibilidade. */
   has_clarification: boolean;
   /** `nino_confirmation.v1`: escrita pendente + "salvar/cancelar" nunca é leitura. */
   has_pending_confirmation?: boolean;
   confirmation_act?: "confirm" | "cancel" | "ambiguous" | "unrelated" | null;
-}): boolean {
-  if (args.has_clarification) return false;
+}): SemanticAuthorityDecision {
   if (
     args.has_pending_confirmation
     && (args.confirmation_act === "confirm" || args.confirmation_act === "cancel"
       || args.confirmation_act === "ambiguous")
-  ) return false;
-  if (args.acts.includes("write") || args.acts.includes("conversational")) return false;
-  return !NON_READ_CAPABILITIES.has(args.capability_name);
+  ) {
+    return { eligible: false, authoritative: false, reason: "pending_write_confirmation" };
+  }
+  if (args.acts.includes("write")) {
+    return { eligible: false, authoritative: false, reason: "write" };
+  }
+  if (args.acts.includes("conversational")) {
+    return { eligible: false, authoritative: false, reason: "conversation" };
+  }
+  if (NON_READ_CAPABILITIES.has(args.capability_name)) {
+    return { eligible: false, authoritative: false, reason: "non_read_capability" };
+  }
+  return { eligible: true, authoritative: true, reason: "semantic_read" };
+}
+
+export function isSemanticReadEligible(
+  args: Parameters<typeof semanticAuthorityDecision>[0],
+): boolean {
+  return semanticAuthorityDecision(args).eligible;
 }
 
 /**

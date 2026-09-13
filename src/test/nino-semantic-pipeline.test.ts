@@ -85,13 +85,36 @@ describe("pipeline semântico — execução e autoridade", () => {
   });
 
 
-  it("compilador sem IR devolve autoridade ao roteador legado", async () => {
+  it("modo de compatibilidade ainda pode devolver compiler_failed ao legado", async () => {
     const out = await runSemanticTurn(base, deps({
       compile: vi.fn(async () => ({ ir: null, telemetry: null })),
     } as any));
     expect(out.status).toBe("compiler_failed");
     expect(out.turn).toBeNull();
     expect(out.telemetry.executed_by).toBe("legacy_router");
+  });
+
+  it("READ autoritativo nunca cai no legado quando o compilador falha", async () => {
+    const out = await runSemanticTurn({ ...base, authoritative: true }, deps({
+      compile: vi.fn(async () => ({ ir: null, telemetry: null })),
+    } as any));
+    expect(out.status).toBe("compiler_failed");
+    expect(out.turn?.reply).toBe(FAILURE);
+    expect(out.telemetry.executed_by).toBe("honest_compiler_failure");
+    expect(out.telemetry.action_planner_used_for_tool_choice).toBe(false);
+  });
+
+  it("READ autoritativo sem motor termina honestamente no mesmo pipeline", async () => {
+    const out = await runSemanticTurn({ ...base, authoritative: true }, deps({
+      compile: vi.fn(async () => ({
+        ir: ir({ intent: "unsupported", queries: [], completeness_targets: [] }),
+        telemetry: null,
+      })),
+    } as any));
+    expect(out.status).toBe("unsupported");
+    expect(out.turn?.reply).toMatch(/n[aã]o/i);
+    expect(out.canonical_fallback).toBeUndefined();
+    expect(out.telemetry.executed_by).toBe("honest_unsupported");
   });
 });
 

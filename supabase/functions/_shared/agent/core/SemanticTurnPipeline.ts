@@ -15,7 +15,8 @@
 // - `clarification_required` pergunta com opções REAIS do usuário e guarda o IR
 //   original para retomar sem recompilar a pergunta.
 // - `unsupported` devolve falha honesta; nunca cai em resposta aproximada.
-// - Somente `compiler_failed` devolve autoridade ao roteador legado.
+// - Em modo autoritativo, nem `compiler_failed` devolve a pergunta ao legado:
+//   uma falha de entendimento nunca autoriza responder outra pergunta.
 import {
   MAX_IR_QUERIES, normalizeToV2,
   type DialogueActLabel, type FinancialQueryIR, type FinancialQueryIRv2,
@@ -132,6 +133,11 @@ export type SemanticPipelineInput = {
   preservation_enforced?: boolean;
   /** `typical_monthly_v1`: handler determinístico de gasto típico mensal. */
   typical_monthly_enabled?: boolean;
+  /**
+   * Quando true, este pipeline é dono do READ. Falha de compilação ou ausência
+   * de motor termina honestamente aqui, sem fallback para intenção diferente.
+   */
+  authoritative?: boolean;
   failure_reply: string;
 };
 
@@ -391,33 +397,45 @@ export async function runSemanticTurn(
     return {
       version: "nino_semantic_ir.v3",
       status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
-      // Sem `turn`: quem decide é o AgentCore — motor canônico do turno, se
-      // existir; senão o texto honesto abaixo, com o motivo VERDADEIRO.
-      turn: null,
+      // Em modo autoritativo a ausência de motor termina aqui. O legado não
+      // recebe permissão para trocar o recorte ou oferecer uma aproximação.
+      turn: input.authoritative
+        ? { reply: unsupportedReply(gaps), toolCalls: [] }
+        : null,
       deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
-      canonical_fallback: {
-        allowed: true,
-        reason: gaps.length ? "no_engine_for_combination" : "intent_unsupported",
-        honest_reply: unsupportedReply(gaps),
-      },
+      ...(input.authoritative
+        ? {}
+        : {
+          canonical_fallback: {
+            allowed: true,
+            reason: gaps.length ? "no_engine_for_combination" as const : "intent_unsupported" as const,
+            honest_reply: unsupportedReply(gaps),
+          },
+        }),
       telemetry: {
         ...baseTelemetry(),
         unsupported_ontology: gaps,
-        executed_by: "canonical_fallback_offered",
+        executed_by: input.authoritative ? "honest_unsupported" : "canonical_fallback_offered",
         action_planner_used_for_tool_choice: false,
       },
     };
   }
 
-  // ---- 6. Compiler falhou: o legado volta a mandar ------------------------
+  // ---- 6. Compiler falhou: termina aqui quando o READ é autoritativo -------
   if (status !== "executable" || !irV2 || !validation) {
+    const ownsRead = input.authoritative === true;
     return {
       version: "nino_semantic_ir.v3",
       status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
-      turn: null, deterministic_text: null, engines: [],
+      turn: ownsRead ? { reply: input.failure_reply, toolCalls: [] } : null,
+      deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
-      telemetry: { ...baseTelemetry(), executed_by: "legacy_router", action_planner_used_for_tool_choice: true },
+      telemetry: {
+        ...baseTelemetry(),
+        executed_by: ownsRead ? "honest_compiler_failure" : "legacy_router",
+        action_planner_used_for_tool_choice: !ownsRead,
+      },
     };
   }
 

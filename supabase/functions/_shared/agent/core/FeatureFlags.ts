@@ -101,6 +101,8 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "semantic_investigation_loop_v1",
   "narrative_layer_v1",
   "semantic_capability_rescue_v1",
+  "semantic_preservation_v1",
+  "typical_monthly_v1",
   "adaptive_execution_v1",
   "conversation_threads_v1",
   "semantic_topic_retrieval_v1",

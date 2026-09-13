@@ -18,7 +18,10 @@ import {
 } from "../../supabase/functions/_shared/agent/core/ConversationTopicState";
 import { buildClarification, MAX_CLARIFICATION_OPTIONS } from "../../supabase/functions/_shared/agent/core/ClarificationResponse";
 import { classifyDialogueState } from "../../supabase/functions/_shared/agent/core/DialogueAct";
-import { fastPathIR, isSemanticReadEligible } from "../../supabase/functions/_shared/agent/core/SemanticRouting";
+import {
+  fastPathIR, isSemanticReadEligible, semanticAuthorityDecision,
+} from "../../supabase/functions/_shared/agent/core/SemanticRouting";
+import { responsesCompilerTool } from "../../supabase/functions/_shared/agent/core/SemanticCompiler";
 import { applyAiStageTotals, recordAiStage } from "../../supabase/functions/_shared/agent/core/AiStageMetrics";
 import { mappingForQuery } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
 
@@ -167,10 +170,24 @@ describe("nino_semantic_ir.v3 — status e precedência", () => {
     expect(isSemanticReadEligible({
       capability_name: "financial_snapshot", acts: state.acts, has_clarification: false,
     })).toBe(true);
+    // Uma pergunta natural não pode ser bloqueada por uma clarificação lexical
+    // criada antes de o compilador semântico analisar contexto e intenção.
+    const friday = semanticAuthorityDecision({
+      capability_name: "weekday_literal", acts: ["new_query"], has_clarification: true,
+    });
+    expect(friday).toMatchObject({ eligible: true, authoritative: true, reason: "semantic_read" });
     // WRITE e conversa mantêm seus contratos próprios.
     expect(isSemanticReadEligible({
       capability_name: "transaction_entry", acts: ["write"], has_clarification: false,
     })).toBe(false);
+  });
+
+  it("compilador usa Structured Output estrito e dependências explícitas", () => {
+    const tool = responsesCompilerTool(4);
+    expect(tool.strict).toBe(true);
+    const item = (tool.parameters.properties.queries as any).items;
+    expect(item.required).toContain("depends_on");
+    expect(item.additionalProperties).toBe(false);
   });
 
   it("TESTE ARQUITETURAL: READ não-fast-path força o Semantic Compiler", () => {
