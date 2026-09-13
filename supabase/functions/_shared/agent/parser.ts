@@ -28,12 +28,10 @@ export function parseBrAmount(raw: string): number | null {
   const hasComma = s.includes(",");
   const hasDot = s.includes(".");
   if (hasComma && hasDot) {
-    // BR canonical: dot = thousands, comma = decimal
     s = s.replace(/\./g, "").replace(",", ".");
   } else if (hasComma) {
     s = s.replace(",", ".");
   } else if (hasDot) {
-    // Only dots: treat as thousands separator when every dot group has exactly 3 digits
     if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   }
   const n = Number(s);
@@ -41,8 +39,6 @@ export function parseBrAmount(raw: string): number | null {
   return Math.round(n * 100) / 100;
 }
 
-/** Multiplicador textual logo após um número: "3 mil", "2 milhões", "1,5 mi".
- *  Retorna { factor, consumed } — consumed = nº de chars do sufixo casado. */
 export const SCALE_SUFFIX_RX = /^\s*(?:reais?\s+)?(mil|milh(?:o|õ)es|milh(?:a|ã)o|mi|k)\b/i;
 
 export function scaleAfter(text: string): { factor: number; consumed: number } {
@@ -53,16 +49,13 @@ export function scaleAfter(text: string): { factor: number; consumed: number } {
   return { factor, consumed: m[0].length };
 }
 
-/** parseBrAmount + multiplicador textual ("3 mil reais" → 3000). */
 export function parseBrAmountWithScale(raw: string, trailing: string): number | null {
   const base = parseBrAmount(raw);
   if (base == null) return null;
   const { factor } = scaleAfter(trailing);
-  const scaled = base * factor;
-  return Math.round(scaled * 100) / 100;
+  return Math.round(base * factor * 100) / 100;
 }
 
-/** Today in America/Sao_Paulo as ISO yyyy-mm-dd */
 export function todaySaoPaulo(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
@@ -73,7 +66,6 @@ export function todaySaoPaulo(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-/** True when `iso` is a real calendar date (round-trips through Date). */
 export function isValidCalendarDate(iso: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso ?? "")) return false;
   const [y, m, d] = iso.split("-").map(Number);
@@ -82,15 +74,12 @@ export function isValidCalendarDate(iso: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
 
-/** Shift a São Paulo ISO date by N days. */
 export function shiftSaoPaulo(baseIso: string, days: number): string {
   const [Y, M, D] = baseIso.split("-").map(Number);
   const dt = new Date(Date.UTC(Y, M - 1, D + days, 12, 0, 0));
   return todaySaoPaulo(dt);
 }
 
-/** Detect hoje/ontem/anteontem in pt-BR text. Returns the resolved ISO date
- *  (America/Sao_Paulo) or null when the text has no relative anchor. */
 export function resolveRelativeDate(text: string, now: Date = new Date()): string | null {
   if (!text) return null;
   const t = text.toLowerCase();
@@ -101,12 +90,6 @@ export function resolveRelativeDate(text: string, now: Date = new Date()): strin
   return null;
 }
 
-/** Server-side sanitizer for `occurred_at`. Precedence:
- *  1) If user text contains a relative anchor (hoje/ontem/anteontem), FORCE it.
- *  2) Else, if the model produced a valid, plausible date, keep it.
- *  3) Else, fall back to today in America/Sao_Paulo.
- *  Plausibility: no future dates; no dates older than 370 days unless the
- *  text itself carries an explicit YYYY-MM-DD literal. */
 export function resolveOccurredAt(input: { text?: string; modelValue?: string | null; now?: Date }): { iso: string; source: "relative" | "model" | "today"; note?: string } {
   const now = input.now ?? new Date();
   const today = todaySaoPaulo(now);
@@ -131,7 +114,6 @@ function relativeDate(text: string, now: Date = new Date()): string {
   const today = todaySaoPaulo(now);
   const t = text.toLowerCase();
   const shift = (days: number) => {
-    // Build date at 12:00 in SP to avoid TZ edge
     const [Y, M, D] = today.split("-").map(Number);
     const dt = new Date(Date.UTC(Y, M - 1, D + days, 12, 0, 0));
     return todaySaoPaulo(dt);
@@ -144,36 +126,38 @@ function relativeDate(text: string, now: Date = new Date()): string {
 
 const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso|👍)\s*[.!]?\s*$/i;
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
-
-// Loose confirm/cancel: exige que a PRIMEIRA palavra seja um marcador
-// forte e limita a ≤4 palavras. Negação genérica (`não ...`) NÃO vive aqui:
-// só cancelamentos explícitos são resolvidos pelo vocabulário compartilhado.
 const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
-const CANCEL_LOOSE  = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
-
+const CANCEL_LOOSE = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
 /** Pedido explícito de criação de meta — separado de lançamento financeiro. */
 function isGoalCreateIntent(text: string): boolean {
   const t = String(text ?? "").toLowerCase();
-  // Pergunta/hipótese/declaração sobre metas não é mutação.
   if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
   return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t);
 }
 
-/** Data-alvo explícita da meta. Mantém a interpretação curta e previsível. */
+/**
+ * Menção/discussão de meta com valor não é lançamento de ledger.
+ * O parser legado só pode promover para `goal` quando há verbo explícito de
+ * criação. Fora disso ele falha fechado e deixa Conversation Brain/read path
+ * interpretar a fala. Isso evita "Minha meta é juntar R$ 5.000" → despesa.
+ */
+function isGoalDiscussion(text: string): boolean {
+  const t = String(text ?? "").toLowerCase();
+  return /\b(meta|objetivo)\b/i.test(t);
+}
+
 function goalTargetDate(text: string, now: Date): string | undefined {
   const raw = String(text ?? "");
   const lower = raw.toLowerCase();
   const iso = lower.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
   if (iso && isValidCalendarDate(iso)) return iso;
-
   const br = lower.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
   if (br) {
     const candidate = `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
     if (isValidCalendarDate(candidate)) return candidate;
   }
-
   if (/\b(?:at[eé]\s+)?(?:o\s+)?(?:fim|final)\s+(?:deste|desse|do)\s+ano\b/i.test(raw)
     || /\bat[eé]\s+(?:o\s+)?fim\s+do\s+ano\b/i.test(raw)) {
     return `${todaySaoPaulo(now).slice(0, 4)}-12-31`;
@@ -188,10 +172,6 @@ function goalName(amount: number, text: string): string {
   return `Meta de R$ ${value}`;
 }
 
-/** Lê um cartão do próprio Nino colado de volta pelo usuário:
- *  "• *Despesa:* R$ 50,40 / • *Descrição:* KFC / • *Categoria:* Alimentação /
- *   • *Data:* 16/08/2026 / • *Conta:* Banco Itau".
- *  Retorna null quando o texto não tem o formato de cartão. */
 export function parseStructuredCard(
   text: string,
   now: Date = new Date(),
@@ -252,9 +232,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
 
-  // `nino_confirmation.v1`: vocabulário único de confirmação/cancelamento.
-  // "Salvar", "salva isso", "registra", "lança" são atos de confirmação tanto
-  // aqui quanto no fast path — um só vocabulário, sem divergência.
   if (wordCount <= 3 && !AMOUNT_RE.test(raw) && parseSpelledMoney(raw) === null) {
     const act = classifyConfirmationAct(raw);
     if (act === "confirm") return { kind: "confirm" };
@@ -264,15 +241,10 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
   const amountMatch = lower.match(AMOUNT_RE);
-  // Fala natural não usa dígitos: "cinquenta reais e quarenta centavos".
   const amount = amountMatch
-    ? parseBrAmountWithScale(
-        amountMatch[1],
-        lower.slice((amountMatch.index ?? 0) + amountMatch[0].length),
-      )
+    ? parseBrAmountWithScale(amountMatch[1], lower.slice((amountMatch.index ?? 0) + amountMatch[0].length))
     : parseSpelledMoney(lower);
 
-  // Queries (no writes)
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) {
     return { kind: "query", topic: "summary" };
   }
@@ -285,9 +257,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
 
   if (amount === null) return { kind: "unknown", text: raw };
 
-  // Meta explícita é um domínio de escrita próprio. Ela precisa ser reconhecida
-  // ANTES do fallback genérico de transação; foi exatamente essa ordem que
-  // transformou "cria uma meta de R$ 5.000" em um draft de Uber R$ 45.
   if (isGoalCreateIntent(raw)) {
     return {
       kind: "goal",
@@ -297,11 +266,12 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     };
   }
 
-  // Hipótese/consultoria ("se eu tivesse 3 mil por mês") carrega valor mas NÃO
-  // é pedido de registro: nunca virar transação/transferência/aporte.
+  // Goal-domain text without explicit mutation intent must never fall through
+  // to the generic transaction fallback merely because it contains an amount.
+  if (isGoalDiscussion(raw)) return { kind: "unknown", text: raw };
+
   if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
 
-  // Transfer
   if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {
     const parts = lower.match(/\bde\s+([\wçãéíáóêô ]+?)\s+para\s+([\wçãéíáóêô ]+)/);
     return {
@@ -310,20 +280,15 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     };
   }
 
-  // Goal contribution
   if (/\b(guardei|poupei|separei|aport(ei|e))\b.*\b(meta|objetivo|reserva|para )/.test(lower)) {
     const g = lower.match(/\b(?:meta|objetivo|reserva|para)\s+([\wçãéíáóêô ]+)/);
     return { kind: "goal_contribution", amount, occurred_at, goal_hint: g?.[1]?.trim() };
   }
 
-  // Income vs expense
   const isIncome = /\b(recebi|ganhei|entrou|salário|salario|pix recebi|pagamento recebido)\b/.test(lower);
   const isExpense = /\b(gastei|paguei|comprei|almo[çc]|jantar|caf[eé]|uber|99|mercado|farm[aá]cia|conta|boleto|assinatura)\b/.test(lower);
-
-  // Extract description around the noun
   const descMatch = lower.match(/\b(?:no|na|em|com|de)\s+([\wçãéíáóêô]+(?:\s+[\wçãéíáóêô]+){0,3})/);
   const description = descMatch?.[1]?.trim();
-
   const catMatch = lower.match(/\b(mercado|almoço|almoco|jantar|caf[eé]|uber|99|farm[aá]cia|lazer|assinatura|transporte|combust[íi]vel|educa[cç][aã]o|sa[uú]de|casa|contas)\b/);
   const accMatch = lower.match(/\b(nubank|itau|itaú|bradesco|santander|inter|caixa|carteira|dinheiro|c6|picpay|mercadopago)\b/);
 
