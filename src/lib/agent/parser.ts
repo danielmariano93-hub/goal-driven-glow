@@ -9,7 +9,7 @@ export type ParsedIntent =
   | { kind: "transaction"; type: "expense" | "income"; amount: number; occurred_at: string; description?: string; category_hint?: string; account_hint?: string }
   | { kind: "transfer"; amount: number; occurred_at: string; from_hint?: string; to_hint?: string }
   | { kind: "goal_contribution"; amount: number; occurred_at: string; goal_hint?: string }
-  | { kind: "goal"; name: string; target_amount: number }
+  | { kind: "goal"; name: string; target_amount: number; target_date?: string }
   | { kind: "query"; topic: "summary" | "recent" | "before_spending"; description?: string; amount?: number }
   | { kind: "confirm" }
   | { kind: "cancel" }
@@ -149,6 +149,37 @@ export function parseBrAmountWithScale(raw: string, trailing: string): number | 
   return Math.round(base * factor * 100) / 100;
 }
 
+function isGoalCreateIntent(text: string): boolean {
+  const t = String(text ?? "").toLowerCase();
+  if (/\?\s*$/.test(text.trim()) || /^\s*(como|quanto|qual|quais|por que|porque)\b/i.test(text)) return false;
+  return /\b(cria|crie|criar|monta|monte|montar|define|defina|definir|estabelece|estabeleca|quero criar|preciso criar|faz|faca|fazer)\b.{0,70}\b(meta|objetivo)\b/i.test(t)
+    || /\b(meta|objetivo)\b.{0,70}\b(juntar|guardar|economizar|poupar)\b/i.test(t);
+}
+
+function goalTargetDate(text: string, now: Date): string | undefined {
+  const raw = String(text ?? "");
+  const lower = raw.toLowerCase();
+  const iso = lower.match(/\b(20\d{2}-\d{2}-\d{2})\b/)?.[1];
+  if (iso && isValidCalendarDate(iso)) return iso;
+  const br = lower.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
+  if (br) {
+    const candidate = `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+    if (isValidCalendarDate(candidate)) return candidate;
+  }
+  if (/\b(?:at[eé]\s+)?(?:o\s+)?(?:fim|final)\s+(?:deste|desse|do)\s+ano\b/i.test(raw)
+    || /\bat[eé]\s+(?:o\s+)?fim\s+do\s+ano\b/i.test(raw)) {
+    return `${todaySaoPaulo(now).slice(0, 4)}-12-31`;
+  }
+  return undefined;
+}
+
+function goalName(amount: number, text: string): string {
+  const value = amount.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  if (/\bjuntar\b/i.test(text)) return `Juntar R$ ${value}`;
+  if (/\b(?:guardar|economizar|poupar)\b/i.test(text)) return `Guardar R$ ${value}`;
+  return `Meta de R$ ${value}`;
+}
+
 export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   const raw = (text ?? "").trim();
   if (!raw) return { kind: "unknown", text: "" };
@@ -160,8 +191,6 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
     if (CONFIRM_LOOSE.test(raw)) return { kind: "confirm" };
     if (CANCEL_LOOSE.test(raw)) return { kind: "cancel" };
   }
-
-
 
   const lower = raw.toLowerCase();
   const occurred_at = relativeDate(lower, now);
@@ -182,6 +211,16 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   }
 
   if (amount === null) return { kind: "unknown", text: raw };
+
+  // Criação explícita de meta precisa ganhar do fallback genérico de transação.
+  if (isGoalCreateIntent(raw)) {
+    return {
+      kind: "goal",
+      name: goalName(amount, raw),
+      target_amount: amount,
+      target_date: goalTargetDate(raw, now),
+    };
+  }
 
   // Hipótese/consultoria carrega valor mas NÃO é pedido de registro.
   if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
