@@ -5,7 +5,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-export type HistoryTurn = { role: "user" | "assistant"; content: string };
+export type HistoryTurn = { role: "user" | "assistant"; content: string; created_at?: string };
 
 const NON_CONVERSATIONAL_AUDIO_MARKER = /^\[áudio (?:não compreendido|recebido — aguardando escuta)\]$/i;
 
@@ -35,13 +35,17 @@ export function withoutCurrentTurn(history: HistoryTurn[], currentText: string):
 /** Map a conversation_messages row (real schema: direction/body_masked) to
  *  the {role, content} shape the LLM expects. */
 export function mapConversationRow(
-  row: { direction?: string | null; body_masked?: string | null },
+  row: { direction?: string | null; body_masked?: string | null; created_at?: string | null },
 ): HistoryTurn | null {
   const dir = String(row?.direction ?? "");
   if (dir !== "inbound" && dir !== "outbound") return null;
   const content = String(row?.body_masked ?? "").trim();
   if (!content) return null;
-  return { role: dir === "inbound" ? "user" : "assistant", content };
+  return {
+    role: dir === "inbound" ? "user" : "assistant",
+    content,
+    ...(row.created_at ? { created_at: row.created_at } : {}),
+  };
 }
 
 export async function loadHistory(
@@ -61,22 +65,30 @@ export async function loadHistory(
     .order("created_at", { ascending: false })
     .limit(limit + 1);
 
+  // Respostas do agente e comunicações proativas pertencem à mesma conversa
+  // quando foram enviadas ao mesmo usuário/telefone. Antes, o histórico só lia
+  // kind=agent + metadata.conversation_id; por isso uma pergunta proativa como
+  // "Quer que eu detalhe?" ficava invisível no turno seguinte e "Quero" era
+  // classificado no vácuo.
   const outboundPromise = conv
     ? sb.from("outbound_messages")
       .select("id, body, created_at, channel, to_phone, kind, metadata")
       .eq("user_id", (conv as any).user_id)
       .eq("to_phone", (conv as any).phone_e164)
       .neq("channel", "inapp")
-      .eq("kind", "agent")
-      .contains("metadata", { conversation_id })
+      .in("kind", ["agent", "proactive"])
       .order("created_at", { ascending: false })
-      .limit(limit + 1)
+      .limit(limit + 4)
     : Promise.resolve({ data: [] as any[] });
 
   const [{ data }, { data: outbound }] = await Promise.all([q, outboundPromise]);
   const rows = ((data ?? []) as Array<{ id: string; direction: string; body_masked: string; created_at: string }>)
     .map(r => ({ id: r.id, role: r.direction === "inbound" ? "user" as const : "assistant" as const, content: r.body_masked, created_at: r.created_at }));
-  const directOutbound = ((outbound ?? []) as Array<{ id: string; body: string; created_at: string }>)
+  const directOutbound = ((outbound ?? []) as Array<{ id: string; body: string; created_at: string; kind?: string; metadata?: any }>)
+    // Agent replies may share the same user/phone across technical conversation
+    // rows, so keep their canonical conversation_id check. Proactive messages
+    // currently do not persist that metadata; same user+phone is their scope.
+    .filter((r) => r.kind === "proactive" || r.metadata?.conversation_id === conversation_id)
     .map(r => ({ id: `outbound:${r.id}`, role: "assistant" as const, content: r.body, created_at: r.created_at }));
   const filtered = opts.excludeMessageId
     ? [...rows, ...directOutbound].filter(r => r.id !== opts.excludeMessageId)
@@ -85,5 +97,5 @@ export async function loadHistory(
     .filter(r => isConversationContext(String(r.content ?? "")))
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     .slice(-limit)
-    .map(r => ({ role: r.role, content: String(r.content).trim() }));
+    .map(r => ({ role: r.role, content: String(r.content).trim(), created_at: r.created_at }));
 }
