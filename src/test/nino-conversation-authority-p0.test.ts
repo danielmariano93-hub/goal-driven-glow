@@ -25,10 +25,15 @@ describe("Nino conversation authority P0 — regressões reais de produção", (
     expect(parsed.name).toMatch(/Juntar R\$ 5\.000/);
   });
 
-  it("pergunta sobre como criar meta continua sendo consulta, não escrita", () => {
-    const parsed = interpret("Como criar uma meta de R$ 5.000?");
-    expect(parsed.kind).not.toBe("goal");
-    expect(parsed.kind).not.toBe("transaction");
+  it("pergunta ou declaração sobre meta não vira escrita por semelhança lexical", () => {
+    for (const text of [
+      "Como criar uma meta de R$ 5.000?",
+      "Minha meta é juntar R$ 5.000 até dezembro",
+    ]) {
+      const parsed = interpret(text);
+      expect(parsed.kind, text).not.toBe("goal");
+      expect(parsed.kind, text).not.toBe("transaction");
+    }
   });
 
   it("turno de meta expõe no máximo o draft de meta", () => {
@@ -55,8 +60,9 @@ describe("Nino conversation authority P0 — regressões reais de produção", (
     expect(isDraftCompatibleWithIntent("create_transaction_draft", parsed)).toBe(false);
   });
 
-  it("repair não chega ao PolicyEngine como cancel, mesmo com parser legado permissivo", () => {
+  it("repair é uma única semântica e nunca chega ao PolicyEngine como cancel", () => {
     for (const text of ["não era isso", "não foi isso que te pedi", "você entendeu errado", "está errado"]) {
+      expect(interpret(text).kind, text).toBe("unknown");
       expect(routeIntent(text).intent.kind, text).toBe("unknown");
     }
   });
