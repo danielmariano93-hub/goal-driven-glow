@@ -13,27 +13,24 @@
 import { handleTurn as handleLegacyTurn, type HandleTurnInput, type HandleTurnResult } from "./AgentCore.ts";
 import { service } from "./service.ts";
 import { isEnabled } from "./FeatureFlags.ts";
-import { loadHistory } from "./ConversationHistory.ts";
+import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
-import {
-  dialogueActsFromContract, interpretConversationTurn, type ConversationTurnContract,
-} from "./ConversationBrain.ts";
+import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
+import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
 import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { classifyConfirmationAct } from "./ConfirmationVocabulary.ts";
 import { findPending } from "./PendingConfirmations.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
 import { parseBankNotification } from "./BankNotificationParser.ts";
-import { detectFastLog, loadFastLogToken } from "./FastLog.ts";
+import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastLog.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import { runtimeContext } from "./RuntimeContract.ts";
 import { buildTurnPlan } from "./ConversationOrchestrator.ts";
-import { classifyDialogueState } from "./DialogueAct.ts";
-import { routeIntent } from "./IntentRouter.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
 import { compileFinancialQuery } from "./SemanticCompiler.ts";
 import { runTool } from "./ToolRuntime.ts";
@@ -65,11 +62,22 @@ function safeReply(text: string): string {
   return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo."));
 }
 
-async function enqueueIfNeeded(
-  sb: any,
-  input: HandleTurnInput,
-  body: string,
-): Promise<void> {
+/**
+ * Na V2, explicitness vem do contrato emitido pela autoridade conversacional.
+ * O backend pode validar/bindar os slots, mas não chama outro classificador para
+ * decidir novamente se o usuário mudou de assunto/entidade/período.
+ */
+function constraintsFromContract(contract: ConversationTurnContract, canonical: string) {
+  return {
+    period: Boolean(contract.focus.period_expression),
+    entity: Boolean(contract.focus.category || contract.focus.merchant || contract.focus.goal),
+    // Dimensão é forma de saída (por cartão/categoria/conta/estabelecimento),
+    // não uma nova intenção. Detectá-la lexicalmente não troca o significado.
+    dimension: /\bpor\s+(?:cart[aã]o|conta|categoria|estabelecimento|m[eê]s|dia)\b/i.test(canonical),
+  };
+}
+
+async function enqueueIfNeeded(sb: any, input: HandleTurnInput, body: string): Promise<void> {
   if (input.channel === "app" || !input.to_phone) return;
   await enqueueReply(sb, {
     user_id: input.user_id,
@@ -184,22 +192,23 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     return await handleLegacyTurn(input);
   }
 
-  // "Quero" pode ser confirmação natural de um draft, mas só quando o ESTADO
-  // de confirmação existe. Fora desse estado segue para o Conversation Brain.
+  // "Quero" confirma um draft somente quando existe ESTADO pendente. Fora
+  // desse estado ele segue para o Brain e responde à pergunta/oferta recente.
   if (pending && normalizeShort(input.text) === "quero") {
     const outcome = await confirmAndBuildReceipt(sb, pending, {
       source_message_id: input.inbound_message_id ?? null,
     });
     const contract: ConversationTurnContract = {
-      version: "conversation_turn_contract.v1", act: "answer", mode: "write",
+      version: "conversation_turn_contract.v1", act: "answer", mode: "converse",
       canonical_request: null, inherit_focus: true,
       focus: { category: null, merchant: null, goal: null, period_expression: null },
-      action: null, direct_reply: null, clarification_question: null, confidence: 1,
+      action: null,
+      direct_reply: "Confirmação resolvida pelo estado financeiro pendente.",
+      clarification_question: null,
+      confidence: 1,
     };
-    // Contrato sintético só registra que o fast path foi resolvido por estado.
-    const body = outcome.reply;
     return await finishV2({
-      sb, input, contract, reply: body,
+      sb, input, contract, reply: outcome.reply,
       reply_kind: outcome.ok ? "receipt" : "info",
       path: "deterministic_tool", started_at: started,
       tokens_in: 0, tokens_out: 0,
@@ -211,7 +220,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const bank = parseBankNotification(input.text);
   if (bank.draftable || looksLikeBulkOrDocument(input.text)) return await handleLegacyTurn(input);
 
-  const fastLogToken = await loadFastLogToken(sb, input.user_id).catch(() => null);
+  const fastLogToken = await loadFastLogToken(sb, input.user_id).catch(() => DEFAULT_FAST_LOG_TOKEN);
   if (detectFastLog(input.text, fastLogToken).triggered) return await handleLegacyTurn(input);
 
   const session = await resolveSession(sb, {
@@ -221,11 +230,16 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   }).catch(() => null as any);
   const session_id = session?.id as string | undefined;
 
-  const [history, memory, workflow] = await Promise.all([
+  const [loadedHistory, memory, workflow] = await Promise.all([
     loadHistory(sb, input.conversation_id, { limit: 12, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
   ]);
+  // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
+  // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
+  const history = input.channel === "app"
+    ? loadedHistory
+    : withoutCurrentTurn(loadedHistory, input.text);
 
   const brain = await interpretConversationTurn({
     text: input.text,
@@ -244,9 +258,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const contract = brain.contract;
 
   if (contract.mode === "converse") {
-    if (!contract.direct_reply) return await handleLegacyTurn(input);
     return await finishV2({
-      sb, input, contract, reply: contract.direct_reply, reply_kind: "info", path: "llm",
+      sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: "llm",
       started_at: started, tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       session_id,
     });
@@ -254,8 +267,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   if (contract.mode === "clarify") {
     return await finishV2({
-      sb, input, contract,
-      reply: contract.clarification_question ?? "Pode me explicar só um pouco melhor o que você quer?",
+      sb, input, contract, reply: contract.clarification_question!,
       reply_kind: "question", path: "llm", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       session_id,
@@ -284,22 +296,21 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     });
   }
 
-  // READ: Brain resolve significado/continuidade; Semantic Compiler só traduz o
-  // pedido canônico para Financial IR. O pipeline abaixo não pode mudar o act.
+  // READ: Brain resolve significado/continuidade; Semantic Compiler apenas
+  // traduz o pedido canônico para Financial IR. Nenhum router reinterpreta o act.
   const canonical = String(contract.canonical_request ?? input.text).trim();
   const plan = buildTurnPlan({ text: canonical, history });
-  const legacyDialogue = classifyDialogueState(canonical, routeIntent(canonical).intent);
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
+  const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
 
   const multiQuery = await isEnabled("semantic_ir_multiquery_v1", input.user_id);
   const investigation = await isEnabled("semantic_investigation_loop_v1", input.user_id);
-  const typicalMonthly = await isEnabled("typical_monthly_v1", input.user_id);
 
   const semantic = await runSemanticTurn({
     text: canonical,
     acts,
-    constraints: legacyDialogue.constraints,
+    constraints,
     period: {
       from: plan.effective_period.from,
       to: plan.effective_period.to,
@@ -310,9 +321,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     topic_state: state?.semantic_topic_state ?? null,
     max_queries: multiQuery ? MAX_IR_QUERIES : 1,
     investigation_enabled: investigation,
-    // V2 não aceita que a execução responda outra pergunta.
+    // Segurança semântica é parte da V2, não uma otimização opcional.
     preservation_enforced: true,
-    typical_monthly_enabled: typicalMonthly,
+    // "por mês/costumo" jamais pode cair no MTD na arquitetura nova.
+    typical_monthly_enabled: true,
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
     compile: (args) => compileFinancialQuery({
