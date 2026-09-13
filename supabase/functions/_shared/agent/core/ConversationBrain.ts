@@ -1,52 +1,26 @@
 // ConversationBrain (`nino_conversation_brain.v1`)
 //
 // ÚNICA autoridade de significado quando o rollout V2 está ligado.
-// O cérebro entende diálogo, continuidade, repair e a intenção de READ/WRITE.
+// O cérebro entende diálogo, continuidade, repair e intenção de READ/WRITE.
 // Ele NÃO calcula dinheiro, NÃO executa tool e NÃO escolhe engine financeira.
-// A saída é um Turn Contract pequeno; runtime/IR/engines validam e executam.
+// A saída é o contrato puro de ConversationTurnContract.ts.
 // deno-lint-ignore-file no-explicit-any
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { ACTION_KINDS, isActionKind, type ActionIR } from "./ActionIR.ts";
+import { ACTION_KINDS } from "./ActionIR.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
+import {
+  BRAIN_ACTS, BRAIN_MODES, normalizeConversationTurnContract,
+  type ConversationTurnContract,
+} from "./ConversationTurnContract.ts";
+
+export { dialogueActsFromContract } from "./ConversationTurnContract.ts";
+export type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
 export const CONVERSATION_BRAIN_DEADLINE_MS = 12_000;
-
-export const BRAIN_ACTS = [
-  "new_request", "follow_up", "repair", "answer", "topic_switch", "conversational",
-] as const;
-export type BrainAct = typeof BRAIN_ACTS[number];
-
-export const BRAIN_MODES = ["converse", "read", "write", "clarify"] as const;
-export type BrainMode = typeof BRAIN_MODES[number];
-
-export type BrainFocus = {
-  category: string | null;
-  merchant: string | null;
-  goal: string | null;
-  period_expression: string | null;
-};
-
-export type ConversationTurnContract = {
-  version: "conversation_turn_contract.v1";
-  act: BrainAct;
-  mode: BrainMode;
-  /** Pergunta/pedido completo após resolver elipse e referência. Nunca contém fatos inventados. */
-  canonical_request: string | null;
-  /** Follow-up pode herdar foco; tópico novo explícito não. */
-  inherit_focus: boolean;
-  focus: BrainFocus;
-  /** Só existe em WRITE. Ação de domínio; runtime traduz para uma única draft tool. */
-  action: ActionIR | null;
-  /** Só CONVERSE pode responder sem consultar dado financeiro do usuário. */
-  direct_reply: string | null;
-  /** Pergunta única quando falta significado/slot indispensável. */
-  clarification_question: string | null;
-  confidence: number;
-};
 
 export type ConversationBrainTelemetry = {
   model: string;
@@ -134,6 +108,7 @@ Regras obrigatórias:
 8. direct_reply só pode ser usado em mode=converse quando a resposta NÃO depende de saldo, gastos, metas, faturas ou qualquer fato pessoal. Máximo 4 linhas, pt-BR natural.
 9. Se faltar informação indispensável para entender o pedido, mode=clarify e faça UMA pergunta curta.
 10. Não transforme conselho/hipótese em escrita. "E se eu gastar..." é READ/consulta; "registra/cria/ajusta" é WRITE.
+11. Se act=follow_up ou act=answer, inherit_focus=true. Se act=topic_switch, inherit_focus=false.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
@@ -169,44 +144,6 @@ function statePrompt(memory: ConversationMemory | null, workflow: WriteWorkflow 
   return `ConversationState:\n${JSON.stringify({ state, open_write_workflow: openWrite })}`;
 }
 
-function normalizeContract(raw: any): ConversationTurnContract | null {
-  if (!raw || !BRAIN_ACTS.includes(String(raw.act) as BrainAct) || !BRAIN_MODES.includes(String(raw.mode) as BrainMode)) {
-    return null;
-  }
-  const action = raw.action && isActionKind(raw.action.action)
-    ? { version: "action_ir.v1" as const, action: raw.action.action, slots: (raw.action.slots ?? {}) as Record<string, unknown> }
-    : null;
-  const mode = raw.mode as BrainMode;
-  if (mode === "write" && !action) return null;
-  if (mode === "read" && !String(raw.canonical_request ?? "").trim()) return null;
-  if (mode === "clarify" && !String(raw.clarification_question ?? "").trim()) return null;
-  return {
-    version: "conversation_turn_contract.v1",
-    act: raw.act as BrainAct,
-    mode,
-    canonical_request: raw.canonical_request == null ? null : String(raw.canonical_request).trim(),
-    inherit_focus: Boolean(raw.inherit_focus),
-    focus: {
-      category: raw.focus?.category == null ? null : String(raw.focus.category).trim(),
-      merchant: raw.focus?.merchant == null ? null : String(raw.focus.merchant).trim(),
-      goal: raw.focus?.goal == null ? null : String(raw.focus.goal).trim(),
-      period_expression: raw.focus?.period_expression == null ? null : String(raw.focus.period_expression).trim(),
-    },
-    action,
-    direct_reply: raw.direct_reply == null ? null : String(raw.direct_reply).trim(),
-    clarification_question: raw.clarification_question == null ? null : String(raw.clarification_question).trim(),
-    confidence: Math.max(0, Math.min(1, Number(raw.confidence ?? 0))),
-  };
-}
-
-export function dialogueActsFromContract(contract: ConversationTurnContract): string[] {
-  if (contract.act === "repair") return ["repair"];
-  if (contract.act === "follow_up" || contract.act === "answer") return ["followup"];
-  if (contract.mode === "write") return ["write"];
-  if (contract.mode === "converse") return ["conversational"];
-  return ["new_query"];
-}
-
 export async function interpretConversationTurn(input: {
   text: string;
   history: HistoryTurn[];
@@ -220,7 +157,10 @@ export async function interpretConversationTurn(input: {
   const started = Date.now();
   const fail = (error: string): ConversationBrainOutcome => ({
     contract: null,
-    telemetry: { model: input.model, llm_calls: 1, tokens_in: 0, tokens_out: 0, latency_ms: Date.now() - started, ok: false, error },
+    telemetry: {
+      model: input.model, llm_calls: 1, tokens_in: 0, tokens_out: 0,
+      latency_ms: Date.now() - started, ok: false, error,
+    },
   });
   const key = Deno.env.get("LOVABLE_API_KEY");
   if (!key) return fail("conversation_brain_llm_not_configured");
@@ -228,9 +168,10 @@ export async function interpretConversationTurn(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CONVERSATION_BRAIN_DEADLINE_MS);
   try {
+    const historyText = compactHistory(input.history);
     const user = [
       statePrompt(input.memory, input.workflow),
-      compactHistory(input.history) ? `Histórico relevante:\n${compactHistory(input.history)}` : "",
+      historyText ? `Histórico relevante:\n${historyText}` : "",
       `Mensagem atual:\n${input.text}`,
       "Emita somente emit_conversation_turn_contract.",
     ].filter(Boolean).join("\n\n");
@@ -298,10 +239,10 @@ export async function interpretConversationTurn(input: {
     const rawArguments = functionArguments || String(call?.arguments ?? "");
     if (!rawArguments) return fail("conversation_brain_missing_contract");
 
-    let parsed: any;
+    let parsed: unknown;
     try { parsed = JSON.parse(rawArguments); }
     catch { return fail("conversation_brain_invalid_json"); }
-    const contract = normalizeContract(parsed);
+    const contract = normalizeConversationTurnContract(parsed);
     if (!contract) return fail("conversation_brain_contract_invalid");
 
     return {
