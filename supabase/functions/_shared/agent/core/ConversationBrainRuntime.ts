@@ -1,12 +1,13 @@
 // ConversationBrainRuntime (`nino_conversation_brain.v1`)
 // Runtime determinístico do Turn Contract. Nesta fase ele assume WRITE:
-// ActionIR -> workflow durável -> UMA draft tool compatível -> pending confirmation.
+// ActionIR -> slot binding -> workflow durável -> UMA draft tool compatível.
 // Nunca faz commit financeiro direto e nunca troca a ação interpretada.
 // deno-lint-ignore-file no-explicit-any
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { mergeActionSlots, toolForAction, validateActionIR } from "./ActionIR.ts";
-import type { ConversationTurnContract } from "./ConversationBrain.ts";
+import { bindActionSlots } from "./ActionSlotResolver.ts";
+import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 import {
   closeWorkflow, loadWorkflow, nextStep, saveWorkflow, type WriteWorkflow,
 } from "./WriteWorkflowManager.ts";
@@ -31,12 +32,15 @@ function draftText(result: any): string {
   return "Deixei o rascunho pronto. Confirma?";
 }
 
-function workflowFromContract(
+export function workflowFromContract(
   contract: ConversationTurnContract,
   existing: WriteWorkflow | null,
+  now: Date = new Date(),
 ): { workflow: WriteWorkflow | null; conflict: boolean } {
   if (contract.mode !== "write" || !contract.action) return { workflow: null, conflict: false };
   const tool = toolForAction(contract.action.action);
+  const currentSlots = bindActionSlots(contract.action, now);
+
   if (existing && existing.kind !== tool) {
     // Follow-up/repair nunca pode trocar silenciosamente o domínio da escrita.
     if (contract.act !== "new_request" && contract.act !== "topic_switch") {
@@ -46,18 +50,19 @@ function workflowFromContract(
       workflow: {
         id: null,
         kind: tool,
-        slots: mergeActionSlots(null, contract.action.slots),
+        slots: mergeActionSlots(null, currentSlots),
         asked_slot: null,
         turns: 1,
       },
       conflict: false,
     };
   }
+
   return {
     workflow: {
       id: existing?.id ?? null,
       kind: tool,
-      slots: mergeActionSlots(existing?.slots, contract.action.slots),
+      slots: mergeActionSlots(existing?.slots, currentSlots),
       asked_slot: null,
       turns: (existing?.turns ?? 0) + 1,
     },
@@ -76,6 +81,7 @@ export async function executeBrainWriteTurn(args: {
   if (args.contract.mode !== "write" || !args.contract.action) {
     return { handled: false, reply: "", reply_kind: "info" };
   }
+
   const errors = validateActionIR(args.contract.action);
   if (errors.length) {
     return {
