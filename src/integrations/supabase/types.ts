@@ -3787,6 +3787,91 @@ export type Database = {
         }
         Relationships: []
       }
+      conversation_brain_shadow_evaluations: {
+        Row: {
+          brain_act: string | null
+          brain_action: Json | null
+          brain_canonical_request: string | null
+          brain_confidence: number | null
+          brain_focus: Json
+          brain_latency_ms: number | null
+          brain_mode: string | null
+          conversation_id: string
+          created_at: string
+          error_code: string | null
+          id: string
+          inbound_message_id: string | null
+          legacy_path: string | null
+          legacy_reply_kind: string | null
+          status: string
+          tokens_in: number
+          tokens_out: number
+          user_id: string
+        }
+        Insert: {
+          brain_act?: string | null
+          brain_action?: Json | null
+          brain_canonical_request?: string | null
+          brain_confidence?: number | null
+          brain_focus?: Json
+          brain_latency_ms?: number | null
+          brain_mode?: string | null
+          conversation_id: string
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          inbound_message_id?: string | null
+          legacy_path?: string | null
+          legacy_reply_kind?: string | null
+          status?: string
+          tokens_in?: number
+          tokens_out?: number
+          user_id: string
+        }
+        Update: {
+          brain_act?: string | null
+          brain_action?: Json | null
+          brain_canonical_request?: string | null
+          brain_confidence?: number | null
+          brain_focus?: Json
+          brain_latency_ms?: number | null
+          brain_mode?: string | null
+          conversation_id?: string
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          inbound_message_id?: string | null
+          legacy_path?: string | null
+          legacy_reply_kind?: string | null
+          status?: string
+          tokens_in?: number
+          tokens_out?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_brain_shadow_evaluations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_brain_shadow_evaluations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_universe"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "conversation_brain_shadow_evaluations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_client_users"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       conversation_messages: {
         Row: {
           artifact_ids: string[] | null
