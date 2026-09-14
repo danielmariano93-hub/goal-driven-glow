@@ -66,9 +66,21 @@ jobs:
       - name: Validate deployment credentials
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
+          test -n "$OPENAI_API_KEY" || (echo 'Missing OPENAI_API_KEY' && exit 1)
+
+      - name: Configure Nino direct OpenAI provider
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            OPENAI_API_KEY="$OPENAI_API_KEY" \
+            NINO_AI_PROVIDER="openai"
 
       - name: Deploy atomic Nino Edge Functions
         env:
@@ -95,4 +107,5 @@ jobs:
         run: |
           echo "revision=${GITHUB_SHA}"
           echo "project_ref=${SUPABASE_PROJECT_REF}"
+          echo "provider=openai"
           echo "functions=10"
