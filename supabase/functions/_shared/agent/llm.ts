@@ -1,23 +1,18 @@
-// Lovable AI Gateway client using the OpenAI-compatible chat/completions
-// endpoint with function tools. We drive the loop ourselves so telemetry
-// (steps, tool calls, tokens) can be recorded step-by-step in the DB.
-//
-// This is intentionally a thin fetch-based client — no AI SDK required —
-// keeping the Edge Function bundle small.
-
+// Provider-neutral OpenAI-compatible chat/completions client with function tools.
+// We drive the loop ourselves so telemetry (steps, tool calls, tokens) can be
+// recorded step-by-step in the DB while the provider remains swappable.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } from "./tools.ts";
 import { interpret, todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
 import { buildEvidencePack } from "./core/EvidencePack.ts";
 import { recordAiUsage } from "../aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../ai-gateway.ts";
 import { isWriteTool } from "./core/TurnEvidenceCache.ts";
 import {
   isDraftCompatibleWithIntent, isDraftWriteTool, scopeToolsToWriteIntent,
 } from "./core/WriteIntentContract.ts";
 
-/** Builds a deterministic temporal system message. The LLM MUST use these
- *  values as "now" — never dates from examples, history, or its training. */
 function temporalSystemContext(now: Date = new Date()): string {
   const hoje = todaySaoPaulo(now);
   const ontem = shiftSaoPaulo(hoje, -1);
@@ -33,32 +28,15 @@ function temporalSystemContext(now: Date = new Date()): string {
   ].join("\n");
 }
 
-const LOVABLE_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
 export type LLMOptions = {
   model: string;
   maxSteps: number;
   temperature?: number;
   timeoutMs?: number;
   systemPrompt: string;
-  /** Capability-scoped registry. Never expose unrelated financial tools. */
   allowedTools?: readonly string[];
-  /**
-   * Ferramenta canônica obrigatória para READ/validação. WRITE nunca é forçada
-   * via tool_choice: o domínio precisa estar coerente com a intenção do turno.
-   */
   requiredTool?: string | null;
-  /**
-   * `nino_efficiency.v1` — quando ligado, o resultado da tool entra no prompt
-   * comprimido semanticamente (EvidencePack) e dentro do orçamento por tool.
-   * O resultado completo continua indo para `agent_tool_calls`.
-   */
   evidencePack?: boolean;
-  /**
-   * Ferramenta canônica já executada deterministicamente pelo planner. A
-   * evidência entra no prompt pronta e o loop começa sem gastar uma chamada
-   * de modelo só para escolher a tool.
-   */
   preExecuted?: Array<{
     tool_name: string; args: any; result: any; ok: boolean;
     duration_ms: number; error?: string | null;
@@ -75,7 +53,6 @@ export type LLMTurn = {
     ok: boolean; duration_ms: number; error?: string | null;
   }>;
   finish: "stop" | "length" | "tool_error" | "empty";
-  /** Telemetria de eficiência (`nino_efficiency.v1`). */
   llmCalls?: number;
   toolResultFullChars?: number;
   toolResultLlmChars?: number;
@@ -88,19 +65,17 @@ type ChatMessage =
   | { role: "tool"; content: string; tool_call_id: string; name?: string };
 
 export function isLLMConfigured(): boolean {
-  return !!Deno.env.get("LOVABLE_API_KEY");
+  return resolveAiProvider() !== null;
 }
 
-async function chatCompletion(body: unknown, signal?: AbortSignal) {
-  const key = Deno.env.get("LOVABLE_API_KEY")!;
-  const resp = await fetch(LOVABLE_GATEWAY, {
+async function chatCompletion(body: any, signal?: AbortSignal) {
+  const provider = resolveAiProvider();
+  if (!provider) throw new Error("llm_not_configured");
+  const requestBody = { ...body, model: normalizeAiModel(String(body?.model ?? ""), provider) };
+  const resp = await fetch(aiEndpoint(provider, "chat/completions"), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Lovable-API-Key": key,
-      "X-Lovable-AIG-SDK": "edge-function",
-    },
-    body: JSON.stringify(body),
+    headers: aiJsonHeaders(provider),
+    body: JSON.stringify(requestBody),
     signal,
   });
   const text = await resp.text();
@@ -121,17 +96,10 @@ export async function runAgentTurn(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
 
-  // WRITE tem um único domínio por turno. O parser não escolhe a tool; ele
-  // apenas fornece o contrato já reconhecido para retirar drafts incompatíveis
-  // do catálogo exposto ao modelo. READ/list tools do capability continuam.
   const parsedIntent = interpret(userText);
   const scopedAllowedTools = scopeToolsToWriteIntent(opts.allowedTools, parsedIntent);
   const tools = openAIToolDefinitions(scopedAllowedTools);
 
-  // Histórico híbrido (`context_budget.v1`): os 4 turnos recentes vão crus
-  // (800 chars) porque é neles que a continuidade vive; o restante entra
-  // resumido. Antes, 20 turnos × 2.000 chars respondiam por 2–6k tokens de
-  // prompt por passo do loop — e cada passo reenvia tudo.
   const raw = (opts.history ?? []).slice(-20);
   const recent = raw.slice(-4).map((m) => ({
     role: m.role, content: String(m.content ?? "").slice(0, 800),
@@ -154,8 +122,6 @@ export async function runAgentTurn(
   let fullChars = 0, llmChars = 0, llmCalls = 0;
   let stepIndex = 0;
 
-  // Evidência pré-apurada: a tool canônica já rodou deterministicamente, então
-  // o modelo recebe os fatos prontos e não gasta um passo para pedi-los.
   const preBlocks: string[] = [];
   for (const pre of opts.preExecuted ?? []) {
     stepIndex++;
@@ -189,9 +155,6 @@ export async function runAgentTurn(
 
   let tokensIn = 0, tokensOut = 0;
   const maxSteps = Math.max(1, Math.min(8, opts.maxSteps || 6));
-
-  // required_tool continua útil para factual READ. Em WRITE ele é apenas
-  // pós-condição/validação e NUNCA mais força a primeira tool do modelo.
   const forcedReadTool = opts.requiredTool && !isWriteTool(opts.requiredTool)
     ? opts.requiredTool
     : null;
@@ -207,26 +170,37 @@ export async function runAgentTurn(
           : "auto",
         temperature: opts.temperature ?? 0.2,
       };
-      // GPT-5.6 family requires reasoning_effort=none when using function tools
-      if (/^openai\/gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
+      if (/^(?:openai\/)?gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
 
       llmCalls++;
-      const callStarted=Date.now();
+      const callStarted = Date.now();
       let resp: any;
       try {
         resp = await chatCompletion(body, controller.signal);
       } catch (error) {
-        const status=Number((error as any)?.status ?? 0) || null;
-        await recordAiUsage(toolCtx.sb,{workload:"AGENT_CONVERSATION",function_name:"agent-run",operation:"chat_step",user_id:toolCtx.user_id,model:opts.model,operation_type:"chat",success:false,http_status:status,error_code:status?`gateway_${status}`:"gateway_error",latency_ms:Date.now()-callStarted,batch_size:1,unique_items:1,metadata:{conversation_id:toolCtx.conversation_id,step}});
+        const status = Number((error as any)?.status ?? 0) || null;
+        await recordAiUsage(toolCtx.sb, {
+          workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "chat_step",
+          user_id: toolCtx.user_id, model: opts.model, operation_type: "chat", success: false,
+          http_status: status, error_code: status ? `gateway_${status}` : "gateway_error",
+          latency_ms: Date.now() - callStarted, batch_size: 1, unique_items: 1,
+          metadata: { conversation_id: toolCtx.conversation_id, step },
+        });
         throw error;
       }
       const choice = resp.choices?.[0];
       const usage = resp.usage ?? {};
-      const stepTokensIn=Number(usage.prompt_tokens ?? 0);
-      const stepTokensOut=Number(usage.completion_tokens ?? 0);
+      const stepTokensIn = Number(usage.prompt_tokens ?? 0);
+      const stepTokensOut = Number(usage.completion_tokens ?? 0);
       tokensIn += stepTokensIn;
       tokensOut += stepTokensOut;
-      await recordAiUsage(toolCtx.sb,{workload:"AGENT_CONVERSATION",function_name:"agent-run",operation:"chat_step",user_id:toolCtx.user_id,model:opts.model,operation_type:"chat",input_tokens:stepTokensIn,output_tokens:stepTokensOut,success:true,latency_ms:Date.now()-callStarted,batch_size:1,unique_items:1,metadata:{conversation_id:toolCtx.conversation_id,step,tool_count:(resp.choices?.[0]?.message?.tool_calls??[]).length}});
+      await recordAiUsage(toolCtx.sb, {
+        workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "chat_step",
+        user_id: toolCtx.user_id, model: opts.model, operation_type: "chat",
+        input_tokens: stepTokensIn, output_tokens: stepTokensOut, success: true,
+        latency_ms: Date.now() - callStarted, batch_size: 1, unique_items: 1,
+        metadata: { conversation_id: toolCtx.conversation_id, step, tool_count: (resp.choices?.[0]?.message?.tool_calls ?? []).length },
+      });
       const msg = choice?.message ?? {};
       const calls = msg.tool_calls ?? [];
 
@@ -244,11 +218,8 @@ export async function runAgentTurn(
         };
       }
 
-      // Assistant turn with tool_calls
       messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: calls });
 
-      // Execute each tool call sequentially. Só UM draft bem-sucedido pode
-      // existir no turno; qualquer segundo draft é bloqueado antes do side effect.
       for (const c of calls) {
         stepIndex++;
         const name = c.function?.name as string;
@@ -284,8 +255,6 @@ export async function runAgentTurn(
           duration_ms,
           error: toolResult.ok ? null : (toolResult as { error?: string }).error,
         });
-        // Orçamento de resultado (`nino_efficiency.v1`): o completo vai para
-        // auditoria; o modelo recebe só a evidência comprimida.
         const fullSerialized = JSON.stringify(toolResult);
         let contentForModel = fullSerialized;
         if (opts.evidencePack !== false) {
@@ -318,6 +287,5 @@ export async function runAgentTurn(
 
 export function sanitizeError(e: unknown): string {
   const s = String((e as any)?.message ?? e ?? "erro").slice(0, 200);
-  // Redact any accidental token/api-key patterns
   return s.replace(/[a-zA-Z0-9._-]{24,}/g, "…");
 }
