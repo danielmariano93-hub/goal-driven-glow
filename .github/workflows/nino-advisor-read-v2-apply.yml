@@ -1,0 +1,87 @@
+name: Nino Advisor Read V2 Apply
+
+on:
+  push:
+    branches:
+      - fix/nino-advisor-read-v2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nino-advisor-read-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Apply integration patch
+        run: python3 scripts/apply-nino-advisor-read-v2.py
+
+      - name: Install
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Targeted advisor V2 tests
+        run: >-
+          npx vitest run
+          src/test/nino-advisor-read-v2.test.ts
+          src/test/nino-confirmation-fastpath.test.ts
+          src/test/nino-conversation-authority-p0.test.ts
+          src/test/nino-conversation-brain-v1.test.ts
+          src/test/nino-action-slot-resolver.test.ts
+          src/test/nino-conversation-v2-golden-scenarios.test.ts
+          src/test/nino-conversation-shadow-v1.test.ts
+
+      - name: Typecheck new pure contracts
+        run: >-
+          deno check --no-config
+          supabase/functions/_shared/analytics/multiPeriodResolver.ts
+          supabase/functions/_shared/agent/core/MultiPeriodPlan.ts
+          supabase/functions/_shared/agent/core/MultiPeriodAnswer.ts
+          supabase/functions/_shared/agent/core/CanonicalReadFallback.ts
+          supabase/functions/_shared/agent/core/BrainUserContext.ts
+          supabase/functions/_shared/agent/core/ConversationTurnContract.ts
+          supabase/functions/_shared/agent/core/ConversationBrain.ts
+
+      - name: Agent deploy contracts
+        run: npm run test:deploy-contract
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit applied integration after green gates
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No generated integration changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/agent/core/AgentCoreV2.ts \
+                  supabase/functions/_shared/agent/core/AdvisorReviewServiceV2.ts \
+                  supabase/functions/_shared/agent/core/RuntimeContract.ts
+          git commit -m "fix(nino): wire advisor-read V2 runtime and closed weekly review"
+          git push origin HEAD:fix/nino-advisor-read-v2
