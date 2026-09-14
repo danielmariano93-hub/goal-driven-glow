@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), mcpPlugin(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {
+      "npm:@ai-sdk/openai-compatible": "@ai-sdk/openai-compatible",
       "@": path.resolve(__dirname, "./src"),
     },
   },
