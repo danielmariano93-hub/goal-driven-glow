@@ -112,5 +112,5 @@ jobs:
           echo "revision=${GITHUB_SHA}"
           echo "project_ref=${SUPABASE_PROJECT_REF}"
           echo "provider=openai"
-          echo "model=$NINO_AI_MODEL"
+          echo "model_configured=true"
           echo "functions=10"
