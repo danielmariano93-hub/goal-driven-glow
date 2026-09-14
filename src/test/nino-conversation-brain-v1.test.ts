@@ -166,7 +166,7 @@ describe("Golden conversation — 12 turnos sem falar com o sistema", () => {
 
   it("fragmentos herdam foco e tópico novo não herda silenciosamente", () => {
     for (const { user, expected } of turns) {
-      if (expected.act === "follow_up" || expected.act === "answer") {
+      if (expected.act === "follow_up" || expected.act === "answer" || expected.act === "repair") {
         expect(expected.inherit_focus, user).toBe(true);
       }
       if (expected.act === "topic_switch") expect(expected.inherit_focus, user).toBe(false);
@@ -181,7 +181,7 @@ describe("Golden conversation — 12 turnos sem falar com o sistema", () => {
 });
 
 describe("Wiring arquitetural", () => {
-  it("canais entram pelo AgentCoreV2 e não adicionam um novo capability router", () => {
+  it("canais entram pelo AgentCoreV2 e o hot path normal não tem autoridade concorrente", () => {
     const orchestrator = readFileSync("supabase/functions/_shared/agent/orchestrator.ts", "utf8");
     const whatsapp = readFileSync("supabase/functions/_shared/agent/core/adapters/WhatsAppAdapter.ts", "utf8");
     const app = readFileSync("supabase/functions/_shared/agent/core/adapters/AppAdapter.ts", "utf8");
@@ -193,6 +193,8 @@ describe("Wiring arquitetural", () => {
     expect(v2).toContain('isEnabled("conversation_brain_v1"');
     expect(v2).toContain("preservation_enforced: true");
     expect(v2).not.toContain("classifyCapability(");
+    expect(v2).not.toContain("routeIntent(");
+    expect(v2).not.toContain("classifyDialogueState(");
   });
 
   it("falha do Brain abandona V2 em vez de empilhar o legado depois da interpretação", () => {
