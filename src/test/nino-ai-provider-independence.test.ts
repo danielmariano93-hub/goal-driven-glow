@@ -13,7 +13,6 @@ describe("Nino AI provider independence", () => {
       expect(source).toContain("resolveAiProvider()");
       expect(source).toContain('aiEndpoint(provider, "responses")');
       expect(source).toContain("normalizeAiModel(input.model, provider)");
-      expect(source).toContain("ai-runtime.ts");
       expect(source).not.toContain("ai.gateway.lovable.dev");
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
@@ -29,10 +28,12 @@ describe("Nino AI provider independence", () => {
       expect(source).toContain("resolveAiProvider()");
       expect(source).toContain('aiEndpoint(provider, "chat/completions")');
       expect(source).toContain("normalizeAiModel");
-      expect(source).toContain("ai-runtime.ts");
       expect(source).not.toContain("ai.gateway.lovable.dev");
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
+
+    const gateway = readFileSync("supabase/functions/_shared/ai-gateway.ts", "utf8");
+    expect(gateway).toContain('from "./ai-runtime.ts"');
   });
 
   it("uses direct OpenAI only when key and vetted model are configured", () => {
