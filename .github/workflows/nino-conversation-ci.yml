@@ -51,6 +51,7 @@ jobs:
           src/test/nino-conversation-brain-v1.test.ts
           src/test/nino-action-slot-resolver.test.ts
           src/test/nino-conversation-v2-golden-scenarios.test.ts
+          src/test/nino-conversation-shadow-v1.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
@@ -63,6 +64,7 @@ jobs:
           supabase/functions/_shared/agent/core/ConversationTurnContract.ts
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
           supabase/functions/_shared/agent/core/ConversationBrain.ts
+          supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
 
       - name: Report integrated legacy type debt
         continue-on-error: true
