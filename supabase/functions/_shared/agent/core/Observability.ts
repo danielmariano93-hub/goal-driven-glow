@@ -15,7 +15,7 @@ export type TurnMetrics = {
   tokens_out: number;
   tool_call_count: number;
   fallback_used: boolean;
-  path: "llm" | "deterministic_tool" | "deterministic_fallback" | "policy" | null;
+  path: "llm" | "deterministic_tool" | "deterministic_fallback" | "policy" | "conversational" | null;
   validations: number;
   errors: string[];
   estimated_cost_usd?: number | null;
