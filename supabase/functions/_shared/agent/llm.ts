@@ -7,7 +7,7 @@ import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } 
 import { interpret, todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
 import { buildEvidencePack } from "./core/EvidencePack.ts";
 import { recordAiUsage } from "../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../ai-gateway.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../ai-runtime.ts";
 import { isWriteTool } from "./core/TurnEvidenceCache.ts";
 import {
   isDraftCompatibleWithIntent, isDraftWriteTool, scopeToolsToWriteIntent,

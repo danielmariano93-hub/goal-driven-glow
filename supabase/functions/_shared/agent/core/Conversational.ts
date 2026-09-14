@@ -1,5 +1,5 @@
 import { recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 // Conversational (`nino_brain.v2`) — camada CONVERSAR não-financeira.
 //
 // Perguntas corriqueiras ("o que você é?", "bom dia", "obrigado", "qual a

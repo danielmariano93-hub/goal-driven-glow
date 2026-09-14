@@ -9,7 +9,7 @@ import {
 } from "./FinancialQueryIR.ts";
 import { executableOntologyText } from "./IRCapabilityAdapter.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 
 /** Teto de latência do entendimento semântico (alinhado ao budget T3/T4). */
 export const COMPILER_DEADLINE_MS = 20_000;

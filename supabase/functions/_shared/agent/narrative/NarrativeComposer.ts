@@ -6,7 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 import { MODEL_TIERS } from "../../intelligence/modelGateway.ts";
 import { guardNarrative, type GuardResult } from "./NarrativeGuard.ts";
 import type { NarrativeEvidencePack } from "./NarrativeEvidencePack.ts";
