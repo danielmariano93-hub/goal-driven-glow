@@ -17,8 +17,6 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     expect(capability("Quais são minhas metas cadastradas?")).toMatchObject({
       name: "goals_overview", execution: "deterministic", required_tool: "get_goals_overview",
     });
-    // "Como estou?" virou RESPOSTA EXECUTIVA (advisor_core.v1): precisa separar
-    // melhora real de efeito calendário, não só devolver o saldo.
     expect(capability("Como estou financeiramente?")).toMatchObject({
       name: "financial_performance", execution: "deterministic", required_tool: "assess_financial_performance",
     });
@@ -125,12 +123,12 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     expect(migration).not.toContain("@gmail.com");
   });
 
-  it("usa o mesmo Core nos dois adaptadores e a RPC atômica para rolê", () => {
+  it("usa o mesmo entrypoint V2 nos dois adaptadores e mantém a RPC atômica para rolê", () => {
     const app = readFileSync("supabase/functions/_shared/agent/core/adapters/AppAdapter.ts", "utf8");
     const whatsapp = readFileSync("supabase/functions/_shared/agent/core/adapters/WhatsAppAdapter.ts", "utf8");
     const policy = readFileSync("supabase/functions/_shared/agent/core/PolicyEngine.ts", "utf8");
-    expect(app).toContain("handleTurn({");
-    expect(whatsapp).toContain("handleTurn({");
+    expect(app).toContain("handleTurnV2({");
+    expect(whatsapp).toContain("handleTurnV2({");
     expect(app).not.toContain("tryFastPathCardExpense");
     expect(policy).toContain("confirmAndBuildReceipt(sb, pending");
   });
