@@ -1,36 +1,19 @@
 // HumanUnderstanding (`nino_language.v1`)
-//
 // COMPREENDER ANTES DE EXECUTAR.
-//
-// Causa-raiz do incidente "Ansioso → Atento": mensagem humana curta era
-// resolvida por uma tabela de sinônimos e por regex. Nenhuma inteligência
-// tentava entender a pessoa; o produto decidia por ela.
-//
-// Regras de projeto (não negociáveis):
-// - esta camada devolve ESTRUTURA (qual sentimento, é correção, é conversa),
-//   nunca número, nunca valor financeiro, nunca texto final de resposta;
-// - palavra exata do catálogo NÃO chega aqui (o determinístico já resolveu);
-// - falha, timeout ou modelo indisponível cai no determinístico atual
-//   (fail-open apenas para leitura de intenção — nunca para número).
 // deno-lint-ignore-file no-explicit-any
 import {
   candidateFeelingTerm, EMOTION_CATALOG, parseEmotionCorrection, parseEmotionFromText,
   resolveEmotionTerm,
 } from "../../intelligence/emotionParse.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
 
 export type HumanReading = {
   version: "nino_language.v1";
   kind: "emotion_checkin" | "emotion_correction" | "small_talk" | "unknown";
-  /** termo literal que a pessoa usou ("ansioso", "apatia") */
   emotion_term: string | null;
-  /** chave canônica quando o termo existe no catálogo */
   emotion_key: string | null;
-  /** true quando a pessoa está substituindo o registro anterior */
   correction: boolean;
-  /** true quando o termo não existe no catálogo e deve virar sentimento pessoal */
   custom_candidate: boolean;
   confidence: number;
   source: "deterministic" | "llm" | "unavailable";
@@ -42,7 +25,6 @@ export type HumanReading = {
 const FINANCIAL_RX =
   /\b(gast|gastei|despesa|receita|renda|saldo|categoria|cart[aã]o|fatura|conta|d[ií]vida|meta|patrim[oô]nio|investimento|lan[cç]amento|parcela|quanto|r\$|\d)\w*/i;
 
-/** Mensagem humana curta, não financeira: sentimento, correção ou conversa. */
 export function isShortHumanMessage(text: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw) return false;
@@ -112,10 +94,6 @@ function systemPrompt(): string {
   ].join("\n");
 }
 
-/**
- * Compreensão da mensagem curta. Determinístico primeiro (instantâneo);
- * modelo só quando o determinístico não tem certeza.
- */
 export async function understandHumanMessage(input: {
   text: string;
   model: string;
@@ -127,8 +105,8 @@ export async function understandHumanMessage(input: {
   const fast = deterministicReading(text);
   if (fast) return fast;
 
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) {
+  const provider = resolveAiProvider();
+  if (!provider) {
     return {
       version: "nino_language.v1", kind: "unknown", emotion_term: null, emotion_key: null,
       correction: false, custom_candidate: false, confidence: 0,
@@ -140,15 +118,11 @@ export async function understandHumanMessage(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 6_000);
   try {
-    const response = await fetch(GATEWAY, {
+    const response = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: input.model,
+        model: normalizeAiModel(input.model, provider),
         messages: [
           { role: "system", content: systemPrompt() },
           { role: "user", content: `Mensagem:\n${text}\n\nEmita somente emit_human_reading.` },
@@ -186,7 +160,7 @@ export async function understandHumanMessage(input: {
         operation: "human_understanding", user_id: input.user_id ?? null,
         run_id: input.run_id ?? null, model: input.model, success: true,
         latency_ms: latency, reason_for_ai_call: "nino_language_v1",
-        metadata: { version: "nino_language.v1", tokens_out: usage.output_tokens },
+        metadata: { version: "nino_language.v1", tokens_out: usage.output_tokens, provider: provider.provider },
       }, body);
     }
 
@@ -212,7 +186,6 @@ export async function understandHumanMessage(input: {
       emotion_term: term || null,
       emotion_key: option?.key ?? null,
       correction: Boolean(parsed.correction) || kind === "emotion_correction",
-      // Sentimento fora do catálogo continua sendo o sentimento dela.
       custom_candidate: Boolean(term) && !option && Boolean(candidateFeelingTerm(term)),
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.7))),
       source: "llm", llm_calls: 1, latency_ms: latency, error: null,
