@@ -2,22 +2,18 @@ name: Nino Production Deploy Once
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - '.github/workflows/nino-production-deploy-once.yml'
+      - .github/workflows/nino-production-deploy-once.yml
 
 permissions:
   contents: read
 
-env:
-  SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-
 jobs:
   deploy:
-    if: ${{ github.event.head_commit.message == 'deploy(nino): production rollout 2026-09-14' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: production
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@v4
@@ -61,6 +57,7 @@ jobs:
       - name: Validate deployment credentials
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NINO_AI_MODEL: ${{ secrets.NINO_AI_MODEL }}
         run: |
@@ -72,6 +69,7 @@ jobs:
       - name: Configure Nino direct OpenAI provider
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NINO_AI_MODEL: ${{ secrets.NINO_AI_MODEL }}
         run: |
@@ -84,19 +82,10 @@ jobs:
       - name: Deploy atomic Nino Edge Functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          for fn in \
-            whatsapp-webhook \
-            agent-run \
-            agent-chat \
-            agent-proactive-tick \
-            anticipation-tick \
-            financial-reports-generate \
-            shared-goal-notify-invite \
-            split-reminders-dispatch-v2 \
-            user-ai-preferences \
-            nino-next-step
+          for fn in whatsapp-webhook agent-run agent-chat agent-proactive-tick anticipation-tick financial-reports-generate shared-goal-notify-invite split-reminders-dispatch-v2 user-ai-preferences nino-next-step
           do
             echo "Deploying $fn"
             supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
@@ -105,6 +94,5 @@ jobs:
       - name: Deployment receipt
         run: |
           echo "revision=${GITHUB_SHA}"
-          echo "project_ref=${SUPABASE_PROJECT_REF}"
           echo "provider=openai"
           echo "functions=10"
