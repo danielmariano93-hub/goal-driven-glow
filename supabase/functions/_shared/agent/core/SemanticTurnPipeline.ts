@@ -42,6 +42,9 @@ import {
   type FinancialQueryIRv3, type FinancialQueryV3,
 } from "./FinancialIRv3.ts";
 import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
+import { expandIRForPeriods, type MultiPeriodExpansion } from "./MultiPeriodPlan.ts";
+import { multiPeriodText } from "./MultiPeriodAnswer.ts";
+import { CANONICAL_DEGRADED_NOTE, degradeForCanonicalRead } from "./CanonicalReadFallback.ts";
 import { executedIRFrom } from "./ExecutedIRBridge.ts";
 import {
   planPreservation, PRESERVATION_FAILURE_REPLY,
@@ -120,6 +123,13 @@ export type SemanticPipelineInput = {
   constraints: { period: boolean; dimension: boolean; entity: boolean };
   period: { from: string; to: string; label?: string };
   comparison_period?: { from: string; to: string; label?: string } | null;
+  /**
+   * Períodos resolvidos pelo backend, na ordem pedida (`period_truth.v2`).
+   * Dois ou mais = leitura multi-período; a LLM nunca resolve datas.
+   */
+  periods?: Array<{ from: string; to: string; label?: string }> | null;
+  /** O usuário pediu explicitamente comparação entre os períodos? */
+  comparison_intent?: boolean;
   previous_query?: string | null;
   topic_state: unknown;
   /** Teto de queries do turno. 1 = comportamento single-query. */
@@ -281,8 +291,37 @@ export async function runSemanticTurn(
   if (inheritPeriod && irV2 && topic.period) {
     irV2 = { ...irV2, period: { ...irV2.period, from: topic.period.from, to: topic.period.to } };
   }
+  // ---- 3a. Multi-período: mesmo contrato, um período por execução ---------
+  let multiPeriod: MultiPeriodExpansion | null = null;
+  const requestedPeriods = (input.periods ?? []).filter((p) => p?.from && p?.to);
+  if (irV2 && requestedPeriods.length >= 2) {
+    const expansion = expandIRForPeriods(irV2, requestedPeriods, input.comparison_intent === true);
+    if (expansion.applied) {
+      multiPeriod = expansion;
+      irV2 = expansion.ir;
+    }
+  }
+
   let validation = irV2 ? validateFinancialPlan(irV2) : null;
   let status = deriveSemanticStatus({ ir: irV2, validation });
+
+  // ---- 3a'. Degradação canônica de EXECUÇÃO (nunca reinterpretação) --------
+  // `unsupported` com motor seguro capaz de satisfazer o MESMO pedido não pode
+  // virar texto genérico. O parser legado não é consultado aqui.
+  let canonicalDegradation: string[] | null = null;
+  if (status === "unsupported" && irV2 && irV2.intent !== "unsupported") {
+    const degraded = degradeForCanonicalRead(irV2);
+    if (degraded) {
+      const nextValidation = validateFinancialPlan(degraded.ir);
+      const nextStatus = deriveSemanticStatus({ ir: degraded.ir, validation: nextValidation });
+      if (nextStatus === "executable") {
+        irV2 = degraded.ir;
+        validation = nextValidation;
+        status = nextStatus;
+        canonicalDegradation = degraded.changes;
+      }
+    }
+  }
 
   // ---- 3b. IR composicional v3 + aspecto temporal determinístico ----------
   // O período deixa de ser envelope do turno e passa a ser propriedade de CADA
@@ -331,6 +370,15 @@ export async function runSemanticTurn(
     mapped_tools: validation?.mapped.map((m) => m.tool) ?? [],
     plan_errors: validation?.errors ?? [],
     compiler: compilerTelemetry,
+    multi_period: multiPeriod
+      ? {
+        mode: multiPeriod.mode,
+        periods: multiPeriod.periods.map((p) => `${p.label}:${p.from}..${p.to}`),
+        comparison_intent: input.comparison_intent === true,
+        reason: multiPeriod.reason,
+      }
+      : { mode: "none", periods: requestedPeriods.length },
+    canonical_degradation: canonicalDegradation,
     ir_v3: irV3
       ? {
         version: irV3.version,
@@ -399,7 +447,7 @@ export async function runSemanticTurn(
       canonical_fallback: {
         allowed: true,
         reason: gaps.length ? "no_engine_for_combination" : "intent_unsupported",
-        honest_reply: unsupportedReply(gaps),
+        honest_reply: unsupportedReply(gaps, requestedPeriods.length > 0 || input.constraints.period),
       },
       telemetry: {
         ...baseTelemetry(),
@@ -555,7 +603,20 @@ export async function runSemanticTurn(
   }
 
   // ---- 8. Resposta determinística + Grounding ----------------------------
-  const deterministic = deterministicTextOf(execution);
+  const labeled = multiPeriod && multiPeriod.mode === "fanout"
+    ? multiPeriodText({
+      outcomes: execution.outcomes.map((o) => ({
+        query_id: o.query_id, engine: o.engine, status: o.status, result: o.result,
+      })),
+      labels: multiPeriod.labels,
+      periodOrder: multiPeriod.periods.map((p) => p.label),
+      comparison_intent: input.comparison_intent === true,
+    })
+    : null;
+  const body = labeled ?? deterministicTextOf(execution);
+  const deterministic = body && canonicalDegradation?.length
+    ? `${CANONICAL_DEGRADED_NOTE}\n\n${body}`
+    : body;
   const grounding: GroundingResult | null = deterministic ? groundReply({ reply: deterministic, claims }) : null;
 
   // Preservação pedido-vs-executado: a MESMA função usada pelo planner e pelo
@@ -747,10 +808,18 @@ function ontologyGaps(
   return [...new Set(gaps)].slice(0, 6);
 }
 
-function unsupportedReply(gaps: string[]): string {
+function unsupportedReply(gaps: string[], periodKnown = false): string {
   if (gaps.length) {
     return "Entendi exatamente o que você quer, mas esse corte específico eu ainda não calculo "
-      + "com número confiável. Posso te dar a leitura mais próxima disso agora — quer que eu vá por aí?";
+      + `com número confiável (${gaps[0].split(" → ")[0]}). `
+      + "Posso te dar a leitura mais próxima disso agora — quer que eu vá por aí?";
+  }
+  // Período já dito NUNCA é pedido de novo: foi exatamente assim que o Nino
+  // respondeu "me diga o período" para quem tinha escrito "julho e agosto".
+  if (periodKnown) {
+    return "Entendi o período e o recorte que você pediu, mas essa forma de cálculo "
+      + "eu ainda não fecho com número confiável. Posso te trazer o total desse mesmo "
+      + "recorte — quer que eu vá por aí?";
   }
   return "Essa eu não consigo responder com número confiável agora. "
     + "Se você me disser o período e o que quer comparar, eu monto a leitura certa.";
