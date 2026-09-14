@@ -119,16 +119,23 @@ export async function evaluateConversationBrainShadow(args: {
   }
 }
 
-/**
- * Agenda shadow sem segurar a resposta quando o runtime suporta waitUntil.
- * Fora de Edge Runtime, devolve a Promise para que testes/ambientes locais
- * possam aguardá-la explicitamente.
- */
-export function scheduleConversationBrainShadow(task: Promise<unknown>): Promise<unknown> | null {
-  const edge = (globalThis as any).EdgeRuntime;
-  if (edge?.waitUntil instanceof Function) {
-    edge.waitUntil(task.catch(() => undefined));
-    return null;
-  }
-  return task.catch(() => undefined);
+/** Completa a linha shadow depois que o caminho legado termina. */
+export async function attachLegacyShadowObservation(args: {
+  sb: SupabaseClient;
+  input: ShadowInput;
+  legacy: LegacyShadowObservation;
+}): Promise<void> {
+  const inbound = args.input.inbound_message_id ?? null;
+  if (!inbound) return;
+  await args.sb.from("conversation_brain_shadow_evaluations")
+    .update({
+      legacy_path: args.legacy.path ?? null,
+      legacy_reply_kind: args.legacy.reply_kind ?? null,
+    })
+    .eq("user_id", args.input.user_id)
+    .eq("conversation_id", args.input.conversation_id)
+    .eq("inbound_message_id", inbound)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .catch(() => ({ error: null } as any));
 }
