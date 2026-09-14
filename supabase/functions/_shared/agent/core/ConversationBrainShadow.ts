@@ -43,6 +43,14 @@ async function findExistingSessionId(sb: SupabaseClient, input: ShadowInput): Pr
   return String(data.id);
 }
 
+async function writeShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
+  try {
+    await sb.from("conversation_brain_shadow_evaluations").insert(row);
+  } catch {
+    // Telemetria nunca derruba o turno.
+  }
+}
+
 export async function evaluateConversationBrainShadow(args: {
   sb: SupabaseClient;
   input: ShadowInput;
@@ -82,7 +90,7 @@ export async function evaluateConversationBrainShadow(args: {
     });
 
     const contract = brain.contract;
-    await args.sb.from("conversation_brain_shadow_evaluations").insert({
+    await writeShadowRow(args.sb, {
       user_id: args.input.user_id,
       conversation_id: args.input.conversation_id,
       inbound_message_id: args.input.inbound_message_id ?? null,
@@ -99,7 +107,7 @@ export async function evaluateConversationBrainShadow(args: {
       legacy_reply_kind: args.legacy?.reply_kind ?? null,
       status: contract ? "ok" : "brain_error",
       error_code: brain.telemetry.error ?? null,
-    }).catch(() => ({ error: null } as any));
+    });
 
     return {
       ok: Boolean(contract),
@@ -109,7 +117,7 @@ export async function evaluateConversationBrainShadow(args: {
     };
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 180) : "shadow_unknown_error";
-    await args.sb.from("conversation_brain_shadow_evaluations").insert({
+    await writeShadowRow(args.sb, {
       user_id: args.input.user_id,
       conversation_id: args.input.conversation_id,
       inbound_message_id: args.input.inbound_message_id ?? null,
@@ -121,7 +129,7 @@ export async function evaluateConversationBrainShadow(args: {
       legacy_reply_kind: args.legacy?.reply_kind ?? null,
       status: "brain_error",
       error_code: code,
-    }).catch(() => ({ error: null } as any));
+    });
     return { ok: false, brain_mode: null, brain_act: null, error: code };
   }
 }
@@ -134,13 +142,16 @@ export async function attachLegacyShadowObservation(args: {
 }): Promise<void> {
   const inbound = args.input.inbound_message_id ?? null;
   if (!inbound) return;
-  await args.sb.from("conversation_brain_shadow_evaluations")
-    .update({
-      legacy_path: args.legacy.path ?? null,
-      legacy_reply_kind: args.legacy.reply_kind ?? null,
-    })
-    .eq("user_id", args.input.user_id)
-    .eq("conversation_id", args.input.conversation_id)
-    .eq("inbound_message_id", inbound)
-    .catch(() => ({ error: null } as any));
+  try {
+    await args.sb.from("conversation_brain_shadow_evaluations")
+      .update({
+        legacy_path: args.legacy.path ?? null,
+        legacy_reply_kind: args.legacy.reply_kind ?? null,
+      })
+      .eq("user_id", args.input.user_id)
+      .eq("conversation_id", args.input.conversation_id)
+      .eq("inbound_message_id", inbound);
+  } catch {
+    // Telemetria nunca derruba o turno.
+  }
 }
