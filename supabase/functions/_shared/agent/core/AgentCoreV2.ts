@@ -20,6 +20,10 @@ import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
 import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
+import {
+  attachLegacyShadowObservation,
+  evaluateConversationBrainShadow,
+} from "./ConversationBrainShadow.ts";
 import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { classifyConfirmationAct } from "./ConfirmationVocabulary.ts";
 import { findPending } from "./PendingConfirmations.ts";
@@ -166,11 +170,46 @@ async function finishV2(args: {
 
 /**
  * Entry point V2. O rollout é fail-closed: flag ausente/desligada usa o Core
- * legado sem nenhum efeito colateral novo.
+ * legado sem nenhum efeito colateral novo. O shadow é uma flag separada e
+ * apenas compara interpretação: nunca executa tools/drafts da V2.
  */
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
   const enabled = await isEnabled("conversation_brain_v1", input.user_id);
-  if (!enabled) return await handleLegacyTurn(input);
+  const shadowEnabled = !enabled && await isEnabled("conversation_brain_shadow_v1", input.user_id);
+
+  if (!enabled && !shadowEnabled) return await handleLegacyTurn(input);
+
+  if (!enabled && shadowEnabled) {
+    const sb = service();
+    // Os dois caminhos veem o mesmo turno. O shadow só interpreta; o legado
+    // continua sendo o único responsável pela resposta e por qualquer side effect.
+    const [legacy] = await Promise.all([
+      handleLegacyTurn(input),
+      evaluateConversationBrainShadow({
+        sb,
+        input: {
+          user_id: input.user_id,
+          conversation_id: input.conversation_id,
+          inbound_message_id: input.inbound_message_id ?? null,
+          channel: input.channel,
+          text: input.text,
+        },
+        model: BRAIN_MODEL,
+      }),
+    ]);
+    await attachLegacyShadowObservation({
+      sb,
+      input: {
+        user_id: input.user_id,
+        conversation_id: input.conversation_id,
+        inbound_message_id: input.inbound_message_id ?? null,
+        channel: input.channel,
+        text: input.text,
+      },
+      legacy: { path: legacy.path ?? null, reply_kind: legacy.reply_kind ?? null },
+    }).catch(() => undefined);
+    return legacy;
+  }
 
   const sb = service();
   const started = Date.now();
