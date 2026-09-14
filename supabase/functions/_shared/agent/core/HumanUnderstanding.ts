@@ -6,7 +6,7 @@ import {
   resolveEmotionTerm,
 } from "../../intelligence/emotionParse.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 
 export type HumanReading = {
   version: "nino_language.v1";
