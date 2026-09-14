@@ -58,7 +58,7 @@ replace(p,
 p = "supabase/functions/_shared/agent/core/RuntimeContract.ts"
 replace(p,
 'export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-11.22";',
-'export const AGENT_RUNTIME_VERSION = "nino-agent-v2.2026-09-14.1";')
+'export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-14.23";')
 replace(p,
 'export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v2";',
 'export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v3";')
