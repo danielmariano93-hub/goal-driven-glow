@@ -3,11 +3,12 @@ import { describe, expect, it } from "vitest";
 import { interpret } from "../../supabase/functions/_shared/agent/parser";
 
 describe("Nino AI provider independence", () => {
-  it("keeps the Conversation Brain and Semantic Compiler provider-neutral", () => {
-    for (const path of [
+  it("keeps the V2 reasoning path provider-neutral", () => {
+    const responsesFiles = [
       "supabase/functions/_shared/agent/core/ConversationBrain.ts",
       "supabase/functions/_shared/agent/core/SemanticCompiler.ts",
-    ]) {
+    ];
+    for (const path of responsesFiles) {
       const source = readFileSync(path, "utf8");
       expect(source).toContain("resolveAiProvider()");
       expect(source).toContain('aiEndpoint(provider, "responses")');
@@ -15,6 +16,13 @@ describe("Nino AI provider independence", () => {
       expect(source).not.toContain("ai.gateway.lovable.dev");
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
+
+    const llm = readFileSync("supabase/functions/_shared/agent/llm.ts", "utf8");
+    expect(llm).toContain("resolveAiProvider()");
+    expect(llm).toContain('aiEndpoint(provider, "chat/completions")');
+    expect(llm).toContain("normalizeAiModel");
+    expect(llm).not.toContain("ai.gateway.lovable.dev");
+    expect(llm).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
   });
 
   it("prefers direct OpenAI while retaining an explicit compatibility fallback", () => {
