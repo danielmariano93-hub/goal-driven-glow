@@ -1,5 +1,13 @@
 import { createOpenAICompatible } from "npm:@ai-sdk/openai-compatible";
 
+export {
+  aiEndpoint,
+  aiJsonHeaders,
+  normalizeAiModel,
+  resolveAiProvider,
+} from "./ai-runtime.ts";
+export type { AiProviderConfig, AiProviderName } from "./ai-runtime.ts";
+
 export function createLovableAiGatewayProvider(apiKey: string) {
   return createOpenAICompatible({
     name: "lovable-ai",
