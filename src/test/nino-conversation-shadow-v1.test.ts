@@ -39,4 +39,14 @@ describe("Conversation Brain shadow v1", () => {
     expect(migration).toContain("REVOKE ALL ON public.conversation_brain_shadow_evaluations FROM authenticated, anon");
     expect(migration).toContain("GRANT ALL ON public.conversation_brain_shadow_evaluations TO service_role");
   });
+
+  it("possui resumo operacional para decidir rollout por evidência", () => {
+    const migration = readFileSync("supabase/migrations/20260913220000_nino_conversation_brain_v1.sql", "utf8");
+    expect(migration).toContain("CREATE OR REPLACE VIEW public.conversation_brain_shadow_summary");
+    expect(migration).toContain("brain_error_pct");
+    expect(migration).toContain("avg_confidence");
+    expect(migration).toContain("p95_latency_ms");
+    expect(migration).toContain("continuation_turns");
+    expect(migration).toContain("REVOKE ALL ON public.conversation_brain_shadow_summary FROM authenticated, anon");
+  });
 });
