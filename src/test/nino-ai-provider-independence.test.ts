@@ -13,6 +13,7 @@ describe("Nino AI provider independence", () => {
       expect(source).toContain("resolveAiProvider()");
       expect(source).toContain('aiEndpoint(provider, "responses")');
       expect(source).toContain("normalizeAiModel(input.model, provider)");
+      expect(source).toContain("ai-runtime.ts");
       expect(source).not.toContain("ai.gateway.lovable.dev");
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
@@ -28,22 +29,24 @@ describe("Nino AI provider independence", () => {
       expect(source).toContain("resolveAiProvider()");
       expect(source).toContain('aiEndpoint(provider, "chat/completions")');
       expect(source).toContain("normalizeAiModel");
+      expect(source).toContain("ai-runtime.ts");
       expect(source).not.toContain("ai.gateway.lovable.dev");
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
   });
 
   it("uses direct OpenAI only when key and vetted model are configured", () => {
-    const gateway = readFileSync("supabase/functions/_shared/ai-gateway.ts", "utf8");
-    const openai = gateway.indexOf('provider: "openai"');
-    const lovable = gateway.indexOf('provider: "lovable"');
+    const runtime = readFileSync("supabase/functions/_shared/ai-runtime.ts", "utf8");
+    const openai = runtime.indexOf('provider: "openai"');
+    const lovable = runtime.indexOf('provider: "lovable"');
     expect(openai).toBeGreaterThan(-1);
     expect(lovable).toBeGreaterThan(openai);
-    expect(gateway).toContain("OPENAI_API_KEY");
-    expect(gateway).toContain("NINO_AI_PROVIDER");
-    expect(gateway).toContain("NINO_AI_MODEL");
-    expect(gateway).toContain("if (!openAiKey || !openAiModel) return null");
-    expect(gateway).toContain("config.modelOverride");
+    expect(runtime).toContain("OPENAI_API_KEY");
+    expect(runtime).toContain("NINO_AI_PROVIDER");
+    expect(runtime).toContain("NINO_AI_MODEL");
+    expect(runtime).toContain("if (!openAiKey || !openAiModel) return null");
+    expect(runtime).toContain("config.modelOverride");
+    expect(runtime).not.toContain("@ai-sdk/openai-compatible");
   });
 
   it("does not confuse explicit cancellation with conversational repair", () => {
