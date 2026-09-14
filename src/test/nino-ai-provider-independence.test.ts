@@ -33,7 +33,7 @@ describe("Nino AI provider independence", () => {
     }
   });
 
-  it("prefers direct OpenAI while retaining an explicit compatibility fallback", () => {
+  it("uses direct OpenAI only when key and vetted model are configured", () => {
     const gateway = readFileSync("supabase/functions/_shared/ai-gateway.ts", "utf8");
     const openai = gateway.indexOf('provider: "openai"');
     const lovable = gateway.indexOf('provider: "lovable"');
@@ -41,7 +41,9 @@ describe("Nino AI provider independence", () => {
     expect(lovable).toBeGreaterThan(openai);
     expect(gateway).toContain("OPENAI_API_KEY");
     expect(gateway).toContain("NINO_AI_PROVIDER");
-    expect(gateway).toContain('value.replace(/^openai\\//i, "")');
+    expect(gateway).toContain("NINO_AI_MODEL");
+    expect(gateway).toContain("if (!openAiKey || !openAiModel) return null");
+    expect(gateway).toContain("config.modelOverride");
   });
 
   it("does not confuse explicit cancellation with conversational repair", () => {
