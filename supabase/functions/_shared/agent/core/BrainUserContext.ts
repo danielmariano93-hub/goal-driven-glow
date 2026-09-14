@@ -1,6 +1,6 @@
 // BrainUserContext — bounded relationship context for Conversation Brain.
 //
-// This is NOT a financial truth source. It carries only stable/non-numeric cues
+// This is not a financial truth source. It carries only stable/non-numeric cues
 // (preferences, corrections, aliases, habits, recurring subjects and goal names)
 // so the Brain can resolve references naturally. Balances, amounts, totals and
 // projections must always be re-read from canonical engines.
