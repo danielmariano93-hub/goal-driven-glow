@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { interpret } from "../../supabase/functions/_shared/agent/parser";
 
+// Provider selection lives in ai-runtime; conversational call sites must not depend on the SDK gateway.
 describe("Nino AI provider independence", () => {
   it("keeps the V2 reasoning path provider-neutral", () => {
     const responsesFiles = [
