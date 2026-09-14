@@ -59,12 +59,13 @@ function brainTool() {
         inherit_focus: { type: "boolean" },
         focus: {
           type: "object", additionalProperties: false,
-          required: ["category", "merchant", "goal", "period_expression"],
+          required: ["category", "merchant", "goal", "period_expression", "period_expressions"],
           properties: {
             category: { anyOf: [{ type: "string" }, { type: "null" }] },
             merchant: { anyOf: [{ type: "string" }, { type: "null" }] },
             goal: { anyOf: [{ type: "string" }, { type: "null" }] },
             period_expression: { anyOf: [{ type: "string" }, { type: "null" }] },
+            period_expressions: { type: "array", items: { type: "string" } },
           },
         },
         action: {
