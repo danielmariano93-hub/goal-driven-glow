@@ -27,7 +27,7 @@ function totalOf(result: any): number | null {
 }
 
 function money(value: number): string {
-  return `R$ ${value.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d)),/g, ".")}`;
+  return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
