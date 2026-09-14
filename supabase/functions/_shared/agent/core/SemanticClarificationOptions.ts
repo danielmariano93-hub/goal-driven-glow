@@ -24,7 +24,10 @@ async function names(
     if (extra) q = extra(q);
     const { data, error } = await q;
     if (error) return [];
-    return [...new Set((data ?? []).map((r: any) => String(r?.name ?? "").trim()).filter(Boolean))];
+    const normalized: string[] = (data ?? [])
+      .map((r: any): string => String(r?.name ?? "").trim())
+      .filter((name: string): boolean => name.length > 0);
+    return [...new Set<string>(normalized)];
   } catch {
     return [];
   }

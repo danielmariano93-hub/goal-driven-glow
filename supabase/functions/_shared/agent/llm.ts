@@ -8,9 +8,13 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { openAIToolDefinitions, toolByName, type ToolContext, type ToolResult } from "./tools.ts";
-import { todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
+import { interpret, todaySaoPaulo, shiftSaoPaulo } from "./parser.ts";
 import { buildEvidencePack } from "./core/EvidencePack.ts";
 import { recordAiUsage } from "../aiUsageLedger.ts";
+import { isWriteTool } from "./core/TurnEvidenceCache.ts";
+import {
+  isDraftCompatibleWithIntent, isDraftWriteTool, scopeToolsToWriteIntent,
+} from "./core/WriteIntentContract.ts";
 
 /** Builds a deterministic temporal system message. The LLM MUST use these
  *  values as "now" — never dates from examples, history, or its training. */
@@ -39,7 +43,10 @@ export type LLMOptions = {
   systemPrompt: string;
   /** Capability-scoped registry. Never expose unrelated financial tools. */
   allowedTools?: readonly string[];
-  /** Force the first factual lookup when a capability has one canonical tool. */
+  /**
+   * Ferramenta canônica obrigatória para READ/validação. WRITE nunca é forçada
+   * via tool_choice: o domínio precisa estar coerente com a intenção do turno.
+   */
   requiredTool?: string | null;
   /**
    * `nino_efficiency.v1` — quando ligado, o resultado da tool entra no prompt
@@ -113,7 +120,13 @@ export async function runAgentTurn(
 ): Promise<LLMTurn> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
-  const tools = openAIToolDefinitions(opts.allowedTools);
+
+  // WRITE tem um único domínio por turno. O parser não escolhe a tool; ele
+  // apenas fornece o contrato já reconhecido para retirar drafts incompatíveis
+  // do catálogo exposto ao modelo. READ/list tools do capability continuam.
+  const parsedIntent = interpret(userText);
+  const scopedAllowedTools = scopeToolsToWriteIntent(opts.allowedTools, parsedIntent);
+  const tools = openAIToolDefinitions(scopedAllowedTools);
 
   // Histórico híbrido (`context_budget.v1`): os 4 turnos recentes vão crus
   // (800 chars) porque é neles que a continuidade vive; o restante entra
@@ -177,14 +190,20 @@ export async function runAgentTurn(
   let tokensIn = 0, tokensOut = 0;
   const maxSteps = Math.max(1, Math.min(8, opts.maxSteps || 6));
 
+  // required_tool continua útil para factual READ. Em WRITE ele é apenas
+  // pós-condição/validação e NUNCA mais força a primeira tool do modelo.
+  const forcedReadTool = opts.requiredTool && !isWriteTool(opts.requiredTool)
+    ? opts.requiredTool
+    : null;
+
   try {
     for (let step = 0; step < maxSteps; step++) {
       const body: any = {
         model: opts.model,
         messages,
         tools,
-        tool_choice: step === 0 && opts.requiredTool && preBlocks.length === 0
-          ? { type: "function", function: { name: opts.requiredTool } }
+        tool_choice: step === 0 && forcedReadTool && preBlocks.length === 0
+          ? { type: "function", function: { name: forcedReadTool } }
           : "auto",
         temperature: opts.temperature ?? 0.2,
       };
@@ -228,7 +247,8 @@ export async function runAgentTurn(
       // Assistant turn with tool_calls
       messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: calls });
 
-      // Execute each tool call sequentially
+      // Execute each tool call sequentially. Só UM draft bem-sucedido pode
+      // existir no turno; qualquer segundo draft é bloqueado antes do side effect.
       for (const c of calls) {
         stepIndex++;
         const name = c.function?.name as string;
@@ -237,12 +257,22 @@ export async function runAgentTurn(
         const tool = toolByName(name);
         const started = Date.now();
         let toolResult: ToolResult;
-        try {
-          toolResult = tool
-            ? await tool.execute(toolCtx, args)
-            : { ok: false, error: `unknown_tool:${name}` };
-        } catch (e) {
-          toolResult = { ok: false, error: String((e as Error).message).slice(0, 200) };
+        const successfulDraftAlreadyExists = toolCalls.some(
+          (call) => call.ok && isDraftWriteTool(call.tool_name),
+        );
+
+        if (isDraftWriteTool(name) && !isDraftCompatibleWithIntent(name, parsedIntent)) {
+          toolResult = { ok: false, error: `write_contract_violation:${name}` };
+        } else if (isDraftWriteTool(name) && successfulDraftAlreadyExists) {
+          toolResult = { ok: false, error: `write_contract_violation:multiple_drafts` };
+        } else {
+          try {
+            toolResult = tool
+              ? await tool.execute(toolCtx, args)
+              : { ok: false, error: `unknown_tool:${name}` };
+          } catch (e) {
+            toolResult = { ok: false, error: String((e as Error).message).slice(0, 200) };
+          }
         }
         const duration_ms = Date.now() - started;
         toolCalls.push({

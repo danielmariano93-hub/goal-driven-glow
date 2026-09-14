@@ -159,8 +159,13 @@ export function resolveTopicForTurn(args: {
   // não abre tópico novo — o período segue herdado, salvo override explícito.
   const isConstraintUpdate = acts.includes("constraint_update");
 
-  if (active && (isRepair || isConstraintUpdate || (isFollowup && active.subject === subject))) {
-    // Repair mantém topic_id e herda período/entidades, salvo override explícito.
+  // Um follow-up explícito/fragmentário continua o tópico ativo mesmo quando o
+  // fragmento, isoladamente, pareceria "geral". O assunto calculado a partir de
+  // "Por quê?" ou "Quais os estabelecimentos?" não pode derrubar o foco que já
+  // estava resolvido. Novo tópico exige uma mensagem autossuficiente, não uma
+  // elipse marcada como follow-up.
+  if (active && (isRepair || isConstraintUpdate || isFollowup)) {
+    // Repair/follow-up mantém topic_id e herda período/entidades, salvo override explícito.
     const topic: ConversationTopic = {
       ...active,
       last_query: args.text,

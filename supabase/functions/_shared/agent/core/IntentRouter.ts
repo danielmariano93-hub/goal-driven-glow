@@ -13,6 +13,8 @@ const VIZ_RX =
   /\b(gr[áa]ficos?|visual(?:iza[cç][aã]o)?|imagem|foto|print|prints?creen|screenshot|chart|plot|desenh[oa])\b/i;
 
 export function routeIntent(text: string, now: Date = new Date()): RoutedIntent {
+  // O parser já consome o contrato compartilhado de REPAIR; este boundary não
+  // reinterpreta a mensagem e permanece apenas como adapter.
   const intent = interpret(text, now);
   const visualization_hint = typeof text === "string" && VIZ_RX.test(text);
   return { intent, visualization_hint };

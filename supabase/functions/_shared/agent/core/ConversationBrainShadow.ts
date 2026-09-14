@@ -1,0 +1,157 @@
+// ConversationBrainShadow (`nino_conversation_brain.v1`)
+//
+// Executa SOMENTE a interpretação do Conversation Brain em paralelo ao caminho
+// legado. Não chama tools, não cria drafts e não altera verdade financeira.
+// Fora da própria linha de telemetria shadow, suas leituras são read-only.
+// deno-lint-ignore-file no-explicit-any
+
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
+import { loadConversationMemory } from "./ConversationMemory.ts";
+import { loadWorkflow } from "./WriteWorkflowManager.ts";
+import { interpretConversationTurn } from "./ConversationBrain.ts";
+
+export type ShadowInput = {
+  user_id: string;
+  conversation_id: string;
+  inbound_message_id?: string | null;
+  channel: "app" | "whatsapp" | "simulator" | string;
+  text: string;
+};
+
+export type LegacyShadowObservation = {
+  path?: string | null;
+  reply_kind?: string | null;
+};
+
+export type ShadowEvaluationResult = {
+  ok: boolean;
+  brain_mode: string | null;
+  brain_act: string | null;
+  error: string | null;
+};
+
+async function findExistingSessionId(sb: SupabaseClient, input: ShadowInput): Promise<string | null> {
+  const { data, error } = await sb.from("agent_sessions")
+    .select("id,expires_at")
+    .eq("user_id", input.user_id)
+    .eq("channel", input.channel)
+    .eq("conversation_id", input.conversation_id)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  if (data.expires_at && new Date(String(data.expires_at)).getTime() <= Date.now()) return null;
+  return String(data.id);
+}
+
+async function writeShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
+  try {
+    await sb.from("conversation_brain_shadow_evaluations").insert(row);
+  } catch {
+    // Telemetria nunca derruba o turno.
+  }
+}
+
+export async function evaluateConversationBrainShadow(args: {
+  sb: SupabaseClient;
+  input: ShadowInput;
+  legacy?: LegacyShadowObservation | null;
+  model: string;
+}): Promise<ShadowEvaluationResult> {
+  const started = Date.now();
+  try {
+    // Shadow não toca TTL/atividade da sessão: apenas reutiliza uma sessão viva.
+    const sessionId = await findExistingSessionId(args.sb, args.input).catch(() => null);
+
+    const [loadedHistory, memory, workflow] = await Promise.all([
+      loadHistory(args.sb, args.input.conversation_id, {
+        limit: 12,
+        excludeMessageId: args.input.inbound_message_id ?? undefined,
+      }).catch(() => []),
+      loadConversationMemory(args.sb, sessionId).catch(() => null),
+      loadWorkflow(args.sb, {
+        user_id: args.input.user_id,
+        conversation_id: args.input.conversation_id,
+      }).catch(() => null),
+    ]);
+
+    const history = args.input.channel === "app"
+      ? loadedHistory
+      : withoutCurrentTurn(loadedHistory, args.input.text);
+
+    const brain = await interpretConversationTurn({
+      text: args.input.text,
+      history,
+      memory,
+      workflow,
+      model: args.model,
+      sb: args.sb,
+      user_id: args.input.user_id,
+      run_id: null,
+    });
+
+    const contract = brain.contract;
+    await writeShadowRow(args.sb, {
+      user_id: args.input.user_id,
+      conversation_id: args.input.conversation_id,
+      inbound_message_id: args.input.inbound_message_id ?? null,
+      brain_act: contract?.act ?? null,
+      brain_mode: contract?.mode ?? null,
+      brain_canonical_request: contract?.canonical_request ?? null,
+      brain_focus: contract?.focus ?? {},
+      brain_action: contract?.action ?? null,
+      brain_confidence: contract?.confidence ?? null,
+      brain_latency_ms: brain.telemetry.latency_ms ?? (Date.now() - started),
+      tokens_in: brain.telemetry.tokens_in ?? 0,
+      tokens_out: brain.telemetry.tokens_out ?? 0,
+      legacy_path: args.legacy?.path ?? null,
+      legacy_reply_kind: args.legacy?.reply_kind ?? null,
+      status: contract ? "ok" : "brain_error",
+      error_code: brain.telemetry.error ?? null,
+    });
+
+    return {
+      ok: Boolean(contract),
+      brain_mode: contract?.mode ?? null,
+      brain_act: contract?.act ?? null,
+      error: brain.telemetry.error ?? null,
+    };
+  } catch (error) {
+    const code = error instanceof Error ? error.message.slice(0, 180) : "shadow_unknown_error";
+    await writeShadowRow(args.sb, {
+      user_id: args.input.user_id,
+      conversation_id: args.input.conversation_id,
+      inbound_message_id: args.input.inbound_message_id ?? null,
+      brain_focus: {},
+      brain_latency_ms: Date.now() - started,
+      tokens_in: 0,
+      tokens_out: 0,
+      legacy_path: args.legacy?.path ?? null,
+      legacy_reply_kind: args.legacy?.reply_kind ?? null,
+      status: "brain_error",
+      error_code: code,
+    });
+    return { ok: false, brain_mode: null, brain_act: null, error: code };
+  }
+}
+
+/** Completa a linha shadow depois que o caminho legado termina. */
+export async function attachLegacyShadowObservation(args: {
+  sb: SupabaseClient;
+  input: ShadowInput;
+  legacy: LegacyShadowObservation;
+}): Promise<void> {
+  const inbound = args.input.inbound_message_id ?? null;
+  if (!inbound) return;
+  try {
+    await args.sb.from("conversation_brain_shadow_evaluations")
+      .update({
+        legacy_path: args.legacy.path ?? null,
+        legacy_reply_kind: args.legacy.reply_kind ?? null,
+      })
+      .eq("user_id", args.input.user_id)
+      .eq("conversation_id", args.input.conversation_id)
+      .eq("inbound_message_id", inbound);
+  } catch {
+    // Telemetria nunca derruba o turno.
+  }
+}

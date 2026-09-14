@@ -54,13 +54,11 @@ export function isExpectationFresh(
 const EMOTIONAL_QUESTION =
   /(se sentindo|se sentiu|como (?:voc[êe]|vc)\s+(?:est[aáà]|ta|t[aá]|anda|foi)\b)|(como (?:est[aá]|ta) (?:o )?(?:seu )?(?:humor|dia)\b)|(check[- ]?in (?:emocional|de humor))|(me conta(?:r)? em uma palavra como)|(como (?:foi|anda) (?:o )?seu dia)/i;
 
-
 /** Slots de lançamento que o Nino costuma perguntar. */
 const ENTRY_SLOT_QUESTION =
   /(qual (?:foi )?(?:o )?valor)|(qual (?:foi )?(?:o )?cart[aã]o)|(em qual cart[aã]o)|(qual (?:foi )?(?:a )?conta)|(em qual conta)|(qual (?:foi )?(?:a )?data)|(qual (?:foi )?o estabelecimento)|(em quantas parcelas)|(foi um gasto ou um recebimento)|(à vista ou parcelado)/i;
 
 const CATEGORY_QUESTION = /(qual (?:a )?categoria)|(de qual categoria)|(categoria e (?:o )?per[ií]odo)|(qual categoria eu uso)/i;
-
 
 /** Deduz a expectativa a partir da última fala do Nino. */
 export function detectExpectation(replyText: string | null | undefined, now: Date = new Date()):
@@ -74,12 +72,22 @@ export function detectExpectation(replyText: string | null | undefined, now: Dat
   return null;
 }
 
-/** Última fala do Nino no histórico do turno (assistant mais recente). */
+/**
+ * Última fala REAL do Nino no histórico. Se o histórico traz timestamp, ele é
+ * preservado: uma pergunta emocional de ontem não ganha um asked_at "agora"
+ * só porque foi a última fala recuperada. Esse era o mecanismo que fazia
+ * respostas curtas como "Quero" virarem check-in emocional horas depois.
+ */
 export function expectationFromHistory(
-  history: Array<{ role: string; content: string }> | null | undefined,
+  history: Array<{ role: string; content: string; created_at?: string }>| null | undefined,
   now: Date = new Date(),
 ): ConversationExpectation | null {
   const last = [...(history ?? [])].reverse()
     .find((entry) => entry.role === "assistant" && String(entry.content ?? "").trim());
-  return detectExpectation(last?.content ?? null, now);
+  if (!last) return null;
+  const askedAt = last.created_at && Number.isFinite(Date.parse(last.created_at))
+    ? new Date(last.created_at)
+    : now;
+  const expectation = detectExpectation(last.content, askedAt);
+  return isExpectationFresh(expectation, now) ? expectation : null;
 }

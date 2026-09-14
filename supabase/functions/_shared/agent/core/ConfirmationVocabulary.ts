@@ -9,6 +9,11 @@
 // REGRA: estas palavras NÃO são confirmação universal. Elas só resolvem um
 // turno quando existe uma operação pendente naquela conversa/usuário. Quem
 // aplica esse contexto é o ConfirmationFastPath.
+//
+// REGRA DE AUTORIDADE: feedback de correção ("não foi isso", "está errado")
+// pertence ao contrato de REPAIR e nunca pode ser reinterpretado aqui como
+// cancelamento. ConversationRepair é a fonte única dessa semântica.
+import { isExplicitRepair } from "./ConversationRepair.ts";
 
 export type ConfirmationAct = "confirm" | "cancel" | "ambiguous" | "unrelated";
 
@@ -45,9 +50,8 @@ const CANCEL_TERMS = [
   "cancela", "cancelar", "cancele", "cancelado", "pode cancelar",
   "deixa", "deixa pra la", "deixa assim", "esquece", "esqueca",
   "nao salva", "nao salvar", "nao salve", "nao registra", "nao registrar",
-  "nao lanca", "nao lancar", "nao precisa", "nao quero", "nao era isso",
+  "nao lanca", "nao lancar", "nao precisa", "nao quero",
   "desconsidera", "desconsiderar", "descarta", "descartar", "apaga", "apagar",
-  "esta errado", "ta errado", "errado", "nao e isso", "nao foi isso",
 ];
 
 const CONFIRM_SET = new Set(CONFIRM_TERMS);
@@ -55,13 +59,13 @@ const CANCEL_SET = new Set(CANCEL_TERMS);
 
 /** Primeira palavra que já indica direção, para frases curtas com ruído. */
 const CONFIRM_HEAD = /^(sim|ok|okay|beleza|blz|fechado|fechou|claro|positivo|confirm\w*|salv\w*|registr\w*|lanc\w*|manda|mandar|pode|isso|exato|certinho|correto|confere|perfeito|combinado)\b/;
-const CANCEL_HEAD = /^(nao|negativo|cancel\w*|deixa|esquec\w*|desconsider\w*|descart\w*|apag\w*|errado)\b/;
+const CANCEL_HEAD = /^(nao|negativo|cancel\w*|deixa|esquec\w*|desconsider\w*|descart\w*|apag\w*)\b/;
 
 /** Marcadores de leitura/pergunta: nunca confirmam escrita. */
 const READ_MARKER = /\b(quanto|quantos|quantas|qual|quais|quando|onde|como|porque|por que|me diz|me dizer|mostra|mostrar|ver|listar|lista|resumo|saldo|extrato|relatorio|analise|gastei|gasto|sobrou)\b/;
 
-/** Negação explícita de escrita: sempre cancelamento, nunca confirmação. */
-const CANCEL_STRONG = /\bnao\s+(salv\w*|registr\w*|lanc\w*|precisa|quero|confirm\w*|e isso|foi isso)\b/;
+/** Negação explícita da operação pendente: cancelamento real, não repair. */
+const CANCEL_STRONG = /\bnao\s+(salv\w*|registr\w*|lanc\w*|precisa|quero|confirm\w*)\b/;
 
 /**
  * Classifica a mensagem como ato de confirmação/cancelamento.
@@ -69,6 +73,10 @@ const CANCEL_STRONG = /\bnao\s+(salv\w*|registr\w*|lanc\w*|precisa|quero|confirm
  * `ambiguous` = parece resposta ao rascunho, mas sem direção clara → perguntar.
  */
 export function classifyConfirmationAct(text: string | null | undefined): ConfirmationAct {
+  // REPAIR tem precedência semântica. O fast path de confirmação não pode
+  // cancelar uma operação só porque a frase de correção contém "não".
+  if (isExplicitRepair(String(text ?? ""))) return "unrelated";
+
   const norm = normalizeConfirmationText(text);
   if (!norm) return "unrelated";
 

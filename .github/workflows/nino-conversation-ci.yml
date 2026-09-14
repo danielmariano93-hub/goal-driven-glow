@@ -1,0 +1,83 @@
+name: Nino Conversation Architecture
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/agent/**'
+      - 'src/lib/agent/**'
+      - 'src/test/nino-*.test.ts'
+      - 'supabase/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/nino-conversation-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nino-conversation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # O lockfile já estava fora de sincronia com package.json antes deste PR.
+      # CI instala pela fonte declarativa sem reescrever o lock no repositório.
+      - name: Install
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Conversation P0 + V2 regression tests
+        run: >-
+          npx vitest run
+          src/test/nino-confirmation-fastpath.test.ts
+          src/test/nino-conversation-authority-p0.test.ts
+          src/test/nino-conversation-brain-v1.test.ts
+          src/test/nino-action-slot-resolver.test.ts
+          src/test/nino-conversation-v2-golden-scenarios.test.ts
+          src/test/nino-conversation-shadow-v1.test.ts
+
+      # Contratos novos precisam ser estritamente type-safe. O runtime integrado
+      # ainda importa AgentCore/tools legados que já possuem dívida de tipos
+      # anterior a este PR; essa dívida é reportada separadamente sem esconder o
+      # gate estrito dos módulos V2 puros.
+      - name: Typecheck pure V2 contracts
+        run: >-
+          deno check --no-config
+          supabase/functions/_shared/agent/core/ActionIR.ts
+          supabase/functions/_shared/agent/core/ConversationTurnContract.ts
+          supabase/functions/_shared/agent/core/ActionSlotResolver.ts
+          supabase/functions/_shared/agent/core/ConversationBrain.ts
+          supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
+
+      - name: Report integrated legacy type debt
+        continue-on-error: true
+        run: >-
+          deno check --no-config
+          supabase/functions/_shared/agent/core/ConversationBrainRuntime.ts
+          supabase/functions/_shared/agent/core/AgentCoreV2.ts
+
+      - name: Agent deploy contracts
+        run: npm run test:deploy-contract
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build

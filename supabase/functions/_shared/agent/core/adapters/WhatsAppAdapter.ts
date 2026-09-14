@@ -1,8 +1,8 @@
 // WhatsAppAdapter — translates a WhatsApp/simulator turn into the shared
-// AgentCore.handleTurn call. Keeps the webhook thin: it stays in charge of
-// dedupe, ACKs, media fallback and linking; message-level orchestration is
-// entirely inside AgentCore.
-import { handleTurn, type HandleTurnResult } from "../AgentCore.ts";
+// rollout-gated Conversation Architecture V2 entrypoint. When the V2 flag is
+// off, AgentCoreV2 delegates to the legacy AgentCore with no behavior change.
+import { handleTurnV2 } from "../AgentCoreV2.ts";
+import type { HandleTurnResult } from "../AgentCore.ts";
 
 export type WhatsAppTurn = {
   user_id: string;
@@ -15,7 +15,7 @@ export type WhatsAppTurn = {
 };
 
 export async function handleWhatsAppTurn(input: WhatsAppTurn): Promise<HandleTurnResult> {
-  return await handleTurn({
+  return await handleTurnV2({
     user_id: input.user_id,
     conversation_id: input.conversation_id,
     inbound_message_id: input.inbound_message_id,

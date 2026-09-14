@@ -1,8 +1,9 @@
-// Orchestrator — thin shim over AgentCore.handleTurn (Fase 1 concluída).
-// Comportamento inalterado: continua sendo o ponto de entrada usado por
-// whatsapp-webhook e agent-run; a lógica real vive em core/AgentCore.ts.
-// Re-exports preservados para compatibilidade com testes e call-sites.
-import { handleTurn, type HandleTurnResult } from "./core/AgentCore.ts";
+// Orchestrator — thin shim over the shared agent entrypoint.
+// Conversation Architecture V2 is rollout-gated inside AgentCoreV2; when the
+// flag is off it delegates 100% to the legacy AgentCore.
+// Re-exports preserved for compatibility with tests and call-sites.
+import { handleTurnV2 } from "./core/AgentCoreV2.ts";
+import type { HandleTurnResult } from "./core/AgentCore.ts";
 
 export {
   service,
@@ -35,7 +36,7 @@ export type OrchestratorResult = {
 };
 
 export async function runOrchestrator(input: OrchestratorInput): Promise<OrchestratorResult> {
-  const r = await handleTurn({
+  const r = await handleTurnV2({
     user_id: input.user_id,
     conversation_id: input.conversation_id,
     inbound_message_id: input.inbound_message_id,

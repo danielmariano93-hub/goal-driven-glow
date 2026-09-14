@@ -2,6 +2,8 @@
 // conservadora. NÃO escolhe domínio, métrica, dimensão nem ferramenta.
 // O objetivo é proteger estado conversacional e separar READ de WRITE.
 import type { ParsedIntent } from "../parser.ts";
+import { isExplicitRepair, isExplicitSubstitution } from "./ConversationRepair.ts";
+export { isExplicitRepair, isExplicitSubstitution };
 
 export type DialogueAct = {
   new_query: boolean;
@@ -12,31 +14,12 @@ export type DialogueAct = {
   confidence: number;
 };
 
-const REPAIR_RX =
-  /\b(n[aã]o foi isso(?: que eu (?:perguntei|pedi))?|n[aã]o era isso|voc[eê] n[aã]o respondeu(?: o que eu perguntei)?|isso n[aã]o respondeu(?: minha pergunta)?|respondeu outra coisa|entendeu errado|faltou responder|eu perguntei .{0,40} n[aã]o|eu queria .{0,40} n[aã]o)\b/i;
-// `nino_language.v1`: a forma mais natural de corrigir em pt-BR é
-// "não foi atento, foi ansioso" / "não era triste, era cansado". Antes isso
-// era lido como mensagem nova e o erro se repetia.
-// O verbo TEM de se repetir depois da negação ("não foi X, foi Y"): sem isso,
-// "não foi fácil, mas consegui economizar" virava correção — e não é.
-const SUBSTITUTION_RX =
-  /\bn[aã]o\s+(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,20}(?:\s+[\wÀ-ú]{2,20})?\s*[,;]?\s*(?:mas\s+|e\s+|)(?:foi|era|[eé]|estava|est[aá]|sou|estou)\s+[\wÀ-ú]{3,}/i;
 const CLARIFICATION_RX =
   /\b(quis dizer|na verdade eu quis|corrigindo o que eu disse|melhor dizendo|quando eu disse .{0,30} quis dizer)\b/i;
 const SMALL_TALK_RX =
   /^(oi|ol[aá]|bom dia|boa tarde|boa noite|obrigad[oa]?|valeu|show|perfeito|entendi|beleza|blz)[!. ]*$/i;
 const FINANCIAL_ANCHOR =
   /\b(gast|despesa|receita|renda|saldo|categoria|estabelecimento|cart[aã]o|fatura|conta|d[ií]vida|meta|patrim[oô]nio|investimento|lan[cç]amento|transa[cç][aã]o|econom)\w*/i;
-
-export function isExplicitRepair(text: string): boolean {
-  const raw = String(text ?? "").trim();
-  return REPAIR_RX.test(raw) || SUBSTITUTION_RX.test(raw);
-}
-
-/** "não foi X, foi Y" — substituição explícita do valor anterior. */
-export function isExplicitSubstitution(text: string): boolean {
-  return SUBSTITUTION_RX.test(String(text ?? "").trim());
-}
 
 export function classifyDialogueAct(text: string, parsed: ParsedIntent): DialogueAct {
   const raw = String(text ?? "").trim();
@@ -68,7 +51,7 @@ export function findRepairBaseQuery(
   for (const entry of [...(history ?? [])].reverse().slice(0, 12)) {
     if (entry.role !== "user") continue;
     const text = String(entry.content ?? "").trim();
-    if (!text || text === now || SMALL_TALK_RX.test(text) || REPAIR_RX.test(text)) continue;
+    if (!text || text === now || SMALL_TALK_RX.test(text) || isExplicitRepair(text)) continue;
     if (FINANCIAL_ANCHOR.test(text)) return text;
   }
   return null;
@@ -111,6 +94,14 @@ export type DialogueState = {
 
 const FOLLOWUP_RX =
   /^(e |mas |entao |então )|\b(e (?:no|na|nos|nas|em|do|da) |e quanto|e sobre|e (?:o|a) (?:mesma|mesmo)|desses|desse|dessa|nesse mesmo)\b/i;
+
+// Fragmentos que só fazem sentido em relação ao foco anterior. Eles não
+// carregam categoria/período próprios e, portanto, não podem ser promovidos a
+// "novo tópico" apenas por não começarem com "e". Exemplos reais:
+// "Quais os estabelecimentos?", "Por quê?", "Qual deles?".
+const ELLIPTICAL_FOLLOWUP_RX =
+  /^(?:quais?\s+(?:os\s+|as\s+)?(?:estabelecimentos?|locais|lugares|com[eé]rcios?|lojas?|restaurantes?|apps?|aplicativos?|servi[cç]os?)|qual\s+(?:deles|delas)|quais\s+(?:deles|delas)|por\s+qu[eê]|porque|e?\s*no\s+m[eê]s\s+passado|e?\s*na\s+semana\s+passada)\s*[?!.]*$/i;
+
 const PERIOD_CONSTRAINT_RX =
   /\b(ultimos? \d+ dias|[uú]ltimos? \d+ dias|neste m[eê]s|nesse m[eê]s|m[eê]s passado|este ano|ano passado|em \d{4}|de \d{1,2}\/\d{1,2}|semana|trimestre|90 dias|30 dias|60 dias)\b/i;
 const DIMENSION_CONSTRAINT_RX =
@@ -142,7 +133,7 @@ export function classifyDialogueState(text: string, parsed: ParsedIntent): Dialo
     && (constraints.period || constraints.dimension || constraints.entity)) {
     acts.add("constraint_update");
   }
-  if (!act.write && !act.conversational && FOLLOWUP_RX.test(raw)) {
+  if (!act.write && !act.conversational && (FOLLOWUP_RX.test(raw) || ELLIPTICAL_FOLLOWUP_RX.test(raw))) {
     acts.add("followup");
     // Follow-up não é pergunta nova: continua o tópico.
     acts.delete("new_query");

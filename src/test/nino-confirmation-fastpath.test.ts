@@ -74,9 +74,14 @@ describe("A) vocabulário de confirmação", () => {
       expect(classifyConfirmationAct(t)).toBe("confirm");
     }
   });
-  it("reconhece cancelamento e negação explícita de escrita", () => {
-    for (const t of ["cancela", "não", "não salva", "esquece", "não era isso", "❌"]) {
+  it("reconhece cancelamento e negação explícita da operação", () => {
+    for (const t of ["cancela", "não", "não salva", "esquece", "não quero", "❌"]) {
       expect(classifyConfirmationAct(t)).toBe("cancel");
+    }
+  });
+  it("repair nunca vira cancelamento de confirmação", () => {
+    for (const t of ["não era isso", "não foi isso que te pedi", "você entendeu errado", "está errado", "errado"]) {
+      expect(classifyConfirmationAct(t), t).toBe("unrelated");
     }
   });
   it("não confunde leitura com confirmação", () => {
@@ -109,6 +114,17 @@ describe("B–E) estados da pendência", () => {
     expect(out.handled).toBe(true);
     expect(out.llm_calls).toBe(0);
     expect(sb._state.rpcCalls).toEqual(["agent_execute_transaction_confirmation_v2"]);
+  });
+
+  it("B2) repair com rascunho fresco sai do fast path sem cancelar", async () => {
+    const row = pending();
+    const sb = fakeSb([row]);
+    const out = await runConfirmationFastPath(sb, {
+      user_id: "u1", conversation_id: "c1", inbound_message_id: "in-repair", text: "Não foi isso que te pedi",
+    });
+    expect(out.handled).toBe(false);
+    expect(row.status).toBe("pending");
+    expect(sb._state.rpcCalls).toEqual([]);
   });
 
   it("C) expirado: resposta específica, sem análise", async () => {
