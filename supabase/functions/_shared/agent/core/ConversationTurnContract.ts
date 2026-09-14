@@ -46,6 +46,8 @@ export function normalizeConversationTurnContract(raw: unknown): ConversationTur
     }
     : null;
   const mode = value.mode as BrainMode;
+  const act = value.act as BrainAct;
+  const inheritFocus = Boolean(value.inherit_focus);
 
   // Cross-field invariants: invalid contracts fail closed instead of being
   // silently reinterpreted by the runtime.
@@ -55,12 +57,18 @@ export function normalizeConversationTurnContract(raw: unknown): ConversationTur
   if (mode === "clarify" && !String(value.clarification_question ?? "").trim()) return null;
   if (mode === "converse" && !String(value.direct_reply ?? "").trim()) return null;
 
+  // Continuation semantics are part of the contract, not a downstream guess.
+  // A repair must preserve the rejected turn's focus; follow-up/answer also
+  // inherit. A topic switch must explicitly drop old focus.
+  if ((act === "follow_up" || act === "answer" || act === "repair") && !inheritFocus) return null;
+  if (act === "topic_switch" && inheritFocus) return null;
+
   return {
     version: "conversation_turn_contract.v1",
-    act: value.act as BrainAct,
+    act,
     mode,
     canonical_request: value.canonical_request == null ? null : String(value.canonical_request).trim(),
-    inherit_focus: Boolean(value.inherit_focus),
+    inherit_focus: inheritFocus,
     focus: {
       category: value.focus?.category == null ? null : String(value.focus.category).trim(),
       merchant: value.focus?.merchant == null ? null : String(value.focus.merchant).trim(),
@@ -88,7 +96,7 @@ export function validateConversationTurnContract(contract: ConversationTurnContr
   if (contract.mode === "write" && !contract.action) errors.push("write_without_action");
   if (contract.mode !== "write" && contract.action) errors.push("action_outside_write");
   if (contract.mode === "read" && !contract.canonical_request) errors.push("read_without_canonical_request");
-  if ((contract.act === "follow_up" || contract.act === "answer") && !contract.inherit_focus) {
+  if ((contract.act === "follow_up" || contract.act === "answer" || contract.act === "repair") && !contract.inherit_focus) {
     errors.push("continuation_without_focus_inheritance");
   }
   if (contract.act === "topic_switch" && contract.inherit_focus) errors.push("topic_switch_inherits_old_focus");
