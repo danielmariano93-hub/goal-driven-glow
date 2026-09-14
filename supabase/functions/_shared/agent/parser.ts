@@ -115,6 +115,7 @@ const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
 const CANCEL_LOOSE = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
+const EXPLICIT_CANCEL_RX = /^\s*(?:(?:não|nao)\s*[,;:-]?\s*)?(?:cancela(?:r)?\b|deixa\s+pra\s+l[aá]\b|esquece(?:\s+isso)?\b)/i;
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
 function isGoalCreateIntent(text: string): boolean {
@@ -127,7 +128,6 @@ function isGoalContributionIntent(text: string): boolean {
   return /\b(guardei|poupei|separei|aport(?:ei|e))\b.*\b(meta|objetivo|reserva|para )/i.test(text);
 }
 
-/** Goal discussion with an amount must never become a ledger transaction. */
 function isGoalDiscussion(text: string): boolean {
   return /\b(meta|objetivo)\b/i.test(text) && !isGoalContributionIntent(text);
 }
@@ -154,10 +154,7 @@ function goalName(amount: number, text: string): string {
   return `Meta de R$ ${value}`;
 }
 
-export function parseStructuredCard(
-  text: string,
-  now: Date = new Date(),
-): Extract<ParsedIntent, { kind: "transaction" }> | null {
+export function parseStructuredCard(text: string, now: Date = new Date()): Extract<ParsedIntent, { kind: "transaction" }> | null {
   const raw = String(text ?? "");
   if (!raw.trim()) return null;
   const clean = raw.replace(/\*/g, "");
@@ -205,6 +202,7 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (card) return card;
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
+  if (EXPLICIT_CANCEL_RX.test(raw)) return { kind: "cancel" };
   if (isExplicitRepair(raw)) return { kind: "unknown", text: raw };
 
   const wordCount = raw.split(/\s+/).length;
@@ -227,39 +225,30 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
 
   if (/\b(resumo|saldo|quanto (tenho|gastei)|extrato)\b/.test(lower)) return { kind: "query", topic: "summary" };
   if (/\b(últim|ultim).*\b(transa|lanc|gasto)/.test(lower)) return { kind: "query", topic: "recent" };
-  if (/\b(posso gastar|antes de gastar|se eu gastar)\b/.test(lower) && amount !== null) {
-    return { kind: "query", topic: "before_spending", amount, description: raw };
-  }
-
+  if (/\b(posso gastar|antes de gastar|se eu gastar)\b/.test(lower) && amount !== null) return { kind: "query", topic: "before_spending", amount, description: raw };
   if (amount === null) return { kind: "unknown", text: raw };
 
-  if (isGoalCreateIntent(raw)) {
-    return { kind: "goal", name: goalName(amount, raw), target_amount: amount, target_date: goalTargetDate(raw, now) };
-  }
-
+  if (isGoalCreateIntent(raw)) return { kind: "goal", name: goalName(amount, raw), target_amount: amount, target_date: goalTargetDate(raw, now) };
   if (isGoalDiscussion(raw)) return { kind: "unknown", text: raw };
   if (!allowsEntryDraft(raw)) return { kind: "unknown", text: raw };
 
-  if (/\btransfer(i|ir|indo|iu)\b/.test(lower) || /\bpassei? .* para\b/.test(lower)) {
-    const parts = lower.match(/\bde\s+([\wçãéíáóêô ]+?)\s+para\s+([\wçãéíáóêô ]+)/);
-    return { kind: "transfer", amount, occurred_at, from_hint: parts?.[1]?.trim(), to_hint: parts?.[2]?.trim() };
+  if (/\btransfer(i|ir|ência|encia|ir)\b/.test(lower)) {
+    const from = lower.match(/\b(?:da|de)\s+(?:conta\s+)?([\p{L}\d ._-]+?)\s+para\s+(?:a\s+)?(?:conta\s+)?([\p{L}\d ._-]+?)(?:\s+(?:hoje|ontem|anteontem)|$)/iu);
+    return { kind: "transfer", amount, occurred_at, from_hint: from?.[1]?.trim(), to_hint: from?.[2]?.trim() };
   }
 
-  if (isGoalContributionIntent(lower)) {
-    const g = lower.match(/\b(?:meta|objetivo|reserva|para)\s+([\wçãéíáóêô ]+)/);
-    return { kind: "goal_contribution", amount, occurred_at, goal_hint: g?.[1]?.trim() };
+  if (isGoalContributionIntent(raw)) {
+    const gm = lower.match(/\b(?:meta|objetivo|reserva)\s+([\p{L}\d ._-]+)/iu);
+    return { kind: "goal_contribution", amount, occurred_at, goal_hint: gm?.[1]?.trim() };
   }
 
-  const isIncome = /\b(recebi|ganhei|entrou|salário|salario|pix recebi|pagamento recebido)\b/.test(lower);
-  const isExpense = /\b(gastei|paguei|comprei|almo[çc]|jantar|caf[eé]|uber|99|mercado|farm[aá]cia|conta|boleto|assinatura)\b/.test(lower);
-  const descMatch = lower.match(/\b(?:no|na|em|com|de)\s+([\wçãéíáóêô]+(?:\s+[\wçãéíáóêô]+){0,3})/);
-  const catMatch = lower.match(/\b(mercado|almoço|almoco|jantar|caf[eé]|uber|99|farm[aá]cia|lazer|assinatura|transporte|combust[íi]vel|educa[cç][aã]o|sa[uú]de|casa|contas)\b/);
-  const accMatch = lower.match(/\b(nubank|itau|itaú|bradesco|santander|inter|caixa|carteira|dinheiro|c6|picpay|mercadopago)\b/);
-
-  return {
-    kind: "transaction",
-    type: isIncome && !isExpense ? "income" : "expense",
-    amount, occurred_at, description: descMatch?.[1]?.trim(),
-    category_hint: catMatch?.[1], account_hint: accMatch?.[1],
-  };
+  const explicitIncome = /\b(recebi|receita|entrada|salário|salario|caiu)\b/.test(lower);
+  const explicitExpense = /\b(gastei|paguei|comprei|despesa|saída|saida|custou)\b/.test(lower);
+  const type: "expense" | "income" = explicitIncome && !explicitExpense ? "income" : "expense";
+  const desc = raw
+    .replace(AMOUNT_RE, " ")
+    .replace(/\b(hoje|ontem|anteontem)\b/gi, " ")
+    .replace(/\b(eu\s+)?(gastei|paguei|comprei|recebi|custou)\b/gi, " ")
+    .replace(/\s+/g, " ").trim();
+  return { kind: "transaction", type, amount, occurred_at, description: desc || undefined };
 }
