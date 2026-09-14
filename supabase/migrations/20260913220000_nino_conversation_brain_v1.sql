@@ -65,6 +65,31 @@ ALTER TABLE public.conversation_brain_shadow_evaluations ENABLE ROW LEVEL SECURI
 REVOKE ALL ON public.conversation_brain_shadow_evaluations FROM authenticated, anon;
 GRANT ALL ON public.conversation_brain_shadow_evaluations TO service_role;
 
+-- Resumo operacional para decidir rollout com evidência. Não tenta dizer se o
+-- Brain "está certo" sozinho; expõe volume, falha, confiança e latência para o
+-- gate humano/golden-replay. Somente service_role pode ler.
+CREATE OR REPLACE VIEW public.conversation_brain_shadow_summary AS
+SELECT
+  date_trunc('day', created_at) AS day,
+  count(*)::bigint AS turns,
+  count(*) FILTER (WHERE status = 'brain_error')::bigint AS brain_errors,
+  round(
+    (100.0 * count(*) FILTER (WHERE status = 'brain_error') / NULLIF(count(*), 0))::numeric,
+    2
+  ) AS brain_error_pct,
+  round(avg(brain_confidence) FILTER (WHERE status = 'ok')::numeric, 4) AS avg_confidence,
+  round(avg(brain_latency_ms) FILTER (WHERE status = 'ok')::numeric, 1) AS avg_latency_ms,
+  percentile_cont(0.95) WITHIN GROUP (ORDER BY brain_latency_ms)
+    FILTER (WHERE status = 'ok') AS p95_latency_ms,
+  count(*) FILTER (WHERE brain_act IN ('follow_up', 'answer', 'repair'))::bigint AS continuation_turns,
+  count(*) FILTER (WHERE brain_mode = 'write')::bigint AS write_turns,
+  count(*) FILTER (WHERE brain_mode = 'clarify')::bigint AS clarify_turns
+FROM public.conversation_brain_shadow_evaluations
+GROUP BY 1;
+
+REVOKE ALL ON public.conversation_brain_shadow_summary FROM authenticated, anon;
+GRANT SELECT ON public.conversation_brain_shadow_summary TO service_role;
+
 -- Rollout do novo cérebro é explicitamente opt-in. Mesmo após a migration,
 -- 0% dos usuários entra no V2 ou shadow até uma ativação intencional posterior.
 INSERT INTO public.agent_runtime_flags (flag_name, enabled, rollout_percent, pilot_user_ids)
