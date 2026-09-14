@@ -50,6 +50,7 @@ jobs:
           src/test/nino-conversation-authority-p0.test.ts
           src/test/nino-conversation-brain-v1.test.ts
           src/test/nino-action-slot-resolver.test.ts
+          src/test/nino-conversation-v2-golden-scenarios.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
