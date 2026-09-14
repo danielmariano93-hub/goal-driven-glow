@@ -135,7 +135,5 @@ export async function attachLegacyShadowObservation(args: {
     .eq("user_id", args.input.user_id)
     .eq("conversation_id", args.input.conversation_id)
     .eq("inbound_message_id", inbound)
-    .order("created_at", { ascending: false })
-    .limit(1)
     .catch(() => ({ error: null } as any));
 }
