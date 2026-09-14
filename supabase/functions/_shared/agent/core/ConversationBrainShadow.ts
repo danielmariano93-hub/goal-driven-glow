@@ -2,14 +2,13 @@
 //
 // Executa SOMENTE a interpretação do Conversation Brain em paralelo ao caminho
 // legado. Não chama tools, não cria drafts e não altera verdade financeira.
-// O resultado serve para medir paridade antes de tornar a V2 autoritativa.
+// Fora da própria linha de telemetria shadow, suas leituras são read-only.
 // deno-lint-ignore-file no-explicit-any
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { loadConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
-import { resolveSession } from "./SessionManager.ts";
 import { interpretConversationTurn } from "./ConversationBrain.ts";
 
 export type ShadowInput = {
@@ -32,6 +31,18 @@ export type ShadowEvaluationResult = {
   error: string | null;
 };
 
+async function findExistingSessionId(sb: SupabaseClient, input: ShadowInput): Promise<string | null> {
+  const { data, error } = await sb.from("agent_sessions")
+    .select("id,expires_at")
+    .eq("user_id", input.user_id)
+    .eq("channel", input.channel)
+    .eq("conversation_id", input.conversation_id)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  if (data.expires_at && new Date(String(data.expires_at)).getTime() <= Date.now()) return null;
+  return String(data.id);
+}
+
 export async function evaluateConversationBrainShadow(args: {
   sb: SupabaseClient;
   input: ShadowInput;
@@ -40,19 +51,15 @@ export async function evaluateConversationBrainShadow(args: {
 }): Promise<ShadowEvaluationResult> {
   const started = Date.now();
   try {
-    const session = await resolveSession(args.sb, {
-      user_id: args.input.user_id,
-      channel: args.input.channel as any,
-      conversation_id: args.input.conversation_id,
-    }).catch(() => null as any);
-    const sessionId = session?.id as string | undefined;
+    // Shadow não toca TTL/atividade da sessão: apenas reutiliza uma sessão viva.
+    const sessionId = await findExistingSessionId(args.sb, args.input).catch(() => null);
 
     const [loadedHistory, memory, workflow] = await Promise.all([
       loadHistory(args.sb, args.input.conversation_id, {
         limit: 12,
         excludeMessageId: args.input.inbound_message_id ?? undefined,
       }).catch(() => []),
-      loadConversationMemory(args.sb, sessionId ?? null).catch(() => null),
+      loadConversationMemory(args.sb, sessionId).catch(() => null),
       loadWorkflow(args.sb, {
         user_id: args.input.user_id,
         conversation_id: args.input.conversation_id,
