@@ -6,6 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { recordGatewayCall } from "../../aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
 import { MODEL_TIERS } from "../../intelligence/modelGateway.ts";
 import { guardNarrative, type GuardResult } from "./NarrativeGuard.ts";
 import type { NarrativeEvidencePack } from "./NarrativeEvidencePack.ts";
@@ -13,7 +14,6 @@ import type { ToneRules } from "./TonePolicy.ts";
 import { chooseVariation, type VariationChoice } from "./NarrativeVariation.ts";
 
 export const NARRATIVE_VERSION = "nino_narrative.v1";
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const NARRATIVE_MODEL = MODEL_TIERS.tier2_analysis.primary;
 
 function money(value: number): string {
@@ -135,7 +135,8 @@ export async function composeNarrative(args: {
   functionName?: string;
 }): Promise<NarrativeResult> {
   const { pack, rules } = args;
-  if (!Deno.env.get("LOVABLE_API_KEY")) return deterministicResult(pack, "ai_not_configured");
+  const provider = resolveAiProvider();
+  if (!provider) return deterministicResult(pack, "ai_not_configured");
   if (!pack.deterministic_body && !pack.deterministic_title) return deterministicResult(pack, "no_deterministic_body");
 
   const variation = chooseVariation({
@@ -147,15 +148,11 @@ export async function composeNarrative(args: {
   let json: any = null;
   let httpStatus: number | null = null;
   try {
-    const resp = await fetch(GATEWAY, {
+    const resp = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": Deno.env.get("LOVABLE_API_KEY")!,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: NARRATIVE_MODEL,
+        model: normalizeAiModel(NARRATIVE_MODEL, provider),
         temperature: 0.5,
         max_tokens: 1400,
         messages: [
@@ -179,7 +176,7 @@ export async function composeNarrative(args: {
         error_code: `gateway_${resp.status}`,
         latency_ms: Date.now() - started,
         reason_for_ai_call: "narrative_framing",
-        metadata: { kind: pack.kind, channel: args.channel },
+        metadata: { kind: pack.kind, channel: args.channel, provider: provider.provider },
       }, null);
       return deterministicResult(pack, `gateway_${resp.status}`);
     }
@@ -199,7 +196,7 @@ export async function composeNarrative(args: {
     http_status: httpStatus,
     latency_ms: latency,
     reason_for_ai_call: "narrative_framing",
-    metadata: { kind: pack.kind, channel: args.channel, tone: rules.tone },
+    metadata: { kind: pack.kind, channel: args.channel, tone: rules.tone, provider: provider.provider },
   }, json);
 
   const raw = String(json?.choices?.[0]?.message?.content ?? "").trim().replace(/^["'“]|["'”]$/g, "");
