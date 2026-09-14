@@ -10,8 +10,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-// Leitura tardia do ambiente: mantém o módulo importável fora do Deno
-// (suítes de teste do app) sem afetar o comportamento em produção.
 const env = (name: string): string =>
   ((globalThis as any).Deno?.env?.get(name) ?? "") as string;
 
@@ -22,18 +20,14 @@ export type FlagName =
   | "shared_goals"
   | "split_v2"
   | "outbound_dlq"
-  // Eficiência de IA (`nino_efficiency.v2`) — rollback granular real.
   | "evidence_pack_v1"
   | "deterministic_first_v2"
   | "progressive_tools_v1"
   | "context_budget_v2"
   | "model_routing_v2"
   | "document_efficiency_v1"
-  // Análise composta com escopo e completude (`nino_composite.v1`).
   | "composite_analysis_v1"
-  // Semantic Compiler -> Financial Query IR. Rollout começa desligado.
   | "semantic_ir_v1"
-  // `nino_semantic_ir.v3` — flags independentes, todas OFF no nascimento.
   | "semantic_ir_v3"
   | "semantic_ir_multiquery_v1"
   | "semantic_completeness_v1"
@@ -41,21 +35,16 @@ export type FlagName =
   | "semantic_topic_state_v1"
   | "semantic_investigation_loop_v1"
   | "semantic_capability_rescue_v1"
-  // `nino_narrative.v1` — camada de narrativa do assessor. Nasce desligada.
   | "narrative_layer_v1"
-  // `nino_adaptive.v1` / `nino_threads.v1` — inteligência proporcional e
-  // continuidade de assunto. Nascem desligadas, com rollout fail-closed.
   | "adaptive_execution_v1"
   | "conversation_threads_v1"
   | "semantic_topic_retrieval_v1"
-  // `nino_semantic_ir.v4` — IR composicional, preservação pedido-vs-executado
-  // e handler de gasto típico mensal. Nascem desligadas (fail-closed).
   | "semantic_ir_v4"
   | "semantic_preservation_v1"
   | "typical_monthly_v1"
   | "write_workflow_v1"
-  // Conversation Architecture V2: uma autoridade conversacional única.
-  | "conversation_brain_v1";
+  | "conversation_brain_v1"
+  | "conversation_brain_shadow_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -88,12 +77,9 @@ const DEFAULTS: Record<FlagName, boolean> = {
   typical_monthly_v1: false,
   write_workflow_v1: false,
   conversation_brain_v1: false,
+  conversation_brain_shadow_v1: false,
 };
 
-/**
- * Flags com rollout por usuário: fail-closed. Sem configuração de rollout na
- * tabela, NÃO liga globalmente por acidente.
- */
 const ROLLOUT_FLAGS = new Set<FlagName>([
   "semantic_ir_v1",
   "semantic_ir_v3",
@@ -108,6 +94,7 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "conversation_threads_v1",
   "semantic_topic_retrieval_v1",
   "conversation_brain_v1",
+  "conversation_brain_shadow_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
@@ -140,7 +127,6 @@ type RolloutConfig = {
 let rolloutCache: { at: number; map: Record<string, RolloutConfig> } | null = null;
 
 function stableBucket(value: string): number {
-  // FNV-1a 32-bit: estável entre instâncias, sem PII em log.
   let hash = 0x811c9dc5;
   for (let i = 0; i < value.length; i++) {
     hash ^= value.charCodeAt(i);
@@ -193,20 +179,15 @@ export async function isEnabled(name: FlagName, userId?: string): Promise<boolea
   const enabled = name in map ? map[name] : (DEFAULTS[name] ?? false);
   if (!enabled || !userId || !ROLLOUT_FLAGS.has(name)) return enabled;
 
-  // Fail-closed para o novo cérebro: se a migration de rollout ainda não
-  // existe ou falhar, não ativa globalmente por acidente.
   const rollout = (await loadRollouts())[name];
   if (!rollout) return false;
   return rolloutDecision(name, userId, rollout);
 }
 
-/** Lê vários flags de uma vez (uma única leitura/cache). */
 export async function flagSnapshot<T extends FlagName>(names: readonly T[]): Promise<Record<T, boolean>> {
   const map = await load();
   const out = {} as Record<T, boolean>;
-  for (const name of names) {
-    out[name] = name in map ? map[name] : (DEFAULTS[name] ?? false);
-  }
+  for (const name of names) out[name] = name in map ? map[name] : (DEFAULTS[name] ?? false);
   return out;
 }
 
