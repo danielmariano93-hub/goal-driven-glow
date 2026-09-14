@@ -6,6 +6,7 @@ export type AiProviderConfig = {
   baseUrl: string;
   apiKey: string;
   headers: Record<string, string>;
+  modelOverride: string | null;
 };
 
 function cleanBaseUrl(value: string): string {
@@ -15,32 +16,48 @@ function cleanBaseUrl(value: string): string {
 /**
  * Resolve the runtime AI provider without coupling Nino to Lovable.
  *
+ * Direct OpenAI is considered configured only when BOTH key and model are
+ * present. This is intentional: Lovable model aliases and third-party model
+ * ids must never be forwarded blindly to api.openai.com.
+ *
  * Priority:
  * 1. NINO_AI_PROVIDER when explicitly configured;
- * 2. OPENAI_API_KEY (preferred default);
- * 3. LOVABLE_API_KEY as backwards-compatible fallback.
- *
- * This lets production migrate provider independently from application code.
+ * 2. direct OpenAI when OPENAI_API_KEY + NINO_AI_MODEL are present;
+ * 3. Lovable as backwards-compatible fallback.
  */
 export function resolveAiProvider(env: Record<string, string | undefined> = {
   NINO_AI_PROVIDER: Deno.env.get("NINO_AI_PROVIDER"),
   NINO_AI_BASE_URL: Deno.env.get("NINO_AI_BASE_URL"),
+  NINO_AI_MODEL: Deno.env.get("NINO_AI_MODEL"),
   OPENAI_BASE_URL: Deno.env.get("OPENAI_BASE_URL"),
   OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
   LOVABLE_API_KEY: Deno.env.get("LOVABLE_API_KEY"),
 }): AiProviderConfig | null {
   const requested = String(env.NINO_AI_PROVIDER ?? "").trim().toLowerCase();
   const openAiKey = String(env.OPENAI_API_KEY ?? "").trim();
+  const openAiModel = String(env.NINO_AI_MODEL ?? "").trim().replace(/^openai\//i, "");
   const lovableKey = String(env.LOVABLE_API_KEY ?? "").trim();
 
   if (requested && requested !== "openai" && requested !== "lovable") return null;
 
-  if ((requested === "openai" || (!requested && openAiKey)) && openAiKey) {
+  if (requested === "openai") {
+    if (!openAiKey || !openAiModel) return null;
     return {
       provider: "openai",
       baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
       apiKey: openAiKey,
       headers: { Authorization: `Bearer ${openAiKey}` },
+      modelOverride: openAiModel,
+    };
+  }
+
+  if (!requested && openAiKey && openAiModel) {
+    return {
+      provider: "openai",
+      baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
+      apiKey: openAiKey,
+      headers: { Authorization: `Bearer ${openAiKey}` },
+      modelOverride: openAiModel,
     };
   }
 
@@ -53,6 +70,7 @@ export function resolveAiProvider(env: Record<string, string | undefined> = {
         "Lovable-API-Key": lovableKey,
         "X-Lovable-AIG-SDK": "edge-function",
       },
+      modelOverride: null,
     };
   }
 
@@ -67,10 +85,11 @@ export function aiJsonHeaders(config: AiProviderConfig): Record<string, string> 
   return { "Content-Type": "application/json", ...config.headers };
 }
 
-/** Lovable uses namespaced model ids (e.g. openai/gpt-*); OpenAI does not. */
+/** Lovable can use namespaced/multi-provider ids; direct OpenAI uses one vetted model. */
 export function normalizeAiModel(model: string, config: AiProviderConfig): string {
   const value = String(model ?? "").trim();
-  return config.provider === "openai" ? value.replace(/^openai\//i, "") : value;
+  if (config.provider === "openai") return String(config.modelOverride ?? "").trim();
+  return value;
 }
 
 /** Kept for compatibility with existing callers while they migrate. */
