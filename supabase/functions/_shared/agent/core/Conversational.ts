@@ -1,4 +1,5 @@
 import { recordGatewayCall } from "../../aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-gateway.ts";
 // Conversational (`nino_brain.v2`) — camada CONVERSAR não-financeira.
 //
 // Perguntas corriqueiras ("o que você é?", "bom dia", "obrigado", "qual a
@@ -74,7 +75,6 @@ Jeito de falar: gente boa, direto, caloroso e sem formalidade — como um amigo 
 const FINANCIAL_RX =
   /(?:^|\W)(?:gast|receit|renda|sal[aá]ri|saldo|cart[aã]o|fatura|d[ií]vid|parcel|meta|investiment|assinatur|previs|fechamento|economi|or[cç]ament|pix|boleto|transfer|extrato|lan[cç]ament|categoria|estabeleciment|mercado|ifood|uber|compr(?:ei|a|ei)|paguei|pagar|recebi|receb|quanto|quanta|or[cç]a|r\$|\d+[,.]\d{2}|reais|dinheiro|conta corrente|minha conta|na conta|do cart|financ)/i;
 
-
 const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
   {
     kind: "audio_status",
@@ -98,58 +98,28 @@ const RX: Array<{ kind: ConversationalKind; rx: RegExp }> = [
   { kind: "howareyou", rx: /(?:^|\W)(?:como (?:voc[êe]|vc) (?:est[áa]|ta|tá)|tudo (?:bem|certo) (?:com )?(?:voc[êe]|vc)|como vai (?:voc[êe]|vc))/i },
 ];
 
-
-/**
- * Classifica a mensagem como conversa não-financeira. Conservador de
- * propósito: qualquer sinal financeiro devolve `null` e o turno segue pelo
- * pipeline analítico com toda a verdade de sempre.
- */
 export function classifyConversational(text: string): ConversationalClassification {
   const raw = String(text ?? "").trim();
   if (!raw) return { kind: null, deterministic: false, reason: "empty" };
   if (raw.length > 320) return { kind: null, deterministic: false, reason: "too_long" };
-
-  // Identidade, capacidade e social vencem sinais financeiros fracos
-  // ("o que você faz com meu dinheiro?" continua sendo pergunta sobre você).
   for (const entry of RX) {
-    if (entry.rx.test(raw)) {
-      return { kind: entry.kind, deterministic: true, reason: `rx:${entry.kind}` };
-    }
+    if (entry.rx.test(raw)) return { kind: entry.kind, deterministic: true, reason: `rx:${entry.kind}` };
   }
-
-  // Daqui pra baixo, qualquer sinal financeiro devolve o turno ao pipeline
-  // analítico com toda a verdade de sempre.
   if (FINANCIAL_RX.test(raw)) return { kind: null, deterministic: false, reason: "financial_signal" };
-
-  // Pergunta/assunto geral, sem nada financeiro: conversa mesmo.
   const looksLikeQuestion = /[?]$/.test(raw) || /^(qual|quem|quando|onde|como|por que|porque|o que|me (conta|explica|diz))\b/i.test(raw);
-  if (looksLikeQuestion && raw.split(/\s+/).length <= 40) {
-    return { kind: "chat", deterministic: false, reason: "general_question" };
-  }
-
+  if (looksLikeQuestion && raw.split(/\s+/).length <= 40) return { kind: "chat", deterministic: false, reason: "general_question" };
   return { kind: null, deterministic: false, reason: "unclassified" };
 }
 
-/** Turno pesado de leitura de documento — o único que pode justificar aviso. */
 const HEAVY_DOC_RX =
   /(?:^|\W)(?:extrato|fatura em (?:pdf|anexo)|planilha|csv|pdf|comprovantes?|notas? fiscais?|importa[rç]|essas? (?:linhas|transa[cç][õo]es)|segue (?:o|a) (?:lista|arquivo))/i;
 
-/**
- * Aviso de espera é EXCEÇÃO, não regra.
- *
- * Os três pontinhos ("digitando…") já resolvem a percepção de espera. Mandar
- * "só um instante" a cada pergunta faz o Nino soar como chatbot. Então:
- *  - conversa, pergunta analítica, simulação e consultoria => NENHUM aviso;
- *  - só turnos comprovadamente longos (leitura de documento/extrato/lote de
- *    lançamentos) mantêm um único aviso, e depois de bastante tempo.
- */
 export function shouldAcknowledge(text: string): boolean {
   const raw = String(text ?? "").trim();
   if (!raw) return false;
   if (classifyConversational(raw).kind !== null) return false;
   const words = raw.split(/\s+/).length;
   if (HEAVY_DOC_RX.test(raw) && words >= 8) return true;
-  // Lote colado de lançamentos: a leitura demora de verdade.
   return words >= 120;
 }
 
@@ -180,58 +150,39 @@ function capabilitiesReply(firstName?: string | null): string {
     + `Se quiser começar agora, pergunta: "qual é meu próximo passo financeiro?"`;
 }
 
-/** Resposta determinística para as intenções sociais e de identidade. */
 export function deterministicConversationalReply(
   kind: ConversationalKind,
   ctx?: { first_name?: string | null; hour?: number },
 ): string | null {
   const name = ctx?.first_name?.trim() || null;
   switch (kind) {
-    case "identity":
-      return identityReply(name);
-    case "purpose":
-      return purposeReply(name);
-    case "capabilities":
-      return capabilitiesReply(name);
-    case "audio_status":
-      return "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.";
+    case "identity": return identityReply(name);
+    case "purpose": return purposeReply(name);
+    case "capabilities": return capabilitiesReply(name);
+    case "audio_status": return "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.";
     case "greeting": {
       const hour = ctx?.hour ?? 12;
       const period = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
       return `${period}${name ? `, ${name}` : ""}! Tudo bem por aqui 💛 Me conta: quer registrar algo ou dar uma olhada em como o mês está indo?`;
     }
-    case "thanks":
-      return "Por nada! Tô aqui sempre que precisar.";
-    case "farewell":
-      return "Até logo! Qualquer coisa, me chama por aqui.";
-    case "howareyou":
-      return `Tudo ótimo por aqui${name ? `, ${name}` : ""} — pronto pra te ajudar com o dinheiro. E você, como está?`;
-    default:
-      return null;
+    case "thanks": return "Por nada! Tô aqui sempre que precisar.";
+    case "farewell": return "Até logo! Qualquer coisa, me chama por aqui.";
+    case "howareyou": return `Tudo ótimo por aqui${name ? `, ${name}` : ""} — pronto pra te ajudar com o dinheiro. E você, como está?`;
+    default: return null;
   }
 }
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-/**
- * Conversa geral: uma única chamada, sem ferramentas, com prompt curto (só a
- * persona). Rápida por construção. Devolve `null` quando não dá pra responder
- * assim — nesse caso o turno segue o caminho normal.
- */
 export async function generateConversationalReply(args: {
   text: string;
   history?: Array<{ role: string; content: string }>;
   first_name?: string | null;
-  /** Ledger de consumo: sem sb/user_id a chamada ficaria invisível no admin. */
-  // deno-lint-ignore no-explicit-any
   sb?: any;
   user_id?: string | null;
 }): Promise<string | null> {
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) return null;
+  const provider = resolveAiProvider();
+  if (!provider) return null;
   const MODEL = "openai/gpt-5.6-sol";
   const aiStarted = Date.now();
-  // deno-lint-ignore no-explicit-any
   const logUsage = async (ok: boolean, status: number | null, error: string | null, json: any) => {
     if (!args.sb) return;
     await recordGatewayCall(args.sb, {
@@ -239,21 +190,18 @@ export async function generateConversationalReply(args: {
       operation: "casual_reply", user_id: args.user_id ?? null, model: MODEL,
       operation_type: "chat", success: ok, http_status: status, error_code: error,
       latency_ms: Date.now() - aiStarted, reason_for_ai_call: "casual_route",
+      metadata: { provider: provider.provider },
     }, json).catch(() => undefined);
   };
   try {
     const history = (args.history ?? []).slice(-6)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, 600) }));
-    const resp = await fetch(GATEWAY, {
+    const resp = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: MODEL,
+        model: normalizeAiModel(MODEL, provider),
         temperature: 0.6,
         messages: [
           { role: "system", content: NINO_PERSONA },
