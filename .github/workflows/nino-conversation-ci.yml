@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/functions/_shared/agent/**'
+      - 'supabase/functions/_shared/ai-gateway.ts'
       - 'src/lib/agent/**'
       - 'src/test/nino-*.test.ts'
       - 'supabase/migrations/**'
@@ -52,6 +53,7 @@ jobs:
           src/test/nino-action-slot-resolver.test.ts
           src/test/nino-conversation-v2-golden-scenarios.test.ts
           src/test/nino-conversation-shadow-v1.test.ts
+          src/test/nino-ai-provider-independence.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos

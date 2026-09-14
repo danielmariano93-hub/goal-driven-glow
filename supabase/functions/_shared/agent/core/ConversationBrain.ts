@@ -8,6 +8,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
@@ -19,7 +20,6 @@ import {
 export { dialogueActsFromContract } from "./ConversationTurnContract.ts";
 export type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
 export const CONVERSATION_BRAIN_DEADLINE_MS = 12_000;
 
 export type ConversationBrainTelemetry = {
@@ -153,7 +153,6 @@ export async function interpretConversationTurn(input: {
   history: HistoryTurn[];
   memory: ConversationMemory | null;
   workflow: WriteWorkflow | null;
-  /** Contexto persistente do usuário (nunca fato numérico). */
   user_context?: string | null;
   model: string;
   sb?: SupabaseClient;
@@ -168,8 +167,10 @@ export async function interpretConversationTurn(input: {
       latency_ms: Date.now() - started, ok: false, error,
     },
   });
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) return fail("conversation_brain_llm_not_configured");
+
+  const provider = resolveAiProvider();
+  if (!provider) return fail("conversation_brain_llm_not_configured");
+  const requestModel = normalizeAiModel(input.model, provider);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CONVERSATION_BRAIN_DEADLINE_MS);
@@ -183,15 +184,11 @@ export async function interpretConversationTurn(input: {
       "Emita somente emit_conversation_turn_contract.",
     ].filter(Boolean).join("\n\n");
 
-    const response = await fetch(GATEWAY, {
+    const response = await fetch(aiEndpoint(provider, "responses"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: input.model,
+        model: requestModel,
         input: [
           { role: "developer", content: SYSTEM },
           { role: "user", content: user },
@@ -228,6 +225,7 @@ export async function interpretConversationTurn(input: {
         user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
         success: false, http_status: response.status || null, error_code: error,
         latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
+        metadata: { provider: provider.provider },
       });
       return fail(error);
     }
@@ -237,7 +235,7 @@ export async function interpretConversationTurn(input: {
       workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
       user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
       success: true, latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
-      metadata: { contract_version: "conversation_turn_contract.v1" },
+      metadata: { contract_version: "conversation_turn_contract.v1", provider: provider.provider },
     }, body);
 
     const call = (body?.output ?? []).find((item: any) =>
@@ -268,6 +266,7 @@ export async function interpretConversationTurn(input: {
       user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
       success: false, error_code: code, latency_ms: Date.now() - started,
       reason_for_ai_call: "conversation_brain_v1",
+      metadata: { provider: provider.provider },
     });
     return fail(code);
   } finally {

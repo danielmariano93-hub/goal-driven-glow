@@ -9,12 +9,10 @@ import {
 } from "./FinancialQueryIR.ts";
 import { executableOntologyText } from "./IRCapabilityAdapter.ts";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 
-
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/responses";
 /** Teto de latência do entendimento semântico (alinhado ao budget T3/T4). */
 export const COMPILER_DEADLINE_MS = 20_000;
-
 
 export type SemanticCompilerTelemetry = {
   model: string | null;
@@ -56,58 +54,58 @@ export type SemanticCompileOutcome = {
 /** Schema do IR emitido pela LLM. `maxQueries=1` mantém o contrato v2. */
 function compilerTool(maxQueries: number) {
   return {
-  type: "function",
-  function: {
-    name: "emit_financial_query_ir",
-    description: "Compila a intenção financeira do usuário em IR sem escolher ferramentas.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "intent", "needs_clarification", "assumptions", "queries",
-        "completeness_targets", "unsupported_reason",
-      ],
-      properties: {
-        intent: { type: "string", enum: ["lookup", "analyze", "investigate", "unsupported"] },
-        needs_clarification: { type: "array", items: { type: "string" }, maxItems: 3 },
-        assumptions: { type: "array", items: { type: "string" }, maxItems: 4 },
-        queries: {
-          type: "array", minItems: 0, maxItems: Math.max(1, Math.min(MAX_IR_QUERIES, maxQueries)),
-          items: {
-            type: "object", additionalProperties: false,
-            required: ["id", "metric", "operation", "group_by", "filters", "limit"],
-            properties: {
-              id: { type: "string" },
-              metric: { type: "string", enum: [...FINANCIAL_METRICS] },
-              operation: { type: "string", enum: [...FINANCIAL_OPERATIONS] },
-              group_by: {
-                type: "array", maxItems: 1,
-                items: { type: "string", enum: [...FINANCIAL_DIMENSIONS] },
-              },
-              filters: {
-                type: "array", maxItems: 4,
-                items: {
-                  type: "object", additionalProperties: false,
-                  required: ["field", "op", "value"],
-                  properties: {
-                    field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
-                    op: { type: "string", enum: ["eq"] },
-                    value: { type: "string" },
+    type: "function",
+    function: {
+      name: "emit_financial_query_ir",
+      description: "Compila a intenção financeira do usuário em IR sem escolher ferramentas.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "intent", "needs_clarification", "assumptions", "queries",
+          "completeness_targets", "unsupported_reason",
+        ],
+        properties: {
+          intent: { type: "string", enum: ["lookup", "analyze", "investigate", "unsupported"] },
+          needs_clarification: { type: "array", items: { type: "string" }, maxItems: 3 },
+          assumptions: { type: "array", items: { type: "string" }, maxItems: 4 },
+          queries: {
+            type: "array", minItems: 0, maxItems: Math.max(1, Math.min(MAX_IR_QUERIES, maxQueries)),
+            items: {
+              type: "object", additionalProperties: false,
+              required: ["id", "metric", "operation", "group_by", "filters", "limit"],
+              properties: {
+                id: { type: "string" },
+                metric: { type: "string", enum: [...FINANCIAL_METRICS] },
+                operation: { type: "string", enum: [...FINANCIAL_OPERATIONS] },
+                group_by: {
+                  type: "array", maxItems: 1,
+                  items: { type: "string", enum: [...FINANCIAL_DIMENSIONS] },
+                },
+                filters: {
+                  type: "array", maxItems: 4,
+                  items: {
+                    type: "object", additionalProperties: false,
+                    required: ["field", "op", "value"],
+                    properties: {
+                      field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
+                      op: { type: "string", enum: ["eq"] },
+                      value: { type: "string" },
+                    },
                   },
                 },
+                limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+                ...(maxQueries > 1
+                  ? { depends_on: { type: "array", maxItems: 3, items: { type: "string" } } }
+                  : {}),
               },
-              limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
-              ...(maxQueries > 1
-                ? { depends_on: { type: "array", maxItems: 3, items: { type: "string" } } }
-                : {}),
             },
           },
+          completeness_targets: { type: "array", maxItems: 8, items: { type: "string" } },
+          unsupported_reason: { anyOf: [{ type: "string" }, { type: "null" }] },
         },
-        completeness_targets: { type: "array", maxItems: 8, items: { type: "string" } },
-        unsupported_reason: { anyOf: [{ type: "string" }, { type: "null" }] },
       },
     },
-  },
   } as const;
 }
 
@@ -159,49 +157,38 @@ const MULTI_QUERY_RULE = `- você pode emitir até 4 queries com ids q1..q4 quan
 - completeness_targets deve citar o id da query que entrega cada fato ("q1.rank", "q2.money").
 - investigação de aumento de gasto: q1 compara o período com o anterior e q2 detalha por categoria.`;
 
-/** Prompt do compilador. O rollout single-query mantém o texto original. */
 function systemPrompt(maxQueries: number): string {
-  // Catálogo DERIVADO do adaptador: o compilador só emite o que existe motor para
-  // executar. Sem isso ele criava queries órfãs e o turno morria em `unsupported`.
   const ontology = `\nCombinações com motor disponível (não fuja desta lista):\n${executableOntologyText()}`;
   return `${SYSTEM}\n${maxQueries > 1 ? MULTI_QUERY_RULE : SINGLE_QUERY_RULE}${ontology}`;
 }
-
 
 function emptyTelemetry(source: SemanticCompilerTelemetry["source"], model: string | null = null): SemanticCompilerTelemetry {
   return { model, llm_calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: 0, ok: true, error: null, source };
 }
 
-
 export async function compileFinancialQuery(input: CompileInput): Promise<SemanticCompileOutcome> {
   const maxQueries = Math.max(1, Math.min(MAX_IR_QUERIES, input.max_queries ?? 1));
-  // Replan nunca usa Fast Path: a pergunta já falhou em completude.
   if (!input.replan) {
     const fast = fastFinancialIR(input.text, input.period, input.comparison_period);
     if (fast) return { ir: fast, telemetry: emptyTelemetry("fast_path") };
   }
 
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) {
+  const provider = resolveAiProvider();
+  if (!provider) {
     return {
       ir: null,
       telemetry: { ...emptyTelemetry("unavailable"), ok: false, error: "llm_not_configured" },
     };
   }
+  const requestModel = normalizeAiModel(input.model, provider);
 
   const started = Date.now();
-  // Prazo máximo do entendimento semântico. Não é timeout artificial curto: é o
-  // teto do orçamento de turno (T3/T4). Sem ele, um gateway travado deixa o
-  // usuário sem resposta; com ele, o turno cai para o roteador legado.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), COMPILER_DEADLINE_MS);
   try {
-
     const user = [
       input.previous_query ? `Pergunta factual anterior:\n${input.previous_query}` : "",
       `Mensagem atual:\n${input.text}`,
-      // Replan semântico: a LLM recebe IR atual, execução e lacunas — nunca
-      // catálogo de tools, nunca números, nunca texto de resposta.
       input.replan
         ? [
           `IR atual:\n${JSON.stringify(input.replan.current_ir)}`,
@@ -213,15 +200,11 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       "Emita somente a chamada emit_financial_query_ir.",
     ].filter(Boolean).join("\n\n");
 
-    const response = await fetch(GATEWAY, {
+    const response = await fetch(aiEndpoint(provider, "responses"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": key,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: input.model,
+        model: requestModel,
         input: [
           { role: "developer", content: systemPrompt(maxQueries) },
           { role: "user", content: user },
@@ -245,12 +228,8 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       if (!payload || payload === "[DONE]") continue;
       try {
         const event = JSON.parse(payload);
-        if (event.type === "response.function_call_arguments.delta") {
-          functionArguments += String(event.delta ?? "");
-        }
-        if (event.type === "response.function_call_arguments.done" && event.arguments) {
-          functionArguments = String(event.arguments);
-        }
+        if (event.type === "response.function_call_arguments.delta") functionArguments += String(event.delta ?? "");
+        if (event.type === "response.function_call_arguments.done" && event.arguments) functionArguments = String(event.arguments);
         if (event.type === "response.completed") body = event.response ?? body;
       } catch { /* ignora linhas SSE incompletas */ }
     }
@@ -284,7 +263,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         run_id: input.run_id ?? null, model: input.model,
         success: true, latency_ms: Date.now() - started,
         reason_for_ai_call: input.reason ?? "semantic_ir_v1",
-        metadata: { compiler_version: "nino_semantic_ir.v2" },
+        metadata: { compiler_version: "nino_semantic_ir.v2", provider: provider.provider },
       }, body);
     }
 
@@ -328,8 +307,6 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         : null,
     } as FinancialQueryIR;
 
-    // Single-query mantém o validador v1; multi-query valida no contrato v2
-    // (ids, depends_on, ciclos, duplicidade) — nunca correção silenciosa.
     const errors = maxQueries > 1
       ? validateFinancialIRv2(normalizeToV2(candidate))
       : validateFinancialIR(candidate);
@@ -344,7 +321,6 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
         source: "llm",
       },
     };
-
   } catch (error) {
     const aborted = (error as { name?: string })?.name === "AbortError";
     const code = aborted ? "semantic_compiler_timeout" : "semantic_compiler_error";
@@ -367,5 +343,4 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
   } finally {
     clearTimeout(timeout);
   }
-
 }

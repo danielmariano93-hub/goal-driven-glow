@@ -115,6 +115,7 @@ const CONFIRM_WORDS = /^\s*(confirm(?:o|a|ar|ado|ada|amos)?|sim|ok|okay|yes|isso
 const CANCEL_WORDS = /^\s*(cancelar|cancela|não|nao|no|❌)\s*[.!]?\s*$/i;
 const CONFIRM_LOOSE = /^\s*(sim|pode|confirm(?:o|a|ar|ado|amos)?|ok|okay|beleza|blz|manda|vai|positivo|claro|yes|👍|isso\s+mesmo)\b/i;
 const CANCEL_LOOSE = /^\s*(cancela(?:r)?|negativo|deixa|esquece|no|❌)\b/i;
+const EXPLICIT_CANCEL_RX = /^\s*(?:(?:não|nao)\s*[,;:-]?\s*)?(?:cancela(?:r)?\b|deixa\s+pra\s+l[aá]\b|esquece(?:\s+isso)?\b)/i;
 const AMOUNT_RE = /(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/i;
 
 function isGoalCreateIntent(text: string): boolean {
@@ -205,6 +206,7 @@ export function interpret(text: string, now: Date = new Date()): ParsedIntent {
   if (card) return card;
   if (CONFIRM_WORDS.test(raw)) return { kind: "confirm" };
   if (CANCEL_WORDS.test(raw)) return { kind: "cancel" };
+  if (EXPLICIT_CANCEL_RX.test(raw)) return { kind: "cancel" };
   if (isExplicitRepair(raw)) return { kind: "unknown", text: raw };
 
   const wordCount = raw.split(/\s+/).length;
