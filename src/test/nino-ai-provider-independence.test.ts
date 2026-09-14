@@ -17,12 +17,20 @@ describe("Nino AI provider independence", () => {
       expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
 
-    const llm = readFileSync("supabase/functions/_shared/agent/llm.ts", "utf8");
-    expect(llm).toContain("resolveAiProvider()");
-    expect(llm).toContain('aiEndpoint(provider, "chat/completions")');
-    expect(llm).toContain("normalizeAiModel");
-    expect(llm).not.toContain("ai.gateway.lovable.dev");
-    expect(llm).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+    const chatFiles = [
+      "supabase/functions/_shared/agent/llm.ts",
+      "supabase/functions/_shared/agent/core/HumanUnderstanding.ts",
+      "supabase/functions/_shared/agent/core/Conversational.ts",
+      "supabase/functions/_shared/agent/narrative/NarrativeComposer.ts",
+    ];
+    for (const path of chatFiles) {
+      const source = readFileSync(path, "utf8");
+      expect(source).toContain("resolveAiProvider()");
+      expect(source).toContain('aiEndpoint(provider, "chat/completions")');
+      expect(source).toContain("normalizeAiModel");
+      expect(source).not.toContain("ai.gateway.lovable.dev");
+      expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+    }
   });
 
   it("prefers direct OpenAI while retaining an explicit compatibility fallback", () => {
