@@ -20,18 +20,28 @@ function onlyFilters(q: FinancialQuery, allowed: FinancialFilter["field"][]): bo
   return q.filters.every((f) => allowed.includes(f.field) && f.op === "eq");
 }
 
+/**
+ * Período efetivo da query. Multi-período (`period_truth.v2`) vincula o
+ * intervalo NA query: a métrica/filtros/dimensões são compilados uma vez e o
+ * mesmo contrato roda para cada período pedido.
+ */
+function periodOf(q: FinancialQuery, ir: Pick<FinancialQueryIR, "period">): FinancialQueryIR["period"] {
+  return q.period ?? ir.period;
+}
+
 function spendingArgs(q: FinancialQuery, ir: FinancialQueryIR): Record<string, unknown> | null {
   if (!onlyFilters(q, ["category", "card", "account", "payment_method"])) return null;
   const payment = filter(q, "payment_method");
   if (payment && !["account", "credit_card"].includes(payment)) return null;
   const group = q.group_by[0] ?? "category";
   if (!["category", "card", "account"].includes(group)) return null;
+  const period = periodOf(q, ir);
   const view = q.operation === "rank" ? "rank"
     : q.operation === "breakdown" ? "breakdown"
     : "total";
   return {
-    from: ir.period.from,
-    to: ir.period.to,
+    from: period.from,
+    to: period.to,
     metric: q.metric === "income_amount" ? "income" : "expense",
     group_by: group,
     view,
@@ -48,6 +58,7 @@ function spendingArgs(q: FinancialQuery, ir: FinancialQueryIR): Record<string, u
 }
 
 function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
+  const period = periodOf(q, ir);
   if (q.metric === "expense_amount" || q.metric === "income_amount") {
     const metric = q.metric === "income_amount" ? "income" : "expense";
     const group = q.group_by[0] ?? null;
@@ -60,7 +71,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
           capability: "financial_analysis",
           execution: "llm_scoped",
           args: {
-            from: ir.period.from, to: ir.period.to,
+            from: period.from, to: period.to,
             ...(filter(q, "category") ? { category_name: filter(q, "category") } : {}),
             ...(q.limit ? { limit: q.limit } : {}),
           },
@@ -85,7 +96,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
         args: {
           metric,
           period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
-          period_b: { from: ir.period.from, to: ir.period.to },
+          period_b: { from: period.from, to: period.to },
         },
       };
     }
@@ -97,7 +108,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
           tool: "analyze_longitudinal_trajectory",
           capability: "financial_analysis",
           execution: "deterministic",
-          args: { from: ir.period.from, to: ir.period.to },
+          args: { from: period.from, to: period.to },
         };
       }
       // Tendência COM recorte (categoria/cartão): o motor de comparação canônica
@@ -113,8 +124,8 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
             metric: cat ? "category_spend" : "card_spend",
             mode: "CUSTOM_PERIOD",
             ...(cat ? { category_name: cat } : {}),
-            from: ir.period.from,
-            to: ir.period.to,
+            from: period.from,
+            to: period.to,
           },
         };
       }
@@ -124,13 +135,13 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
           tool: "spending_average_daily_trend",
           capability: "financial_analysis",
           execution: "llm_scoped",
-          args: { from: ir.period.from, to: ir.period.to },
+          args: { from: period.from, to: period.to },
         }
         : {
           tool: "spending_timeseries_daily",
           capability: "financial_analysis",
           execution: "llm_scoped",
-          args: { metric: "income", from: ir.period.from, to: ir.period.to },
+          args: { metric: "income", from: period.from, to: period.to },
         };
     }
 
@@ -152,7 +163,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
         execution: "llm_scoped",
         args: {
           period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
-          period_b: { from: ir.period.from, to: ir.period.to },
+          period_b: { from: period.from, to: period.to },
         },
       };
     }

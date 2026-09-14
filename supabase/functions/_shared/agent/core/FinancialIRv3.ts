@@ -148,7 +148,9 @@ export function normalizeToV3(
     const source = rawQueries[index] ?? {};
     const declaredTime = source.time as Partial<IRTime> | undefined;
     const legacyOperation = String(q.operation ?? "");
-    const inferred = aspectFromLegacy(legacyOperation, q.metric, v2.period ?? null, today);
+    // `q.period` (multi-período) tem precedência sobre o período do envelope.
+    const queryPeriod = (q as { period?: { from: string; to: string; label: string } | null }).period ?? null;
+    const inferred = aspectFromLegacy(legacyOperation, q.metric, queryPeriod ?? v2.period ?? null, today);
     const aspect = ASPECTS.has(String(declaredTime?.aspect)) ? declaredTime!.aspect as TimeAspect : inferred.aspect;
     const grain = GRAINS.has(String(source.grain)) ? source.grain as TimeGrain : inferred.grain;
     const reduce = REDUCES.has(String(source.reduce)) ? source.reduce as Reduction : inferred.reduce;
@@ -159,11 +161,11 @@ export function normalizeToV3(
       filters: q.filters ?? [],
       time: {
         aspect,
-        from: declaredTime?.from ?? v2.period?.from ?? null,
-        to: declaredTime?.to ?? v2.period?.to ?? null,
+        from: queryPeriod?.from ?? declaredTime?.from ?? v2.period?.from ?? null,
+        to: queryPeriod?.to ?? declaredTime?.to ?? v2.period?.to ?? null,
         n: declaredTime?.n ?? (windowed ? 6 : null),
         exclude_partial: windowed ? true : Boolean(declaredTime?.exclude_partial),
-        label: String(declaredTime?.label ?? v2.period?.label ?? "período solicitado"),
+        label: String(queryPeriod?.label ?? declaredTime?.label ?? v2.period?.label ?? "período solicitado"),
       },
       grain,
       reduce,

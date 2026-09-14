@@ -59,12 +59,13 @@ function brainTool() {
         inherit_focus: { type: "boolean" },
         focus: {
           type: "object", additionalProperties: false,
-          required: ["category", "merchant", "goal", "period_expression"],
+          required: ["category", "merchant", "goal", "period_expression", "period_expressions"],
           properties: {
             category: { anyOf: [{ type: "string" }, { type: "null" }] },
             merchant: { anyOf: [{ type: "string" }, { type: "null" }] },
             goal: { anyOf: [{ type: "string" }, { type: "null" }] },
             period_expression: { anyOf: [{ type: "string" }, { type: "null" }] },
+            period_expressions: { type: "array", items: { type: "string" } },
           },
         },
         action: {
@@ -109,11 +110,14 @@ Regras obrigatórias:
 9. Se faltar informação indispensável para entender o pedido, mode=clarify e faça UMA pergunta curta.
 10. Não transforme conselho/hipótese em escrita. "E se eu gastar..." é READ/consulta; "registra/cria/ajusta" é WRITE.
 11. Se act=follow_up ou act=answer, inherit_focus=true. Se act=topic_switch, inherit_focus=false.
+12. focus.period_expressions lista TODAS as expressões temporais do pedido, na ordem dita ("julho", "agosto"; "março", "abril", "maio"). Um período só => lista com um item. Nunca converta em datas: quem resolve intervalo é o backend.
+13. UserContext é contexto de relacionamento (preferências, assuntos recentes, metas citadas). Use para entender referências. Ele NUNCA é fonte de número: valor, saldo e total sempre vêm do motor financeiro.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
 - Nino: "Quer que eu detalhe essa oportunidade?"; usuário: "Quero" => answer/read, canonical_request=pedido completo da oferta, nunca emotional_checkin.
 - usuário: "Cria uma meta de R$ 5.000 até o fim do ano" => write, action=goal.create, slots target_amount=5000 e target_date_expression="fim do ano".
+- usuário: "Quanto gastei em alimentação no mês de julho e agosto?" => new_request/read, focus.category="Alimentação", focus.period_expressions=["julho","agosto"].
 - usuário: "Não foi isso que eu pedi" => repair; preserve o foco anterior e corrija a interpretação, não cancele por conta própria.`;
 
 function compactHistory(history: HistoryTurn[]): string {
@@ -149,6 +153,8 @@ export async function interpretConversationTurn(input: {
   history: HistoryTurn[];
   memory: ConversationMemory | null;
   workflow: WriteWorkflow | null;
+  /** Contexto persistente do usuário (nunca fato numérico). */
+  user_context?: string | null;
   model: string;
   sb?: SupabaseClient;
   user_id?: string | null;
@@ -171,6 +177,7 @@ export async function interpretConversationTurn(input: {
     const historyText = compactHistory(input.history);
     const user = [
       statePrompt(input.memory, input.workflow),
+      input.user_context ? `UserContext:\n${input.user_context}` : "",
       historyText ? `Histórico relevante:\n${historyText}` : "",
       `Mensagem atual:\n${input.text}`,
       "Emita somente emit_conversation_turn_contract.",

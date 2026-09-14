@@ -16,7 +16,14 @@ export type BrainFocus = {
   category: string | null;
   merchant: string | null;
   goal: string | null;
+  /** Primeira expressão temporal (compatibilidade retroativa). */
   period_expression: string | null;
+  /**
+   * TODAS as expressões temporais do pedido, na ordem em que aparecem
+   * ("julho", "agosto"). Multi-período é capacidade de primeira classe: quem
+   * transforma expressão em intervalo é o backend, nunca a LLM.
+   */
+  period_expressions?: string[];
 };
 
 export type ConversationTurnContract = {
@@ -31,6 +38,25 @@ export type ConversationTurnContract = {
   clarification_question: string | null;
   confidence: number;
 };
+
+/**
+ * Lista ordenada e deduplicada das expressões temporais do foco. Aceita o campo
+ * novo (`period_expressions`) e o antigo (`period_expression`) sem quebrar
+ * contratos já gravados.
+ */
+export function normalizePeriodExpressions(focus: unknown): string[] {
+  const raw = (focus ?? {}) as Record<string, unknown>;
+  const list = Array.isArray(raw.period_expressions) ? raw.period_expressions : [];
+  const single = raw.period_expression == null ? [] : [raw.period_expression];
+  const out: string[] = [];
+  for (const item of [...list, ...single]) {
+    const value = String(item ?? "").trim();
+    if (!value) continue;
+    if (out.some((existing) => existing.toLowerCase() === value.toLowerCase())) continue;
+    out.push(value);
+  }
+  return out;
+}
 
 export function normalizeConversationTurnContract(raw: unknown): ConversationTurnContract | null {
   const value = raw as any;
@@ -63,6 +89,8 @@ export function normalizeConversationTurnContract(raw: unknown): ConversationTur
   if ((act === "follow_up" || act === "answer" || act === "repair") && !inheritFocus) return null;
   if (act === "topic_switch" && inheritFocus) return null;
 
+  const periodExpressions = normalizePeriodExpressions(value.focus);
+
   return {
     version: "conversation_turn_contract.v1",
     act,
@@ -73,7 +101,8 @@ export function normalizeConversationTurnContract(raw: unknown): ConversationTur
       category: value.focus?.category == null ? null : String(value.focus.category).trim(),
       merchant: value.focus?.merchant == null ? null : String(value.focus.merchant).trim(),
       goal: value.focus?.goal == null ? null : String(value.focus.goal).trim(),
-      period_expression: value.focus?.period_expression == null ? null : String(value.focus.period_expression).trim(),
+      period_expression: periodExpressions[0] ?? null,
+      period_expressions: periodExpressions,
     },
     action,
     direct_reply: value.direct_reply == null ? null : String(value.direct_reply).trim(),

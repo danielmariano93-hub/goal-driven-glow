@@ -36,6 +36,12 @@ export type FinancialQuery = {
   group_by: FinancialDimension[];
   filters: FinancialFilter[];
   limit: number | null;
+  /**
+   * Período vinculado À QUERY (`period_truth.v2`). Quando presente, vale sobre
+   * `ir.period`: é assim que o mesmo contrato financeiro roda em vários
+   * períodos pedidos ("julho e agosto") sem duplicar interpretação.
+   */
+  period?: CanonicalPeriod | null;
 };
 
 export type CanonicalPeriod = { from: string; to: string; label: string };
@@ -240,6 +246,7 @@ export function normalizeToV2(
       group_by: Array.isArray(q?.group_by) ? q.group_by : [],
       filters: Array.isArray(q?.filters) ? q.filters : [],
       limit: q?.limit ?? null,
+      period: q?.period ?? null,
       depends_on: Array.isArray(q?.depends_on) ? q.depends_on.map(String) : [],
     };
   });
@@ -292,7 +299,10 @@ function queryKey(q: FinancialQueryV2): string {
     .map((f) => `${f.field}:${f.op}:${String(f.value).toLowerCase()}`)
     .sort()
     .join("|");
-  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}`;
+  // O período entra na chave: "julho" e "agosto" com a mesma métrica são duas
+  // execuções legítimas, não query duplicada.
+  const period = q.period ? `${q.period.from}..${q.period.to}` : "ir";
+  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}/${period}`;
 }
 
 /**
