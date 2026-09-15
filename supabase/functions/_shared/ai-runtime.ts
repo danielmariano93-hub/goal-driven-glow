@@ -19,6 +19,9 @@ export function resolveAiProvider(env: Record<string, string | undefined> = {
   OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
   LOVABLE_API_KEY: Deno.env.get("LOVABLE_API_KEY"),
 }): AiProviderConfig | null {
+  // Product default remains Lovable. Direct OpenAI is supported only as an
+  // explicit opt-in via NINO_AI_PROVIDER=openai; merely having an OpenAI key
+  // in the environment must never switch production providers implicitly.
   const requested = String(env.NINO_AI_PROVIDER ?? "").trim().toLowerCase();
   const openAiKey = String(env.OPENAI_API_KEY ?? "").trim();
   const openAiModel = String(env.NINO_AI_MODEL ?? "").trim().replace(/^openai\//i, "");
@@ -37,17 +40,10 @@ export function resolveAiProvider(env: Record<string, string | undefined> = {
     };
   }
 
-  if (!requested && openAiKey && openAiModel) {
-    return {
-      provider: "openai",
-      baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
-      apiKey: openAiKey,
-      headers: { Authorization: `Bearer ${openAiKey}` },
-      modelOverride: openAiModel,
-    };
-  }
-
-  if ((requested === "lovable" || (!requested && lovableKey)) && lovableKey) {
+  // Lovable is authoritative whenever OpenAI was not explicitly requested.
+  // This preserves the existing product/billing path while keeping the runtime
+  // provider-neutral for a future deliberate migration.
+  if (lovableKey) {
     return {
       provider: "lovable",
       baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || "https://ai.gateway.lovable.dev/v1"),
