@@ -37,17 +37,16 @@ describe("Nino AI provider independence", () => {
     expect(gateway).toContain('from "./ai-runtime.ts"');
   });
 
-  it("uses direct OpenAI only when key and vetted model are configured", () => {
+  it("keeps Lovable as the product default and OpenAI as explicit opt-in only", () => {
     const runtime = readFileSync("supabase/functions/_shared/ai-runtime.ts", "utf8");
-    const openai = runtime.indexOf('provider: "openai"');
-    const lovable = runtime.indexOf('provider: "lovable"');
-    expect(openai).toBeGreaterThan(-1);
-    expect(lovable).toBeGreaterThan(openai);
-    expect(runtime).toContain("OPENAI_API_KEY");
-    expect(runtime).toContain("NINO_AI_PROVIDER");
-    expect(runtime).toContain("NINO_AI_MODEL");
+    expect(runtime).toContain('requested === "openai"');
     expect(runtime).toContain("if (!openAiKey || !openAiModel) return null");
-    expect(runtime).toContain("config.modelOverride");
+    expect(runtime).toContain('provider: "lovable"');
+    expect(runtime).toContain("if (lovableKey)");
+    expect(runtime).toContain("Direct OpenAI is supported only as an");
+    expect(runtime).not.toContain("if (!requested && openAiKey && openAiModel)");
+    expect(runtime).toContain("OPENAI_API_KEY");
+    expect(runtime).toContain("LOVABLE_API_KEY");
     expect(runtime).not.toContain("@ai-sdk/openai-compatible");
   });
 

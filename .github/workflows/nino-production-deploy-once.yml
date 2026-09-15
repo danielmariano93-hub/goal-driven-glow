@@ -58,26 +58,18 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          NINO_AI_MODEL: ${{ secrets.NINO_AI_MODEL }}
         run: |
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
-          test -n "$OPENAI_API_KEY" || (echo 'Missing OPENAI_API_KEY' && exit 1)
-          test -n "$NINO_AI_MODEL" || (echo 'Missing NINO_AI_MODEL' && exit 1)
 
-      - name: Configure Nino direct OpenAI provider
+      - name: Keep Nino on Lovable AI provider
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          NINO_AI_MODEL: ${{ secrets.NINO_AI_MODEL }}
         run: |
           supabase secrets set \
             --project-ref "$SUPABASE_PROJECT_REF" \
-            OPENAI_API_KEY="$OPENAI_API_KEY" \
-            NINO_AI_PROVIDER="openai" \
-            NINO_AI_MODEL="$NINO_AI_MODEL"
+            NINO_AI_PROVIDER="lovable"
 
       - name: Deploy atomic Nino Edge Functions
         env:
@@ -94,5 +86,5 @@ jobs:
       - name: Deployment receipt
         run: |
           echo "revision=${GITHUB_SHA}"
-          echo "provider=openai"
+          echo "provider=lovable"
           echo "functions=10"
