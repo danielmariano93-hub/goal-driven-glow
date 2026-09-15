@@ -15,6 +15,13 @@
       "when": 1789140237695,
       "tag": "0001_create_pending_write_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789431202022,
+      "tag": "0002_agent_runs_path_allow_conversation_brain_v1",
+      "breakpoints": true
     }
   ]
 }
