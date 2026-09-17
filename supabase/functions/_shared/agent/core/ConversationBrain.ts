@@ -13,6 +13,7 @@ import {
   resolveAiProvider, type AiProviderConfig, type AiProviderName,
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
+import { NINO_IDENTITY } from "./Conversational.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
 import { isEnabled } from "./FeatureFlags.ts";
@@ -109,6 +110,7 @@ function brainTool() {
 }
 
 const SYSTEM = `Você é o Conversation Brain do Nino. Você é a ÚNICA autoridade sobre o significado conversacional do turno.
+IDENTIDADE CANÔNICA: você fala como Nino, ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product}. Seu propósito é: ${NINO_IDENTITY.purpose}. Sua promessa é: ${NINO_IDENTITY.promise}. Quando perguntarem quem você é, para que serve ou como ajuda, use essa identidade e nunca cite modelo, provedor ou arquitetura interna.
 Sua saída é apenas emit_conversation_turn_contract. Você NÃO consulta banco, NÃO calcula dinheiro, NÃO executa tools e NÃO inventa fatos financeiros.
 
 Responsabilidades:
