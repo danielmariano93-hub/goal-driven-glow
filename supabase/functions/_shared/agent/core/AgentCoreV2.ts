@@ -122,6 +122,12 @@ function suggestionsAllowed(userContext: string | null): boolean {
   return !/"suggestion_frequency"\s*:\s*"low"/i.test(String(userContext ?? ""));
 }
 
+function suggestionsAllowed(userContext: string | null | undefined): boolean {
+  const text = String(userContext ?? "");
+  return !/"suggestion_frequency"\s*:\s*"low"/i.test(text)
+    && !/sugest(?:ao|oes)[^\n]{0,20}=low/i.test(text);
+}
+
 function suggestionForSemantic(semantic: any): string | null {
   if (!semantic || semantic.status !== "executable") return null;
   const q = semantic.ir_v2?.queries?.[0];
@@ -654,7 +660,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
   if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
-    const suggestion = suggestionForSemantic(semantic);
+    const suggestion = suggestionsAllowed(durableUserContext) ? suggestionForSemantic(semantic) : null;
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
 
