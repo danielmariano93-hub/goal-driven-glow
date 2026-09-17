@@ -44,7 +44,7 @@ function deps(overrides: Partial<Parameters<typeof runSemanticTurn>[1]> = {}) {
 }
 
 const base = {
-  text: "quais categorias mais gastei neste mês?",
+  text: "analise meus gastos por categoria neste mês e me diga o que merece atenção",
   acts: ["new_query"] as any,
   constraints: { period: false, dimension: true, entity: false },
   period: PERIOD,
