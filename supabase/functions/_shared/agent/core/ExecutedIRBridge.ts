@@ -48,6 +48,29 @@ function declared(result: unknown): ExecutedIR | null {
   };
 }
 
+/** Derivação estrutural de compare_periods. */
+function fromPeriodComparison(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (r.total_a == null || r.total_b == null || !Array.isArray(r.by_group)) return null;
+  if (requested.legacy_operation !== "compare") return null;
+  const requestedGroup = String(r.requested_group_by ?? "none") === "category" ? ["category"] : [];
+  return {
+    metric: requested.metric,
+    filters: [],
+    time: {
+      aspect: requested.time.aspect,
+      from: requested.time.from,
+      to: requested.time.to,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: requestedGroup,
+    partial: false,
+  };
+}
+
 /** Derivação estrutural de `spending_report` (analyze_spending). */
 function fromSpendingReport(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
   const r = (result ?? {}) as Record<string, unknown>;
@@ -80,5 +103,5 @@ export function executedIRFrom(
   requested: FinancialQueryV3,
   result: unknown,
 ): ExecutedIR | null {
-  return declared(result) ?? fromSpendingReport(requested, result);
+  return declared(result) ?? fromPeriodComparison(requested, result) ?? fromSpendingReport(requested, result);
 }

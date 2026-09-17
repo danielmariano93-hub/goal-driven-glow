@@ -42,7 +42,7 @@ const TOKEN_RX = new RegExp(
     "ultima semana",
     "esta semana",
     "essa semana",
-    `(?:${MONTHS})(?:\\s+de\\s+20\\d{2})?`,
+    `\\b(?:${MONTHS})(?:\\s+de\\s+20\\d{2})?\\b`,
     "ultimos?\\s+\\d{1,3}\\s+dias",
     "hoje",
     "ontem",
@@ -50,7 +50,10 @@ const TOKEN_RX = new RegExp(
   "g",
 );
 
-const COMPARISON_RX = /\b(vs|versus|comparad\w*|comparando|em relacao a|contra)\b/;
+// Comparação pode ser explícita ("comparando") ou estar implícita numa
+// pergunta de variação entre dois períodos ("qual piorou/aumentou mais?").
+const COMPARISON_RX =
+  /\b(vs|versus|comparad\w*|comparando|em relacao a|contra|aument\w*|cres\w*|subi\w*|cai\w*|reduz\w*|diminu\w*|pior\w*|melhor\w*|mud\w*|vari\w*|diferen\w*)\b/;
 
 /** Palavras que podem ficar entre duas expressões sem quebrar a enumeração. */
 const CONNECTOR_RX =

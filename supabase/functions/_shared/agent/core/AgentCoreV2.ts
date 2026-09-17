@@ -171,6 +171,7 @@ async function recordV2Run(args: {
   tokens_out: number;
   model?: string | null;
   provider?: string | null;
+  path: HandleTurnResult["path"];
   tools?: string[];
   error?: string | null;
 }): Promise<string | undefined> {
@@ -186,7 +187,7 @@ async function recordV2Run(args: {
       started_at: new Date(args.started_at).toISOString(),
       ended_at: now,
       channel: args.input.channel,
-      path: "conversation_brain_v1",
+      path: args.path,
       capability: `brain:${args.contract.mode}`,
       tool_scope: args.tools ?? [],
       tools_used: args.tools ?? [],
@@ -198,9 +199,17 @@ async function recordV2Run(args: {
       error_masked: args.error ?? null,
       context_layers: runtimeContext(`conversation_brain:${args.contract.mode}`),
     }).select("id").maybeSingle();
-    if (error) return undefined;
+    if (error) {
+      console.error("[AgentCoreV2] agent_runs insert failed", JSON.stringify({
+        code: String((error as any)?.code ?? ""),
+        message: String((error as any)?.message ?? "").slice(0, 180),
+        path: args.path,
+      }));
+      return undefined;
+    }
     return (data as any)?.id as string | undefined;
-  } catch {
+  } catch (error) {
+    console.error("[AgentCoreV2] agent_runs insert exception", String((error as Error)?.message ?? "").slice(0, 180));
     return undefined;
   }
 }
@@ -316,7 +325,7 @@ async function finishV2(args: {
   const run_id = await recordV2Run({
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
-    model: args.model, provider: args.provider,
+    model: args.model, provider: args.provider, path: args.path,
     tools: args.tools, error: args.error,
   });
 
@@ -649,6 +658,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       max_queries: args.max_queries,
       replan: args.replan ?? null,
       reason: "conversation_brain_v1_read_compile",
+      skip_fast_path: true,
       sb,
       user_id: input.user_id,
       run_id: null,
@@ -716,7 +726,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     })),
     error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    active_period: { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
-    comparison_period: plan.previous_period,
+    // Persist the period contract that was ACTUALLY executed. Using the
+    // pre-semantic planner period here stored July + an unrelated June window
+    // after a July/August turn, poisoning the next elliptical follow-up.
+    active_period: semantic.ir_v2?.period
+      ? { from: semantic.ir_v2.period.from, to: semantic.ir_v2.period.to, label: semantic.ir_v2.period.label ?? null }
+      : { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
+    comparison_period: semantic.ir_v2?.comparison_period
+      ? { from: semantic.ir_v2.comparison_period.from, to: semantic.ir_v2.comparison_period.to }
+      : null,
   });
 }

@@ -6,7 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 import {
   formatFinancialSnapshot, formatForecastMonthClose, formatGoalsOverview,
-  formatMerchantDistribution, formatSpendingAnalysis, formatEngineNarrative,
+  formatMerchantDistribution, formatSpendingAnalysis, formatEngineNarrative, formatPeriodComparison,
 } from "./DeterministicAnswers.ts";
 
 const FORMATTERS: Record<string, (result: any) => string | null> = {
@@ -15,6 +15,7 @@ const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_financial_snapshot: formatFinancialSnapshot,
   get_goals_overview: formatGoalsOverview,
   forecast_month_close: formatForecastMonthClose,
+  compare_periods: formatPeriodComparison,
 };
 
 function headline(result: any): string | null {

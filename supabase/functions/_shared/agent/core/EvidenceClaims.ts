@@ -66,7 +66,48 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
   const count = num(result.transactions_count ?? result.count);
   if (count != null) claims.push({ id: seq(), ...base, type: "count", value: count, label: "transactions", rank: null });
 
-  const rows = Array.isArray(result.top) ? result.top
+  // compare_periods: o resultado possui dois totais e deltas por categoria.
+  // Transformamos essa estrutura em claims explícitas para completude/grounding;
+  // sem isso o formatter determinístico era bloqueado mesmo com evidência válida.
+  const isComparison = num(result.total_a) != null && num(result.total_b) != null && Array.isArray(result.by_group);
+  if (isComparison) {
+    const totalA = num(result.total_a)!;
+    const totalB = num(result.total_b)!;
+    const delta = num(result.delta_abs) ?? (totalB - totalA);
+    claims.push({ id: seq(), ...base, type: "money", value: totalA, label: "total_a", rank: null });
+    claims.push({ id: seq(), ...base, type: "money", value: totalB, label: "total_b", rank: null });
+    claims.push({ id: seq(), ...base, type: "money", value: Math.abs(delta), label: "delta_abs", rank: null });
+
+    const categoryMode = String(result.requested_group_by ?? "none") === "category";
+    if (categoryMode) {
+      const increases = (result.by_group as Array<Record<string, unknown>>)
+        .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+        .slice()
+        .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
+      increases.forEach((row, index) => {
+        const name = typeof row.name === "string" ? row.name : null;
+        if (!name) return;
+        const change = Math.abs(Number(row.delta_abs ?? 0));
+        claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: index + 1 });
+        claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: index + 1 });
+        for (const [field, raw] of [["total_a", row.total_a], ["total_b", row.total_b], ["delta_abs", row.delta_abs]] as const) {
+          const value = num(raw);
+          if (value != null) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(value), label: `${name}:${field}`, rank: null });
+        }
+      });
+      claims.push({
+        id: seq(), ...base, type: "direction", value: null,
+        label: increases.length ? "increase" : "no_increase", rank: null,
+      });
+    } else {
+      claims.push({
+        id: seq(), ...base, type: "direction", value: null,
+        label: delta > 0.005 ? "increase" : delta < -0.005 ? "decrease" : "flat", rank: null,
+      });
+    }
+  }
+
+  const rows = isComparison ? [] : Array.isArray(result.top) ? result.top
     : Array.isArray(result.rows) ? result.rows
     : Array.isArray(result.breakdown) ? result.breakdown
     : [];

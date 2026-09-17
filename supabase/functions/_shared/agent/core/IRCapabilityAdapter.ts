@@ -95,6 +95,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
         execution: "llm_scoped",
         args: {
           metric,
+          group_by: group === "category" ? "category" : "none",
           period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
           period_b: { from: period.from, to: period.to },
         },
@@ -282,7 +283,7 @@ export function ontologySignature(q: FinancialQuery): string {
 export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category)",
-  "expense_amount|income_amount + compare (sem filtro, exige período de comparação)",
+  "expense_amount|income_amount + compare (sem filtro, group opcional category, exige período de comparação)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
   "expense_amount + forecast (fechamento do mês)",

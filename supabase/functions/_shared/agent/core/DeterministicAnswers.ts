@@ -198,6 +198,38 @@ const CONFIDENCE_SENTENCE: Record<string, string> = {
   insufficient_data: "Ainda estou aprendendo seu ritmo, então trate como um primeiro palpite.",
 };
 
+/**
+ * Comparação factual entre dois períodos. Quando a pergunta pede a dimensão
+ * categoria, responde diretamente qual categoria aumentou mais; para leitura
+ * total, responde somente o delta agregado. Todos os valores vêm de
+ * compare_periods — nada é recalculado pela LLM.
+ */
+export function formatPeriodComparison(result: any): string {
+  const totalA = Number(result?.total_a ?? 0);
+  const totalB = Number(result?.total_b ?? 0);
+  const delta = Number(result?.delta_abs ?? (totalB - totalA));
+  const byCategory = result?.requested_group_by === "category";
+  const rows: any[] = Array.isArray(result?.by_group) ? result.by_group : [];
+
+  if (byCategory) {
+    const increases = rows
+      .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+      .slice()
+      .sort((a, b) => Number(b.delta_abs ?? 0) - Number(a.delta_abs ?? 0));
+    const top = increases[0];
+    if (!top) {
+      return "Nenhuma categoria aumentou nesse comparativo; todas ficaram estáveis ou caíram.";
+    }
+    return `A categoria que mais aumentou foi *${String(top.name)}*: ${money(Math.abs(Number(top.delta_abs)))} a mais, de ${money(top.total_a)} para ${money(top.total_b)}.`;
+  }
+
+  if (Math.abs(delta) < 0.005) {
+    return `Os dois períodos ficaram praticamente iguais: ${money(totalA)} e ${money(totalB)}.`;
+  }
+  const verb = delta > 0 ? "aumentaram" : "diminuíram";
+  return `Seus gastos ${verb} *${money(Math.abs(delta))}*: de ${money(totalA)} para ${money(totalB)}.`;
+}
+
 export function formatForecastMonthClose(result: any): string {
   const point = money(result.point);
   const drivers = result.drivers ?? {};

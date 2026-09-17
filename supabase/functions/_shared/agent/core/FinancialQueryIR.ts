@@ -149,6 +149,12 @@ export function fastFinancialIR(
     };
   }
 
+  // Mudança/comparação nunca é ranking estrutural simples. Em produção,
+  // "qual categoria teve o maior aumento entre julho e agosto?" casava com
+  // "categoria ... gasto" e repetia os dois rankings em vez de comparar.
+  const comparativeChangeIntent =
+    /\b(?:aument\w*|cres\w*|subi\w*|cai\w*|reduz\w*|diminu\w*|pior\w*|melhor\w*|mud\w*|vari\w*|diferen\w*|compar\w*)\b/.test(t);
+
   // Fast path estrutural para perguntas financeiras extremamente claras.
   // A regra é propositalmente conservadora: só cobre formas em que métrica,
   // operação e dimensão são inequívocas. Períodos (inclusive múltiplos) são
@@ -186,23 +192,23 @@ export function fastFinancialIR(
     || /\b(?:categorias?|categoria)\b.{0,35}\b(?:em que|onde)?\s*(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:das?\s+)?categorias?\b/.test(t)
     || /\b(?:maiores?|principais?)\s+(?:categorias?\s+de\s+)?gastos?\b/.test(t);
-  if (categoryRanking && !explicitEntityScope) return ranked("category");
+  if (categoryRanking && !explicitEntityScope && !comparativeChangeIntent) return ranked("category");
 
   const merchantRanking =
     /\bquais?\s+(?:estabelecimentos?|lojas?|comercios?|lugares?|locais)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\bonde\s+(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:dos?\s+)?(?:estabelecimentos?|lojas?|comercios?)\b/.test(t);
-  if (merchantRanking && !explicitEntityScope) return ranked("merchant");
+  if (merchantRanking && !explicitEntityScope && !comparativeChangeIntent) return ranked("merchant");
 
   const cardRanking =
     /\b(?:em\s+)?qual(?:is)?\s+cart(?:ao|oes)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:dos?\s+)?cart(?:ao|oes)\b/.test(t);
-  if (cardRanking && !explicitEntityScope) return ranked("card");
+  if (cardRanking && !explicitEntityScope && !comparativeChangeIntent) return ranked("card");
 
   const accountRanking =
     /\b(?:em\s+)?qual(?:is)?\s+contas?\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:das?\s+)?contas?\b/.test(t);
-  if (accountRanking && !explicitEntityScope) return ranked("account");
+  if (accountRanking && !explicitEntityScope && !comparativeChangeIntent) return ranked("account");
 
   // Totais simples também não precisam de LLM, desde que não haja dimensão ou
   // entidade explícita que poderíamos perder silenciosamente.

@@ -45,6 +45,12 @@ type CompileInput = {
   } | null;
   /** Rótulo da chamada na telemetria de uso de IA. */
   reason?: string;
+  /**
+   * O pipeline v3 já executa o fast path dialogue-aware antes do compilador.
+   * Quando true, impede que este compilador reexecute o parser lexical e
+   * apague semântica de follow-up/comparação.
+   */
+  skip_fast_path?: boolean;
 };
 
 export type SemanticCompileOutcome = {
@@ -128,6 +134,7 @@ NÃO calcule números. NÃO invente entidades. O backend é a autoridade de data
 
 Regras de compilação:
 - "quais categorias mais gastei" => expense_amount + rank + group_by category.
+- "qual categoria mais aumentou/piorou entre dois períodos" => expense_amount + compare + group_by category.
 - "quanto gastei no total" => expense_amount + sum + group_by [].
 - "quanto entrou/recebi" => income_amount.
 - "por cartão" significa group_by card; "no cartão Nubank" significa filter card=Nubank.
@@ -169,7 +176,7 @@ function emptyTelemetry(source: SemanticCompilerTelemetry["source"], model: stri
 
 export async function compileFinancialQuery(input: CompileInput): Promise<SemanticCompileOutcome> {
   const maxQueries = Math.max(1, Math.min(MAX_IR_QUERIES, input.max_queries ?? 1));
-  if (!input.replan) {
+  if (!input.replan && input.skip_fast_path !== true) {
     const fast = fastFinancialIR(input.text, input.period, input.comparison_period);
     if (fast) return { ir: fast, telemetry: emptyTelemetry("fast_path") };
   }

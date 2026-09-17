@@ -1057,6 +1057,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
           max_queries: args.max_queries,
           replan: args.replan ?? null,
           reason: args.reason,
+          skip_fast_path: true,
           sb, user_id: input.user_id, run_id: run_id ?? null,
         }),
         runEngine: async (tool, args) => {
