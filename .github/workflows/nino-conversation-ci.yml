@@ -7,6 +7,8 @@ on:
       - 'supabase/functions/_shared/ai-gateway.ts'
       - 'supabase/functions/_shared/ai-runtime.ts'
       - 'src/lib/agent/**'
+      - 'src/components/admin/AiProviderBenchmarkBoard.tsx'
+      - 'src/pages/admin/CustoLatencia.tsx'
       - 'src/test/nino-*.test.ts'
       - 'supabase/migrations/**'
       - 'package.json'
@@ -56,6 +58,7 @@ jobs:
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
+          src/test/nino-ai-provider-admin-benchmark.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
