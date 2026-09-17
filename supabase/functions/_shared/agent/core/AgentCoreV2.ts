@@ -161,6 +161,8 @@ async function recordV2Run(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  model?: string | null;
+  provider?: string | null;
   tools?: string[];
   error?: string | null;
 }): Promise<string | undefined> {
@@ -170,7 +172,8 @@ async function recordV2Run(args: {
       user_id: args.input.user_id,
       conversation_id: args.input.conversation_id,
       prompt_version_id: null,
-      model: BRAIN_MODEL,
+      model: args.model ?? BRAIN_MODEL,
+      provider: args.provider ?? null,
       status: args.error ? "error" : "done",
       started_at: new Date(args.started_at).toISOString(),
       ended_at: now,
@@ -204,19 +207,95 @@ async function finishV2(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  model?: string | null;
+  provider?: string | null;
   draft_id?: string;
   result?: unknown;
   session_id?: string;
   tools?: string[];
+  tool_calls?: Array<{ tool_name: string; args?: any; result?: any; ok: boolean }>;
   error?: string | null;
+  memory?: ConversationMemory | null;
+  topic_repo?: TopicRepository | null;
+  topic_resolution?: ResolverOutput | null;
+  active_period?: { from: string; to: string; label?: string | null } | null;
+  comparison_period?: { from: string; to: string } | null;
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
+
+  // Durable topic continuity is updated for every V2 mode, not only financial
+  // READs. This is what lets "voltando naquele assunto..." survive a new session.
+  let activeTopicId = args.topic_resolution?.topic_id ?? args.memory?.active_topic_id ?? null;
+  if (args.topic_repo && !args.topic_resolution?.clarification_required) {
+    const subject = subjectFromContract(args.contract);
+    if (activeTopicId) {
+      await args.topic_repo.touch(activeTopicId, {
+        subject,
+        last_query: String(args.contract.canonical_request ?? args.input.text).slice(0, 600),
+        status: args.contract.mode === "clarify" ? "clarifying" : "answered",
+        keywords: keywordsOf(String(args.contract.canonical_request ?? args.input.text)),
+        period_from: args.active_period?.from ?? null,
+        period_to: args.active_period?.to ?? null,
+      } as any).catch(() => undefined);
+    } else {
+      const opened = await args.topic_repo.open({
+        subject,
+        title: String(args.contract.canonical_request ?? args.input.text).slice(0, 80),
+        last_query: String(args.contract.canonical_request ?? args.input.text).slice(0, 600),
+        keywords: keywordsOf(String(args.contract.canonical_request ?? args.input.text)),
+        period: args.active_period ? { from: args.active_period.from, to: args.active_period.to } : null,
+      }).catch(() => null);
+      activeTopicId = opened?.id ?? null;
+    }
+    if (activeTopicId && args.input.inbound_message_id) {
+      await args.topic_repo.linkMessage({
+        topic_id: activeTopicId,
+        message_id: args.input.inbound_message_id,
+        direction: "inbound",
+        surface: args.input.channel,
+      }).catch(() => undefined);
+    }
+  }
+
+  if (args.session_id) {
+    const inherit = args.contract.inherit_focus;
+    const awaiting = args.contract.mode === "clarify"
+      ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
+      : detectExpectation(body);
+    await saveConversationMemory(args.sb, args.session_id, {
+      current_topic: subjectFromContract(args.contract),
+      active_topic_id: activeTopicId,
+      previous_intent: args.contract.mode,
+      active_category: args.contract.focus.category ?? (inherit ? args.memory?.active_category ?? null : null),
+      active_merchant: args.contract.focus.merchant ?? (inherit ? args.memory?.active_merchant ?? null : null),
+      active_period: args.active_period ?? (inherit ? args.memory?.active_period ?? null : null),
+      comparison_period: args.comparison_period ?? (inherit ? args.memory?.comparison_period ?? null : null),
+      pending_slots: args.contract.mode === "clarify" ? ["brain_clarification"] : [],
+      awaiting,
+      pending_conversation_action: detectContinuationOffer(body),
+      conversation_summary: String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
+    }).catch(() => null);
+  }
+
   await enqueueIfNeeded(args.sb, args.input, body);
   const run_id = await recordV2Run({
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
+    model: args.model, provider: args.provider,
     tools: args.tools, error: args.error,
   });
+
+  // V2 must learn too. Previously the 100% Conversation Brain rollout bypassed
+  // the legacy learning loop, so corrections/preferences stopped reinforcing.
+  await learnFromTurn(args.sb, {
+    user_id: args.input.user_id,
+    intent: `brain:${args.contract.mode}`,
+    policy_decision: args.contract.act,
+    reply_kind: String(args.reply_kind ?? "info"),
+    tool_calls: args.tool_calls ?? (args.tools ?? []).map((tool_name) => ({ tool_name, ok: !args.error })),
+    user_text: args.input.text,
+  }).catch(() => undefined);
+
   return {
     reply: body,
     reply_kind: args.reply_kind,
