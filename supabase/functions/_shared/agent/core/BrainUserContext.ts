@@ -47,6 +47,18 @@ export function serializeBrainUserContext(
       BRAIN_MEMORY_KINDS.includes(fact.kind)
       && (fact.source === "user" || fact.source === "correction" || Number(fact.confidence ?? 0) >= 0.7)
     )
+    // Explicit user/correction memory outranks inferred facts, even if an
+    // inferred fact was touched more recently. Otherwise a fresh "prefiro..."
+    // can fall outside the context window on memory-heavy accounts.
+    .sort((a, b) => {
+      const priority = (source: string) => source === "correction" ? 3 : source === "user" ? 2 : 1;
+      const bySource = priority(b.source) - priority(a.source);
+      if (bySource) return bySource;
+      const byConfidence = Number(b.confidence ?? 0) - Number(a.confidence ?? 0);
+      if (byConfidence) return byConfidence;
+      return Date.parse(b.updated_at || b.created_at || "1970-01-01")
+        - Date.parse(a.updated_at || a.created_at || "1970-01-01");
+    })
     .slice(0, 20)
     .map((fact) => ({
       kind: fact.kind,
@@ -77,7 +89,7 @@ export async function loadBrainUserContext(
   try {
     const [preferences, facts] = await Promise.all([
       loadPreferences(sb, userId),
-      recall(sb, userId, { kind: [...BRAIN_MEMORY_KINDS], limit: 20 }),
+      recall(sb, userId, { kind: [...BRAIN_MEMORY_KINDS], limit: 50 }),
     ]);
     return serializeBrainUserContext(preferences, facts);
   } catch (error) {
