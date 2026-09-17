@@ -408,20 +408,56 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   }).catch(() => null as any);
   const session_id = session?.id as string | undefined;
 
-  const [loadedHistory, memory, workflow, userContext] = await Promise.all([
-    loadHistory(sb, input.conversation_id, { limit: 12, excludeMessageId: input.inbound_message_id }).catch(() => []),
+  const threadsEnabled = await isEnabled("conversation_threads_v1", input.user_id).catch(() => false);
+  const topicRepo = threadsEnabled
+    ? createTopicRepository({ sb, user_id: input.user_id, conversation_id: input.conversation_id })
+    : null;
+
+  const [loadedHistory, memory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
+    loadHistory(sb, input.conversation_id, { limit: 16, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
     loadBrainUserContext(sb, input.user_id).catch(() => null),
+    topicRepo ? topicRepo.listRecent(12).catch(() => []) : Promise.resolve([]),
+    topicRepo && input.reply_context?.quoted_message_id
+      ? topicRepo.findByMessageId(input.reply_context.quoted_message_id).catch(() => null)
+      : Promise.resolve(null),
   ]);
+
   // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
   // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
   const history = input.channel === "app"
     ? loadedHistory
     : withoutCurrentTurn(loadedHistory, input.text);
 
-  const brain = await interpretConversationTurn({
+  // A resposta curta "sim/quero/pode" primeiro tenta cumprir a oferta que o
+  // próprio Nino acabou de fazer. Sem isso, cada aceite precisa ser
+  // reinterpretado do zero pelo modelo.
+  const continuation = resolveContinuation({
     text: input.text,
+    action: memory?.pending_conversation_action ?? null,
+    hasPendingWrite: !!pending,
+  });
+  const brainText = continuation.continue && continuation.prompt ? continuation.prompt : input.text;
+  if (continuation.continue && session_id) {
+    await saveConversationMemory(sb, session_id, { pending_conversation_action: null }).catch(() => null);
+  }
+
+  const topicResolution = topicRepo
+    ? resolveConversation({
+      text: brainText,
+      quoted_message_id: input.reply_context?.quoted_message_id ?? null,
+      quoted_topic: quotedTopic,
+      has_pending_confirmation: !!pending,
+      awaiting_answer: Boolean(memory?.awaiting),
+      active_topic_id: memory?.active_topic_id ?? null,
+      topics: recentTopics,
+    })
+    : null;
+  const userContext = topicContextText(durableUserContext, topicResolution);
+
+  const brain = await interpretConversationTurn({
+    text: brainText,
     history,
     memory,
     workflow,
