@@ -148,6 +148,63 @@ export function fastFinancialIR(
       }],
     };
   }
+
+  // Fast path estrutural para perguntas financeiras extremamente claras.
+  // A regra é propositalmente conservadora: só cobre formas em que métrica,
+  // operação e dimensão são inequívocas. Períodos (inclusive múltiplos) são
+  // resolvidos depois pelo backend em period_truth.v2.
+  const ranked = (
+    dimension: FinancialDimension,
+    target = "q1.rank",
+    limit = 5,
+  ): FinancialQueryIR => {
+    const ir = make("expense_amount", target);
+    return {
+      ...ir,
+      intent: "analyze",
+      queries: [{
+        ...ir.queries[0],
+        operation: "rank",
+        group_by: [dimension],
+        limit,
+      }],
+    };
+  };
+
+  const categoryRanking =
+    /\b(?:em\s+)?quais?\s+categorias?\b.{0,60}\b(?:mais\s+)?(?:gast\w*|pes\w*|concentr\w*)\b/.test(t)
+    || /\b(?:categorias?|categoria)\b.{0,35}\b(?:em que|onde)?\s*(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
+    || /\b(?:top|ranking)\s+(?:das?\s+)?categorias?\b/.test(t)
+    || /\b(?:maiores?|principais?)\s+(?:categorias?\s+de\s+)?gastos?\b/.test(t);
+  if (categoryRanking) return ranked("category");
+
+  const merchantRanking =
+    /\bquais?\s+(?:estabelecimentos?|lojas?|comercios?|lugares?|locais)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
+    || /\bonde\s+(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
+    || /\b(?:top|ranking)\s+(?:dos?\s+)?(?:estabelecimentos?|lojas?|comercios?)\b/.test(t);
+  if (merchantRanking) return ranked("merchant");
+
+  const cardRanking =
+    /\b(?:em\s+)?qual(?:is)?\s+cart(?:ao|oes)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
+    || /\b(?:top|ranking)\s+(?:dos?\s+)?cart(?:ao|oes)\b/.test(t);
+  if (cardRanking) return ranked("card");
+
+  const accountRanking =
+    /\b(?:em\s+)?qual(?:is)?\s+contas?\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
+    || /\b(?:top|ranking)\s+(?:das?\s+)?contas?\b/.test(t);
+  if (accountRanking) return ranked("account");
+
+  // Totais simples também não precisam de LLM, desde que não haja dimensão ou
+  // entidade explícita que poderíamos perder silenciosamente.
+  const hasGroupingOrFilter = /\b(categoria|categorias|estabelecimento|estabelecimentos|loja|lojas|cartao|cartoes|conta|contas|alimentacao|transporte|lazer|assinaturas)\b/.test(t);
+  if (!hasGroupingOrFilter && /\bquanto\b.{0,40}\b(?:eu\s+)?gast\w*\b/.test(t)) {
+    const ir = make("expense_amount", "q1.money");
+    return { ...ir, queries: [{ ...ir.queries[0], operation: "sum" }] };
+  }
+  if (!hasGroupingOrFilter && /\bquanto\b.{0,40}\b(?:entrou|recebi|ganhei|de\s+receita)\b/.test(t)) {
+    const ir = make("income_amount", "q1.money");
+    return { ...ir, queries: [{ ...ir.queries[0], operation: "sum" }] };
+  }
   if (/^(qual (e )?(o )?)?(meu )?saldo\??$/.test(t) || /^quanto (eu )?tenho disponivel\??$/.test(t)) {
     return make("balance", "q1.balance");
   }
