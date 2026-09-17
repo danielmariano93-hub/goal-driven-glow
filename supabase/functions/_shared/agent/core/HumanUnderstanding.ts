@@ -5,8 +5,9 @@ import {
   candidateFeelingTerm, EMOTION_CATALOG, parseEmotionCorrection, parseEmotionFromText,
   resolveEmotionTerm,
 } from "../../intelligence/emotionParse.ts";
-import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
+import { recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { callStructuredFunction } from "../../ai-structured.ts";
+import { resolveAiProvider } from "../../ai-runtime.ts";
 
 export type HumanReading = {
   version: "nino_language.v1";
@@ -55,30 +56,27 @@ function deterministicReading(text: string): HumanReading | null {
 }
 
 const READING_TOOL = {
-  type: "function",
-  function: {
-    name: "emit_human_reading",
-    description: "Interpreta uma mensagem humana curta em pt-BR. Não calcula nada e não escreve resposta.",
-    parameters: {
-      type: "object",
-      properties: {
-        kind: {
-          type: "string",
-          enum: ["emotion_checkin", "emotion_correction", "small_talk", "unknown"],
-        },
-        emotion_term: {
-          type: "string",
-          description: "A palavra que a pessoa usou para o sentimento, exatamente como ela disse. Nunca substitua por sinônimo.",
-        },
-        correction: {
-          type: "boolean",
-          description: "true quando a pessoa está corrigindo o sentimento registrado antes.",
-        },
-        confidence: { type: "number" },
+  name: "emit_human_reading",
+  description: "Interpreta uma mensagem humana curta em pt-BR. Não calcula nada e não escreve resposta.",
+  parameters: {
+    type: "object",
+    properties: {
+      kind: {
+        type: "string",
+        enum: ["emotion_checkin", "emotion_correction", "small_talk", "unknown"],
       },
-      required: ["kind", "correction", "confidence"],
-      additionalProperties: false,
+      emotion_term: {
+        type: "string",
+        description: "A palavra que a pessoa usou para o sentimento, exatamente como ela disse. Nunca substitua por sinônimo.",
+      },
+      correction: {
+        type: "boolean",
+        description: "true quando a pessoa está corrigindo o sentimento registrado antes.",
+      },
+      confidence: { type: "number" },
     },
+    required: ["kind", "correction", "confidence"],
+    additionalProperties: false,
   },
 };
 
@@ -118,62 +116,50 @@ export async function understandHumanMessage(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 6_000);
   try {
-    const response = await fetch(aiEndpoint(provider, "chat/completions"), {
-      method: "POST",
-      headers: aiJsonHeaders(provider),
-      body: JSON.stringify({
-        model: normalizeAiModel(input.model, provider),
-        messages: [
-          { role: "system", content: systemPrompt() },
-          { role: "user", content: `Mensagem:\n${text}\n\nEmita somente emit_human_reading.` },
-        ],
-        tools: [READING_TOOL],
-        tool_choice: { type: "function", function: { name: "emit_human_reading" } },
-        temperature: 0,
-      }),
+    const structured = await callStructuredFunction({
+      provider,
+      model: input.model,
+      system: systemPrompt(),
+      user: `Mensagem:\n${text}\n\nEmita somente emit_human_reading.`,
+      tool: READING_TOOL,
       signal: controller.signal,
+      temperature: 0,
+      reasoning_effort: "low",
     });
-    const body = await response.json().catch(() => null);
-    const latency = Date.now() - started;
+    const latency = structured.latency_ms;
 
-    if (!response.ok || !body) {
+    if (!structured.ok) {
       if (input.sb) {
         await recordAiUsage(input.sb, {
           workload: "AGENT_CONVERSATION", function_name: "agent-run",
           operation: "human_understanding", user_id: input.user_id ?? null,
-          run_id: input.run_id ?? null, model: input.model, success: false,
-          http_status: response.status || null, error_code: "human_understanding_gateway",
+          run_id: input.run_id ?? null, model: structured.model, provider: structured.provider,
+          success: false, http_status: structured.status,
+          error_code: structured.error_code ?? "human_understanding_gateway",
           latency_ms: latency, reason_for_ai_call: "nino_language_v1",
+          metadata: { provider: structured.provider, upstream_error: structured.error_detail },
         });
       }
       return {
         version: "nino_language.v1", kind: "unknown", emotion_term: null, emotion_key: null,
         correction: false, custom_candidate: false, confidence: 0,
-        source: "llm", llm_calls: 1, latency_ms: latency, error: "gateway_error",
+        source: "llm", llm_calls: 1, latency_ms: latency,
+        error: structured.error_code ?? "gateway_error",
       };
     }
 
     if (input.sb) {
-      const usage = readGatewayUsage(body);
       await recordGatewayCall(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run",
         operation: "human_understanding", user_id: input.user_id ?? null,
-        run_id: input.run_id ?? null, model: input.model, success: true,
-        latency_ms: latency, reason_for_ai_call: "nino_language_v1",
-        metadata: { version: "nino_language.v1", tokens_out: usage.output_tokens, provider: provider.provider },
-      }, body);
+        run_id: input.run_id ?? null, model: structured.model, provider: structured.provider,
+        success: true, latency_ms: latency, reason_for_ai_call: "nino_language_v1",
+        metadata: { version: "nino_language.v1", provider: structured.provider, transport: "chat_completions_structured" },
+      }, structured.body);
     }
 
-    const call = body?.choices?.[0]?.message?.tool_calls?.[0];
-    if (call?.function?.name !== "emit_human_reading") {
-      return {
-        version: "nino_language.v1", kind: "unknown", emotion_term: null, emotion_key: null,
-        correction: false, custom_candidate: false, confidence: 0,
-        source: "llm", llm_calls: 1, latency_ms: latency, error: "missing_tool_call",
-      };
-    }
     let parsed: any = {};
-    try { parsed = JSON.parse(call.function.arguments ?? "{}"); } catch { parsed = {}; }
+    try { parsed = JSON.parse(structured.arguments ?? "{}"); } catch { parsed = {}; }
 
     const term = typeof parsed.emotion_term === "string" ? parsed.emotion_term.trim() : "";
     const option = term ? resolveEmotionTerm(term) : null;
