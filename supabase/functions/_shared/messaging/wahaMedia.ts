@@ -6,6 +6,15 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { getAiBlockAllowingProbe, pauseAiCircuit, resumeAiCircuit } from "../aiCircuit.ts";
 import { recordGatewayCall, type AiWorkload } from "../aiUsageLedger.ts";
 
+function runtimeEnv(name: string): string | undefined {
+  try {
+    const value = (globalThis as any)?.Deno?.env?.get?.(name);
+    return value ? String(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
 /** Áudio inbound (voz do WhatsApp). OGG/Opus é o formato padrão de PTT. */
 const ALLOWED_AUDIO_MIME = new Set([
@@ -384,9 +393,9 @@ function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kin
 
 type AudioDownload = DownloadResult;
 
-const GROQ_BASE_URL = (Deno.env.get("GROQ_BASE_URL") ?? "https://api.groq.com/openai/v1").replace(/\/+$/, "");
+const GROQ_BASE_URL = (runtimeEnv("GROQ_BASE_URL") ?? "https://api.groq.com/openai/v1").replace(/\/+$/, "");
 const TRANSCRIPTION_GATEWAY = `${GROQ_BASE_URL}/audio/transcriptions`;
-const TRANSCRIPTION_MODEL = "whisper-large-v3-turbo";
+const TRANSCRIPTION_MODEL = runtimeEnv("NINO_AI_TRANSCRIPTION_MODEL") ?? "whisper-large-v3-turbo";
 /** ~2 minutos de voz do WhatsApp em Opus. Acima disso recusamos com explicação. */
 const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 150;
@@ -552,7 +561,7 @@ export async function transcribeAudioBytes(args: {
   timeoutMs?: number;
   onStage?: (stage: "transcription_submitted", metadata: Record<string, unknown>) => void | Promise<void>;
 }): Promise<AudioTranscriptionResult> {
-  const key = Deno.env.get("GROQ_API_KEY");
+  const key = runtimeEnv("GROQ_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
 
   // Bloqueio 402/403 continua terminal no turno, mas passada a janela de sonda
