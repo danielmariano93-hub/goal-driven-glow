@@ -1,22 +1,29 @@
 name: Nino Direct Supabase Deploy
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/nino-supabase-deploy.yml'
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type DEPLOY to authorize the production deployment'
-        required: true
+        description: 'Type DEPLOY to authorize a manual production deployment'
+        required: false
+        default: 'DEPLOY'
         type: string
 
 permissions:
   contents: read
 
 env:
-  SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+  SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
 
 jobs:
   deploy:
-    if: ${{ inputs.confirm == 'DEPLOY' }}
+    if: ${{ github.event_name == 'push' || inputs.confirm == 'DEPLOY' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -71,14 +78,6 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
 
-      - name: Keep Nino on Lovable AI provider
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          supabase secrets set \
-            --project-ref "$SUPABASE_PROJECT_REF" \
-            NINO_AI_PROVIDER="lovable"
-
       - name: Deploy atomic Nino Edge Functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -100,10 +99,13 @@ jobs:
             supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
           done
 
+      - name: Verify deployed functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions list --project-ref "$SUPABASE_PROJECT_REF"
+
       - name: Deployment receipt
         run: |
           echo "revision=${GITHUB_SHA}"
           echo "project_ref=${SUPABASE_PROJECT_REF}"
-          echo "provider=lovable"
-          echo "ai_provider_shadow=disabled_by_default"
           echo "functions=10"
