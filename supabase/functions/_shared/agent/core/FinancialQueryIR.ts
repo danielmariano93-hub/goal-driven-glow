@@ -171,28 +171,38 @@ export function fastFinancialIR(
     };
   };
 
+  // Fast ranking cannot silently discard an entity/filter. Temporal scopes
+  // ("nos meses de julho e agosto", "em agosto") remain safe because periods
+  // are resolved by the backend after this parser.
+  const temporalWord = "(?:mes(?:es)?|periodo|semana|ano|hoje|ontem|anteontem|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|ultimos?|proximos?|este|esta|esse|essa)";
+  const explicitEntityScope = new RegExp(
+    `\\bgast\\w*.{0,45}\\b(?:no|na|do|da|em)\\s+(?!${temporalWord}\\b)[a-z]`
+  ).test(t) || new RegExp(
+    `\\b(?:categorias?|estabelecimentos?|lojas?|comercios?|cartoes?|contas?)\\s+(?:do|da|no|na)\\s+(?!${temporalWord}\\b)[a-z]`
+  ).test(t);
+
   const categoryRanking =
     /\b(?:em\s+)?quais?\s+categorias?\b.{0,60}\b(?:mais\s+)?(?:gast\w*|pes\w*|concentr\w*)\b/.test(t)
     || /\b(?:categorias?|categoria)\b.{0,35}\b(?:em que|onde)?\s*(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:das?\s+)?categorias?\b/.test(t)
     || /\b(?:maiores?|principais?)\s+(?:categorias?\s+de\s+)?gastos?\b/.test(t);
-  if (categoryRanking) return ranked("category");
+  if (categoryRanking && !explicitEntityScope) return ranked("category");
 
   const merchantRanking =
     /\bquais?\s+(?:estabelecimentos?|lojas?|comercios?|lugares?|locais)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\bonde\s+(?:eu\s+)?(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:dos?\s+)?(?:estabelecimentos?|lojas?|comercios?)\b/.test(t);
-  if (merchantRanking) return ranked("merchant");
+  if (merchantRanking && !explicitEntityScope) return ranked("merchant");
 
   const cardRanking =
     /\b(?:em\s+)?qual(?:is)?\s+cart(?:ao|oes)\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:dos?\s+)?cart(?:ao|oes)\b/.test(t);
-  if (cardRanking) return ranked("card");
+  if (cardRanking && !explicitEntityScope) return ranked("card");
 
   const accountRanking =
     /\b(?:em\s+)?qual(?:is)?\s+contas?\b.{0,60}\b(?:mais\s+)?gast\w*\b/.test(t)
     || /\b(?:top|ranking)\s+(?:das?\s+)?contas?\b/.test(t);
-  if (accountRanking) return ranked("account");
+  if (accountRanking && !explicitEntityScope) return ranked("account");
 
   // Totais simples também não precisam de LLM, desde que não haja dimensão ou
   // entidade explícita que poderíamos perder silenciosamente.
