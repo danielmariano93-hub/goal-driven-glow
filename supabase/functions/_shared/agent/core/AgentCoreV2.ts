@@ -47,7 +47,7 @@ import {
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
 
-const BRAIN_MODEL = "openai/gpt-6-astra";
+const BRAIN_MODEL = "openai/gpt-oss-120b";
 
 function looksLikeBulkOrDocument(text: string): boolean {
   const raw = String(text ?? "");
