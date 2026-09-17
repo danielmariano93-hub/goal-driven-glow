@@ -49,6 +49,7 @@ jobs:
           src/test/nino-semantic-ir-v3.test.ts
           src/test/nino-semantic-pipeline.test.ts
           src/test/nino-intelligence-core.test.ts
+          src/test/nino-brain-user-context.test.ts
 
       - name: Production build
         run: npm run build
