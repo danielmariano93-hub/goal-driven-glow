@@ -50,6 +50,8 @@ jobs:
           src/test/nino-semantic-pipeline.test.ts
           src/test/nino-intelligence-core.test.ts
           src/test/nino-brain-user-context.test.ts
+          src/test/nino-response-preference-learning.test.ts
+          src/test/continuation-contract.test.ts
 
       - name: Production build
         run: npm run build
