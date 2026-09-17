@@ -83,7 +83,7 @@ BEGIN
       s.shadow_avg_latency_ms,
       s.official_p95_latency_ms,
       s.shadow_p95_latency_ms,
-      coalesce(p.tokens_per_turn, 0) AS official_tokens_per_turn,
+      p.tokens_per_turn AS official_tokens_per_turn,
       s.shadow_tokens_per_turn,
       s.semantic_parity_pct
     FROM shadow_daily s
@@ -115,7 +115,7 @@ BEGIN
          (same_canonical_request IS TRUE)::int + (same_focus IS TRUE)::int +
          (same_action_kind IS TRUE)::int) / 5.0
       ) FILTER (WHERE status = 'ok'))::numeric, 1) AS semantic_parity_pct,
-      round(sum(shadow_tokens_in + shadow_tokens_out) FILTER (WHERE status = 'ok')::numeric
+      round((sum(shadow_tokens_in + shadow_tokens_out) FILTER (WHERE status = 'ok'))::numeric
         / nullif(count(*) FILTER (WHERE status = 'ok'), 0), 1) AS shadow_tokens_per_turn
     FROM base
   ),
