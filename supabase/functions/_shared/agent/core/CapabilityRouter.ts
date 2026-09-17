@@ -418,10 +418,14 @@ export function classifyCapability(
     };
   }
 
-  // "Passar relatório do mês" é PEDIDO DE LEITURA, nunca lançamento. Sem esta
-  // rota o pedido caía em `general` e o fallback tentava extrair um valor do
-  // texto ("mês 08" -> R$ 8,00). Aqui ele vira resumo determinístico.
-  if (/\b(relatorio|relatorios|resumo (do|de|desse|deste) (mes|periodo|ano|semana)|fechamento do mes|balanco do mes|extrato do mes|me (passa|manda|mostra) (o )?(resumo|relatorio)|como (foi|esta) (o )?(mes|agosto|setembro|outubro|novembro|dezembro|janeiro|fevereiro|marco|abril|maio|junho|julho))\b/.test(t)) {
+  // "Passar relatório do mês" é PEDIDO DE LEITURA, nunca lançamento.
+  // Guardrail: perguntas dimensionadas ("quais categorias/estabelecimentos/cartões
+  // eu mais gastei") NUNCA podem ser degradadas para snapshot do mês atual. Esse
+  // foi o incidente real de 17/09/2026.
+  const dimensionedSpendRead =
+    /\b(categorias?|estabelecimentos?|lojas?|comercios?|cartoes?|contas?)\b.{0,70}\b(mais|maiores?|ranking|top|gast\w*|pes\w*)\b/.test(t)
+    || /\b(quais?|onde|qual)\b.{0,40}\b(categorias?|estabelecimentos?|lojas?|comercios?|cartoes?|contas?)\b/.test(t);
+  if (!dimensionedSpendRead && /\b(relatorio|relatorios|resumo (do|de|desse|deste) (mes|periodo|ano|semana)|fechamento do mes|balanco do mes|extrato do mes|me (passa|manda|mostra) (o )?(resumo|relatorio)|como (foi|esta) (o )?(mes|agosto|setembro|outubro|novembro|dezembro|janeiro|fevereiro|marco|abril|maio|junho|julho))\b/.test(t)) {
     return {
       name: "month_report", execution: "deterministic",
       allowed_tools: ["get_financial_snapshot", "analyze_spending", "compare_financial_metric"],
