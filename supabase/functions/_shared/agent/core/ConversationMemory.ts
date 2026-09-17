@@ -13,6 +13,8 @@ import type { PendingConversationAction } from "./ContinuationContract.ts";
 
 export type ConversationMemory = {
   current_topic: string | null;
+  /** Tópico durável de nino_threads.v1 atualmente ativo. */
+  active_topic_id: string | null;
   previous_intent: string | null;
   active_category: string | null;
   active_merchant: string | null;
@@ -48,7 +50,7 @@ export const MEMORY_TTL_MS = 6 * 60 * 60 * 1000;
 
 export function emptyMemory(): ConversationMemory {
   return {
-    current_topic: null, previous_intent: null, active_category: null, active_merchant: null,
+    current_topic: null, active_topic_id: null, previous_intent: null, active_category: null, active_merchant: null,
     active_period: null, comparison_period: null, pending_action: null, pending_slots: [],
     awaiting: null, pending_conversation_action: null,
     last_tool_context: null, last_analysis: null, conversation_summary: null, updated_at: new Date(0).toISOString(),
