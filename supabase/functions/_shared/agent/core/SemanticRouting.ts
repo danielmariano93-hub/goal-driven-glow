@@ -49,13 +49,26 @@ export function fastPathIR(args: {
   if (args.acts.includes("repair") || args.acts.includes("clarification")) return null;
   if (args.acts.includes("constraint_update") || args.acts.includes("followup")) return null;
   const t = String(args.text ?? "").toLowerCase();
-  if (/\b(por que|porque|por qu[eê]|compar|vs|versus|maior|mais|top|ranking|por categoria|por cart[aã]o|por conta|explica)\b/.test(t)) {
-    return null;
-  }
   const ir = fastFinancialIR(args.text, args.period, args.comparison_period ?? null);
   if (!ir) return null;
   const q = ir.queries[0];
   if (!q) return null;
+
+  // Structural rankings are safe fast paths when the user did not name a
+  // specific entity/filter. Period and dimension constraints are expected here:
+  // the backend resolves dates and MultiPeriodPlan fans out the same IR.
+  const safeStructuralRanking = q.metric === "expense_amount"
+    && q.operation === "rank"
+    && q.filters.length === 0
+    && q.group_by.length === 1
+    && ["category", "merchant", "card", "account"].includes(String(q.group_by[0]))
+    && !args.constraints.entity
+    && !/\b(por que|porque|por qu[eê]|compar|vs|versus|explica)\b/.test(t);
+  if (safeStructuralRanking) return ir;
+
+  if (/\b(por que|porque|por qu[eê]|compar|vs|versus|maior|mais|top|ranking|por categoria|por cart[aã]o|por conta|explica)\b/.test(t)) {
+    return null;
+  }
   const typicalMonthlyExpense = q.metric === "expense_amount"
     && q.filters.every((filter) => filter.field === "category")
     && /\b(por|ao)\s+m[eê]s\b/i.test(args.text);
