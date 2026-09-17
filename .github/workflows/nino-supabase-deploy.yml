@@ -135,6 +135,41 @@ jobs:
             NINO_SHADOW_AI_MODEL="$NINO_SHADOW_AI_MODEL"
           echo 'Groq primary and shadow runtime configuration synced to Supabase.'
 
+      - name: Sync Vault cron credential to Edge runtime
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          query="select decrypted_secret as value from vault.decrypted_secrets where name in ('INTERNAL_CRON_SECRET','meunino_cron_secret','nocontrole_cron_secret') order by case name when 'INTERNAL_CRON_SECRET' then 0 when 'meunino_cron_secret' then 1 else 2 end, created_at desc limit 1"
+          payload="$(node -e 'process.stdout.write(JSON.stringify({query: process.argv[1]}))' "$query")"
+          http_status="$(curl --silent --show-error \
+            --output /tmp/cron-secret.json \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$payload" \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/database/query")"
+          case "$http_status" in 200|201) ;; *) echo "Supabase database query returned HTTP $http_status"; rm -f /tmp/cron-secret.json; exit 1 ;; esac
+
+          cron_secret="$(node -e '
+            const fs = require("fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/cron-secret.json", "utf8"));
+            const rows = Array.isArray(body) ? body : (Array.isArray(body.result) ? body.result : (Array.isArray(body.data) ? body.data : []));
+            const value = rows?.[0]?.value;
+            if (typeof value !== "string" || value.length < 16) process.exit(2);
+            process.stdout.write(value);
+          ')" || (echo 'No valid internal cron secret found in Supabase Vault' && rm -f /tmp/cron-secret.json && exit 1)
+
+          echo "::add-mask::$cron_secret"
+          supabase secrets set \
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            INTERNAL_CRON_SECRET="$cron_secret" \
+            CRON_SECRET="$cron_secret"
+          unset cron_secret
+          rm -f /tmp/cron-secret.json
+          echo 'Internal cron credential synchronized from Vault to Edge runtime.'
+
       - name: Deploy complete application Edge Function backend
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
