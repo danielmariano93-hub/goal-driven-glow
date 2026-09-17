@@ -88,6 +88,59 @@ function constraintsFromContract(contract: ConversationTurnContract, canonical: 
   };
 }
 
+function topicContextText(base: string | null, topic: ResolverOutput | null): string | null {
+  const lines: string[] = [];
+  if (base?.trim()) lines.push(base.trim());
+  if (topic?.clarification_required && topic.clarification_options.length) {
+    lines.push(
+      `TopicResolution=ambiguous; opções=${topic.clarification_options.slice(0, 3).join(" | ")}. ` +
+      `Se a mensagem atual depender de contexto anterior, pergunte qual assunto o usuário quer retomar.`,
+    );
+  } else if (topic?.topic) {
+    const t = topic.topic;
+    lines.push(
+      `Tópico durável relevante: assunto=${t.subject}; última_pergunta=${String(t.last_query ?? "").slice(0, 240)}; ` +
+      `resumo=${String(t.summary ?? "").slice(0, 180) || "—"}; período=${t.period_from ?? "—"}..${t.period_to ?? "—"}.`,
+    );
+  }
+  return lines.length ? lines.join("\n").slice(0, 7000) : null;
+}
+
+function subjectFromContract(contract: ConversationTurnContract): string {
+  return contract.focus.goal
+    ? `meta:${contract.focus.goal}`
+    : contract.focus.category
+      ? `categoria:${contract.focus.category}`
+      : contract.focus.merchant
+        ? `estabelecimento:${contract.focus.merchant}`
+        : contract.mode === "write"
+          ? `escrita:${contract.action?.action ?? "financeira"}`
+          : contract.mode;
+}
+
+function suggestionForSemantic(semantic: any): string | null {
+  if (!semantic || semantic.status !== "executable") return null;
+  const q = semantic.ir_v2?.queries?.[0];
+  if (!q) return null;
+  const group = q.group_by?.[0] ?? null;
+  if (q.metric === "expense_amount" && q.operation === "rank" && group === "category") {
+    return "Se quiser, eu abro a categoria que mais pesou e mostro os principais estabelecimentos.";
+  }
+  if (q.metric === "expense_amount" && q.operation === "rank" && group === "merchant") {
+    return "Se quiser, eu separo isso por categoria ou comparo com o período anterior.";
+  }
+  if (q.metric === "expense_amount" && ["sum", "value"].includes(q.operation)) {
+    return "Se quiser, eu comparo esse valor com o período anterior e mostro o que mais mudou.";
+  }
+  if (q.metric === "goal_progress") {
+    return "Se quiser, eu transformo esse progresso em um próximo passo objetivo para a meta.";
+  }
+  if (q.metric === "financial_health") {
+    return "Posso transformar esse diagnóstico em um próximo passo prático para este mês.";
+  }
+  return null;
+}
+
 async function enqueueIfNeeded(sb: any, input: HandleTurnInput, body: string): Promise<void> {
   if (input.channel === "app" || !input.to_phone) return;
   await enqueueReply(sb, {
