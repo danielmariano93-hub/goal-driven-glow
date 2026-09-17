@@ -154,6 +154,8 @@ function compactHistory(history: HistoryTurn[]): string {
 function statePrompt(memory: ConversationMemory | null, workflow: WriteWorkflow | null): string {
   const state = memory ? {
     current_topic: memory.current_topic,
+    active_topic_id: memory.active_topic_id,
+    conversation_summary: memory.conversation_summary,
     active_category: memory.active_category,
     active_merchant: memory.active_merchant,
     active_period: memory.active_period,
