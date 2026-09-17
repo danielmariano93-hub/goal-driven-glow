@@ -19,6 +19,7 @@ import { runTool } from "./ToolRuntime.ts";
 import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { flagSnapshot } from "./FeatureFlags.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
+import { normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
 
 
 /** Flags de eficiência consultadas por turno (`nino_efficiency.v2`). */
@@ -208,7 +209,12 @@ export async function plan(
       reason: "model_routing_v2:off",
     };
   const tier = flags.model_routing_v2 ? tierForTask(task) : null;
-  const provider = String(route.primary).split("/")[0] || null;
+  const runtimeProvider = resolveAiProvider();
+  const effectivePrimary = runtimeProvider ? normalizeAiModel(route.primary, runtimeProvider) : route.primary;
+  const effectiveFallback = route.fallback && runtimeProvider
+    ? normalizeAiModel(route.fallback, runtimeProvider)
+    : route.fallback;
+  const provider = runtimeProvider?.provider ?? String(route.primary).split("/")[0] || null;
   // Pré-execução determinística da ferramenta canônica.
   const requiredTool = args.capability.required_tool;
   const toolArgs = args.capability.tool_args;
@@ -231,7 +237,7 @@ export async function plan(
 
   const primaryOpts: ToolRuntimeOptions = {
     ...opts,
-    model: route.primary,
+    model: effectivePrimary,
     maxSteps: route.max_steps,
     timeoutMs: route.max_latency_ms,
     allowedTools: args.capability.allowed_tools,
@@ -255,8 +261,8 @@ export async function plan(
       return {
         path: "llm", turn, errorSanitized: null,
         modelAttempts: [
-          { model: route.primary, ok: false, error: `scope_expanded:${turn.finish}` },
-          { model: route.primary, ok: true },
+          { model: effectivePrimary, ok: false, error: `scope_expanded:${turn.finish}` },
+          { model: effectivePrimary, ok: true },
         ],
         routeReason: `${route.reason}+scope_expanded`, modelTier: tier,
         provider, fallbackAttempts: 0, flags,
@@ -264,7 +270,7 @@ export async function plan(
     }
     return {
       path: "llm", turn, errorSanitized: null,
-      modelAttempts: [{ model: route.primary, ok: true }],
+      modelAttempts: [{ model: effectivePrimary, ok: true }],
       routeReason: route.reason, modelTier: tier,
       provider, fallbackAttempts: 0, flags,
     };
@@ -277,30 +283,30 @@ export async function plan(
       // quando a resposta exigir modelo.
       return {
         path: "deterministic_fallback", errorSanitized: `gateway_${primaryStatus}`,
-        modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
+        modelAttempts: [{ model: effectivePrimary, ok: false, error: primarySanitized }],
         routeReason: `${route.reason}+gateway_${primaryStatus}`, modelTier: tier,
         provider, fallbackAttempts: 0, flags,
       };
     }
-    if (route.fallback && route.fallback !== route.primary) {
+    if (effectiveFallback && effectiveFallback !== effectivePrimary) {
       try {
-        const turn = await runToolLoop(sb, args, { ...primaryOpts, model: route.fallback });
+        const turn = await runToolLoop(sb, args, { ...primaryOpts, model: effectiveFallback });
         return {
           path: "llm", turn, errorSanitized: null,
           modelAttempts: [
-            { model: route.primary, ok: false, error: primarySanitized },
-            { model: route.fallback, ok: true },
+            { model: effectivePrimary, ok: false, error: primarySanitized },
+            { model: effectiveFallback, ok: true },
           ],
           routeReason: `${route.reason}+fallback`, modelTier: tier,
-          provider: String(route.fallback).split("/")[0] || null,
+          provider,
           fallbackAttempts: 1, flags,
         };
       } catch (fallbackError) {
         return {
           path: "deterministic_fallback", errorSanitized: sanitizeError(fallbackError),
           modelAttempts: [
-            { model: route.primary, ok: false, error: primarySanitized },
-            { model: route.fallback, ok: false, error: sanitizeError(fallbackError) },
+            { model: effectivePrimary, ok: false, error: primarySanitized },
+            { model: effectiveFallback, ok: false, error: sanitizeError(fallbackError) },
           ],
           routeReason: `${route.reason}+fallback_failed`, modelTier: tier,
           provider, fallbackAttempts: 2, flags,
