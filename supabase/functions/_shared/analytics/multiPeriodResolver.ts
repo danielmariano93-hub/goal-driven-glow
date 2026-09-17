@@ -42,7 +42,7 @@ const TOKEN_RX = new RegExp(
     "ultima semana",
     "esta semana",
     "essa semana",
-    `(?:${MONTHS})(?:\\s+de\\s+20\\d{2})?`,
+    `\\b(?:${MONTHS})(?:\\s+de\\s+20\\d{2})?\\b`,
     "ultimos?\\s+\\d{1,3}\\s+dias",
     "hoje",
     "ontem",
