@@ -20,6 +20,7 @@ export type BrainWriteOutcome = {
   reply_kind: "draft" | "question" | "info";
   draft_id?: string;
   tool_name?: string;
+  tool_args?: Record<string, unknown>;
   tool_result?: unknown;
   error?: string | null;
 };
@@ -168,6 +169,7 @@ export async function executeBrainWriteTurn(args: {
       reply: "Entendi o que você quer fazer, mas não consegui preparar o rascunho agora. Nenhum dado foi alterado.",
       reply_kind: "info",
       tool_name: step.kind,
+      tool_args: step.args,
       error: exec.error ?? "brain_write_tool_error",
     };
   }
@@ -184,6 +186,7 @@ export async function executeBrainWriteTurn(args: {
     reply_kind: "draft",
     draft_id: result?.draft_id ? String(result.draft_id) : undefined,
     tool_name: step.kind,
+    tool_args: step.args,
     tool_result: exec.result,
     error: null,
   };
