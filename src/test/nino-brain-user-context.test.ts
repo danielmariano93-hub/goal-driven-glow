@@ -30,9 +30,10 @@ describe("Conversation Brain durable user context", () => {
     expect(value.preferences.verbosity).toBe("concise");
     expect(value.preferences.suggestion_frequency).toBe("high");
     expect(value.durable_memory).toHaveLength(2);
-    expect(value.durable_memory[1].value.note).toContain("mercado");
-    expect(value.durable_memory[1].value.amount).toBeUndefined();
-    expect(value.durable_memory[1].value.saldo).toBeUndefined();
+    const merchantCorrection = value.durable_memory.find((m: any) => m.key === "merchant:x");
+    expect(merchantCorrection?.value.note).toContain("mercado");
+    expect(merchantCorrection?.value.amount).toBeUndefined();
+    expect(merchantCorrection?.value.saldo).toBeUndefined();
   });
 
   it("prioritizes explicit user memory when the context window is crowded", () => {
