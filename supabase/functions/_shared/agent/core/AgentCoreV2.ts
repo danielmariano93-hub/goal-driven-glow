@@ -46,6 +46,8 @@ import {
 } from "./handlers/TypicalMonthlyHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
+import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
+import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
@@ -557,9 +559,47 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     });
   }
 
-  // READ: Brain resolve significado/continuidade; Semantic Compiler apenas
-  // traduz o pedido canônico para Financial IR. Nenhum router reinterpreta o act.
+  // READ: Brain resolve significado/continuidade. Advisory intents with a
+  // dedicated canonical engine are bound here BEFORE FinancialQueryIR. This is
+  // not a second language classifier: the bridge only reads the canonical
+  // request emitted by the Conversation Brain.
   const canonical = String(contract.canonical_request ?? brainText).trim();
+  const advisory = resolveBrainAdvisory(contract);
+  if (advisory) {
+    const advisoryTurn = await executeDeterministicCapability(sb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      user_text: canonical,
+      capability: advisory.capability,
+      evidenceCache,
+    }).catch(() => null);
+
+    if (advisoryTurn) {
+      const toolCalls = advisoryTurn.toolCalls ?? [];
+      const asksQuestion = /\?\s*$/.test(String(advisoryTurn.reply ?? "").trim())
+        && toolCalls.some((call: any) => call.ok === true);
+      return await finishV2({
+        sb, input, contract, reply: advisoryTurn.reply,
+        reply_kind: asksQuestion ? "question" : "info",
+        path: "deterministic_tool", started_at: started,
+        tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+        model: brain.telemetry.model, provider: brain.telemetry.provider,
+        session_id,
+        tools: toolCalls.map((call: any) => String(call.tool_name ?? "")).filter(Boolean),
+        tool_calls: toolCalls.map((call: any) => ({
+          tool_name: String(call.tool_name ?? "advisory_engine"),
+          args: call.args,
+          result: call.result,
+          ok: call.ok === true,
+        })),
+        error: advisoryTurn.finish === "tool_error"
+          ? String(toolCalls.find((call: any) => call.ok === false)?.error ?? "advisory_engine_error")
+          : null,
+        memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+      });
+    }
+  }
+
   const plan = buildTurnPlan({ text: canonical, history });
   const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
   const basePeriod = multiPeriod.periods[0] ?? {
