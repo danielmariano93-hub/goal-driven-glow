@@ -16,7 +16,7 @@ describe("Nino AI provider independence", () => {
       expect(source, path).toContain("callStructuredFunction");
       expect(source, path).not.toContain('aiEndpoint(provider, "responses")');
       expect(source, path).not.toContain("ai.gateway.lovable.dev");
-      expect(source, path).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+      expect(source, path).not.toContain("LOVABLE_API_KEY");
     }
 
     const adapter = readFileSync("supabase/functions/_shared/ai-structured.ts", "utf8");
@@ -38,7 +38,7 @@ describe("Nino AI provider independence", () => {
       expect(source, path).toContain('aiEndpoint(provider, "chat/completions")');
       expect(source, path).toContain("normalizeAiModel");
       expect(source, path).not.toContain("ai.gateway.lovable.dev");
-      expect(source, path).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+      expect(source, path).not.toContain("LOVABLE_API_KEY");
     }
 
     const gateway = readFileSync("supabase/functions/_shared/ai-gateway.ts", "utf8");
@@ -79,7 +79,7 @@ describe("Nino AI provider independence", () => {
     for (const path of paths) {
       const source = readFileSync(path, "utf8");
       expect(source, path).not.toContain("ai.gateway.lovable.dev");
-      expect(source, path).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+      expect(source, path).not.toContain("LOVABLE_API_KEY");
       expect(source, path).not.toContain("createLovableAiGatewayProvider");
     }
   });

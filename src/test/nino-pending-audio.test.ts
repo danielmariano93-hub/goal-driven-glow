@@ -123,12 +123,12 @@ describe("pending_audio.v1 — áudio nunca é perdido por bloqueio de IA", () =
   });
 
   it("IA liberada: transcreve e entrega o texto ao pipeline textual", async () => {
-    const sse = [
-      'data: {"type":"transcript.text.delta","delta":"gastei "}',
-      'data: {"type":"transcript.text.done","text":"gastei 32 no mercado"}',
-      "",
-    ].join("\n");
-    globalThis.fetch = vi.fn(async () => new Response(sse, { status: 200 })) as any;
+    // Groq Whisper with response_format=json returns an OpenAI-compatible JSON
+    // envelope; streaming transcript SSE belonged to the previous provider path.
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ text: "gastei 32 no mercado" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )) as any;
     const sb = makeClient({ rows: [row()] });
     const deliver = vi.fn(async () => {});
     const out = await drainPendingAudio(sb, { deliver, notify: async () => {} });

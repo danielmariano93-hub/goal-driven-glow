@@ -40,7 +40,7 @@ import { merchantCanonical, storageMerchantKey } from "../_shared/categorization
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const DEFAULT_MODEL = "google/gemini-2.5-flash";
+const DEFAULT_MODEL = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
 const EXTRACTION_TIMEOUT_MS = 90 * 1000;
@@ -978,8 +978,8 @@ async function processDocument(documentId: string, userId: string, guidance: str
       await sb.from("document_imports").update({ sha256: sha }).eq("id", documentId).eq("user_id", userId);
     }
 
-    if (!LOVABLE_API_KEY) {
-      await finish({ status: "failed", error: encodeError("gateway:no_api_key", correlationId) });
+    if (!resolveAiProvider()) {
+      await finish({ status: "failed", error: encodeError("gateway:no_api_provider", correlationId) });
       return;
     }
 

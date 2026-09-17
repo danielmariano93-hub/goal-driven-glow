@@ -86,7 +86,12 @@ export function estimateCost(model: string, tokensIn: number, tokensOut: number)
   const m = String(model ?? "");
   // Ordem importa: variantes mais específicas primeiro.
   const [per1K_in, per1K_out] =
-      /flash-lite|gpt-5(\.\d)?-nano|gpt-5\.4-nano/.test(m) ? [0.0001, 0.0004]
+      // Groq production pricing, per 1K tokens. Keep these model ids before
+      // generic OpenAI/GPT matches so efficiency telemetry reflects the actual
+      // Nino runtime and preserves the intended light < reasoning cost ordering.
+      /openai\/gpt-oss-20b/.test(m) ? [0.000075, 0.000300]
+    : /openai\/gpt-oss-120b/.test(m) ? [0.000150, 0.000600]
+    : /flash-lite|gpt-5(\.\d)?-nano|gpt-5\.4-nano/.test(m) ? [0.0001, 0.0004]
     : /gemini-3(\.\d)?-flash|gemini-2\.5-flash/.test(m) ? [0.0003, 0.0012]
     : /gpt-5(\.\d)?-mini|gpt-5\.4-mini/.test(m) ? [0.0004, 0.0016]
     : /pro-preview|gemini-2\.5-pro/.test(m) ? [0.0013, 0.0100]
