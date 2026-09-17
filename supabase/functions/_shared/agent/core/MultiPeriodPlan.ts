@@ -44,8 +44,10 @@ function canonical(period: { from: string; to: string; label?: string }, index: 
 function comparableShape(ir: FinancialQueryIRv2): boolean {
   if (ir.queries.length !== 1) return false;
   const q = ir.queries[0];
+  const group = q.group_by?.[0] ?? null;
+  const comparisonByCategory = q.operation === "compare" && group === "category";
   return q.filters.length === 0
-    && (q.group_by?.length ?? 0) === 0
+    && ((q.group_by?.length ?? 0) === 0 || comparisonByCategory)
     && ["value", "sum", "compare"].includes(String(q.operation))
     && ["expense_amount", "income_amount"].includes(String(q.metric));
 }
