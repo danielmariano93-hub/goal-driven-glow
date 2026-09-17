@@ -10,11 +10,12 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
 import {
   adaptResponsesBody, aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider,
-  type AiProviderConfig,
+  type AiProviderConfig, type AiProviderName,
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
+import { isEnabled } from "./FeatureFlags.ts";
 import {
   BRAIN_ACTS, BRAIN_MODES, normalizeConversationTurnContract,
   type ConversationTurnContract,
@@ -41,6 +42,20 @@ export type ConversationBrainOutcome = {
 };
 
 type HistoryTurn = { role: "user" | "assistant"; content: string; created_at?: string };
+
+type ConversationBrainInput = {
+  text: string;
+  history: HistoryTurn[];
+  memory: ConversationMemory | null;
+  workflow: WriteWorkflow | null;
+  user_context?: string | null;
+  model: string;
+  sb?: SupabaseClient;
+  user_id?: string | null;
+  run_id?: string | null;
+  /** Used only by controlled shadow/evaluation paths. Product routing still comes from resolveAiProvider(). */
+  provider_override?: AiProviderConfig | null;
+};
 
 function brainTool() {
   return {
@@ -151,19 +166,136 @@ function statePrompt(memory: ConversationMemory | null, workflow: WriteWorkflow 
   return `ConversationState:\n${JSON.stringify({ state, open_write_workflow: openWrite })}`;
 }
 
-export async function interpretConversationTurn(input: {
-  text: string;
-  history: HistoryTurn[];
-  memory: ConversationMemory | null;
-  workflow: WriteWorkflow | null;
-  user_context?: string | null;
-  model: string;
-  sb?: SupabaseClient;
-  user_id?: string | null;
-  run_id?: string | null;
-  /** Used only by controlled shadow/evaluation paths. Product routing still comes from resolveAiProvider(). */
-  provider_override?: AiProviderConfig | null;
-}): Promise<ConversationBrainOutcome> {
+function env(name: string): string {
+  return String((globalThis as any).Deno?.env?.get(name) ?? "").trim();
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function actionKind(contract: ConversationTurnContract | null): string | null {
+  return contract?.action?.action ?? null;
+}
+
+async function runProviderShadow(args: {
+  input: ConversationBrainInput;
+  official_contract: ConversationTurnContract;
+  official_telemetry: ConversationBrainTelemetry;
+  official_provider: AiProviderName;
+}): Promise<void> {
+  if (!args.input.sb || !args.input.user_id) return;
+  if (!await isEnabled("ai_provider_shadow_v1", args.input.user_id)) return;
+
+  const requestedProvider = env("NINO_SHADOW_AI_PROVIDER").toLowerCase();
+  const requestedModel = env("NINO_SHADOW_AI_MODEL");
+  const baseRow = {
+    user_id: args.input.user_id,
+    conversation_id: (args.input as any).conversation_id ?? null,
+    official_provider: args.official_provider,
+    official_model: args.official_telemetry.model,
+    official_act: args.official_contract.act,
+    official_mode: args.official_contract.mode,
+    official_canonical_request: args.official_contract.canonical_request,
+    official_focus: args.official_contract.focus,
+    official_action: args.official_contract.action,
+    official_confidence: args.official_contract.confidence,
+    official_latency_ms: args.official_telemetry.latency_ms,
+  };
+
+  // conversation_id is not part of the Brain's semantic contract input today.
+  // Resolve it from the caller-provided telemetry context when available; if not,
+  // skip persistence rather than writing an unjoinable benchmark row.
+  const conversationId = (args.input as any).conversation_id as string | undefined;
+  if (!conversationId) return;
+
+  if (!requestedProvider || !requestedModel || !["groq", "openrouter"].includes(requestedProvider)) {
+    await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+      ...baseRow,
+      conversation_id: conversationId,
+      shadow_provider: requestedProvider || "unconfigured",
+      shadow_model: requestedModel || "unconfigured",
+      status: requestedProvider && requestedModel ? "shadow_error" : "not_configured",
+      error_code: requestedProvider && requestedModel ? "unsupported_shadow_provider" : "shadow_provider_not_configured",
+    }).catch(() => undefined);
+    return;
+  }
+
+  const shadowProvider = resolveAiProvider(undefined, {
+    provider: requestedProvider as AiProviderName,
+    model: requestedModel,
+  });
+  if (!shadowProvider) {
+    await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+      ...baseRow,
+      conversation_id: conversationId,
+      shadow_provider: requestedProvider,
+      shadow_model: requestedModel,
+      status: "not_configured",
+      error_code: "shadow_provider_key_missing",
+    }).catch(() => undefined);
+    return;
+  }
+
+  const shadow = await interpretConversationTurn({
+    text: args.input.text,
+    history: args.input.history,
+    memory: args.input.memory,
+    workflow: args.input.workflow,
+    user_context: args.input.user_context,
+    model: requestedModel,
+    provider_override: shadowProvider,
+  });
+  const candidate = shadow.contract;
+
+  await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+    ...baseRow,
+    conversation_id: conversationId,
+    shadow_provider: shadowProvider.provider,
+    shadow_model: shadow.telemetry.model || requestedModel,
+    shadow_act: candidate?.act ?? null,
+    shadow_mode: candidate?.mode ?? null,
+    shadow_canonical_request: candidate?.canonical_request ?? null,
+    shadow_focus: candidate?.focus ?? {},
+    shadow_action: candidate?.action ?? null,
+    shadow_confidence: candidate?.confidence ?? null,
+    same_act: candidate ? candidate.act === args.official_contract.act : null,
+    same_mode: candidate ? candidate.mode === args.official_contract.mode : null,
+    same_canonical_request: candidate
+      ? normalizeText(candidate.canonical_request) === normalizeText(args.official_contract.canonical_request)
+      : null,
+    same_focus: candidate ? stableJson(candidate.focus) === stableJson(args.official_contract.focus) : null,
+    same_action_kind: candidate ? actionKind(candidate) === actionKind(args.official_contract) : null,
+    shadow_latency_ms: shadow.telemetry.latency_ms,
+    shadow_tokens_in: shadow.telemetry.tokens_in,
+    shadow_tokens_out: shadow.telemetry.tokens_out,
+    status: candidate ? "ok" : "shadow_error",
+    error_code: shadow.telemetry.error ?? null,
+  }).catch(() => undefined);
+}
+
+function scheduleProviderShadow(args: {
+  input: ConversationBrainInput;
+  official_contract: ConversationTurnContract;
+  official_telemetry: ConversationBrainTelemetry;
+  official_provider: AiProviderName;
+}): void {
+  const work = runProviderShadow(args).catch((error) => {
+    console.warn("[ai-provider-shadow] evaluation failed", error);
+  });
+  const edgeRuntime = (globalThis as any).EdgeRuntime;
+  if (edgeRuntime && typeof edgeRuntime.waitUntil === "function") edgeRuntime.waitUntil(work);
+  else work.catch(() => undefined);
+}
+
+export async function interpretConversationTurn(input: ConversationBrainInput): Promise<ConversationBrainOutcome> {
   const started = Date.now();
   const fail = (error: string): ConversationBrainOutcome => ({
     contract: null,
@@ -257,14 +389,17 @@ export async function interpretConversationTurn(input: {
     const contract = normalizeConversationTurnContract(parsed);
     if (!contract) return fail("conversation_brain_contract_invalid");
 
-    return {
-      contract,
-      telemetry: {
-        model: requestModel, llm_calls: 1,
-        tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
-        latency_ms: Date.now() - started, ok: true, error: null,
-      },
+    const telemetry: ConversationBrainTelemetry = {
+      model: requestModel, llm_calls: 1,
+      tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
+      latency_ms: Date.now() - started, ok: true, error: null,
     };
+
+    if (!input.provider_override && input.sb && input.user_id) {
+      scheduleProviderShadow({ input, official_contract: contract, official_telemetry: telemetry, official_provider: provider.provider });
+    }
+
+    return { contract, telemetry };
   } catch (error) {
     const code = (error as { name?: string })?.name === "AbortError"
       ? "conversation_brain_timeout" : "conversation_brain_error";
