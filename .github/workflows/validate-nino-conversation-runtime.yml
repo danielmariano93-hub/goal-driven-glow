@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 env:
+  NINO_AI_PROVIDER: groq
   NINO_AI_MODEL: openai/gpt-oss-120b
   NINO_AI_FAST_MODEL: openai/gpt-oss-20b
 
@@ -100,3 +101,6 @@ jobs:
           if (JSON.parse(call.function.arguments).ok !== true) throw new Error('invalid emit_smoke payload');
           NODE
           done
+
+          echo 'Running real Conversation Brain provider smoke.'
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
