@@ -13,6 +13,8 @@ on:
       - 'supabase/migrations/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'vercel.json'
       - '.github/workflows/nino-conversation-ci.yml'
   workflow_dispatch:
 
