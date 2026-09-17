@@ -24,7 +24,7 @@ env:
   NINO_AI_PROVIDER: groq
   NINO_AI_MODEL: openai/gpt-oss-120b
   NINO_AI_FAST_MODEL: openai/gpt-oss-20b
-  NINO_AI_VISION_MODEL: qwen/qwen3.6-27b
+  NINO_AI_VISION_MODEL: qwen/qwen3.8-27b
   NINO_AI_TRANSCRIPTION_MODEL: whisper-large-v3-turbo
   NINO_SHADOW_AI_PROVIDER: groq
   NINO_SHADOW_AI_MODEL: openai/gpt-oss-120b
