@@ -37,17 +37,37 @@ describe("Nino AI provider independence", () => {
     expect(gateway).toContain('from "./ai-runtime.ts"');
   });
 
-  it("keeps Lovable as the product default and OpenAI as explicit opt-in only", () => {
+  it("keeps Lovable as default and every direct provider as explicit opt-in", () => {
     const runtime = readFileSync("supabase/functions/_shared/ai-runtime.ts", "utf8");
     expect(runtime).toContain('requested === "openai"');
-    expect(runtime).toContain("if (!openAiKey || !openAiModel) return null");
+    expect(runtime).toContain('requested === "groq"');
+    expect(runtime).toContain('requested === "openrouter"');
     expect(runtime).toContain('provider: "lovable"');
     expect(runtime).toContain("if (lovableKey)");
-    expect(runtime).toContain("Direct OpenAI is supported only as an");
-    expect(runtime).not.toContain("if (!requested && openAiKey && openAiModel)");
+    expect(runtime).not.toContain("if (!requested && openAiKey");
+    expect(runtime).not.toContain("if (!requested && groqKey");
+    expect(runtime).not.toContain("if (!requested && openRouterKey");
     expect(runtime).toContain("OPENAI_API_KEY");
     expect(runtime).toContain("LOVABLE_API_KEY");
+    expect(runtime).toContain("GROQ_API_KEY");
+    expect(runtime).toContain("OPENROUTER_API_KEY");
+    expect(runtime).toContain("https://api.groq.com/openai/v1");
+    expect(runtime).toContain("https://openrouter.ai/api/v1");
+    expect(runtime).toContain("adaptResponsesBody");
     expect(runtime).not.toContain("@ai-sdk/openai-compatible");
+  });
+
+  it("isolates Groq Responses incompatibilities in the provider adapter", () => {
+    const runtime = readFileSync("supabase/functions/_shared/ai-runtime.ts", "utf8");
+    expect(runtime).toContain('config.provider === "groq"');
+    expect(runtime).toContain("delete adapted.include");
+    expect(runtime).toContain("delete adapted.store");
+    expect(runtime).toContain("delete adapted.previous_response_id");
+    expect(runtime).toContain("delete adapted.truncation");
+
+    const brain = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
+    expect(brain).toContain("adaptResponsesBody(provider");
+    expect(brain).toContain("provider_override");
   });
 
   it("does not confuse explicit cancellation with conversational repair", () => {

@@ -5,7 +5,10 @@ on:
     paths:
       - 'supabase/functions/_shared/agent/**'
       - 'supabase/functions/_shared/ai-gateway.ts'
+      - 'supabase/functions/_shared/ai-runtime.ts'
       - 'src/lib/agent/**'
+      - 'src/components/admin/AiProviderBenchmarkBoard.tsx'
+      - 'src/pages/admin/CustoLatencia.tsx'
       - 'src/test/nino-*.test.ts'
       - 'supabase/migrations/**'
       - 'package.json'
@@ -54,6 +57,8 @@ jobs:
           src/test/nino-conversation-v2-golden-scenarios.test.ts
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
+          src/test/nino-ai-provider-shadow-v1.test.ts
+          src/test/nino-ai-provider-admin-benchmark.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
@@ -62,6 +67,7 @@ jobs:
       - name: Typecheck pure V2 contracts
         run: >-
           deno check --no-config
+          supabase/functions/_shared/ai-runtime.ts
           supabase/functions/_shared/agent/core/ActionIR.ts
           supabase/functions/_shared/agent/core/ConversationTurnContract.ts
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
