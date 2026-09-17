@@ -1,4 +1,4 @@
-export type AiProviderName = "openai" | "lovable" | "groq" | "openrouter";
+export type AiProviderName = "openai" | "groq" | "openrouter";
 export type AiProviderConfig = {
   provider: AiProviderName;
   baseUrl: string;
@@ -23,7 +23,6 @@ function envSnapshot(): Record<string, string | undefined> {
     NINO_AI_MODEL: Deno.env.get("NINO_AI_MODEL"),
     OPENAI_BASE_URL: Deno.env.get("OPENAI_BASE_URL"),
     OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
-    LOVABLE_API_KEY: Deno.env.get("LOVABLE_API_KEY"),
     GROQ_API_KEY: Deno.env.get("GROQ_API_KEY"),
     GROQ_BASE_URL: Deno.env.get("GROQ_BASE_URL"),
     OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
@@ -35,16 +34,15 @@ export function resolveAiProvider(
   env: Record<string, string | undefined> = envSnapshot(),
   options: ResolveAiProviderOptions = {},
 ): AiProviderConfig | null {
-  // Product default remains Lovable. Every external provider is explicit opt-in:
-  // merely having a key in the environment must never change production routing.
+  // Provider selection is explicit. Production sets NINO_AI_PROVIDER=groq;
+  // merely having another provider key in the environment must never reroute traffic.
   const requested = String(options.provider ?? env.NINO_AI_PROVIDER ?? "").trim().toLowerCase();
   const requestedModel = String(options.model ?? env.NINO_AI_MODEL ?? "").trim();
   const openAiKey = String(env.OPENAI_API_KEY ?? "").trim();
-  const lovableKey = String(env.LOVABLE_API_KEY ?? "").trim();
   const groqKey = String(env.GROQ_API_KEY ?? "").trim();
   const openRouterKey = String(env.OPENROUTER_API_KEY ?? "").trim();
 
-  if (requested && !["openai", "lovable", "groq", "openrouter"].includes(requested)) return null;
+  if (!requested || !["openai", "groq", "openrouter"].includes(requested)) return null;
 
   if (requested === "openai") {
     const model = requestedModel.replace(/^openai\//i, "");
@@ -72,37 +70,17 @@ export function resolveAiProvider(
     };
   }
 
-  if (requested === "openrouter") {
-    if (!openRouterKey || !requestedModel) return null;
-    return {
-      provider: "openrouter",
-      baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1"),
-      apiKey: openRouterKey,
-      headers: {
-        Authorization: `Bearer ${openRouterKey}`,
-        "X-Title": "Meu Nino",
-      },
-      modelOverride: requestedModel,
-    };
-  }
-
-  // Lovable is authoritative whenever no other provider was explicitly requested.
-  // This preserves the existing product/billing path while allowing shadow tests
-  // and a future deliberate migration to a direct provider.
-  if (lovableKey) {
-    return {
-      provider: "lovable",
-      baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || "https://ai.gateway.lovable.dev/v1"),
-      apiKey: lovableKey,
-      headers: {
-        "Lovable-API-Key": lovableKey,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
-      modelOverride: null,
-    };
-  }
-
-  return null;
+  if (!openRouterKey || !requestedModel) return null;
+  return {
+    provider: "openrouter",
+    baseUrl: cleanBaseUrl(env.NINO_AI_BASE_URL || env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1"),
+    apiKey: openRouterKey,
+    headers: {
+      Authorization: `Bearer ${openRouterKey}`,
+      "X-Title": "Meu Nino",
+    },
+    modelOverride: requestedModel,
+  };
 }
 
 export function aiEndpoint(config: AiProviderConfig, path: string): string {
@@ -113,16 +91,30 @@ export function aiJsonHeaders(config: AiProviderConfig): Record<string, string> 
   return { "Content-Type": "application/json", ...config.headers };
 }
 
+/**
+ * Resolves a caller model into the configured provider's model namespace.
+ * Provider-native specialist models (vision/audio) are preserved; legacy model
+ * ids from the old gateway are replaced by NINO_AI_MODEL.
+ */
 export function normalizeAiModel(model: string, config: AiProviderConfig): string {
   const value = String(model ?? "").trim();
+  if (config.provider === "groq") {
+    if (/^(?:openai\/gpt-oss-(?:20b|120b)|qwen\/qwen3\.(?:6|8)-27b|whisper-large-v3(?:-turbo)?)$/i.test(value)) {
+      return value;
+    }
+    return String(config.modelOverride ?? value).trim();
+  }
+  if (config.provider === "openai") {
+    const selected = String(config.modelOverride ?? value).trim();
+    return selected.replace(/^openai\//i, "");
+  }
   return String(config.modelOverride ?? value).trim();
 }
 
 /**
  * Normalizes an OpenAI Responses request for provider capability differences.
- * Groq currently rejects a few OpenAI fields even though the endpoint is largely
- * compatible. Keep those differences isolated here instead of spreading provider
- * conditionals through the Conversation Brain/Semantic Compiler.
+ * Keep provider conditionals isolated here instead of spreading them through
+ * the Conversation Brain/Semantic Compiler.
  */
 export function adaptResponsesBody(
   config: AiProviderConfig,
@@ -136,8 +128,6 @@ export function adaptResponsesBody(
     delete adapted.safety_identifier;
     delete adapted.prompt_cache_key;
     delete adapted.prompt;
-    // Groq accepts only false/null for store in Responses. Omitting it keeps the
-    // request compatible while preserving the Nino's stateless behavior.
     delete adapted.store;
   }
   return adapted;
