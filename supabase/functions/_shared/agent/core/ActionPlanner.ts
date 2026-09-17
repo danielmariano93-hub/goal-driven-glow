@@ -214,7 +214,7 @@ export async function plan(
   const effectiveFallback = route.fallback && runtimeProvider
     ? normalizeAiModel(route.fallback, runtimeProvider)
     : route.fallback;
-  const provider = runtimeProvider?.provider ?? String(route.primary).split("/")[0] || null;
+  const provider = runtimeProvider?.provider ?? (String(route.primary).split("/")[0] || null);
   // Pré-execução determinística da ferramenta canônica.
   const requiredTool = args.capability.required_tool;
   const toolArgs = args.capability.tool_args;
@@ -315,7 +315,7 @@ export async function plan(
     }
     return {
       path: "deterministic_fallback", errorSanitized: primarySanitized,
-      modelAttempts: [{ model: route.primary, ok: false, error: primarySanitized }],
+      modelAttempts: [{ model: effectivePrimary, ok: false, error: primarySanitized }],
       routeReason: `${route.reason}+primary_failed`, modelTier: tier,
       provider, fallbackAttempts: 1, flags,
     };
