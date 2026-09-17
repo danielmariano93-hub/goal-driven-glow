@@ -5,6 +5,10 @@ const migration = readFileSync(
   "supabase/migrations/20260917130000_supabase_free_readiness_guards.sql",
   "utf8",
 );
+const hardening = readFileSync(
+  "supabase/migrations/20260917134000_supabase_free_readiness_hardening.sql",
+  "utf8",
+);
 const cleanup = readFileSync(
   "supabase/scripts/supabase_free_readiness_cleanup.sql",
   "utf8",
@@ -17,12 +21,14 @@ describe("Supabase Free readiness", () => {
     expect(migration).toContain("nino_diag_evidence_dedupe_guard");
     expect(migration).toContain("NEW.status = 'observed'");
     expect(migration).toContain("OLD.status = 'observed'");
+    expect(hardening).toContain("nino_diag_event_dedupe_guard");
   });
 
-  it("reuses an identical live diagnosis snapshot during the same day", () => {
-    expect(migration).toContain("v_current.as_of IS NOT DISTINCT FROM _as_of");
-    expect(migration).toContain("v_current.payload IS NOT DISTINCT FROM v_payload");
-    expect(migration).toContain("RETURN v_current.id");
+  it("reuses unchanged live diagnosis snapshots without reducing refresh frequency", () => {
+    expect(hardening).toContain("nino_snapshot_material_payload");
+    expect(hardening).toContain("nino_assemble_diagnosis_raw");
+    expect(hardening).toContain("DELETE FROM public.nino_diagnosis_snapshots WHERE id=v_new_id");
+    expect(hardening).toContain("RETURN v_previous.id");
   });
 
   it("keeps cron history bounded without slowing product schedulers", () => {
@@ -36,6 +42,7 @@ describe("Supabase Free readiness", () => {
     expect(cleanup).toContain("2026-08-25 16:54:00+00");
     expect(cleanup).toContain("category_classification_attempts");
     expect(cleanup).toContain("transactions t WHERE t.category_decision_id=d.id");
+    expect(hardening).toContain("category_decisions_legacy_cleanup_idx");
   });
 
   it("adds capacity visibility to the existing admin cost tab", () => {
