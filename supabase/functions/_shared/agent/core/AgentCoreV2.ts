@@ -726,7 +726,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     })),
     error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    active_period: { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
-    comparison_period: plan.previous_period,
+    // Persist the period contract that was ACTUALLY executed. Using the
+    // pre-semantic planner period here stored July + an unrelated June window
+    // after a July/August turn, poisoning the next elliptical follow-up.
+    active_period: semantic.ir_v2?.period
+      ? { from: semantic.ir_v2.period.from, to: semantic.ir_v2.period.to, label: semantic.ir_v2.period.label ?? null }
+      : { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
+    comparison_period: semantic.ir_v2?.comparison_period
+      ? { from: semantic.ir_v2.comparison_period.from, to: semantic.ir_v2.comparison_period.to }
+      : null,
   });
 }
