@@ -15,7 +15,7 @@ import { service } from "./service.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
-import { loadConversationMemory, saveConversationMemory } from "./ConversationMemory.ts";
+import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
 import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
@@ -46,6 +46,15 @@ import {
 } from "./handlers/TypicalMonthlyHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
+import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
+import { recall, type MemoryKind } from "./MemoryStore.ts";
+import { loadPreferences, type Preferences } from "./PersonalizationEngine.ts";
+import { buildConversationUserContext } from "./ConversationContext.ts";
+import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
+import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
+import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
+import { detectExpectation } from "./ConversationExpectation.ts";
+import { learnFromTurn } from "./LearningLoop.ts";
 import { loadBrainUserContext } from "./BrainUserContext.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
