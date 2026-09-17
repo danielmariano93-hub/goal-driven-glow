@@ -8,8 +8,9 @@ import {
   type FinancialQueryIR,
 } from "./FinancialQueryIR.ts";
 import { executableOntologyText } from "./IRCapabilityAdapter.ts";
-import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
+import { recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { callStructuredFunction } from "../../ai-structured.ts";
+import { resolveAiProvider } from "../../ai-runtime.ts";
 
 /** Teto de latência do entendimento semântico (alinhado ao budget T3/T4). */
 export const COMPILER_DEADLINE_MS = 20_000;
@@ -180,7 +181,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       telemetry: { ...emptyTelemetry("unavailable"), ok: false, error: "llm_not_configured" },
     };
   }
-  const requestModel = normalizeAiModel(input.model, provider);
+  let requestModel = input.model;
 
   const started = Date.now();
   const controller = new AbortController();
@@ -200,94 +201,72 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       "Emita somente a chamada emit_financial_query_ir.",
     ].filter(Boolean).join("\n\n");
 
-    const response = await fetch(aiEndpoint(provider, "responses"), {
-      method: "POST",
-      headers: aiJsonHeaders(provider),
-      body: JSON.stringify({
-        model: requestModel,
-        input: [
-          { role: "developer", content: systemPrompt(maxQueries) },
-          { role: "user", content: user },
-        ],
-        tools: [responsesCompilerTool(maxQueries)],
-        tool_choice: { type: "function", name: "emit_financial_query_ir" },
-        stream: true,
-        store: false,
-        reasoning: { effort: "low", summary: "concise" },
-        include: ["reasoning.encrypted_content"],
-      }),
+    const structured = await callStructuredFunction({
+      provider,
+      model: input.model,
+      system: systemPrompt(maxQueries),
+      user,
+      tool: responsesCompilerTool(maxQueries),
       signal: controller.signal,
+      temperature: 0,
+      reasoning_effort: "low",
     });
+    requestModel = structured.model;
 
-    const text = await response.text();
-    let body: any = null;
-    let functionArguments = "";
-    for (const line of text.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        const event = JSON.parse(payload);
-        if (event.type === "response.function_call_arguments.delta") functionArguments += String(event.delta ?? "");
-        if (event.type === "response.function_call_arguments.done" && event.arguments) functionArguments = String(event.arguments);
-        if (event.type === "response.completed") body = event.response ?? body;
-      } catch { /* ignora linhas SSE incompletas */ }
-    }
-
-    if (!response.ok || !body) {
-      const error = `semantic_compiler_gateway_${response.status || "bad_json"}`;
+    if (!structured.ok) {
+      const error = structured.error_code === "structured_call_timeout"
+        ? "semantic_compiler_timeout"
+        : structured.status
+          ? `semantic_compiler_gateway_${structured.status}`
+          : "semantic_compiler_gateway_error";
       if (input.sb) {
         await recordAiUsage(input.sb, {
           workload: "AGENT_CONVERSATION", function_name: "agent-run",
           operation: "semantic_compile", user_id: input.user_id ?? null,
-          run_id: input.run_id ?? null, model: input.model,
-          success: false, http_status: response.status || null,
-          error_code: error, latency_ms: Date.now() - started,
+          run_id: input.run_id ?? null, model: structured.model,
+          provider: structured.provider, success: false, http_status: structured.status,
+          error_code: error, latency_ms: structured.latency_ms,
           reason_for_ai_call: input.reason ?? "semantic_ir_v1",
+          metadata: {
+            provider: structured.provider,
+            transport: "chat_completions_structured",
+            upstream_error: structured.error_detail,
+          },
         });
       }
       return {
         ir: null,
         telemetry: {
-          model: input.model, llm_calls: 1, tokens_in: 0, tokens_out: 0,
-          latency_ms: Date.now() - started, ok: false, error, source: "llm",
+          model: structured.model, llm_calls: 1,
+          tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
+          latency_ms: structured.latency_ms, ok: false, error, source: "llm",
         },
       };
     }
 
-    const usage = readGatewayUsage(body);
     if (input.sb) {
       await recordGatewayCall(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run",
         operation: "semantic_compile", user_id: input.user_id ?? null,
-        run_id: input.run_id ?? null, model: input.model,
-        success: true, latency_ms: Date.now() - started,
+        run_id: input.run_id ?? null, model: structured.model,
+        provider: structured.provider, success: true, latency_ms: structured.latency_ms,
         reason_for_ai_call: input.reason ?? "semantic_ir_v1",
-        metadata: { compiler_version: "nino_semantic_ir.v2", provider: provider.provider },
-      }, body);
-    }
-
-    const call = (body?.output ?? []).find((item: any) =>
-      item?.type === "function_call" && item?.name === "emit_financial_query_ir"
-    );
-    const rawArguments = functionArguments || String(call?.arguments ?? "");
-    if (!rawArguments) {
-      return {
-        ir: null,
-        telemetry: {
-          model: input.model, llm_calls: 1, tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
-          latency_ms: Date.now() - started, ok: false, error: "missing_ir_tool_call", source: "llm",
+        metadata: {
+          compiler_version: "nino_semantic_ir.v2",
+          provider: structured.provider,
+          transport: "chat_completions_structured",
         },
-      };
+      }, structured.body);
     }
 
+    const rawArguments = structured.arguments;
     let args: unknown;
     try { args = JSON.parse(rawArguments); }
     catch {
       return {
         ir: null,
         telemetry: {
-          model: input.model, llm_calls: 1, tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
+          model: input.model, llm_calls: 1, tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
           latency_ms: Date.now() - started, ok: false, error: "invalid_ir_json", source: "llm",
         },
       };
@@ -314,7 +293,7 @@ export async function compileFinancialQuery(input: CompileInput): Promise<Semant
       ir: errors.length ? null : withCanonicalPeriods(candidate, input.period, input.comparison_period),
       telemetry: {
         model: input.model, llm_calls: 1,
-        tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
+        tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
         latency_ms: Date.now() - started,
         ok: errors.length === 0,
         error: errors.length ? `ir_validation:${errors.join(",")}` : null,

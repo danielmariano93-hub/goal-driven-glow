@@ -15,10 +15,10 @@ import { service } from "./service.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
-import { loadConversationMemory, saveConversationMemory } from "./ConversationMemory.ts";
+import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
-import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
+import { normalizePeriodExpressions, type ConversationTurnContract } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
 import {
   attachLegacyShadowObservation,
@@ -46,8 +46,17 @@ import {
 } from "./handlers/TypicalMonthlyHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
+import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
+import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
+import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
+import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
+import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
+import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
+import { detectExpectation } from "./ConversationExpectation.ts";
+import { learnFromTurn } from "./LearningLoop.ts";
+import { loadBrainUserContext } from "./BrainUserContext.ts";
 
-const BRAIN_MODEL = "openai/gpt-6-astra";
+const BRAIN_MODEL = "openai/gpt-oss-120b";
 
 function looksLikeBulkOrDocument(text: string): boolean {
   const raw = String(text ?? "");
@@ -73,12 +82,71 @@ function safeReply(text: string): string {
  */
 function constraintsFromContract(contract: ConversationTurnContract, canonical: string) {
   return {
-    period: Boolean(contract.focus.period_expression),
+    period: normalizePeriodExpressions(contract.focus).length > 0,
     entity: Boolean(contract.focus.category || contract.focus.merchant || contract.focus.goal),
     // Dimensão é forma de saída (por cartão/categoria/conta/estabelecimento),
     // não uma nova intenção. Detectá-la lexicalmente não troca o significado.
     dimension: /\bpor\s+(?:cart[aã]o|conta|categoria|estabelecimento|m[eê]s|dia)\b/i.test(canonical),
   };
+}
+
+function topicContextText(base: string | null, topic: ResolverOutput | null): string | null {
+  const lines: string[] = [];
+  if (base?.trim()) lines.push(base.trim());
+  if (topic?.clarification_required && topic.clarification_options.length) {
+    lines.push(
+      `TopicResolution=ambiguous; opções=${topic.clarification_options.slice(0, 3).join(" | ")}. ` +
+      `Se a mensagem atual depender de contexto anterior, pergunte qual assunto o usuário quer retomar.`,
+    );
+  } else if (topic?.topic) {
+    const t = topic.topic;
+    lines.push(
+      `Tópico durável relevante: assunto=${t.subject}; última_pergunta=${String(t.last_query ?? "").slice(0, 240)}; ` +
+      `resumo=${String(t.summary ?? "").slice(0, 180) || "—"}; período=${t.period_from ?? "—"}..${t.period_to ?? "—"}.`,
+    );
+  }
+  return lines.length ? lines.join("\n").slice(0, 7000) : null;
+}
+
+function subjectFromContract(contract: ConversationTurnContract): string {
+  return contract.focus.goal
+    ? `meta:${contract.focus.goal}`
+    : contract.focus.category
+      ? `categoria:${contract.focus.category}`
+      : contract.focus.merchant
+        ? `estabelecimento:${contract.focus.merchant}`
+        : contract.mode === "write"
+          ? `escrita:${contract.action?.action ?? "financeira"}`
+          : contract.mode;
+}
+
+function suggestionsAllowed(userContext: string | null | undefined): boolean {
+  const text = String(userContext ?? "");
+  return !/"suggestion_frequency"\s*:\s*"low"/i.test(text)
+    && !/sugest(?:ao|oes)[^\n]{0,20}=low/i.test(text);
+}
+
+function suggestionForSemantic(semantic: any): string | null {
+  if (!semantic || semantic.status !== "executable") return null;
+  const q = semantic.ir_v2?.queries?.[0];
+  if (!q) return null;
+  const group = q.group_by?.[0] ?? null;
+  if (q.metric === "expense_amount" && q.operation === "rank" && group === "category") {
+    return "Se quiser, eu abro a categoria que mais pesou e mostro os principais estabelecimentos.";
+  }
+  if (q.metric === "expense_amount" && q.operation === "rank" && group === "merchant") {
+    return "Se quiser, eu separo isso por categoria ou comparo com o período anterior.";
+  }
+  if (q.metric === "expense_amount" && ["sum", "value"].includes(q.operation)) {
+    return "Se quiser, eu comparo esse valor com o período anterior e mostro o que mais mudou.";
+  }
+  if (q.metric === "goal_progress") {
+    return "Se quiser, eu transformo esse progresso em um próximo passo objetivo para a meta.";
+  }
+  if (q.metric === "financial_health") {
+    return "Posso transformar esse diagnóstico em um próximo passo prático para este mês.";
+  }
+  return null;
 }
 
 async function enqueueIfNeeded(sb: any, input: HandleTurnInput, body: string): Promise<void> {
@@ -101,6 +169,8 @@ async function recordV2Run(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  model?: string | null;
+  provider?: string | null;
   tools?: string[];
   error?: string | null;
 }): Promise<string | undefined> {
@@ -110,7 +180,8 @@ async function recordV2Run(args: {
       user_id: args.input.user_id,
       conversation_id: args.input.conversation_id,
       prompt_version_id: null,
-      model: BRAIN_MODEL,
+      model: args.model ?? BRAIN_MODEL,
+      provider: args.provider ?? null,
       status: args.error ? "error" : "done",
       started_at: new Date(args.started_at).toISOString(),
       ended_at: now,
@@ -144,19 +215,122 @@ async function finishV2(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  model?: string | null;
+  provider?: string | null;
   draft_id?: string;
   result?: unknown;
   session_id?: string;
   tools?: string[];
+  tool_calls?: Array<{ tool_name: string; args?: any; result?: any; ok: boolean }>;
   error?: string | null;
+  memory?: ConversationMemory | null;
+  topic_repo?: TopicRepository | null;
+  topic_resolution?: ResolverOutput | null;
+  active_period?: { from: string; to: string; label?: string | null } | null;
+  comparison_period?: { from: string; to: string } | null;
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
+
+  // Durable topic continuity is updated for meaningful V2 topics. Pure social
+  // turns ("oi", "obrigado") must not replace the financial topic the user may
+  // resume a message later.
+  const incidentalConversation = args.contract.mode === "converse"
+    && args.contract.act === "conversational"
+    && !args.contract.inherit_focus;
+  let activeTopicId = args.topic_resolution?.topic_id
+    ?? (args.contract.act === "topic_switch" ? null : args.memory?.active_topic_id ?? null);
+  const shouldPersistTopic = !!args.topic_repo
+    && !args.topic_resolution?.clarification_required
+    && !incidentalConversation;
+  if (shouldPersistTopic && args.topic_repo) {
+    const subject = subjectFromContract(args.contract);
+    if (activeTopicId) {
+      await args.topic_repo.touch(activeTopicId, {
+        subject,
+        last_query: String(args.contract.canonical_request ?? args.input.text).slice(0, 600),
+        status: args.reply_kind === "question" ? "clarifying" : "answered",
+        keywords: keywordsOf(String(args.contract.canonical_request ?? args.input.text)),
+        period_from: args.active_period?.from ?? null,
+        period_to: args.active_period?.to ?? null,
+      } as any).catch(() => undefined);
+    } else {
+      const opened = await args.topic_repo.open({
+        subject,
+        title: String(args.contract.canonical_request ?? args.input.text).slice(0, 80),
+        last_query: String(args.contract.canonical_request ?? args.input.text).slice(0, 600),
+        keywords: keywordsOf(String(args.contract.canonical_request ?? args.input.text)),
+        period: args.active_period ? { from: args.active_period.from, to: args.active_period.to } : null,
+      }).catch(() => null);
+      activeTopicId = opened?.id ?? null;
+    }
+    if (activeTopicId && args.input.inbound_message_id) {
+      await args.topic_repo.linkMessage({
+        topic_id: activeTopicId,
+        message_id: args.input.inbound_message_id,
+        direction: "inbound",
+        surface: args.input.channel,
+      }).catch(() => undefined);
+    }
+  }
+
+  if (args.session_id) {
+    const inherit = args.contract.inherit_focus;
+    const awaiting = args.contract.mode === "clarify"
+      ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
+      : detectExpectation(body);
+    await saveConversationMemory(args.sb, args.session_id, {
+      current_topic: incidentalConversation
+        ? args.memory?.current_topic ?? null
+        : subjectFromContract(args.contract),
+      active_topic_id: incidentalConversation
+        ? args.memory?.active_topic_id ?? null
+        : activeTopicId,
+      previous_intent: incidentalConversation
+        ? args.memory?.previous_intent ?? null
+        : args.contract.mode,
+      active_category: incidentalConversation
+        ? args.memory?.active_category ?? null
+        : args.contract.focus.category ?? (inherit ? args.memory?.active_category ?? null : null),
+      active_merchant: incidentalConversation
+        ? args.memory?.active_merchant ?? null
+        : args.contract.focus.merchant ?? (inherit ? args.memory?.active_merchant ?? null : null),
+      active_period: incidentalConversation
+        ? args.memory?.active_period ?? null
+        : args.active_period ?? (inherit ? args.memory?.active_period ?? null : null),
+      comparison_period: incidentalConversation
+        ? args.memory?.comparison_period ?? null
+        : args.comparison_period ?? (inherit ? args.memory?.comparison_period ?? null : null),
+      pending_slots: args.reply_kind === "question" ? ["brain_clarification"] : [],
+      awaiting: args.reply_kind === "question" && !awaiting
+        ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
+        : awaiting,
+      pending_conversation_action: detectContinuationOffer(body)
+        ?? (incidentalConversation ? args.memory?.pending_conversation_action ?? null : null),
+      conversation_summary: incidentalConversation
+        ? args.memory?.conversation_summary ?? null
+        : String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
+    }).catch(() => null);
+  }
+
   await enqueueIfNeeded(args.sb, args.input, body);
   const run_id = await recordV2Run({
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
+    model: args.model, provider: args.provider,
     tools: args.tools, error: args.error,
   });
+
+  // V2 must learn too. Previously the 100% Conversation Brain rollout bypassed
+  // the legacy learning loop, so corrections/preferences stopped reinforcing.
+  await learnFromTurn(args.sb, {
+    user_id: args.input.user_id,
+    intent: `brain:${args.contract.mode}`,
+    policy_decision: args.contract.act,
+    reply_kind: String(args.reply_kind ?? "info"),
+    tool_calls: args.tool_calls ?? (args.tools ?? []).map((tool_name) => ({ tool_name, ok: !args.error })),
+    user_text: args.input.text,
+  }).catch(() => undefined);
+
   return {
     reply: body,
     reply_kind: args.reply_kind,
@@ -269,22 +443,60 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   }).catch(() => null as any);
   const session_id = session?.id as string | undefined;
 
-  const [loadedHistory, memory, workflow] = await Promise.all([
-    loadHistory(sb, input.conversation_id, { limit: 12, excludeMessageId: input.inbound_message_id }).catch(() => []),
+  const threadsEnabled = await isEnabled("conversation_threads_v1", input.user_id).catch(() => false);
+  const topicRepo = threadsEnabled
+    ? createTopicRepository({ sb, user_id: input.user_id, conversation_id: input.conversation_id })
+    : null;
+
+  const [loadedHistory, memory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
+    loadHistory(sb, input.conversation_id, { limit: 16, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
+    loadBrainUserContext(sb, input.user_id).catch(() => null),
+    topicRepo ? topicRepo.listRecent(12).catch(() => []) : Promise.resolve([]),
+    topicRepo && input.reply_context?.quoted_message_id
+      ? topicRepo.findByMessageId(input.reply_context.quoted_message_id).catch(() => null)
+      : Promise.resolve(null),
   ]);
+
   // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
   // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
   const history = input.channel === "app"
     ? loadedHistory
     : withoutCurrentTurn(loadedHistory, input.text);
 
-  const brain = await interpretConversationTurn({
+  // A resposta curta "sim/quero/pode" primeiro tenta cumprir a oferta que o
+  // próprio Nino acabou de fazer. Sem isso, cada aceite precisa ser
+  // reinterpretado do zero pelo modelo.
+  const continuation = resolveContinuation({
     text: input.text,
+    action: memory?.pending_conversation_action ?? null,
+    hasPendingWrite: !!pending,
+  });
+  const brainText = continuation.continue && continuation.prompt ? continuation.prompt : input.text;
+  if (continuation.continue && session_id) {
+    await saveConversationMemory(sb, session_id, { pending_conversation_action: null }).catch(() => null);
+  }
+
+  const topicResolution = topicRepo
+    ? resolveConversation({
+      text: brainText,
+      quoted_message_id: input.reply_context?.quoted_message_id ?? null,
+      quoted_topic: quotedTopic,
+      has_pending_confirmation: !!pending,
+      awaiting_answer: Boolean(memory?.awaiting),
+      active_topic_id: memory?.active_topic_id ?? null,
+      topics: recentTopics,
+    })
+    : null;
+  const userContext = topicContextText(durableUserContext, topicResolution);
+
+  const brain = await interpretConversationTurn({
+    text: brainText,
     history,
     memory,
     workflow,
+    user_context: userContext,
     model: BRAIN_MODEL,
     sb,
     user_id: input.user_id,
@@ -300,7 +512,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     return await finishV2({
       sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: "llm",
       started_at: started, tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      session_id,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
@@ -309,7 +522,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       sb, input, contract, reply: contract.clarification_question!,
       reply_kind: "question", path: "llm", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      session_id,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
@@ -325,20 +539,74 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       evidenceCache,
     });
     if (!write.handled) return await handleLegacyTurn(input);
+    const writeExecuted = Boolean(write.tool_name && write.reply_kind !== "question");
     return await finishV2({
       sb, input, contract, reply: write.reply,
       reply_kind: write.reply_kind === "draft" ? "draft" : write.reply_kind === "question" ? "question" : "info",
       path: "llm", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
       draft_id: write.draft_id, result: write.tool_result, session_id,
-      tools: write.tool_name ? [write.tool_name] : [], error: write.error ?? null,
+      tools: writeExecuted && write.tool_name ? [write.tool_name] : [],
+      tool_calls: writeExecuted && write.tool_name ? [{
+        tool_name: write.tool_name,
+        args: write.tool_args,
+        result: write.tool_result,
+        ok: !write.error,
+      }] : [],
+      error: write.error ?? null,
+      memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
-  // READ: Brain resolve significado/continuidade; Semantic Compiler apenas
-  // traduz o pedido canônico para Financial IR. Nenhum router reinterpreta o act.
-  const canonical = String(contract.canonical_request ?? input.text).trim();
+  // READ: Brain resolve significado/continuidade. Advisory intents with a
+  // dedicated canonical engine are bound here BEFORE FinancialQueryIR. This is
+  // not a second language classifier: the bridge only reads the canonical
+  // request emitted by the Conversation Brain.
+  const canonical = String(contract.canonical_request ?? brainText).trim();
+  const advisory = resolveBrainAdvisory(contract);
+  if (advisory) {
+    const advisoryTurn = await executeDeterministicCapability(sb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      user_text: canonical,
+      capability: advisory.capability,
+      evidenceCache,
+    }).catch(() => null);
+
+    if (advisoryTurn) {
+      const toolCalls = advisoryTurn.toolCalls ?? [];
+      const asksQuestion = /\?\s*$/.test(String(advisoryTurn.reply ?? "").trim())
+        && toolCalls.some((call: any) => call.ok === true);
+      return await finishV2({
+        sb, input, contract, reply: advisoryTurn.reply,
+        reply_kind: asksQuestion ? "question" : "info",
+        path: "deterministic_tool", started_at: started,
+        tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+        model: brain.telemetry.model, provider: brain.telemetry.provider,
+        session_id,
+        tools: toolCalls.map((call: any) => String(call.tool_name ?? "")).filter(Boolean),
+        tool_calls: toolCalls.map((call: any) => ({
+          tool_name: String(call.tool_name ?? "advisory_engine"),
+          args: call.args,
+          result: call.result,
+          ok: call.ok === true,
+        })),
+        error: advisoryTurn.finish === "tool_error"
+          ? String(toolCalls.find((call: any) => call.ok === false)?.error ?? "advisory_engine_error")
+          : null,
+        memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+      });
+    }
+  }
+
   const plan = buildTurnPlan({ text: canonical, history });
+  const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
+  const basePeriod = multiPeriod.periods[0] ?? {
+    from: plan.effective_period.from,
+    to: plan.effective_period.to,
+    label: plan.effective_period.label,
+  };
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
@@ -351,12 +619,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     acts,
     constraints,
     period: {
-      from: plan.effective_period.from,
-      to: plan.effective_period.to,
-      label: plan.effective_period.label,
+      from: basePeriod.from,
+      to: basePeriod.to,
+      label: basePeriod.label,
     },
     comparison_period: plan.previous_period,
-    previous_query: null,
+    periods: multiPeriod.periods.length >= 2 ? multiPeriod.periods : null,
+    comparison_intent: multiPeriod.comparison_intent,
+    previous_query: contract.inherit_focus ? (memory?.conversation_summary ?? null) : null,
     topic_state: state?.semantic_topic_state ?? null,
     max_queries: multiQuery ? MAX_IR_QUERIES : 1,
     investigation_enabled: investigation,
@@ -370,9 +640,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       text: args.text,
       model: BRAIN_MODEL,
       period: {
-        from: plan.effective_period.from,
-        to: plan.effective_period.to,
-        label: plan.effective_period.label,
+        from: basePeriod.from,
+        to: basePeriod.to,
+        label: basePeriod.label,
       },
       comparison_period: plan.previous_period,
       previous_query: args.previous_query,
@@ -421,31 +691,32 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
-  await saveConversationMemory(sb, session_id ?? null, {
-    current_topic: contract.focus.category ? "gastos" : memory?.current_topic ?? null,
-    active_category: contract.focus.category ?? (contract.inherit_focus ? memory?.active_category ?? null : null),
-    active_merchant: contract.focus.merchant ?? (contract.inherit_focus ? memory?.active_merchant ?? null : null),
-    active_period: {
-      from: plan.effective_period.from,
-      to: plan.effective_period.to,
-      label: plan.effective_period.label,
-    },
-    comparison_period: plan.previous_period,
-    pending_slots: semantic.status === "clarification_required" ? ["semantic_clarification"] : [],
-  }).catch(() => null);
-
-  const reply = semantic.turn?.reply
+  let reply = semantic.turn?.reply
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
+  if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
+    const suggestion = suggestionForSemantic(semantic);
+    if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
+  }
 
   return await finishV2({
     sb, input, contract, reply, reply_kind: replyKind,
     path: "llm", started_at: started,
     tokens_in: brain.telemetry.tokens_in,
     tokens_out: brain.telemetry.tokens_out,
+    model: brain.telemetry.model, provider: brain.telemetry.provider,
     session_id,
     tools: semantic.engines,
-    error: semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null,
+    tool_calls: (semantic.turn?.toolCalls ?? []).map((call: any) => ({
+      tool_name: String(call.tool_name ?? "semantic_engine"),
+      args: call.args,
+      result: call.result,
+      ok: call.ok === true,
+    })),
+    error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
+    memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    active_period: { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
+    comparison_period: plan.previous_period,
   });
 }

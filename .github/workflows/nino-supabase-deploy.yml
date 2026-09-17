@@ -65,10 +65,19 @@ jobs:
           src/test/nino-conversation-authority-p0.test.ts
           src/test/nino-conversation-brain-v1.test.ts
           src/test/nino-action-slot-resolver.test.ts
+          src/test/nino-advisory-bridge.test.ts
           src/test/nino-conversation-v2-golden-scenarios.test.ts
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
+          src/test/nino-semantic-ir-v2.test.ts
+          src/test/nino-semantic-ir-v3.test.ts
+          src/test/nino-semantic-pipeline.test.ts
+          src/test/nino-intelligence-core.test.ts
+          src/test/nino-brain-user-context.test.ts
+          src/test/nino-conversation-memory-safety.test.ts
+          src/test/nino-response-preference-learning.test.ts
+          src/test/continuation-contract.test.ts
 
       - name: Production build
         run: npm run build
@@ -168,16 +177,64 @@ jobs:
           console.log(`Groq credential valid; required models available: ${wanted.join(', ')}`);
           NODE
 
-          responses_status="$(curl --silent --show-error \
-            --output /tmp/groq-response.json \
-            --write-out '%{http_code}' \
-            --header "Authorization: Bearer $GROQ_API_KEY" \
-            --header 'Content-Type: application/json' \
-            --data "{\"model\":\"$NINO_AI_MODEL\",\"input\":\"Return exactly the word ok.\",\"max_output_tokens\":8}" \
-            https://api.groq.com/openai/v1/responses)"
-          test "$responses_status" = "200" || (echo "Groq Responses endpoint returned HTTP $responses_status" && exit 1)
-          echo 'Groq Responses compatibility smoke test passed.'
-          rm -f /tmp/groq-models.json /tmp/groq-response.json
+          # Exercise the exact transport used by ConversationBrain,
+          # SemanticCompiler and HumanUnderstanding. A plain text smoke test is
+          # insufficient: the 17/09 incident passed CI while forced tool calls
+          # failed at runtime.
+          for smoke_model in "$NINO_AI_MODEL" "$NINO_AI_FAST_MODEL"; do
+            SMOKE_MODEL="$smoke_model" node <<'NODE'
+          const fs = require('fs');
+          const body = {
+            model: process.env.SMOKE_MODEL,
+            messages: [
+              { role: 'system', content: 'Return data only through emit_smoke.' },
+              { role: 'user', content: 'Emit ok=true.' },
+            ],
+            tools: [{
+              type: 'function',
+              function: {
+                name: 'emit_smoke',
+                description: 'Runtime structured-call compatibility probe.',
+                parameters: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: { ok: { type: 'boolean' } },
+                  required: ['ok'],
+                },
+              },
+            }],
+            tool_choice: { type: 'function', function: { name: 'emit_smoke' } },
+            temperature: 0,
+            reasoning_effort: 'low',
+          };
+          fs.writeFileSync('/tmp/groq-structured-request.json', JSON.stringify(body));
+          NODE
+
+            structured_status="$(curl --silent --show-error \
+              --output /tmp/groq-structured-response.json \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $GROQ_API_KEY" \
+              --header 'Content-Type: application/json' \
+              --data @/tmp/groq-structured-request.json \
+              https://api.groq.com/openai/v1/chat/completions)"
+            test "$structured_status" = "200" || (echo "Groq structured Chat Completions returned HTTP $structured_status for $smoke_model" && cat /tmp/groq-structured-response.json && exit 1)
+
+            node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/groq-structured-response.json', 'utf8'));
+          const call = body?.choices?.[0]?.message?.tool_calls?.find(
+            item => item?.type === 'function' && item?.function?.name === 'emit_smoke'
+          );
+          if (!call?.function?.arguments) throw new Error('Structured tool call missing');
+          const args = JSON.parse(call.function.arguments);
+          if (args.ok !== true) throw new Error('Structured tool arguments invalid');
+          NODE
+            echo "Groq structured function-call smoke passed for $smoke_model."
+          done
+          rm -f /tmp/groq-models.json /tmp/groq-structured-request.json /tmp/groq-structured-response.json
+
+          echo 'Running real Conversation Brain provider smoke.'
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
 
       - name: Sync Groq runtime configuration to Supabase
         env:

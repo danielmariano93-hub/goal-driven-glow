@@ -67,10 +67,10 @@ describe("Nino Intelligence Core", () => {
     }).reason).toBe("weekly_frequency_cap");
   });
 
-  it("usa fallback independente quando não há override", () => {
+  it("usa somente modelos do runtime próprio quando não há override", () => {
     const route = selectModelRoute("financial_analysis", "google/gemini-2.5-flash", 8);
-    expect(route.primary).toBe("google/gemini-3.7-flash");
-    expect(route.fallback).toBe("openai/gpt-5.4-mini");
+    expect(route.primary).toBe("openai/gpt-oss-120b");
+    expect(route.fallback).toBe("openai/gpt-oss-20b");
     expect(route.fallback).not.toBe(route.primary);
   });
 

@@ -884,7 +884,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     humanReading = await guard(
       () => understandHumanMessage({
         text: input.text,
-        model: "openai/gpt-6-astra",
+        model: "openai/gpt-oss-120b",
         sb,
         user_id: input.user_id,
         run_id: run_id ?? null,
@@ -1050,7 +1050,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       }, {
         compile: (args) => compileFinancialQuery({
           text: args.text,
-          model: "openai/gpt-6-astra",
+          model: "openai/gpt-oss-120b",
           period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
           comparison_period: turnPlan.previous_period,
           previous_query: args.previous_query,
@@ -1216,7 +1216,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     const outcome = await guard(
       () => compileFinancialQuery({
         text: turnPlan.effective_text,
-        model: "openai/gpt-6-astra",
+        model: "openai/gpt-oss-120b",
         period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
         comparison_period: turnPlan.previous_period,
         previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
@@ -1658,7 +1658,7 @@ ${episodic}
     // Resolução de continuidade continua com o histórico completo do turno.
     history, capability, evidenceCache,
   }, {
-    model: "openai/gpt-6-astra",
+    model: "openai/gpt-oss-120b",
     maxSteps: prompt?.max_steps ?? 6,
     temperature: prompt?.temperature ?? 0.2,
     systemPrompt,

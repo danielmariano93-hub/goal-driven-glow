@@ -82,22 +82,55 @@ const FINANCIAL_VOLATILE_KEYS = new Set([
   "projection", "previsao", "previsão", "total", "amount_cents", "amount",
 ]);
 
+function redactVolatileFinancialText(text: string): string {
+  return String(text ?? "")
+    // Explicit currency values are never durable relationship memory.
+    .replace(/R\$\s*\d[\d.,]*/gi, "R$ [valor]")
+    // Also redact bare values when they are directly attached to a live
+    // financial-state noun. Dates, percentages and ordinary counts survive.
+    .replace(
+      /\b(saldo|fatura|patrim[oô]nio|d[ií]vida|receita|renda|gasto(?:s)?|total)\s*(?:é|e|era|de|em|:)?\s*\d[\d.,]*/gi,
+      "$1 [valor]",
+    );
+}
+
+function sanitizeNestedMemory(
+  value: unknown,
+  dropped: string[],
+  path = "",
+  depth = 0,
+): unknown {
+  if (depth > 6) return null;
+  if (Array.isArray(value)) {
+    return value.slice(0, 30).map((item, index) =>
+      sanitizeNestedMemory(item, dropped, `${path}[${index}]`, depth + 1)
+    );
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const key = k.toLowerCase();
+      const nextPath = path ? `${path}.${k}` : k;
+      const looksFinancial = FINANCIAL_VOLATILE_KEYS.has(key)
+        || /(^|_)(saldo|balance|patrimonio|fatura|invoice|amount|valor|total|net_worth|debt|divida|income|receita|forecast|projection|previsao)(_|$)/.test(key);
+      if (looksFinancial) {
+        dropped.push(nextPath);
+        continue;
+      }
+      out[k] = sanitizeNestedMemory(v, dropped, nextPath, depth + 1);
+    }
+    return out;
+  }
+  if (typeof value === "string") return redactVolatileFinancialText(value).slice(0, 1000);
+  return value;
+}
+
 export function stripVolatileFinancialState(
   value: Record<string, unknown>,
 ): { value: Record<string, unknown>; dropped: string[] } {
-  const out: Record<string, unknown> = {};
   const dropped: string[] = [];
-  for (const [k, v] of Object.entries(value ?? {})) {
-    const key = k.toLowerCase();
-    const looksFinancial = FINANCIAL_VOLATILE_KEYS.has(key)
-      || /(^|_)(saldo|balance|patrimonio|fatura|amount|valor|total)(_|$)/.test(key);
-    if (looksFinancial && (typeof v === "number" || typeof v === "bigint")) {
-      dropped.push(k);
-      continue;
-    }
-    out[k] = v;
-  }
-  return { value: out, dropped };
+  const sanitized = sanitizeNestedMemory(value ?? {}, dropped) as Record<string, unknown>;
+  return { value: sanitized ?? {}, dropped };
 }
 
 export type StructuredFact = {
@@ -160,9 +193,13 @@ export async function remember(sb: SupabaseClient, rec: MemoryRecord): Promise<M
     return existing as MemoryFact;
   }
 
+  // Apply the same volatile-state guard to EVERY memory write. The previous
+  // implementation only sanitized rememberStructured(), while learnFromTurn()
+  // called remember() directly and could persist last_amount/other live money.
+  const sanitized = stripVolatileFinancialState(rec.value ?? {}).value;
   const payload = {
     user_id: rec.user_id, kind: rec.kind, key,
-    value: rec.value ?? {},
+    value: sanitized,
     confidence: Math.max(0, Math.min(1, rec.confidence ?? 0.6)),
     source,
     visibility: rec.visibility ?? "user",
@@ -186,7 +223,7 @@ export async function correctFact(
   if (!args.user_id || !args.id || !args.value) return null;
   const { data } = await sb.from("agent_memory")
     .update({
-      value: args.value,
+      value: stripVolatileFinancialState(args.value).value,
       source: "correction",
       confidence: 1,
       expires_at: args.expires_at ?? null,

@@ -21,6 +21,7 @@ import { classifyDialogueState } from "../../supabase/functions/_shared/agent/co
 import { fastPathIR, isSemanticReadEligible } from "../../supabase/functions/_shared/agent/core/SemanticRouting";
 import { applyAiStageTotals, recordAiStage } from "../../supabase/functions/_shared/agent/core/AiStageMetrics";
 import { mappingForQuery } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
+import { expandIRForPeriods } from "../../supabase/functions/_shared/agent/core/MultiPeriodPlan";
 
 const period = { from: "2026-06-04", to: "2026-09-01", label: "últimos 90 dias" };
 const previous = { from: "2026-03-06", to: "2026-06-03", label: "90 dias anteriores" };
@@ -173,17 +174,53 @@ describe("nino_semantic_ir.v3 — status e precedência", () => {
     })).toBe(false);
   });
 
-  it("TESTE ARQUITETURAL: READ não-fast-path força o Semantic Compiler", () => {
+  it("TESTE ARQUITETURAL: ranking claro de categorias não depende da LLM", () => {
     const state = classifyDialogueState("quais categorias mais gastei nos últimos 90 dias?", { kind: "question" } as any);
     const fast = fastPathIR({
       text: "quais categorias mais gastei nos últimos 90 dias?",
       acts: state.acts, constraints: state.constraints, period, comparison_period: previous,
     });
-    // Fast Path recusa (ranking + período) => o compilador semântico é obrigatório.
-    expect(fast).toBeNull();
+    expect(fast).not.toBeNull();
+    expect(fast?.queries[0]).toMatchObject({
+      metric: "expense_amount",
+      operation: "rank",
+      group_by: ["category"],
+      limit: 5,
+    });
     expect(isSemanticReadEligible({
       capability_name: "financial_snapshot", acts: state.acts, has_clarification: false,
     })).toBe(true);
+  });
+
+  it("INCIDENTE 17/09: julho e agosto viram duas execuções de ranking, nunca month_report", () => {
+    const text = "Nino, em quais categorias eu mais gastei nos meses de julho e agosto?";
+    const state = classifyDialogueState(text, { kind: "question" } as any);
+    const base = fastPathIR({
+      text,
+      acts: state.acts,
+      constraints: state.constraints,
+      period: { from: "2026-07-01", to: "2026-07-31", label: "julho" },
+      comparison_period: null,
+    });
+    expect(base).not.toBeNull();
+    const expanded = expandIRForPeriods(
+      normalizeToV2(base!),
+      [
+        { from: "2026-07-01", to: "2026-07-31", label: "julho" },
+        { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      ],
+      false,
+    );
+    expect(expanded.applied).toBe(true);
+    expect(expanded.mode).toBe("fanout");
+    expect(expanded.ir.queries).toHaveLength(2);
+    for (const q of expanded.ir.queries) {
+      expect(q).toMatchObject({ metric: "expense_amount", operation: "rank", group_by: ["category"] });
+      const mapped = mappingForQuery(q, expanded.ir as any);
+      expect(mapped?.tool).toBe("analyze_spending");
+      expect(mapped?.args).toMatchObject({ metric: "expense", group_by: "category", view: "rank" });
+    }
+    expect(expanded.ir.queries.map((q) => q.period?.label)).toEqual(["julho", "agosto"]);
   });
 
   it("Fast Path só aceita métrica canônica única sem ambiguidade", () => {

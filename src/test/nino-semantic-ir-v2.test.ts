@@ -164,9 +164,12 @@ describe("nino_semantic_ir.v2", () => {
     expect(act.repair).toBe(false);
   });
 
-  it("fast path continua covarde", () => {
+  it("fast path continua conservador, mas cobre ranking estrutural inequívoco", () => {
     expect(fastFinancialIR("qual meu saldo?", period)?.queries[0].metric).toBe("balance");
-    expect(fastFinancialIR("quais categorias mais gastei nos últimos 90 dias?", period)).toBeNull();
+    expect(fastFinancialIR("quais categorias mais gastei nos últimos 90 dias?", period)?.queries[0])
+      .toMatchObject({ metric: "expense_amount", operation: "rank", group_by: ["category"] });
+    // Filtro específico não pode ser descartado: essa forma segue para o compilador semântico.
+    expect(fastFinancialIR("quais categorias mais gastei no Nubank?", period)).toBeNull();
   });
 
   it("capability guard bloqueia falsa incapacidade quando há mapping completo", () => {

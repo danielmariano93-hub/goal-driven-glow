@@ -93,6 +93,9 @@ export async function runAgentTurn(
   userText: string,
   opts: LLMOptions & { history?: Array<{ role: "user" | "assistant"; content: string }> },
 ): Promise<LLMTurn> {
+  const runtimeProvider = resolveAiProvider();
+  const effectiveModel = runtimeProvider ? normalizeAiModel(opts.model, runtimeProvider) : opts.model;
+  const providerName = runtimeProvider?.provider ?? "unknown";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25_000);
 
@@ -162,7 +165,7 @@ export async function runAgentTurn(
   try {
     for (let step = 0; step < maxSteps; step++) {
       const body: any = {
-        model: opts.model,
+        model: effectiveModel,
         messages,
         tools,
         tool_choice: step === 0 && forcedReadTool && preBlocks.length === 0
@@ -170,7 +173,7 @@ export async function runAgentTurn(
           : "auto",
         temperature: opts.temperature ?? 0.2,
       };
-      if (/^(?:openai\/)?gpt-5\.6/.test(opts.model)) body.reasoning_effort = "none";
+      if (/^(?:openai\/)?gpt-5\.6/.test(effectiveModel)) body.reasoning_effort = "none";
 
       llmCalls++;
       const callStarted = Date.now();
@@ -181,10 +184,10 @@ export async function runAgentTurn(
         const status = Number((error as any)?.status ?? 0) || null;
         await recordAiUsage(toolCtx.sb, {
           workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "chat_step",
-          user_id: toolCtx.user_id, model: opts.model, operation_type: "chat", success: false,
+          user_id: toolCtx.user_id, model: effectiveModel, provider: providerName, operation_type: "chat", success: false,
           http_status: status, error_code: status ? `gateway_${status}` : "gateway_error",
           latency_ms: Date.now() - callStarted, batch_size: 1, unique_items: 1,
-          metadata: { conversation_id: toolCtx.conversation_id, step },
+          metadata: { conversation_id: toolCtx.conversation_id, step, provider: providerName },
         });
         throw error;
       }
@@ -196,10 +199,10 @@ export async function runAgentTurn(
       tokensOut += stepTokensOut;
       await recordAiUsage(toolCtx.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "chat_step",
-        user_id: toolCtx.user_id, model: opts.model, operation_type: "chat",
+        user_id: toolCtx.user_id, model: effectiveModel, provider: providerName, operation_type: "chat",
         input_tokens: stepTokensIn, output_tokens: stepTokensOut, success: true,
         latency_ms: Date.now() - callStarted, batch_size: 1, unique_items: 1,
-        metadata: { conversation_id: toolCtx.conversation_id, step, tool_count: (resp.choices?.[0]?.message?.tool_calls ?? []).length },
+        metadata: { conversation_id: toolCtx.conversation_id, step, provider: providerName, tool_count: (resp.choices?.[0]?.message?.tool_calls ?? []).length },
       });
       const msg = choice?.message ?? {};
       const calls = msg.tool_calls ?? [];

@@ -48,7 +48,7 @@ export const ACCEPTED_ANSWERS = [
 
 /** Frases em que o Nino oferece fazer algo e espera um "ok". */
 const OFFER_RX =
-  /(quer(?:ia)? que eu\b)|(quer comparar)|(quer ver)|(posso comparar)|(posso te mostrar)|(posso detalhar)|(posso simular)|(posso calcular)|(posso trazer)|(me d[aá] o ok)|(me confirma que eu)|(se quiser,? eu (?:consigo|posso|trago))|(te trago esses n[uú]meros)|(eu consigo separar)/i;
+  /(quer(?:ia)? que eu\b)|(quer comparar)|(quer ver)|(posso (?:comparar|te mostrar|detalhar|simular|calcular|trazer|abrir|separar|transformar|montar))|(me d[aá] o ok)|(me confirma que eu)|(se quiser,?\s*(?:eu\s+)?(?:consigo|posso|trago|abro|separo|comparo|detalho|transformo|mostro|monto))|(te trago esses n[uú]meros)|(eu consigo separar)/i;
 
 const NEGATIVE_RX = /\b(n[aã]o|nada|depois|agora n[aã]o|deixa)\b/i;
 
@@ -57,7 +57,7 @@ function classifyOffer(text: string): ContinuationActionType {
   if (/(compar|mesmo per[ií]odo|m[eê]s passado|dias [uú]teis|ciclo)/.test(t)) return "financial_comparison";
   if (/(simul|se eu comprar|parcel)/.test(t)) return "simulation";
   if (/(proje|fechamento|vai sobrar|at[eé] o fim do m[eê]s)/.test(t)) return "projection";
-  if (/(detalh|separar|abrir por|quebrar por|por categoria|por estabelecimento)/.test(t)) return "detail_breakdown";
+  if (/(detalh|separar|abrir por|quebrar por|por categoria|por estabelecimento|\babro\b.*(?:categoria|estabelec)|\bmostro\b.*(?:estabelec|categoria))/.test(t)) return "detail_breakdown";
   if (/(evolu|performance|como (?:voc[eê]|vc) est[aá])/.test(t)) return "financial_performance";
   return "generic_analysis";
 }

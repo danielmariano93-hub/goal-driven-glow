@@ -5,6 +5,8 @@ import { remember, recall } from "./MemoryStore.ts";
 import { learnComparisonPreference } from "./AdvisorInteractionLearning.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { recordLearningEvent } from "../changeLoop.ts";
+import { savePreferences } from "./PersonalizationEngine.ts";
+import { detectResponsePreference } from "./ResponsePreferenceLearning.ts";
 
 export type TurnSignal = {
   user_id: string;
@@ -33,6 +35,32 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
     // Correção de recorte ("prefiro dias úteis") vira preferência do consultor.
     await learnComparisonPreference(sb, sig.user_id, sig.user_text);
 
+    // Preferência explícita de comunicação vira configuração durável. Só frases
+    // meta ("prefiro respostas curtas", "não precisa sugerir") entram aqui.
+    const responsePreference = detectResponsePreference(sig.user_text);
+    if (responsePreference) {
+      await savePreferences(sb, sig.user_id, responsePreference.patch);
+      await remember(sb, {
+        user_id: sig.user_id,
+        kind: "response_preference",
+        key: "explicit_communication_style",
+        value: {
+          ...responsePreference.patch,
+          evidence: responsePreference.evidence,
+        },
+        source: "user",
+        confidence: 1,
+      });
+      await recordLearningEvent(sb, {
+        user_id: sig.user_id,
+        event_type: "preference",
+        source: "learning_loop",
+        signal: "explicit_response_preference",
+        subject_key: "response_style",
+        confidence: 1,
+        metadata: responsePreference.patch,
+      }).catch(() => undefined);
+    }
 
     const isCorrection = sig.policy_decision === "cancel"
       || /não era isso|não foi isso|nao era isso|nao foi isso|errado|corrigir|corrija|eu digo na média|eu digo na media|sem considerar/i.test(sig.user_text);
@@ -72,7 +100,11 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
 
     for (const c of sig.tool_calls) {
       if (!c.ok) continue;
-      if (c.tool_name === "create_transaction_draft") {
+      // A draft is only a proposal. Learning a merchant/category before the
+      // user confirms it creates false long-term memory when the draft is
+      // cancelled or corrected. Confirmed transactions are learned from the
+      // canonical ledger/profiles instead, never from an uncommitted draft.
+      if (c.tool_name === "create_transaction_draft" && sig.reply_kind === "receipt") {
         const merchant = String(c.args?.description ?? "").trim();
         const category = c.args?.category ?? null;
         if (merchant) {

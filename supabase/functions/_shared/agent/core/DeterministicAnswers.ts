@@ -312,6 +312,28 @@ export function formatFinancialEvolution(result: any): string {
 }
 
 
+export function formatNextBestAction(result: any): string {
+  const action = result?.action ?? {};
+  const headline = String(
+    result?.answer_format?.headline
+      ?? [action?.title, action?.detail].filter(Boolean).join(". ")
+      ?? "",
+  ).trim();
+  const stage = String(result?.stage ?? "");
+  const why = stage === "repair_truth"
+    ? "Isso vem primeiro porque há divergência ou baixa confiança nos dados de caixa."
+    : stage === "stabilize_cash"
+      ? "Isso vem primeiro porque o caixa atual ou projetado precisa ser estabilizado antes de assumir novos compromissos."
+      : stage === "reduce_debt_pressure"
+        ? "Isso vem primeiro porque as parcelas ativas estão consumindo a folga financeira projetada."
+        : stage === "fund_goal"
+          ? "Isso vem primeiro porque o caixa está estável e já existe uma meta ativa que pode receber a capacidade de poupança."
+          : stage === "build_wealth"
+            ? "Isso vem primeiro porque há capacidade sustentável de poupança sem uma pressão maior de caixa, dívida ou meta."
+            : "Isso vem primeiro porque não apareceu uma mudança adicional com evidência suficiente para justificar mexer no plano agora.";
+  return [headline || "Encontrei um próximo passo financeiro.", why].join("\n");
+}
+
 function failureReply(capability: CapabilityDecision, error: string | null): string {
   // Raw provider/database errors stay in telemetry and are never exposed to
   // the user. The response says what failed and whether data was changed.
@@ -466,6 +488,7 @@ export async function executeDeterministicCapability(
   // LLM: a resposta sai formatada direto do resultado do motor.
   else if (capability.name === "merchant_distribution") reply = formatMerchantDistribution(execution.result);
   else if (capability.name === "financial_evolution") reply = formatFinancialEvolution(execution.result);
+  else if (capability.name === "next_best_action") reply = formatNextBestAction(execution.result);
   else if (capability.name === "emotional_checkin") {
     reply = formatEmotionalCheckin(execution.result);
     // Registrar sentimento nunca devolve só recibo: quando o histórico ainda

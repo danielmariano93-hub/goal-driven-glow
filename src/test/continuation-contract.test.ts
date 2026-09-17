@@ -45,4 +45,21 @@ describe("nino_continuation.v1", () => {
     for (const t of ["ok", "Sim", "pode", "manda", "beleza"]) expect(isAffirmativeAnswer(t)).toBe(true);
     expect(isAffirmativeAnswer("agora não")).toBe(false);
   });
+  it("detecta ofertas contextuais geradas após uma análise", () => {
+    const category = detectContinuationOffer(
+      "Se quiser, eu abro a categoria que mais pesou e mostro os principais estabelecimentos.",
+    );
+    expect(category?.action_type).toBe("detail_breakdown");
+    expect(resolveContinuation({
+      text: "quero",
+      action: category,
+      hasPendingWrite: false,
+    }).continue).toBe(true);
+
+    const comparison = detectContinuationOffer(
+      "Se quiser, posso comparar esse valor com o período anterior e mostrar o que mudou.",
+    );
+    expect(comparison?.action_type).toBe("financial_comparison");
+  });
+
 });

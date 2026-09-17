@@ -4,33 +4,41 @@ import { interpret } from "../../supabase/functions/_shared/agent/parser";
 
 // Provider selection lives in ai-runtime; production call sites must not depend on Lovable AI.
 describe("Nino AI provider independence", () => {
-  it("keeps the V2 reasoning path provider-neutral", () => {
-    const responsesFiles = [
+  it("uses one stable structured-call adapter for understanding and semantic compilation", () => {
+    const structuredFiles = [
       "supabase/functions/_shared/agent/core/ConversationBrain.ts",
       "supabase/functions/_shared/agent/core/SemanticCompiler.ts",
+      "supabase/functions/_shared/agent/core/HumanUnderstanding.ts",
     ];
-    for (const path of responsesFiles) {
+    for (const path of structuredFiles) {
       const source = readFileSync(path, "utf8");
-      expect(source).toContain("resolveAiProvider()");
-      expect(source).toContain('aiEndpoint(provider, "responses")');
-      expect(source).toContain("normalizeAiModel(input.model, provider)");
-      expect(source).not.toContain("ai.gateway.lovable.dev");
-      expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+      expect(source, path).toContain("resolveAiProvider()");
+      expect(source, path).toContain("callStructuredFunction");
+      expect(source, path).not.toContain('aiEndpoint(provider, "responses")');
+      expect(source, path).not.toContain("ai.gateway.lovable.dev");
+      expect(source, path).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
 
+    const adapter = readFileSync("supabase/functions/_shared/ai-structured.ts", "utf8");
+    expect(adapter).toContain('aiEndpoint(args.provider, "chat/completions")');
+    expect(adapter).toContain('tool_choice');
+    expect(adapter).toContain('function: { name: args.tool.name }');
+    expect(adapter).toContain("safeAiErrorDetail");
+  });
+
+  it("keeps direct chat call sites provider-neutral", () => {
     const chatFiles = [
       "supabase/functions/_shared/agent/llm.ts",
-      "supabase/functions/_shared/agent/core/HumanUnderstanding.ts",
       "supabase/functions/_shared/agent/core/Conversational.ts",
       "supabase/functions/_shared/agent/narrative/NarrativeComposer.ts",
     ];
     for (const path of chatFiles) {
       const source = readFileSync(path, "utf8");
-      expect(source).toContain("resolveAiProvider()");
-      expect(source).toContain('aiEndpoint(provider, "chat/completions")');
-      expect(source).toContain("normalizeAiModel");
-      expect(source).not.toContain("ai.gateway.lovable.dev");
-      expect(source).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
+      expect(source, path).toContain("resolveAiProvider()");
+      expect(source, path).toContain('aiEndpoint(provider, "chat/completions")');
+      expect(source, path).toContain("normalizeAiModel");
+      expect(source, path).not.toContain("ai.gateway.lovable.dev");
+      expect(source, path).not.toContain('Deno.env.get("LOVABLE_API_KEY")');
     }
 
     const gateway = readFileSync("supabase/functions/_shared/ai-gateway.ts", "utf8");
@@ -49,7 +57,6 @@ describe("Nino AI provider independence", () => {
     expect(runtime).toContain("OPENROUTER_API_KEY");
     expect(runtime).toContain("https://api.groq.com/openai/v1");
     expect(runtime).toContain("https://openrouter.ai/api/v1");
-    expect(runtime).toContain("adaptResponsesBody");
     expect(runtime).not.toContain("LOVABLE_API_KEY");
     expect(runtime).not.toContain('provider: "lovable"');
     expect(runtime).not.toContain("ai.gateway.lovable.dev");
@@ -67,6 +74,7 @@ describe("Nino AI provider independence", () => {
       "supabase/functions/_shared/agent/narrative/NarrativeComposer.ts",
       "supabase/functions/_shared/ai-gateway.ts",
       "supabase/functions/_shared/ai-runtime.ts",
+      "supabase/functions/_shared/ai-structured.ts",
     ];
     for (const path of paths) {
       const source = readFileSync(path, "utf8");
@@ -76,17 +84,16 @@ describe("Nino AI provider independence", () => {
     }
   });
 
-  it("isolates Groq Responses incompatibilities in the provider adapter", () => {
-    const runtime = readFileSync("supabase/functions/_shared/ai-runtime.ts", "utf8");
-    expect(runtime).toContain('config.provider === "groq"');
-    expect(runtime).toContain("delete adapted.include");
-    expect(runtime).toContain("delete adapted.store");
-    expect(runtime).toContain("delete adapted.previous_response_id");
-    expect(runtime).toContain("delete adapted.truncation");
-
-    const brain = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
-    expect(brain).toContain("adaptResponsesBody(provider");
-    expect(brain).toContain("provider_override");
+  it("does not put the Conversation Brain or Semantic Compiler on beta Responses transport", () => {
+    for (const path of [
+      "supabase/functions/_shared/agent/core/ConversationBrain.ts",
+      "supabase/functions/_shared/agent/core/SemanticCompiler.ts",
+    ]) {
+      const source = readFileSync(path, "utf8");
+      expect(source, path).toContain("chat_completions_structured");
+      expect(source, path).not.toContain('"responses"');
+      expect(source, path).not.toContain("response.function_call_arguments");
+    }
   });
 
   it("does not confuse explicit cancellation with conversational repair", () => {
