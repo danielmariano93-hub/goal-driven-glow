@@ -28,6 +28,7 @@ export const CONVERSATION_BRAIN_DEADLINE_MS = 12_000;
 
 export type ConversationBrainTelemetry = {
   model: string;
+  provider: AiProviderName | null;
   llm_calls: number;
   tokens_in: number;
   tokens_out: number;
@@ -303,7 +304,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
   const fail = (error: string): ConversationBrainOutcome => ({
     contract: null,
     telemetry: {
-      model: input.model, llm_calls: 1, tokens_in: 0, tokens_out: 0,
+      model: input.model, provider: null, llm_calls: 1, tokens_in: 0, tokens_out: 0,
       latency_ms: Date.now() - started, ok: false, error,
     },
   });
@@ -378,7 +379,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
     if (!contract) return fail("conversation_brain_contract_invalid");
 
     const telemetry: ConversationBrainTelemetry = {
-      model: requestModel, llm_calls: 1,
+      model: requestModel, provider: structured.provider, llm_calls: 1,
       tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
       latency_ms: structured.latency_ms, ok: true, error: null,
     };
