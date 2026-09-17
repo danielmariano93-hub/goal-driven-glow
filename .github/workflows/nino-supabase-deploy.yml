@@ -78,12 +78,34 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
 
-      - name: Deploy complete Edge Function backend
+      - name: Deploy complete application Edge Function backend
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
+          deployed=0
+          for dir in supabase/functions/*; do
+            [ -d "$dir" ] || continue
+            fn="$(basename "$dir")"
+            case "$fn" in
+              _shared)
+                continue
+                ;;
+              mcp)
+                # Generated Lovable MCP bundle is an external integration endpoint,
+                # not part of the web/app/WhatsApp runtime. Its generated artifact
+                # currently exceeds the Supabase Edge upload limit and still carries
+                # the legacy project's OAuth issuer, so it must be migrated/regenerated
+                # separately rather than blocking the application cutover.
+                echo "Skipping generated external MCP endpoint: $fn"
+                continue
+                ;;
+            esac
+            echo "Deploying $fn"
+            supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+            deployed=$((deployed + 1))
+          done
+          echo "deployed_functions=$deployed" >> "$GITHUB_ENV"
 
       - name: Verify deployed functions
         env:
@@ -94,4 +116,6 @@ jobs:
         run: |
           echo "revision=${GITHUB_SHA}"
           echo "project_ref=${SUPABASE_PROJECT_REF}"
-          echo "scope=all_edge_functions"
+          echo "scope=application_edge_functions"
+          echo "deployed_functions=${deployed_functions:-unknown}"
+          echo "excluded_external_integration=mcp"
