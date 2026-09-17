@@ -1,0 +1,1 @@
+Deployment pipeline validation after correcting SUPABASE_ACCESS_TOKEN repository secret.
