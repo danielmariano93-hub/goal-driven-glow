@@ -7,10 +7,10 @@
 // deno-lint-ignore-file no-explicit-any
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
+import { callStructuredFunction } from "../../ai-structured.ts";
 import {
-  adaptResponsesBody, aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider,
-  type AiProviderConfig, type AiProviderName,
+  resolveAiProvider, type AiProviderConfig, type AiProviderName,
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
@@ -60,7 +60,6 @@ type ConversationBrainInput = {
 
 function brainTool() {
   return {
-    type: "function",
     name: "emit_conversation_turn_contract",
     description: "Emite o contrato semântico único do turno. Não executa nenhuma ação.",
     strict: false,
@@ -307,7 +306,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
 
   const provider = input.provider_override ?? resolveAiProvider();
   if (!provider) return fail("conversation_brain_llm_not_configured");
-  const requestModel = normalizeAiModel(input.model, provider);
+  let requestModel = input.model;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CONVERSATION_BRAIN_DEADLINE_MS);
@@ -321,67 +320,52 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       "Emita somente emit_conversation_turn_contract.",
     ].filter(Boolean).join("\n\n");
 
-    const requestBody = adaptResponsesBody(provider, {
-      model: requestModel,
-      input: [
-        { role: "developer", content: SYSTEM },
-        { role: "user", content: user },
-      ],
-      tools: [brainTool()],
-      tool_choice: { type: "function", name: "emit_conversation_turn_contract" },
-      stream: true,
-      store: false,
-      reasoning: { effort: "low", summary: "concise" },
-      include: ["reasoning.encrypted_content"],
-    });
-
-    const response = await fetch(aiEndpoint(provider, "responses"), {
-      method: "POST",
-      headers: aiJsonHeaders(provider),
-      body: JSON.stringify(requestBody),
+    const structured = await callStructuredFunction({
+      provider,
+      model: input.model,
+      system: SYSTEM,
+      user,
+      tool: brainTool(),
       signal: controller.signal,
+      temperature: 0,
+      reasoning_effort: "low",
     });
+    requestModel = structured.model;
 
-    const text = await response.text();
-    let body: any = null;
-    let functionArguments = "";
-    for (const line of text.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const payload = line.slice(6).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        const event = JSON.parse(payload);
-        if (event.type === "response.function_call_arguments.delta") functionArguments += String(event.delta ?? "");
-        if (event.type === "response.function_call_arguments.done" && event.arguments) functionArguments = String(event.arguments);
-        if (event.type === "response.completed") body = event.response ?? body;
-      } catch { /* SSE parcial */ }
-    }
-
-    if (!response.ok || !body) {
-      const error = `conversation_brain_gateway_${response.status || "bad_json"}`;
+    if (!structured.ok) {
+      const error = structured.error_code === "structured_call_timeout"
+        ? "conversation_brain_timeout"
+        : structured.status
+          ? `conversation_brain_gateway_${structured.status}`
+          : "conversation_brain_gateway_error";
       if (input.sb) await recordAiUsage(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
-        user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
-        success: false, http_status: response.status || null, error_code: error,
-        latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
-        metadata: { provider: provider.provider },
+        user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: structured.model,
+        provider: structured.provider, success: false, http_status: structured.status,
+        error_code: error, latency_ms: structured.latency_ms,
+        reason_for_ai_call: "conversation_brain_v1",
+        metadata: {
+          provider: structured.provider,
+          transport: "chat_completions_structured",
+          upstream_error: structured.error_detail,
+        },
       });
       return fail(error);
     }
 
-    const usage = readGatewayUsage(body);
     if (input.sb) await recordGatewayCall(input.sb, {
       workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
-      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
-      success: true, latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
-      metadata: { contract_version: "conversation_turn_contract.v1", provider: provider.provider },
-    }, body);
+      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: structured.model,
+      provider: structured.provider, success: true, latency_ms: structured.latency_ms,
+      reason_for_ai_call: "conversation_brain_v1",
+      metadata: {
+        contract_version: "conversation_turn_contract.v1",
+        provider: structured.provider,
+        transport: "chat_completions_structured",
+      },
+    }, structured.body);
 
-    const call = (body?.output ?? []).find((item: any) =>
-      item?.type === "function_call" && item?.name === "emit_conversation_turn_contract"
-    );
-    const rawArguments = functionArguments || String(call?.arguments ?? "");
-    if (!rawArguments) return fail("conversation_brain_missing_contract");
+    const rawArguments = structured.arguments;
 
     let parsed: unknown;
     try { parsed = JSON.parse(rawArguments); }
@@ -391,8 +375,8 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
 
     const telemetry: ConversationBrainTelemetry = {
       model: requestModel, llm_calls: 1,
-      tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
-      latency_ms: Date.now() - started, ok: true, error: null,
+      tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
+      latency_ms: structured.latency_ms, ok: true, error: null,
     };
 
     if (!input.provider_override && input.sb && input.user_id) {
