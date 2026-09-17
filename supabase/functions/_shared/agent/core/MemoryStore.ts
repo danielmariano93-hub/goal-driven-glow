@@ -160,9 +160,13 @@ export async function remember(sb: SupabaseClient, rec: MemoryRecord): Promise<M
     return existing as MemoryFact;
   }
 
+  // Apply the same volatile-state guard to EVERY memory write. The previous
+  // implementation only sanitized rememberStructured(), while learnFromTurn()
+  // called remember() directly and could persist last_amount/other live money.
+  const sanitized = stripVolatileFinancialState(rec.value ?? {}).value;
   const payload = {
     user_id: rec.user_id, kind: rec.kind, key,
-    value: rec.value ?? {},
+    value: sanitized,
     confidence: Math.max(0, Math.min(1, rec.confidence ?? 0.6)),
     source,
     visibility: rec.visibility ?? "user",
