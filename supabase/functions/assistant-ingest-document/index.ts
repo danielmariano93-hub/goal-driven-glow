@@ -95,6 +95,12 @@ function chainContinuation(documentId: string, userId: string, guidance: string)
 
 
 async function resolveConfiguredModel(sb: ReturnType<typeof createClient>, task: "vision" | "semantic_classification" | "document_text"): Promise<string> {
+  // Vision is provider-specific: prefer the model explicitly validated and
+  // deployed with the Groq runtime instead of a stale DB route from the old gateway.
+  if (task === "vision") {
+    const configuredVision = String(Deno.env.get("NINO_AI_VISION_MODEL") ?? "").trim();
+    if (configuredVision) return configuredVision;
+  }
   const { data } = await sb.from("ai_model_routes")
     .select("primary_model")
     .eq("task", task)
