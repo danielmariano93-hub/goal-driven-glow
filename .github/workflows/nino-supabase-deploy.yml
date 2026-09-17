@@ -79,6 +79,12 @@ jobs:
           src/test/nino-response-preference-learning.test.ts
           src/test/continuation-contract.test.ts
 
+      # Production is fail-closed on the complete repository suite. A PR can be
+      # merged manually even if a required-check rule is absent; this prevents
+      # that merge from reaching Supabase with an unrelated/shared regression.
+      - name: Run full repository regression suite
+        run: npm test
+
       - name: Production build
         run: npm run build
 
