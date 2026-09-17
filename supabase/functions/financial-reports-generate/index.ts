@@ -30,13 +30,13 @@ import { buildCatalogHighlights } from "./catalogHighlights.ts";
 import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
 
 
 const FN = "financial-reports-generate";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const APP_PUBLIC_URL = Deno.env.get("APP_PUBLIC_URL") ?? "";
 const MODEL = "openai/gpt-5.6-sol";
 const AI_TIMEOUT_MS = 12000;
@@ -182,7 +182,7 @@ async function loadContext(sb: Sb, userId: string) {
   };
 }
 
-/** Texto do relatório via Lovable AI Gateway, validado pelo guardrail. */
+/** Texto do relatório via provedor de IA configurado, validado pelo guardrail. */
 async function synthesizeNarrative(sb: Sb, userId: string, report: IntelligentReport): Promise<{
   summary: string; closing: string; source: "ai" | "deterministic"; fallbackReason: string | null;
 }> {
@@ -192,7 +192,9 @@ async function synthesizeNarrative(sb: Sb, userId: string, report: IntelligentRe
     source: "deterministic" as const,
     fallbackReason: null as string | null,
   };
-  if (!LOVABLE_API_KEY) return { ...deterministic, fallbackReason: "missing_api_key" };
+  const provider = resolveAiProvider();
+  if (!provider) return { ...deterministic, fallbackReason: "missing_ai_provider" };
+  const aiModel = normalizeAiModel(MODEL, provider);
   if (await getAiBlock(sb)) return { ...deterministic, fallbackReason: "ai_circuit_paused" };
 
   const allowed = collectAllowedNumbers({
@@ -229,17 +231,17 @@ async function synthesizeNarrative(sb: Sb, userId: string, report: IntelligentRe
   const aiStarted = Date.now();
   const usageBase = {
     workload: "ADVISOR_REPORTS" as const, function_name: "financial-reports-generate",
-    operation: "synthesize_narrative", user_id: userId, model: MODEL,
+    operation: "synthesize_narrative", user_id: userId, model: aiModel, provider: provider.provider,
     operation_type: "chat", reason_for_ai_call: "report_narrative",
   };
   try {
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": LOVABLE_API_KEY },
+      headers: aiJsonHeaders(provider),
       signal: controller.signal,
       body: JSON.stringify({
-        model: MODEL,
-        reasoning_effort: "none",
+        model: aiModel,
+        reasoning_effort: provider.provider === "groq" && aiModel.includes("gpt-oss") ? "low" : "none",
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },

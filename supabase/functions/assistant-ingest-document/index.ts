@@ -13,6 +13,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordAiUsage, estimateAiCostUsd } from "../_shared/aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
 import { ensureWorkloadAllowed, pauseWorkloadCircuit } from "../_shared/aiWorkloadBudget.ts";
 
 const FN = "assistant-ingest-document";
@@ -39,7 +40,6 @@ import { merchantCanonical, storageMerchantKey } from "../_shared/categorization
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const BUCKET = "documents";
 const PROCESSING_STALE_MS = 5 * 60 * 1000;
@@ -397,9 +397,15 @@ async function callMultimodal(
     ? `\nNão repita estes lançamentos já extraídos (data|valor|descrição): ${batch.exclude.join("; ")}.\nSe TODOS os lançamentos do documento já estiverem nessa lista, devolva {"k":"statement","i":[],"n":"sem novos lançamentos","more":false}.`
     : `\nNenhum lançamento foi extraído ainda: devolva TODOS os lançamentos deste trecho, sem omitir nenhum.`;
   try {
-    if (!LOVABLE_API_KEY) {
-      errorCode = "gateway_no_api_key";
-      return { result: { document_kind: "unknown", items: [], notes: "gateway_no_api_key" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: "gateway:no_api_key" };
+    const provider = resolveAiProvider();
+    if (!provider) {
+      errorCode = "gateway_no_api_provider";
+      return { result: { document_kind: "unknown", items: [], notes: "gateway_no_api_provider" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: "gateway:no_api_provider" };
+    }
+    const aiModel = normalizeAiModel(model, provider);
+    if (!textContent && mimeType === "application/pdf") {
+      errorCode = "scanned_pdf_ocr_unavailable";
+      return { result: { document_kind: "unknown", items: [], notes: "PDF sem camada de texto requer OCR de páginas" }, statement: null, invoice: null, tokens_in: 0, tokens_out: 0, ms: Date.now() - start, has_more: false, partial: false, errorTag: "extraction:scanned_pdf_ocr_unavailable" };
     }
     if (await getAiBlock(ctx.sb)) {
       errorCode = "ai_circuit_blocked";
@@ -421,7 +427,7 @@ Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos
           : { type: "image_url", image_url: { url: publicBase64Url } },
       ];
     const requestBody = {
-      model,
+      model: aiModel,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content },
@@ -430,13 +436,9 @@ Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos
       max_tokens: BATCH_MAX_TOKENS,
     };
     payloadBytes = JSON.stringify(requestBody).length;
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": LOVABLE_API_KEY,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: aiJsonHeaders(provider),
       body: JSON.stringify(requestBody),
       signal,
     });
@@ -489,7 +491,7 @@ Lote ${batch.index}/${batch.max}: extraia até ${BATCH_ITEMS_LIMIT} lançamentos
   } finally {
     await recordAiUsage(ctx.sb, {
       workload: "DOCUMENT_INGEST", function_name: FN, operation: textContent ? "extract_text_batch" : "extract_vision_batch",
-      user_id: ctx.userId, run_id: ctx.documentId, model, operation_type: textContent ? "document_text" : "vision",
+      user_id: ctx.userId, run_id: ctx.documentId, model: normalizeAiModel(model, resolveAiProvider() ?? { provider: "groq", baseUrl: "", apiKey: "", headers: {}, modelOverride: model }), provider: resolveAiProvider()?.provider ?? "unknown", operation_type: textContent ? "document_text" : "vision",
       input_tokens: tokens_in, output_tokens: tokens_out, estimated_cost_usd: estimateAiCostUsd(model, tokens_in, tokens_out),
       success, http_status: httpStatus, error_code: errorCode, latency_ms: Date.now() - start, batch_size: 1, unique_items: 1,
       idempotency_key: `${ctx.documentId}:${batch.index}:${model}:${Boolean(textContent)}`, reason_for_ai_call: textContent ? "document_text_extraction" : "document_vision_extraction",

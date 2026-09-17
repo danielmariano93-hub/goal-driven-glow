@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { streamText, Output, NoObjectGeneratedError } from "npm:ai";
 import { z } from "npm:zod";
-import { createLovableAiGatewayProvider } from "../_shared/ai-gateway.ts";
+import { createAiGatewayProvider, normalizeAiModel, resolveAiProvider } from "../_shared/ai-gateway.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordAiUsage, estimateAiCostUsd, type AiWorkload } from "../_shared/aiUsageLedger.ts";
 import { ensureWorkloadAllowed, pauseWorkloadCircuit } from "../_shared/aiWorkloadBudget.ts";
@@ -15,7 +15,6 @@ import { normalizedPattern } from "../_shared/categorization/normalize.ts";
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL")??"";
 const ANON_KEY=Deno.env.get("SUPABASE_ANON_KEY")??"";
 const SERVICE_ROLE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")??"";
-const LOVABLE_API_KEY=Deno.env.get("LOVABLE_API_KEY")??"";
 const CRON_SECRET=Deno.env.get("INTERNAL_CRON_SECRET")??Deno.env.get("CRON_SECRET")??"";
 const MODEL="google/gemini-3.6-flash";
 
@@ -117,7 +116,9 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     entries.push({...item,evidence_hash:hash,merchant_key:merchantKey,semantic_hash:semanticHash});
   }
   if(!entries.length)return results;
-  if(!LOVABLE_API_KEY){deferEntries(entries,"ai_unconfigured");return results;}
+  const provider=resolveAiProvider();
+  if(!provider){deferEntries(entries,"ai_unconfigured");return results;}
+  const aiModel=normalizeAiModel(MODEL,provider);
   if(await getAiBlock(admin)){deferEntries(entries,"ai_circuit_blocked");return results;}
   const budget=await ensureWorkloadAllowed(admin,workload);
   if(!budget.allowed){deferEntries(entries,"workload_budget_blocked");return results;}
@@ -141,8 +142,8 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
   const started=Date.now();
   let tokensIn=0,tokensOut=0,httpStatus:number|null=null,success=false,errorCode:string|null=null;
   try{
-    const gateway=createLovableAiGatewayProvider(LOVABLE_API_KEY);
-    const generation=streamText({model:gateway(MODEL),output:Output.object({schema:LlmSchema}),prompt:`Classifique lançamentos financeiros brasileiros. Use somente category_id listado E do mesmo type do item. Não classifique transferências, pagamento de fatura, investimento ou movimento técnico. Se não houver evidência suficiente, retorne category_id null. A confiança do modelo é apenas evidência para revisão; nunca autoriza auto-apply sozinha. Responda JSON estruturado.\n${JSON.stringify(payload)}`});
+    const gateway=createAiGatewayProvider(provider);
+    const generation=streamText({model:gateway(aiModel),output:Output.object({schema:LlmSchema}),prompt:`Classifique lançamentos financeiros brasileiros. Use somente category_id listado E do mesmo type do item. Não classifique transferências, pagamento de fatura, investimento ou movimento técnico. Se não houver evidência suficiente, retorne category_id null. A confiança do modelo é apenas evidência para revisão; nunca autoriza auto-apply sozinha. Responda JSON estruturado.\n${JSON.stringify(payload)}`});
     const output=await generation.output;
     const usage=await generation.usage.catch(()=>null);
     tokensIn=Number(usage?.promptTokens??0); tokensOut=Number(usage?.completionTokens??0); success=true;
@@ -155,9 +156,9 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
       const decision=(type==="income"||type==="expense")?resultFromLlm(item,validByType.get(type)??new Set<string>()):null;
       if(decision&&results[entry.index]?.category_id==null){
         results[entry.index]=decision;
-        await upsertCachedInference(admin,userId,entry.input,entry.semantic_hash,{category_id:decision.category_id,confidence:decision.category_confidence,status:"suggested",reason:decision.category_reason,prompt_hash:phash,model:MODEL,input_tokens:tokensIn,output_tokens:tokensOut,estimated_cost_usd:estimateAiCostUsd(MODEL,tokensIn,tokensOut)});
+        await upsertCachedInference(admin,userId,entry.input,entry.semantic_hash,{category_id:decision.category_id,confidence:decision.category_confidence,status:"suggested",reason:decision.category_reason,prompt_hash:phash,model:aiModel,input_tokens:tokensIn,output_tokens:tokensOut,estimated_cost_usd:estimateAiCostUsd(aiModel,tokensIn,tokensOut)});
       }else{
-        await upsertCachedInference(admin,userId,entry.input,entry.semantic_hash,{category_id:null,confidence:0,status:"needs_review_until_new_evidence",reason:"sem evidência suficiente",prompt_hash:phash,model:MODEL,input_tokens:tokensIn,output_tokens:tokensOut,estimated_cost_usd:estimateAiCostUsd(MODEL,tokensIn,tokensOut)});
+        await upsertCachedInference(admin,userId,entry.input,entry.semantic_hash,{category_id:null,confidence:0,status:"needs_review_until_new_evidence",reason:"sem evidência suficiente",prompt_hash:phash,model:aiModel,input_tokens:tokensIn,output_tokens:tokensOut,estimated_cost_usd:estimateAiCostUsd(aiModel,tokensIn,tokensOut)});
       }
       const key=`${entry.input.type}:${entry.merchant_key}:${entry.semantic_hash}`;
       for(const duplicate of entries){
@@ -174,7 +175,7 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     deferEntries(selected,errorCode??"ai_error");
     if(NoObjectGeneratedError.isInstance(error))console.warn("[category-engine] invalid structured output",error.text?.slice(0,300));else console.warn("[category-engine] ai fallback",String(error).slice(0,300));
   }finally{
-    await recordAiUsage(admin,{workload,function_name:"category-engine",operation:mode==="background"?"process_queue_global":"classify",user_id:userId,model:MODEL,operation_type:"structured_classification",input_tokens:tokensIn,output_tokens:tokensOut,success,http_status:httpStatus,error_code:errorCode,latency_ms:Date.now()-started,batch_size:unresolvedRaw.length,unique_items:selected.length,idempotency_key:phash,reason_for_ai_call:"unresolved_category_semantic_fallback",prompt_hash:phash,payload_bytes:JSON.stringify(payload).length,metadata:{engine_version:CATEGORY_ENGINE_VERSION}});
+    await recordAiUsage(admin,{workload,function_name:"category-engine",operation:mode==="background"?"process_queue_global":"classify",user_id:userId,model:aiModel,provider:provider.provider,operation_type:"structured_classification",input_tokens:tokensIn,output_tokens:tokensOut,success,http_status:httpStatus,error_code:errorCode,latency_ms:Date.now()-started,batch_size:unresolvedRaw.length,unique_items:selected.length,idempotency_key:phash,reason_for_ai_call:"unresolved_category_semantic_fallback",prompt_hash:phash,payload_bytes:JSON.stringify(payload).length,metadata:{engine_version:CATEGORY_ENGINE_VERSION}});
   }
   return results;
 }
