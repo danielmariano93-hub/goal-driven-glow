@@ -5,6 +5,8 @@ import { aiBlockReply, getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.t
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 
 const ALLOWED_MIME = ["audio/aac", "audio/m4a", "audio/x-m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/webm", "audio/wav"];
+const TRANSCRIPTION_MODEL = "whisper-large-v3-turbo";
+const GROQ_BASE_URL = (Deno.env.get("GROQ_BASE_URL") ?? "https://api.groq.com/openai/v1").replace(/\/+$/, "");
 
 // MediaRecorder envia "audio/webm;codecs=opus"; normalizamos antes de validar.
 const Body = z.object({
@@ -51,23 +53,25 @@ Deno.serve(async (req) => {
   if (!parsed.success) return response({ error: parsed.error.flatten().fieldErrors }, 400);
   const bytes = decode(parsed.data.audio);
   if (!bytes || bytes.length < 256 || bytes.length > 3_000_000) return response({ error: "Áudio inválido" }, 400);
-  const key = Deno.env.get("LOVABLE_API_KEY");
+  const key = Deno.env.get("GROQ_API_KEY");
   if (!key) return response({ error: "Transcrição indisponível" }, 503);
   const extension = parsed.data.mime_type.includes("aac") ? "aac" : parsed.data.mime_type.includes("ogg") ? "ogg" : parsed.data.mime_type.includes("wav") ? "wav" : parsed.data.mime_type.includes("webm") ? "webm" : "m4a";
   const form = new FormData();
-  form.append("model", "openai/gpt-4o-transcribe");
+  form.append("model", TRANSCRIPTION_MODEL);
+  form.append("response_format", "json");
+  form.append("language", "pt");
   form.append("file", new Blob([bytes.buffer], { type: parsed.data.mime_type }), `gravacao.${extension}`);
   const aiStarted = Date.now();
   const logUsage = (ok: boolean, status: number | null, error: string | null) =>
     recordGatewayCall(admin, {
       workload: "AUDIO_TRANSCRIPTION_APP", function_name: "native-audio-transcribe",
-      operation: "transcribe", user_id: userData.user!.id, model: "openai/gpt-4o-transcribe",
-      operation_type: "transcription", success: ok, http_status: status, error_code: error,
+      operation: "transcribe", user_id: userData.user!.id, model: TRANSCRIPTION_MODEL,
+      provider: "groq", operation_type: "transcription", success: ok, http_status: status, error_code: error,
       latency_ms: Date.now() - aiStarted, payload_bytes: bytes.length,
-      reason_for_ai_call: "app_voice_note", metadata: { mime: parsed.data.mime_type },
+      reason_for_ai_call: "app_voice_note", metadata: { mime: parsed.data.mime_type, provider: "groq" },
     }, null).catch(() => undefined);
-  const upstream = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
-    method: "POST", headers: { Authorization: `Bearer ${key}`, "X-Lovable-AIG-SDK": "edge-function" }, body: form,
+  const upstream = await fetch(`${GROQ_BASE_URL}/audio/transcriptions`, {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form,
   });
   if (!upstream.ok) {
     await logUsage(false, upstream.status, `gateway_${upstream.status}`);
@@ -78,8 +82,8 @@ Deno.serve(async (req) => {
     }
     return response({ error: raw ? raw.slice(0, 500) : "Não foi possível entender o áudio" }, upstream.status);
   }
-  await logUsage(true, 200, null);
   const result = await upstream.json().catch(() => null) as { text?: string } | null;
+  await logUsage(true, 200, null);
   const text = result?.text?.trim();
   return text ? response({ text: text.slice(0, 1500) }) : response({ error: "Áudio sem fala" }, 422);
 });
