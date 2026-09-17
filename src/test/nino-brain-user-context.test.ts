@@ -35,6 +35,31 @@ describe("Conversation Brain durable user context", () => {
     expect(value.durable_memory[1].value.saldo).toBeUndefined();
   });
 
+  it("prioritizes explicit user memory when the context window is crowded", () => {
+    const inferred = Array.from({ length: 25 }, (_, i) => ({
+      id: `i-${i}`, user_id: "u", kind: "habit", key: `habit-${i}`,
+      value: { note: `inferred-${i}` }, confidence: 0.9, source: "inferred",
+      use_count: 10, last_used_at: new Date().toISOString(),
+      created_at: "2026-09-17T00:00:00Z", updated_at: "2026-09-17T00:00:00Z",
+    }));
+    const explicit = {
+      id: "explicit", user_id: "u", kind: "context", key: "explicit-user-fact",
+      value: { note: "prefiro revisar decisões com calma" }, confidence: 1, source: "user",
+      use_count: 0, last_used_at: null,
+      created_at: "2026-09-17T00:00:00Z", updated_at: "2026-09-17T00:00:00Z",
+    };
+    const json = serializeBrainUserContext(
+      {
+        tone: "friendly", verbosity: "balanced", explanation_style: "plain",
+        example_style: "concrete", suggestion_frequency: "medium", technical_level: "basic",
+      },
+      [...inferred, explicit] as any,
+    );
+    const durable = JSON.parse(json).durable_memory;
+    expect(durable).toHaveLength(20);
+    expect(durable.some((m: any) => m.key === "explicit-user-fact")).toBe(true);
+  });
+
   it("drops low-confidence inferred relationship memory", () => {
     const json = serializeBrainUserContext(
       {
