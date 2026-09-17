@@ -514,8 +514,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   // READ: Brain resolve significado/continuidade; Semantic Compiler apenas
   // traduz o pedido canônico para Financial IR. Nenhum router reinterpreta o act.
-  const canonical = String(contract.canonical_request ?? input.text).trim();
+  const canonical = String(contract.canonical_request ?? brainText).trim();
   const plan = buildTurnPlan({ text: canonical, history });
+  const multiPeriod = resolvePeriodExpressions(contract.focus.period_expressions, canonical);
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
@@ -533,7 +534,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       label: plan.effective_period.label,
     },
     comparison_period: plan.previous_period,
-    previous_query: null,
+    periods: multiPeriod.periods.length >= 2 ? multiPeriod.periods : null,
+    comparison_intent: multiPeriod.comparison_intent,
+    previous_query: contract.inherit_focus ? (memory?.conversation_summary ?? null) : null,
     topic_state: state?.semantic_topic_state ?? null,
     max_queries: multiQuery ? MAX_IR_QUERIES : 1,
     investigation_enabled: investigation,
