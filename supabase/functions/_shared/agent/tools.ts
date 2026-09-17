@@ -1732,7 +1732,10 @@ async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
 }
 
 export async function compare_periods(ctx: ToolContext, args: {
-  metric?: "expense" | "income"; period_a?: { from: string; to: string }; period_b?: { from: string; to: string };
+  metric?: "expense" | "income";
+  group_by?: "category" | "none";
+  period_a?: { from: string; to: string };
+  period_b?: { from: string; to: string };
 }): Promise<ToolResult> {
   const today = todaySP();
   const cur = monthRange(today);
@@ -1747,7 +1750,10 @@ export async function compare_periods(ctx: ToolContext, args: {
   const gate = reconciliationGate(txs as any);
   if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
-  return { ok: true, result };
+  // `requested_group_by` describes the semantic shape requested by the
+  // caller. The engine always computes category deltas as evidence, but a
+  // total-only question must not be rendered as a category ranking.
+  return { ok: true, result: { ...result, requested_group_by: args?.group_by ?? "none" } };
 }
 
 /** Histórico de 400 dias + recorrências, base da banda/backtest do forecast. */
