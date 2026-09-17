@@ -48,7 +48,7 @@ export const ACCEPTED_ANSWERS = [
 
 /** Frases em que o Nino oferece fazer algo e espera um "ok". */
 const OFFER_RX =
-  /(quer(?:ia)? que eu\b)|(quer comparar)|(quer ver)|(posso comparar)|(posso te mostrar)|(posso detalhar)|(posso simular)|(posso calcular)|(posso trazer)|(me d[aá] o ok)|(me confirma que eu)|(se quiser,? eu (?:consigo|posso|trago))|(te trago esses n[uú]meros)|(eu consigo separar)/i;
+  /(quer(?:ia)? que eu\b)|(quer comparar)|(quer ver)|(posso (?:comparar|te mostrar|detalhar|simular|calcular|trazer|abrir|separar|transformar|montar))|(me d[aá] o ok)|(me confirma que eu)|(se quiser,?\s*(?:eu\s+)?(?:consigo|posso|trago|abro|separo|comparo|detalho|transformo|mostro|monto))|(te trago esses n[uú]meros)|(eu consigo separar)/i;
 
 const NEGATIVE_RX = /\b(n[aã]o|nada|depois|agora n[aã]o|deixa)\b/i;
 
