@@ -185,7 +185,7 @@ export function blocksForTools(tools: readonly string[] | null | undefined): Pro
 export const DEFAULT_SYSTEM_PROMPT = composeSystemPrompt(["entry", "analytics", "advisory"]);
 
 
-export const DEFAULT_MODEL = "openai/gpt-6-astra";
+export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 
 export type ActivePrompt = {
   id: string | null;
