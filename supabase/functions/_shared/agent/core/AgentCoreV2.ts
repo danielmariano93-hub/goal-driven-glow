@@ -47,9 +47,6 @@ import {
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
-import { recall, type MemoryKind } from "./MemoryStore.ts";
-import { loadPreferences, type Preferences } from "./PersonalizationEngine.ts";
-import { buildConversationUserContext } from "./ConversationContext.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
