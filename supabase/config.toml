@@ -12,6 +12,10 @@ verify_jwt = false
 [functions.agent-proactive-tick]
 verify_jwt = false
 
+[functions.anticipation-tick]
+# Internal cron calls authenticate in the handler with x-cron-secret.
+verify_jwt = false
+
 [functions.user-data-export]
 verify_jwt = true
 
@@ -60,4 +64,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.finance-current-snapshot-worker]
+verify_jwt = false
+
+[functions.finance-facts-worker]
+# Internal cron calls authenticate in the handler with x-cron-secret.
 verify_jwt = false
