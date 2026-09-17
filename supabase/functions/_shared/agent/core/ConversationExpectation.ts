@@ -6,7 +6,7 @@
 // uma pergunta financeira antiga. Puro e testável: só olha textos.
 
 export type ExpectationKind =
-  | "emotional_checkin" | "entry_slot" | "category_scope" | "confirmation";
+  | "emotional_checkin" | "entry_slot" | "category_scope" | "confirmation" | "brain_clarification";
 
 export type ConversationExpectation = {
   kind: ExpectationKind;
