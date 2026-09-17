@@ -16,8 +16,7 @@ on:
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'vercel.json'
-      - '.github/workflows/nino-conversation-ci.yml'
-      - '.github/workflows/nino-supabase-deploy.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
