@@ -35,6 +35,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
+import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
 
 
 
@@ -42,7 +43,6 @@ import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCand
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") ?? "";
 const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 
 const PROMPT_VERSION = "v7-catalog-only";
@@ -167,6 +167,8 @@ async function activeUserIds(supa: SupabaseClient, only: string | null): Promise
 
 async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Promise<RunResult> {
   const aiBlocked = await getAiBlock(supa);
+  const aiProvider = resolveAiProvider();
+  const aiModel = aiProvider ? normalizeAiModel(MODEL, aiProvider) : MODEL;
   const nowIso = new Date().toISOString();
 
   // Dicas ativas (cache e controle de janela mínima).
@@ -528,7 +530,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     let payload = { ...chosen.candidate };
     let fallbackReason: string | null = null;
     // A IA só reescreve a dica principal do lote (custo e latência controlados).
-    const allowAi = !!LOVABLE_API_KEY && !aiBlocked && chosen.family !== "categorizacao" && slot === 0;
+    const allowAi = !!aiProvider && !aiBlocked && chosen.family !== "categorizacao" && slot === 0;
 
     if (allowAi) {
       const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
@@ -546,14 +548,14 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
 
       const aiStarted = Date.now();
       try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const resp = await fetch(aiEndpoint(aiProvider!, "chat/completions"), {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${LOVABLE_API_KEY}` },
+          headers: aiJsonHeaders(aiProvider!),
           body: JSON.stringify({
-            model: MODEL,
+            model: aiModel,
             // Redação curta não precisa de raciocínio: sem isso a chamada roda
             // por minutos, é cancelada pela plataforma e ainda é cobrada.
-            reasoning_effort: "none",
+            reasoning_effort: aiProvider?.provider === "groq" && aiModel.includes("gpt-oss") ? "low" : "none",
             messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
             response_format: { type: "json_object" },
           }),
@@ -564,7 +566,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
           fallbackReason = `ai_status_${resp.status}`;
           await recordGatewayCall(supa, {
             workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-            user_id: uid, model: MODEL, operation_type: "chat", success: false,
+            user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: false,
             http_status: resp.status, error_code: `gateway_${resp.status}`,
             latency_ms: Date.now() - aiStarted, reason_for_ai_call: "insight_copy_rewrite",
           }, null);
@@ -572,7 +574,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
           const j = await resp.json();
           await recordGatewayCall(supa, {
             workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-            user_id: uid, model: MODEL, operation_type: "chat", success: true,
+            user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: true,
             http_status: 200, latency_ms: Date.now() - aiStarted,
             reason_for_ai_call: "insight_copy_rewrite",
           }, j);
@@ -587,7 +589,7 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
               title: validated.title,
               body: validated.body,
               cta_label: validated.cta_label ?? payload.cta_label,
-              model: MODEL,
+              model: aiModel,
             };
           }
         }
@@ -595,14 +597,14 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
         fallbackReason = "ai_error";
         await recordGatewayCall(supa, {
           workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-          user_id: uid, model: MODEL, operation_type: "chat", success: false,
+          user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: false,
           error_code: "network_error", latency_ms: Date.now() - aiStarted,
           reason_for_ai_call: "insight_copy_rewrite",
         }, null);
       }
 
     } else {
-      fallbackReason = LOVABLE_API_KEY ? "deterministic_only" : "no_api_key";
+      fallbackReason = aiProvider ? "deterministic_only" : "no_api_provider";
     }
 
     const finalCheck = InsightSchema.safeParse(payload);

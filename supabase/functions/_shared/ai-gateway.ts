@@ -1,4 +1,5 @@
 import { createOpenAICompatible } from "npm:@ai-sdk/openai-compatible";
+import type { AiProviderConfig } from "./ai-runtime.ts";
 
 export {
   aiEndpoint,
@@ -8,10 +9,11 @@ export {
 } from "./ai-runtime.ts";
 export type { AiProviderConfig, AiProviderName } from "./ai-runtime.ts";
 
-export function createLovableAiGatewayProvider(apiKey: string) {
+/** Provider-neutral adapter for AI SDK call sites. */
+export function createAiGatewayProvider(config: AiProviderConfig) {
   return createOpenAICompatible({
-    name: "lovable-ai",
-    baseURL: "https://ai.gateway.lovable.dev/v1",
-    headers: { "Lovable-API-Key": apiKey },
+    name: `nino-${config.provider}`,
+    baseURL: config.baseUrl,
+    headers: config.headers,
   });
 }

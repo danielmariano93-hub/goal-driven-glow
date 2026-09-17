@@ -384,8 +384,9 @@ function finalize(bytes: Uint8Array, declaredMime: string, filename: string, kin
 
 type AudioDownload = DownloadResult;
 
-const TRANSCRIPTION_GATEWAY = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
-const TRANSCRIPTION_MODEL = "openai/gpt-4o-transcribe";
+const GROQ_BASE_URL = (Deno.env.get("GROQ_BASE_URL") ?? "https://api.groq.com/openai/v1").replace(/\/+$/, "");
+const TRANSCRIPTION_GATEWAY = `${GROQ_BASE_URL}/audio/transcriptions`;
+const TRANSCRIPTION_MODEL = "whisper-large-v3-turbo";
 /** ~2 minutos de voz do WhatsApp em Opus. Acima disso recusamos com explicação. */
 const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
 const MAX_SECONDS = 150;
@@ -551,7 +552,7 @@ export async function transcribeAudioBytes(args: {
   timeoutMs?: number;
   onStage?: (stage: "transcription_submitted", metadata: Record<string, unknown>) => void | Promise<void>;
 }): Promise<AudioTranscriptionResult> {
-  const key = Deno.env.get("LOVABLE_API_KEY");
+  const key = Deno.env.get("GROQ_API_KEY");
   if (!key) return { ok: false, code: "transcription_failed", detail: "missing_key" };
 
   // Bloqueio 402/403 continua terminal no turno, mas passada a janela de sonda
@@ -572,7 +573,7 @@ export async function transcribeAudioBytes(args: {
       workload: args.workload ?? "AUDIO_TRANSCRIPTION_WHATSAPP",
       function_name: "whatsapp-audio-transcription",
       operation: "transcribe", user_id: args.user_id ?? null,
-      model: TRANSCRIPTION_MODEL, operation_type: "transcription",
+      model: TRANSCRIPTION_MODEL, provider: "groq", operation_type: "transcription",
       success: ok, http_status: status, error_code: error,
       latency_ms: Date.now() - aiStarted, payload_bytes: bytes,
       reason_for_ai_call: "inbound_voice_note",
@@ -592,14 +593,12 @@ export async function transcribeAudioBytes(args: {
     const ownedBytes = new Uint8Array(normalized.bytes.byteLength);
     ownedBytes.set(normalized.bytes);
     form.append("file", new Blob([ownedBytes.buffer], { type: normalized.mime }), normalized.filename);
-    form.append("stream", "true");
+    form.append("response_format", "json");
+    form.append("language", "pt");
     await args.onStage?.("transcription_submitted", { mime: normalized.mime, bytes: normalized.bytes.length });
     const resp = await fetch(TRANSCRIPTION_GATEWAY, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "X-Lovable-AIG-SDK": "edge-function",
-      },
+      headers: { Authorization: `Bearer ${key}` },
       signal: controller.signal,
       body: form,
     });
@@ -615,7 +614,8 @@ export async function transcribeAudioBytes(args: {
     }
     // Chamada real bem-sucedida: se estávamos sondando, o bloqueio caiu.
     if (probing && args.sb) await resumeAiCircuit(args.sb);
-    const text = await readTranscriptionStream(resp);
+    const payload = await resp.json().catch(() => null) as { text?: string } | null;
+    const text = String(payload?.text ?? "").trim();
     await logUsage(true, 200, null, args.bytes.length);
     if (!text || /^\[?sem_?fala\]?$/i.test(text)) return { ok: false, code: "empty_audio" };
     return { ok: true, text: text.slice(0, 1500), mime_type: args.mime, bytes: args.bytes.length };

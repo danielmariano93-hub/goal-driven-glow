@@ -23,6 +23,9 @@ env:
   SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
   NINO_AI_PROVIDER: groq
   NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+  NINO_AI_VISION_MODEL: qwen/qwen3.6-27b
+  NINO_AI_TRANSCRIPTION_MODEL: whisper-large-v3-turbo
   NINO_SHADOW_AI_PROVIDER: groq
   NINO_SHADOW_AI_MODEL: openai/gpt-oss-120b
 
@@ -82,7 +85,58 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
 
-      - name: Validate Groq credential and runtime model
+      - name: Configure Supabase Auth production URLs
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          auth_url="https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth"
+          status="$(curl --silent --show-error --output /tmp/auth-before.json --write-out '%{http_code}' \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$auth_url")"
+          test "$status" = "200" || (echo "Supabase Auth config GET returned HTTP $status" && exit 1)
+
+          node <<'NODE'
+          const fs = require('fs');
+          const current = JSON.parse(fs.readFileSync('/tmp/auth-before.json', 'utf8'));
+          const existing = String(current.uri_allow_list || '')
+            .split(',').map(v => v.trim()).filter(Boolean)
+            .filter(v => !/lovable\.app|lovableproject\.com|lovable\.dev/i.test(v));
+          const required = [
+            'https://meunino.com.br',
+            'https://meunino.com.br/**',
+            'https://www.meunino.com.br',
+            'https://www.meunino.com.br/**',
+          ];
+          const payload = {
+            site_url: 'https://meunino.com.br',
+            uri_allow_list: [...new Set([...existing, ...required])].join(','),
+          };
+          fs.writeFileSync('/tmp/auth-patch.json', JSON.stringify(payload));
+          NODE
+
+          status="$(curl --silent --show-error --output /tmp/auth-after.json --write-out '%{http_code}' \
+            --request PATCH \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data @/tmp/auth-patch.json "$auth_url")"
+          test "$status" = "200" || (echo "Supabase Auth config PATCH returned HTTP $status" && exit 1)
+
+          node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/auth-after.json', 'utf8'));
+          if (body.site_url !== 'https://meunino.com.br') throw new Error(`Unexpected site_url: ${body.site_url}`);
+          const allow = String(body.uri_allow_list || '');
+          for (const wanted of ['https://meunino.com.br', 'https://www.meunino.com.br']) {
+            if (!allow.includes(wanted)) throw new Error(`Missing redirect origin: ${wanted}`);
+          }
+          if (/lovable\.app|lovableproject\.com|lovable\.dev/i.test(allow)) {
+            throw new Error('Legacy Lovable redirect URL still present');
+          }
+          console.log('Supabase Auth Site URL and redirect allow-list verified for meunino.com.br.');
+          NODE
+          rm -f /tmp/auth-before.json /tmp/auth-patch.json /tmp/auth-after.json
+
+      - name: Validate Groq credential and required models
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -96,17 +150,23 @@ jobs:
             https://api.groq.com/openai/v1/models)"
           test "$models_status" = "200" || (echo "Groq models endpoint returned HTTP $models_status" && exit 1)
 
-          node -e '
-            const fs = require("fs");
-            const body = JSON.parse(fs.readFileSync("/tmp/groq-models.json", "utf8"));
-            const wanted = process.env.NINO_AI_MODEL;
-            const found = Array.isArray(body.data) && body.data.some((m) => m && m.id === wanted);
-            if (!found) {
-              console.error(`Configured Groq runtime model is unavailable: ${wanted}`);
-              process.exit(1);
-            }
-            console.log(`Groq credential valid; model available: ${wanted}`);
-          '
+          node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/groq-models.json', 'utf8'));
+          const available = new Set((Array.isArray(body.data) ? body.data : []).map(m => m?.id).filter(Boolean));
+          const wanted = [
+            process.env.NINO_AI_MODEL,
+            process.env.NINO_AI_FAST_MODEL,
+            process.env.NINO_AI_VISION_MODEL,
+            process.env.NINO_AI_TRANSCRIPTION_MODEL,
+          ];
+          const missing = wanted.filter(model => !available.has(model));
+          if (missing.length) {
+            console.error(`Required Groq models unavailable: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+          console.log(`Groq credential valid; required models available: ${wanted.join(', ')}`);
+          NODE
 
           responses_status="$(curl --silent --show-error \
             --output /tmp/groq-response.json \
@@ -131,9 +191,24 @@ jobs:
             GROQ_BASE_URL="https://api.groq.com/openai/v1" \
             NINO_AI_PROVIDER="$NINO_AI_PROVIDER" \
             NINO_AI_MODEL="$NINO_AI_MODEL" \
+            NINO_AI_FAST_MODEL="$NINO_AI_FAST_MODEL" \
+            NINO_AI_VISION_MODEL="$NINO_AI_VISION_MODEL" \
+            NINO_AI_TRANSCRIPTION_MODEL="$NINO_AI_TRANSCRIPTION_MODEL" \
             NINO_SHADOW_AI_PROVIDER="$NINO_SHADOW_AI_PROVIDER" \
             NINO_SHADOW_AI_MODEL="$NINO_SHADOW_AI_MODEL"
-          echo 'Groq primary and shadow runtime configuration synced to Supabase.'
+          echo 'Groq runtime configuration synced to Supabase.'
+
+      - name: Remove legacy Lovable AI secret
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if supabase secrets list --project-ref "$SUPABASE_PROJECT_REF" | grep -q 'LOVABLE_API_KEY'; then
+            supabase secrets unset LOVABLE_API_KEY --project-ref "$SUPABASE_PROJECT_REF"
+            echo 'Legacy LOVABLE_API_KEY removed from Supabase Edge secrets.'
+          else
+            echo 'Legacy LOVABLE_API_KEY already absent.'
+          fi
 
       - name: Sync Vault cron credential to Edge runtime
         env:
@@ -184,11 +259,8 @@ jobs:
                 continue
                 ;;
               mcp)
-                # Generated Lovable MCP bundle is an external integration endpoint,
-                # not part of the web/app/WhatsApp runtime. Its generated artifact
-                # currently exceeds the Supabase Edge upload limit and still carries
-                # the legacy project's OAuth issuer, so it must be migrated/regenerated
-                # separately rather than blocking the application cutover.
+                # Generated external MCP bundle is not part of the web/app/WhatsApp runtime.
+                # It remains excluded until it is regenerated against the owned stack.
                 echo "Skipping generated external MCP endpoint: $fn"
                 continue
                 ;;
@@ -213,5 +285,8 @@ jobs:
           echo "excluded_external_integration=mcp"
           echo "primary_provider=$NINO_AI_PROVIDER"
           echo "primary_model=$NINO_AI_MODEL"
+          echo "fast_model=$NINO_AI_FAST_MODEL"
+          echo "vision_model=$NINO_AI_VISION_MODEL"
+          echo "transcription_model=$NINO_AI_TRANSCRIPTION_MODEL"
           echo "shadow_provider=$NINO_SHADOW_AI_PROVIDER"
           echo "shadow_model=$NINO_SHADOW_AI_MODEL"
