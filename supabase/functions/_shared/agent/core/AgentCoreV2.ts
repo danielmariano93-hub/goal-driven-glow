@@ -46,6 +46,7 @@ import {
 } from "./handlers/TypicalMonthlyHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
+import { loadBrainUserContext } from "./BrainUserContext.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -269,10 +270,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   }).catch(() => null as any);
   const session_id = session?.id as string | undefined;
 
-  const [loadedHistory, memory, workflow] = await Promise.all([
+  const [loadedHistory, memory, workflow, userContext] = await Promise.all([
     loadHistory(sb, input.conversation_id, { limit: 12, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
+    loadBrainUserContext(sb, input.user_id).catch(() => null),
   ]);
   // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
   // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
@@ -285,6 +287,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     history,
     memory,
     workflow,
+    user_context: userContext,
     model: BRAIN_MODEL,
     sb,
     user_id: input.user_id,
