@@ -21,6 +21,8 @@ permissions:
 
 env:
   SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
   NINO_SHADOW_AI_PROVIDER: groq
   NINO_SHADOW_AI_MODEL: openai/gpt-oss-120b
 
@@ -80,7 +82,7 @@ jobs:
           test -n "$SUPABASE_ACCESS_TOKEN" || (echo 'Missing SUPABASE_ACCESS_TOKEN' && exit 1)
           test -n "$SUPABASE_PROJECT_REF" || (echo 'Missing SUPABASE_PROJECT_REF' && exit 1)
 
-      - name: Validate Groq credential and shadow model
+      - name: Validate Groq credential and runtime model
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -97,10 +99,10 @@ jobs:
           node -e '
             const fs = require("fs");
             const body = JSON.parse(fs.readFileSync("/tmp/groq-models.json", "utf8"));
-            const wanted = process.env.NINO_SHADOW_AI_MODEL;
+            const wanted = process.env.NINO_AI_MODEL;
             const found = Array.isArray(body.data) && body.data.some((m) => m && m.id === wanted);
             if (!found) {
-              console.error(`Configured Groq shadow model is unavailable: ${wanted}`);
+              console.error(`Configured Groq runtime model is unavailable: ${wanted}`);
               process.exit(1);
             }
             console.log(`Groq credential valid; model available: ${wanted}`);
@@ -111,7 +113,7 @@ jobs:
             --write-out '%{http_code}' \
             --header "Authorization: Bearer $GROQ_API_KEY" \
             --header 'Content-Type: application/json' \
-            --data "{\"model\":\"$NINO_SHADOW_AI_MODEL\",\"input\":\"Return exactly the word ok.\",\"max_output_tokens\":8}" \
+            --data "{\"model\":\"$NINO_AI_MODEL\",\"input\":\"Return exactly the word ok.\",\"max_output_tokens\":8}" \
             https://api.groq.com/openai/v1/responses)"
           test "$responses_status" = "200" || (echo "Groq Responses endpoint returned HTTP $responses_status" && exit 1)
           echo 'Groq Responses compatibility smoke test passed.'
@@ -127,9 +129,11 @@ jobs:
             --project-ref "$SUPABASE_PROJECT_REF" \
             GROQ_API_KEY="$GROQ_API_KEY" \
             GROQ_BASE_URL="https://api.groq.com/openai/v1" \
+            NINO_AI_PROVIDER="$NINO_AI_PROVIDER" \
+            NINO_AI_MODEL="$NINO_AI_MODEL" \
             NINO_SHADOW_AI_PROVIDER="$NINO_SHADOW_AI_PROVIDER" \
             NINO_SHADOW_AI_MODEL="$NINO_SHADOW_AI_MODEL"
-          echo 'Groq shadow runtime configuration synced to Supabase.'
+          echo 'Groq primary and shadow runtime configuration synced to Supabase.'
 
       - name: Deploy complete application Edge Function backend
         env:
@@ -172,5 +176,7 @@ jobs:
           echo "scope=application_edge_functions"
           echo "deployed_functions=${deployed_functions:-unknown}"
           echo "excluded_external_integration=mcp"
+          echo "primary_provider=$NINO_AI_PROVIDER"
+          echo "primary_model=$NINO_AI_MODEL"
           echo "shadow_provider=$NINO_SHADOW_AI_PROVIDER"
           echo "shadow_model=$NINO_SHADOW_AI_MODEL"
