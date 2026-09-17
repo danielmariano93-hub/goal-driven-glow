@@ -1,6 +1,7 @@
 import { Activity } from "lucide-react";
 import { AiEfficiencyHistoryBoard } from "@/components/admin/AiEfficiencyHistoryBoard";
 import { AiProviderBenchmarkBoard } from "@/components/admin/AiProviderBenchmarkBoard";
+import { SupabaseCapacityBoard } from "@/components/admin/SupabaseCapacityBoard";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/admin/PageHeader";
 
@@ -9,11 +10,12 @@ export default function CustoLatencia() {
     <div className="space-y-6">
       <PageHeader
         title="Custo e latência"
-        description="Tokens, latência, chamadas e comparação de providers da IA do Nino."
+        description="Tokens, latência, chamadas, providers de IA e capacidade operacional do Nino."
         status={<Badge variant="secondary" className="gap-1"><Activity size={12} /> Operação global</Badge>}
       />
       <AiEfficiencyHistoryBoard />
       <AiProviderBenchmarkBoard />
+      <SupabaseCapacityBoard />
     </div>
   );
 }
