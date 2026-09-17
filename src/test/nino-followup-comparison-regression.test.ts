@@ -113,6 +113,7 @@ describe("regressão produção 17/09 — follow-up 'qual delas mais piorou?'", 
         period_a: { from: JULY.from, to: JULY.to },
         period_b: { from: AUGUST.from, to: AUGUST.to },
       }),
+      "q1",
     );
     expect(out.turn?.reply).toMatch(/Alimenta[cç][aã]o/i);
     expect(out.turn?.reply).toContain("R$");
