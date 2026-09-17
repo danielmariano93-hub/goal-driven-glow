@@ -8,7 +8,10 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { readGatewayUsage, recordAiUsage, recordGatewayCall } from "../../aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../../ai-runtime.ts";
+import {
+  adaptResponsesBody, aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider,
+  type AiProviderConfig,
+} from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
@@ -158,6 +161,8 @@ export async function interpretConversationTurn(input: {
   sb?: SupabaseClient;
   user_id?: string | null;
   run_id?: string | null;
+  /** Used only by controlled shadow/evaluation paths. Product routing still comes from resolveAiProvider(). */
+  provider_override?: AiProviderConfig | null;
 }): Promise<ConversationBrainOutcome> {
   const started = Date.now();
   const fail = (error: string): ConversationBrainOutcome => ({
@@ -168,7 +173,7 @@ export async function interpretConversationTurn(input: {
     },
   });
 
-  const provider = resolveAiProvider();
+  const provider = input.provider_override ?? resolveAiProvider();
   if (!provider) return fail("conversation_brain_llm_not_configured");
   const requestModel = normalizeAiModel(input.model, provider);
 
@@ -184,22 +189,24 @@ export async function interpretConversationTurn(input: {
       "Emita somente emit_conversation_turn_contract.",
     ].filter(Boolean).join("\n\n");
 
+    const requestBody = adaptResponsesBody(provider, {
+      model: requestModel,
+      input: [
+        { role: "developer", content: SYSTEM },
+        { role: "user", content: user },
+      ],
+      tools: [brainTool()],
+      tool_choice: { type: "function", name: "emit_conversation_turn_contract" },
+      stream: true,
+      store: false,
+      reasoning: { effort: "low", summary: "concise" },
+      include: ["reasoning.encrypted_content"],
+    });
+
     const response = await fetch(aiEndpoint(provider, "responses"), {
       method: "POST",
       headers: aiJsonHeaders(provider),
-      body: JSON.stringify({
-        model: requestModel,
-        input: [
-          { role: "developer", content: SYSTEM },
-          { role: "user", content: user },
-        ],
-        tools: [brainTool()],
-        tool_choice: { type: "function", name: "emit_conversation_turn_contract" },
-        stream: true,
-        store: false,
-        reasoning: { effort: "low", summary: "concise" },
-        include: ["reasoning.encrypted_content"],
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
@@ -222,7 +229,7 @@ export async function interpretConversationTurn(input: {
       const error = `conversation_brain_gateway_${response.status || "bad_json"}`;
       if (input.sb) await recordAiUsage(input.sb, {
         workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
-        user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
+        user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
         success: false, http_status: response.status || null, error_code: error,
         latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
         metadata: { provider: provider.provider },
@@ -233,7 +240,7 @@ export async function interpretConversationTurn(input: {
     const usage = readGatewayUsage(body);
     if (input.sb) await recordGatewayCall(input.sb, {
       workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
-      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
+      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
       success: true, latency_ms: Date.now() - started, reason_for_ai_call: "conversation_brain_v1",
       metadata: { contract_version: "conversation_turn_contract.v1", provider: provider.provider },
     }, body);
@@ -253,7 +260,7 @@ export async function interpretConversationTurn(input: {
     return {
       contract,
       telemetry: {
-        model: input.model, llm_calls: 1,
+        model: requestModel, llm_calls: 1,
         tokens_in: usage.input_tokens, tokens_out: usage.output_tokens,
         latency_ms: Date.now() - started, ok: true, error: null,
       },
@@ -263,7 +270,7 @@ export async function interpretConversationTurn(input: {
       ? "conversation_brain_timeout" : "conversation_brain_error";
     if (input.sb) await recordAiUsage(input.sb, {
       workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
-      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: input.model,
+      user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
       success: false, error_code: code, latency_ms: Date.now() - started,
       reason_for_ai_call: "conversation_brain_v1",
       metadata: { provider: provider.provider },
