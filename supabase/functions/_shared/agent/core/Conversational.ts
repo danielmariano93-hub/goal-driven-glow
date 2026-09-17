@@ -181,13 +181,14 @@ export async function generateConversationalReply(args: {
 }): Promise<string | null> {
   const provider = resolveAiProvider();
   if (!provider) return null;
-  const MODEL = "openai/gpt-5.6-sol";
+  const configuredModel = String((globalThis as any).Deno?.env?.get?.("NINO_AI_FAST_MODEL") ?? (globalThis as any).Deno?.env?.get?.("NINO_AI_MODEL") ?? "openai/gpt-oss-20b");
+  const MODEL = normalizeAiModel(configuredModel, provider);
   const aiStarted = Date.now();
   const logUsage = async (ok: boolean, status: number | null, error: string | null, json: any) => {
     if (!args.sb) return;
     await recordGatewayCall(args.sb, {
       workload: "AGENT_CONVERSATION", function_name: "agent-conversational",
-      operation: "casual_reply", user_id: args.user_id ?? null, model: MODEL,
+      operation: "casual_reply", user_id: args.user_id ?? null, model: MODEL, provider: provider.provider,
       operation_type: "chat", success: ok, http_status: status, error_code: error,
       latency_ms: Date.now() - aiStarted, reason_for_ai_call: "casual_route",
       metadata: { provider: provider.provider },
@@ -201,7 +202,7 @@ export async function generateConversationalReply(args: {
       method: "POST",
       headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: normalizeAiModel(MODEL, provider),
+        model: MODEL,
         temperature: 0.6,
         messages: [
           { role: "system", content: NINO_PERSONA },
