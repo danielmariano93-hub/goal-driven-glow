@@ -100,7 +100,11 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
 
     for (const c of sig.tool_calls) {
       if (!c.ok) continue;
-      if (c.tool_name === "create_transaction_draft") {
+      // A draft is only a proposal. Learning a merchant/category before the
+      // user confirms it creates false long-term memory when the draft is
+      // cancelled or corrected. Confirmed transactions are learned from the
+      // canonical ledger/profiles instead, never from an uncommitted draft.
+      if (c.tool_name === "create_transaction_draft" && sig.reply_kind === "receipt") {
         const merchant = String(c.args?.description ?? "").trim();
         const category = c.args?.category ?? null;
         if (merchant) {
