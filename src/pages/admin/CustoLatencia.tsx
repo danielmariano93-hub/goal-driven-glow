@@ -9,7 +9,7 @@ export default function CustoLatencia() {
     <div className="space-y-6">
       <PageHeader
         title="Custo e latência"
-        description="Consumo de tokens, chamadas, tempos de resposta e comparação entre providers de IA."
+        description="Tokens, latência, chamadas e comparação de providers da IA do Nino."
         status={<Badge variant="secondary" className="gap-1"><Activity size={12} /> Operação global</Badge>}
       />
       <AiEfficiencyHistoryBoard />
