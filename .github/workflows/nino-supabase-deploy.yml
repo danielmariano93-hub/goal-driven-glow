@@ -69,10 +69,12 @@ jobs:
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
+          src/test/nino-semantic-ir-v2.test.ts
           src/test/nino-semantic-ir-v3.test.ts
           src/test/nino-semantic-pipeline.test.ts
           src/test/nino-intelligence-core.test.ts
           src/test/nino-brain-user-context.test.ts
+          src/test/nino-conversation-memory-safety.test.ts
           src/test/nino-response-preference-learning.test.ts
           src/test/continuation-contract.test.ts
 
