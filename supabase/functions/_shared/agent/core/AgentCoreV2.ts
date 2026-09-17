@@ -118,6 +118,10 @@ function subjectFromContract(contract: ConversationTurnContract): string {
           : contract.mode;
 }
 
+function suggestionsAllowed(userContext: string | null): boolean {
+  return !/"suggestion_frequency"\s*:\s*"low"/i.test(String(userContext ?? ""));
+}
+
 function suggestionForSemantic(semantic: any): string | null {
   if (!semantic || semantic.status !== "executable") return null;
   const q = semantic.ir_v2?.queries?.[0];
@@ -223,10 +227,18 @@ async function finishV2(args: {
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
 
-  // Durable topic continuity is updated for every V2 mode, not only financial
-  // READs. This is what lets "voltando naquele assunto..." survive a new session.
-  let activeTopicId = args.topic_resolution?.topic_id ?? args.memory?.active_topic_id ?? null;
-  if (args.topic_repo && !args.topic_resolution?.clarification_required) {
+  // Durable topic continuity is updated for meaningful V2 topics. Pure social
+  // turns ("oi", "obrigado") must not replace the financial topic the user may
+  // resume a message later.
+  const incidentalConversation = args.contract.mode === "converse"
+    && args.contract.act === "conversational"
+    && !args.contract.inherit_focus;
+  let activeTopicId = args.topic_resolution?.topic_id
+    ?? (args.contract.act === "topic_switch" ? null : args.memory?.active_topic_id ?? null);
+  const shouldPersistTopic = !!args.topic_repo
+    && !args.topic_resolution?.clarification_required
+    && !incidentalConversation;
+  if (shouldPersistTopic && args.topic_repo) {
     const subject = subjectFromContract(args.contract);
     if (activeTopicId) {
       await args.topic_repo.touch(activeTopicId, {
@@ -263,19 +275,36 @@ async function finishV2(args: {
       ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
       : detectExpectation(body);
     await saveConversationMemory(args.sb, args.session_id, {
-      current_topic: subjectFromContract(args.contract),
-      active_topic_id: activeTopicId,
-      previous_intent: args.contract.mode,
-      active_category: args.contract.focus.category ?? (inherit ? args.memory?.active_category ?? null : null),
-      active_merchant: args.contract.focus.merchant ?? (inherit ? args.memory?.active_merchant ?? null : null),
-      active_period: args.active_period ?? (inherit ? args.memory?.active_period ?? null : null),
-      comparison_period: args.comparison_period ?? (inherit ? args.memory?.comparison_period ?? null : null),
+      current_topic: incidentalConversation
+        ? args.memory?.current_topic ?? null
+        : subjectFromContract(args.contract),
+      active_topic_id: incidentalConversation
+        ? args.memory?.active_topic_id ?? null
+        : activeTopicId,
+      previous_intent: incidentalConversation
+        ? args.memory?.previous_intent ?? null
+        : args.contract.mode,
+      active_category: incidentalConversation
+        ? args.memory?.active_category ?? null
+        : args.contract.focus.category ?? (inherit ? args.memory?.active_category ?? null : null),
+      active_merchant: incidentalConversation
+        ? args.memory?.active_merchant ?? null
+        : args.contract.focus.merchant ?? (inherit ? args.memory?.active_merchant ?? null : null),
+      active_period: incidentalConversation
+        ? args.memory?.active_period ?? null
+        : args.active_period ?? (inherit ? args.memory?.active_period ?? null : null),
+      comparison_period: incidentalConversation
+        ? args.memory?.comparison_period ?? null
+        : args.comparison_period ?? (inherit ? args.memory?.comparison_period ?? null : null),
       pending_slots: args.reply_kind === "question" ? ["brain_clarification"] : [],
       awaiting: args.reply_kind === "question" && !awaiting
         ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
         : awaiting,
-      pending_conversation_action: detectContinuationOffer(body),
-      conversation_summary: String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
+      pending_conversation_action: detectContinuationOffer(body)
+        ?? (incidentalConversation ? args.memory?.pending_conversation_action ?? null : null),
+      conversation_summary: incidentalConversation
+        ? args.memory?.conversation_summary ?? null
+        : String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
     }).catch(() => null);
   }
 
@@ -506,6 +535,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       evidenceCache,
     });
     if (!write.handled) return await handleLegacyTurn(input);
+    const writeExecuted = Boolean(write.tool_name && write.reply_kind !== "question");
     return await finishV2({
       sb, input, contract, reply: write.reply,
       reply_kind: write.reply_kind === "draft" ? "draft" : write.reply_kind === "question" ? "question" : "info",
@@ -513,8 +543,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       draft_id: write.draft_id, result: write.tool_result, session_id,
-      tools: write.tool_name ? [write.tool_name] : [],
-      tool_calls: write.tool_name ? [{
+      tools: writeExecuted && write.tool_name ? [write.tool_name] : [],
+      tool_calls: writeExecuted && write.tool_name ? [{
         tool_name: write.tool_name,
         args: write.tool_args,
         result: write.tool_result,
@@ -623,7 +653,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
-  if (replyKind === "info") {
+  if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
     const suggestion = suggestionForSemantic(semantic);
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
@@ -636,8 +666,13 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     model: brain.telemetry.model, provider: brain.telemetry.provider,
     session_id,
     tools: semantic.engines,
-    tool_calls: semantic.engines.map((tool_name: string) => ({ tool_name, ok: true })),
-    error: semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null,
+    tool_calls: (semantic.turn?.toolCalls ?? []).map((call: any) => ({
+      tool_name: String(call.tool_name ?? "semantic_engine"),
+      args: call.args,
+      result: call.result,
+      ok: call.ok === true,
+    })),
+    error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     active_period: { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
     comparison_period: plan.previous_period,
