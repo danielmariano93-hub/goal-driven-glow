@@ -1,11 +1,10 @@
-project_id = "wesjjdjmlnfjihkkgzfp"
+project_id = "amjanjlvsatubxdreyep"
 
 [functions.whatsapp-webhook]
 verify_jwt = false
 
 [functions.whatsapp-ack-watchdog]
 verify_jwt = false
-
 
 [functions.split-reminders-dispatch-v2]
 verify_jwt = false
@@ -29,7 +28,6 @@ verify_jwt = true
 # usuários. A autorização é validada NO CÓDIGO: service role, segredo de cron
 # ou JWT de admin — requisição anônima continua recebendo 401.
 verify_jwt = false
-
 
 [functions.whatsapp-session]
 verify_jwt = true
@@ -63,4 +61,3 @@ verify_jwt = false
 
 [functions.finance-current-snapshot-worker]
 verify_jwt = false
-
