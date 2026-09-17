@@ -53,6 +53,7 @@ type ConversationBrainInput = {
   sb?: SupabaseClient;
   user_id?: string | null;
   run_id?: string | null;
+  conversation_id?: string | null;
   /** Used only by controlled shadow/evaluation paths. Product routing still comes from resolveAiProvider(). */
   provider_override?: AiProviderConfig | null;
 };
@@ -185,6 +186,14 @@ function actionKind(contract: ConversationTurnContract | null): string | null {
   return contract?.action?.action ?? null;
 }
 
+async function writeProviderShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
+  try {
+    await sb.from("ai_provider_shadow_evaluations").insert(row);
+  } catch (error) {
+    console.warn("[ai-provider-shadow] telemetry insert failed", error);
+  }
+}
+
 async function runProviderShadow(args: {
   input: ConversationBrainInput;
   official_contract: ConversationTurnContract;
@@ -198,7 +207,7 @@ async function runProviderShadow(args: {
   const requestedModel = env("NINO_SHADOW_AI_MODEL");
   const baseRow = {
     user_id: args.input.user_id,
-    conversation_id: (args.input as any).conversation_id ?? null,
+    conversation_id: args.input.conversation_id ?? null,
     official_provider: args.official_provider,
     official_model: args.official_telemetry.model,
     official_act: args.official_contract.act,
@@ -210,21 +219,14 @@ async function runProviderShadow(args: {
     official_latency_ms: args.official_telemetry.latency_ms,
   };
 
-  // conversation_id is not part of the Brain's semantic contract input today.
-  // Resolve it from the caller-provided telemetry context when available; if not,
-  // skip persistence rather than writing an unjoinable benchmark row.
-  const conversationId = (args.input as any).conversation_id as string | undefined;
-  if (!conversationId) return;
-
   if (!requestedProvider || !requestedModel || !["groq", "openrouter"].includes(requestedProvider)) {
-    await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+    await writeProviderShadowRow(args.input.sb, {
       ...baseRow,
-      conversation_id: conversationId,
       shadow_provider: requestedProvider || "unconfigured",
       shadow_model: requestedModel || "unconfigured",
       status: requestedProvider && requestedModel ? "shadow_error" : "not_configured",
       error_code: requestedProvider && requestedModel ? "unsupported_shadow_provider" : "shadow_provider_not_configured",
-    }).catch(() => undefined);
+    });
     return;
   }
 
@@ -233,14 +235,13 @@ async function runProviderShadow(args: {
     model: requestedModel,
   });
   if (!shadowProvider) {
-    await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+    await writeProviderShadowRow(args.input.sb, {
       ...baseRow,
-      conversation_id: conversationId,
       shadow_provider: requestedProvider,
       shadow_model: requestedModel,
       status: "not_configured",
       error_code: "shadow_provider_key_missing",
-    }).catch(() => undefined);
+    });
     return;
   }
 
@@ -255,9 +256,8 @@ async function runProviderShadow(args: {
   });
   const candidate = shadow.contract;
 
-  await args.input.sb.from("ai_provider_shadow_evaluations").insert({
+  await writeProviderShadowRow(args.input.sb, {
     ...baseRow,
-    conversation_id: conversationId,
     shadow_provider: shadowProvider.provider,
     shadow_model: shadow.telemetry.model || requestedModel,
     shadow_act: candidate?.act ?? null,
@@ -278,7 +278,7 @@ async function runProviderShadow(args: {
     shadow_tokens_out: shadow.telemetry.tokens_out,
     status: candidate ? "ok" : "shadow_error",
     error_code: shadow.telemetry.error ?? null,
-  }).catch(() => undefined);
+  });
 }
 
 function scheduleProviderShadow(args: {
