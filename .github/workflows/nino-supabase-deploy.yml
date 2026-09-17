@@ -232,6 +232,9 @@ jobs:
           done
           rm -f /tmp/groq-models.json /tmp/groq-structured-request.json /tmp/groq-structured-response.json
 
+          echo 'Running real Conversation Brain provider smoke.'
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
+
       - name: Sync Groq runtime configuration to Supabase
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
