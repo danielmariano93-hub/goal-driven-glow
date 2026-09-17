@@ -649,6 +649,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       max_queries: args.max_queries,
       replan: args.replan ?? null,
       reason: "conversation_brain_v1_read_compile",
+      skip_fast_path: true,
       sb,
       user_id: input.user_id,
       run_id: null,
