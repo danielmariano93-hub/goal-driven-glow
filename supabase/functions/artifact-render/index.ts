@@ -1,24 +1,12 @@
-// artifact-render — pega um ChartArtifact e produz PNG server-side usando
-// @napi-rs/canvas (sem headless browser). Faz upload no bucket `artifacts`
-// e devolve URL assinada de 24h. Suporta bar/line/donut simples.
-// Chamado sincronamente por whatsapp-send com timeout curto; se falhar, o
-// caller cai para fallback textual.
+// artifact-render — renderiza ChartArtifact como PNG em TypeScript puro,
+// faz upload no bucket `artifacts` e devolve URL assinada de 24h.
+// Chamado sincronamente por whatsapp-send com timeout curto; se falhar,
+// o caller cai para fallback textual.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { corsHeaders, json } from "../_shared/cors.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { renderArtifactPng } from "../_shared/artifacts/png.ts";
 import { validateChartArtifactV2 } from "../_shared/artifacts/schema.ts";
-// deno-lint-ignore no-explicit-any
-let canvasMod: any = null;
-async function getCanvas() {
-  if (canvasMod) return canvasMod;
-  try {
-    canvasMod = await import("npm:@napi-rs/canvas@0.1.53");
-  } catch (_e) {
-    canvasMod = null;
-  }
-  return canvasMod;
-}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -37,65 +25,6 @@ type ArtifactPayload = {
   provenance?: { formula_version?: string; row_count?: number; confidence?: string };
 };
 
-function renderPng(payload: ArtifactPayload, mod: any): Uint8Array | null {
-  const { createCanvas } = mod;
-  const W = 900, H = 520;
-  const canvas = createCanvas(W, H);
-  const ctx = canvas.getContext("2d");
-  // background
-  ctx.fillStyle = "#F8F7FC"; ctx.fillRect(0, 0, W, H);
-  // title
-  ctx.fillStyle = "#171321";
-  ctx.font = "bold 26px sans-serif";
-  ctx.fillText(payload.title ?? "MeuNino", 40, 60);
-  // summary
-  if (payload.summary_text) {
-    ctx.fillStyle = "#6F687D"; ctx.font = "18px sans-serif";
-    wrapText(ctx, payload.summary_text, 40, 100, W - 80, 24);
-  }
-  // series bars
-  const series = payload.data?.series ?? [];
-  if (series.length > 0) {
-    const chartX = 60, chartY = 200, chartW = W - 120, chartH = 240;
-    const max = Math.max(...series.map(s => Math.abs(s.value))) || 1;
-    const bw = Math.max(20, Math.min(80, (chartW - 20) / series.length - 12));
-    const gap = ((chartW - series.length * bw) / (series.length + 1));
-    let x = chartX + gap;
-    for (const s of series) {
-      const h = (Math.abs(s.value) / max) * (chartH - 40);
-      ctx.fillStyle = s.value < 0 ? "#FF6B4A" : "#6D3BFF";
-      ctx.fillRect(x, chartY + chartH - h, bw, h);
-      ctx.fillStyle = "#171321"; ctx.font = "13px sans-serif";
-      const label = s.name.length > 12 ? s.name.slice(0, 11) + "…" : s.name;
-      ctx.fillText(label, x, chartY + chartH + 18);
-      ctx.font = "12px sans-serif"; ctx.fillStyle = "#6F687D";
-      ctx.fillText(brl(s.value), x, chartY + chartH - h - 6);
-      x += bw + gap;
-    }
-  }
-  // provenance footer
-  const prov = payload.provenance ?? {};
-  const footer = `Fórmula ${prov.formula_version ?? "—"} · ${prov.row_count ?? 0} lançamentos · confiança: ${prov.confidence ?? "—"}`;
-  ctx.fillStyle = "#8E869C"; ctx.font = "12px sans-serif";
-  ctx.fillText(footer, 40, H - 20);
-  return canvas.toBuffer("image/png");
-}
-
-function wrapText(ctx: any, text: string, x: number, y: number, maxW: number, lh: number) {
-  const words = text.split(/\s+/); let line = "";
-  for (const w of words) {
-    const test = line ? line + " " + w : w;
-    if (ctx.measureText(test).width > maxW && line) {
-      ctx.fillText(line, x, y); line = w; y += lh;
-    } else line = test;
-  }
-  if (line) ctx.fillText(line, x, y);
-}
-
-function brl(n: number): string {
-  return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 Deno.serve(async (req) => {
   const h = httpContext("artifact-render", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -110,7 +39,7 @@ Deno.serve(async (req) => {
       .eq("id", artifact_id).maybeSingle();
     if (error || !art) return h.fail("artifact_not_found", 404);
 
-    // Se já renderizou e URL válida, reusa
+    // Se já renderizou e URL válida, reusa.
     if (art.media_url && art.rendered_at) {
       return h.ok({ media_url: art.media_url, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
     }
@@ -121,24 +50,31 @@ Deno.serve(async (req) => {
       fallback_text: art.fallback_text ?? (art.payload as any)?.fallback_text,
       provenance: (art.payload as any)?.provenance ?? { formula_version: art.formula_version },
     };
-    // Onda 2.3 — validação do contrato antes de renderizar. Não bloqueia v1,
-    // mas registra erros no log para diagnóstico e evita renderer travar.
+
+    // Valida contrato antes de renderizar sem bloquear payloads v1.
     const validation = validateChartArtifactV2(art.payload);
     if (!validation.ok && validation.version === "v2") {
       console.warn("[artifact-render] v2_validation_errors", {
-        artifact_id: art.id, errors: validation.errors.slice(0, 8),
+        artifact_id: art.id,
+        errors: validation.errors.slice(0, 8),
       });
     }
-    // Pure TypeScript encoder: compatible with Supabase Edge/Deno and does not
-    // require @napi-rs/canvas, the source of canvas_unavailable in WhatsApp.
+
+    // Encoder TypeScript puro: compatível com Supabase Edge/Deno e sem
+    // dependência nativa de canvas. Isso mantém o bundle bem abaixo do limite
+    // de upload das Edge Functions.
     const png = await renderArtifactPng(payload as any);
 
-    // upload
     const path = `${art.user_id}/${art.id}.png`;
     const up = await sb.storage.from(BUCKET).upload(path, png, {
-      contentType: "image/png", upsert: true,
+      contentType: "image/png",
+      upsert: true,
     });
-    if (up.error) return h.fail("upload_failed", 500, { details: { reason: String(up.error.message).slice(0, 200) } });
+    if (up.error) {
+      return h.fail("upload_failed", 500, {
+        details: { reason: String(up.error.message).slice(0, 200) },
+      });
+    }
 
     const signed = await sb.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 24);
     const mediaUrl = signed.data?.signedUrl ?? null;
@@ -152,8 +88,13 @@ Deno.serve(async (req) => {
       media_expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
     }).eq("id", art.id);
 
-    return h.ok({ media_url: mediaUrl, fallback_text: art.fallback_text ?? art.summary_text ?? "" });
+    return h.ok({
+      media_url: mediaUrl,
+      fallback_text: art.fallback_text ?? art.summary_text ?? "",
+    });
   } catch (e) {
-    return h.fail("internal", 500, { details: { reason: String((e as Error).message).slice(0, 200) } });
+    return h.fail("internal", 500, {
+      details: { reason: String((e as Error).message).slice(0, 200) },
+    });
   }
 });
