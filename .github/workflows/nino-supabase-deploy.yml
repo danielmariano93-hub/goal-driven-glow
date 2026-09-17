@@ -54,6 +54,7 @@ jobs:
           src/test/nino-conversation-v2-golden-scenarios.test.ts
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
+          src/test/nino-ai-provider-shadow-v1.test.ts
 
       - name: Production build
         run: npm run build
@@ -104,4 +105,5 @@ jobs:
           echo "revision=${GITHUB_SHA}"
           echo "project_ref=${SUPABASE_PROJECT_REF}"
           echo "provider=lovable"
+          echo "ai_provider_shadow=disabled_by_default"
           echo "functions=10"
