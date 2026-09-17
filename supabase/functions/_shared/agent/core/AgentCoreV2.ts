@@ -118,10 +118,6 @@ function subjectFromContract(contract: ConversationTurnContract): string {
           : contract.mode;
 }
 
-function suggestionsAllowed(userContext: string | null): boolean {
-  return !/"suggestion_frequency"\s*:\s*"low"/i.test(String(userContext ?? ""));
-}
-
 function suggestionsAllowed(userContext: string | null | undefined): boolean {
   const text = String(userContext ?? "");
   return !/"suggestion_frequency"\s*:\s*"low"/i.test(text)
@@ -660,7 +656,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
   if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
-    const suggestion = suggestionsAllowed(durableUserContext) ? suggestionForSemantic(semantic) : null;
+    const suggestion = suggestionForSemantic(semantic);
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
 
