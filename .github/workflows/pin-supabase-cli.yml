@@ -1,0 +1,29 @@
+name: Pin Supabase CLI
+
+on:
+  push:
+    branches:
+      - fix/supabase-cli-pin-20260917
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/supabase-cli-pin-20260917
+      - name: Pin stable CLI and self-remove
+        run: |
+          set -euo pipefail
+          sed -i 's/version: latest/version: 2.117.0/' .github/workflows/nino-supabase-deploy.yml
+          grep -q 'version: 2.117.0' .github/workflows/nino-supabase-deploy.yml
+          git rm .github/workflows/pin-supabase-cli.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/nino-supabase-deploy.yml
+          git commit -m 'fix(ci): pin Supabase CLI 2.117.0 [skip ci]'
+          git push origin HEAD:fix/supabase-cli-pin-20260917
