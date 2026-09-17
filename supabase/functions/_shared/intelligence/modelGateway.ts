@@ -10,18 +10,17 @@ import type { ModelRoute, ModelTask, SemanticQuery } from "./contracts.ts";
  */
 export type ModelTier = "tier1_light" | "tier2_analysis" | "tier3_reasoning" | "vision";
 
-// Modelos verificados contra a lista de permitidos do gateway (`nino_efficiency.v2`).
-// Fallback SEMPRE em provider distinto do primário: fallback no mesmo provider
-// não é resiliência.
+// Runtime-owned model tiers. The configured provider is the authority; stale
+// database model ids from the old gateway must never silently select a provider.
 export const MODEL_TIERS: Readonly<Record<ModelTier, { primary: string; fallback: string }>> = {
-  // Classificação ambígua, humanização e extração simples.
-  tier1_light: { primary: "google/gemini-3.1-flash-lite", fallback: "openai/gpt-5.4-nano" },
-  // Análise financeira e perguntas compostas — o caminho mais comum com LLM.
-  tier2_analysis: { primary: "google/gemini-3.7-flash", fallback: "openai/gpt-5.4-mini" },
-  // Raciocínio complexo, raro por definição.
-  tier3_reasoning: { primary: "google/gemini-3.1-pro-preview", fallback: "openai/gpt-5.6-terra" },
+  // Classificação ambígua e entendimento curto.
+  tier1_light: { primary: "openai/gpt-oss-20b", fallback: "openai/gpt-oss-120b" },
+  // Análise financeira e perguntas compostas.
+  tier2_analysis: { primary: "openai/gpt-oss-120b", fallback: "openai/gpt-oss-20b" },
+  // Raciocínio complexo.
+  tier3_reasoning: { primary: "openai/gpt-oss-120b", fallback: "openai/gpt-oss-20b" },
   // Documentos difíceis (imagem/escaneado).
-  vision: { primary: "google/gemini-3.7-flash", fallback: "openai/gpt-5.4" },
+  vision: { primary: "qwen/qwen3.8-27b", fallback: "qwen/qwen3.8-27b" },
 };
 
 export function tierForTask(task: ModelTask): ModelTier {
@@ -94,15 +93,14 @@ export function selectModelRoute(task: ModelTask, configuredModel: string, confi
   const tier = tierForTask(task);
   const defaults = MODEL_TIERS[tier];
   const envPrimary = tier === "vision"
-    ? env("AI_MODEL_VISION")
-    : tier === "tier3_reasoning"
-    ? env("AI_MODEL_REASONING")
+    ? (env("NINO_AI_VISION_MODEL") ?? env("AI_MODEL_VISION"))
     : tier === "tier1_light"
-    ? env("AI_MODEL_FAST")
-    : env("AI_MODEL_REASONING");
+    ? (env("NINO_AI_FAST_MODEL") ?? env("AI_MODEL_FAST"))
+    : (env("NINO_AI_MODEL") ?? env("AI_MODEL_REASONING"));
   const primary = envPrimary ?? defaults.primary;
-  // Fallback no MESMO provider não é resiliência: mantemos provider distinto.
-  const configuredFallback = env("AI_MODEL_FALLBACK") ?? defaults.fallback;
+  // Model fallback protects against a model-specific outage/rate-limit. Cross-
+  // provider failover is handled separately by provider configuration.
+  const configuredFallback = env("NINO_AI_FALLBACK_MODEL") ?? env("AI_MODEL_FALLBACK") ?? defaults.fallback;
   const fallback = configuredFallback && configuredFallback !== primary ? configuredFallback : null;
   return {
     task,
@@ -129,11 +127,13 @@ export async function loadModelRoute(
       .select("primary_model,fallback_model,max_latency_ms,max_steps,active")
       .eq("task", task).eq("active", true).maybeSingle();
     if (!data) return fallback;
-    const envPrimary = task === "vision" ? env("AI_MODEL_VISION")
-      : task === "fast_operation" || task === "semantic_classification" ? env("AI_MODEL_FAST")
-      : env("AI_MODEL_REASONING");
+    const envPrimary = task === "vision"
+      ? (env("NINO_AI_VISION_MODEL") ?? env("AI_MODEL_VISION"))
+      : task === "fast_operation" || task === "semantic_classification"
+      ? (env("NINO_AI_FAST_MODEL") ?? env("AI_MODEL_FAST"))
+      : (env("NINO_AI_MODEL") ?? env("AI_MODEL_REASONING"));
     const primary = envPrimary ?? String(data.primary_model || fallback.primary);
-    const configuredFallback = env("AI_MODEL_FALLBACK")
+    const configuredFallback = env("NINO_AI_FALLBACK_MODEL") ?? env("AI_MODEL_FALLBACK")
       ?? (data.fallback_model ? String(data.fallback_model) : fallback.fallback);
     const independentFallback = configuredFallback && configuredFallback !== primary
       ? configuredFallback
