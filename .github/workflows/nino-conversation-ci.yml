@@ -3,19 +3,21 @@ name: Nino Conversation Architecture
 on:
   pull_request:
     paths:
-      - 'supabase/functions/_shared/agent/**'
-      - 'supabase/functions/_shared/ai-gateway.ts'
-      - 'supabase/functions/_shared/ai-runtime.ts'
+      # Any Edge/runtime change can affect the Nino conversation path through a
+      # shared import (audio, documents, split, categorization, etc.). The old
+      # narrow filter missed exactly that class of regression.
+      - 'supabase/functions/**'
       - 'src/lib/agent/**'
       - 'src/components/admin/AiProviderBenchmarkBoard.tsx'
       - 'src/pages/admin/CustoLatencia.tsx'
-      - 'src/test/nino-*.test.ts'
+      - 'src/test/**'
       - 'supabase/migrations/**'
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
       - 'vercel.json'
       - '.github/workflows/nino-conversation-ci.yml'
+      - '.github/workflows/nino-supabase-deploy.yml'
   workflow_dispatch:
 
 permissions:
