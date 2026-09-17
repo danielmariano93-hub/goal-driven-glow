@@ -18,7 +18,7 @@ import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
-import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
+import { normalizePeriodExpressions, type ConversationTurnContract } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
 import {
   attachLegacyShadowObservation,
@@ -80,7 +80,7 @@ function safeReply(text: string): string {
  */
 function constraintsFromContract(contract: ConversationTurnContract, canonical: string) {
   return {
-    period: Boolean(contract.focus.period_expression),
+    period: normalizePeriodExpressions(contract.focus).length > 0,
     entity: Boolean(contract.focus.category || contract.focus.merchant || contract.focus.goal),
     // Dimensão é forma de saída (por cartão/categoria/conta/estabelecimento),
     // não uma nova intenção. Detectá-la lexicalmente não troca o significado.
@@ -232,7 +232,7 @@ async function finishV2(args: {
       await args.topic_repo.touch(activeTopicId, {
         subject,
         last_query: String(args.contract.canonical_request ?? args.input.text).slice(0, 600),
-        status: args.contract.mode === "clarify" ? "clarifying" : "answered",
+        status: args.reply_kind === "question" ? "clarifying" : "answered",
         keywords: keywordsOf(String(args.contract.canonical_request ?? args.input.text)),
         period_from: args.active_period?.from ?? null,
         period_to: args.active_period?.to ?? null,
@@ -270,8 +270,10 @@ async function finishV2(args: {
       active_merchant: args.contract.focus.merchant ?? (inherit ? args.memory?.active_merchant ?? null : null),
       active_period: args.active_period ?? (inherit ? args.memory?.active_period ?? null : null),
       comparison_period: args.comparison_period ?? (inherit ? args.memory?.comparison_period ?? null : null),
-      pending_slots: args.contract.mode === "clarify" ? ["brain_clarification"] : [],
-      awaiting,
+      pending_slots: args.reply_kind === "question" ? ["brain_clarification"] : [],
+      awaiting: args.reply_kind === "question" && !awaiting
+        ? { kind: "brain_clarification" as const, asked_at: new Date().toISOString() }
+        : awaiting,
       pending_conversation_action: detectContinuationOffer(body),
       conversation_summary: String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
     }).catch(() => null);
@@ -477,7 +479,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     return await finishV2({
       sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: "llm",
       started_at: started, tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      session_id,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
@@ -486,7 +489,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       sb, input, contract, reply: contract.clarification_question!,
       reply_kind: "question", path: "llm", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      session_id,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
@@ -507,8 +511,17 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       reply_kind: write.reply_kind === "draft" ? "draft" : write.reply_kind === "question" ? "question" : "info",
       path: "llm", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
       draft_id: write.draft_id, result: write.tool_result, session_id,
-      tools: write.tool_name ? [write.tool_name] : [], error: write.error ?? null,
+      tools: write.tool_name ? [write.tool_name] : [],
+      tool_calls: write.tool_name ? [{
+        tool_name: write.tool_name,
+        args: write.tool_args,
+        result: write.tool_result,
+        ok: !write.error,
+      }] : [],
+      error: write.error ?? null,
+      memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
@@ -516,7 +529,12 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // traduz o pedido canônico para Financial IR. Nenhum router reinterpreta o act.
   const canonical = String(contract.canonical_request ?? brainText).trim();
   const plan = buildTurnPlan({ text: canonical, history });
-  const multiPeriod = resolvePeriodExpressions(contract.focus.period_expressions, canonical);
+  const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
+  const basePeriod = multiPeriod.periods[0] ?? {
+    from: plan.effective_period.from,
+    to: plan.effective_period.to,
+    label: plan.effective_period.label,
+  };
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
@@ -529,9 +547,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     acts,
     constraints,
     period: {
-      from: plan.effective_period.from,
-      to: plan.effective_period.to,
-      label: plan.effective_period.label,
+      from: basePeriod.from,
+      to: basePeriod.to,
+      label: basePeriod.label,
     },
     comparison_period: plan.previous_period,
     periods: multiPeriod.periods.length >= 2 ? multiPeriod.periods : null,
@@ -550,9 +568,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       text: args.text,
       model: BRAIN_MODEL,
       period: {
-        from: plan.effective_period.from,
-        to: plan.effective_period.to,
-        label: plan.effective_period.label,
+        from: basePeriod.from,
+        to: basePeriod.to,
+        label: basePeriod.label,
       },
       comparison_period: plan.previous_period,
       previous_query: args.previous_query,
@@ -601,31 +619,27 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
-  await saveConversationMemory(sb, session_id ?? null, {
-    current_topic: contract.focus.category ? "gastos" : memory?.current_topic ?? null,
-    active_category: contract.focus.category ?? (contract.inherit_focus ? memory?.active_category ?? null : null),
-    active_merchant: contract.focus.merchant ?? (contract.inherit_focus ? memory?.active_merchant ?? null : null),
-    active_period: {
-      from: plan.effective_period.from,
-      to: plan.effective_period.to,
-      label: plan.effective_period.label,
-    },
-    comparison_period: plan.previous_period,
-    pending_slots: semantic.status === "clarification_required" ? ["semantic_clarification"] : [],
-  }).catch(() => null);
-
-  const reply = semantic.turn?.reply
+  let reply = semantic.turn?.reply
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
+  if (replyKind === "info") {
+    const suggestion = suggestionForSemantic(semantic);
+    if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
+  }
 
   return await finishV2({
     sb, input, contract, reply, reply_kind: replyKind,
     path: "llm", started_at: started,
     tokens_in: brain.telemetry.tokens_in,
     tokens_out: brain.telemetry.tokens_out,
+    model: brain.telemetry.model, provider: brain.telemetry.provider,
     session_id,
     tools: semantic.engines,
+    tool_calls: semantic.engines.map((tool_name: string) => ({ tool_name, ok: true })),
     error: semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null,
+    memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    active_period: { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
+    comparison_period: plan.previous_period,
   });
 }
