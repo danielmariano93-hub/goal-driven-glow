@@ -1,7 +1,8 @@
 // LearningLoop — post-turn learning with structured corrections.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { remember, recall } from "./MemoryStore.ts";
+import { recall } from "./MemoryStore.ts";
+import { writeDurableMemory } from "./MemoryWriter.ts";
 import { learnComparisonPreference } from "./AdvisorInteractionLearning.ts";
 import { interpretSemanticQuery } from "../../intelligence/semanticQuery.ts";
 import { recordLearningEvent } from "../changeLoop.ts";
@@ -40,7 +41,7 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
     const responsePreference = detectResponsePreference(sig.user_text);
     if (responsePreference) {
       await savePreferences(sb, sig.user_id, responsePreference.patch);
-      await remember(sb, {
+      await writeDurableMemory(sb, {
         user_id: sig.user_id,
         kind: "response_preference",
         key: "explicit_communication_style",
@@ -68,7 +69,7 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
       const semantic = interpretSemanticQuery(sig.user_text);
       const rejected = [...sig.tool_calls].reverse().find(c => c.ok)?.tool_name ?? null;
       const key = semantic ? `correction:${semantic.intent}` : `correction:${sig.intent}`;
-      await remember(sb, {
+      await writeDurableMemory(sb, {
         user_id: sig.user_id,
         kind: "correction",
         key,
@@ -108,7 +109,7 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
         const merchant = String(c.args?.description ?? "").trim();
         const category = c.args?.category ?? null;
         if (merchant) {
-          await remember(sb, {
+          await writeDurableMemory(sb, {
             user_id: sig.user_id,
             kind: "frequent_merchant",
             key: merchant,
@@ -128,7 +129,7 @@ export async function learnFromTurn(sb: SupabaseClient, sig: TurnSignal): Promis
           }).catch(() => undefined);
         }
         if (category) {
-          await remember(sb, {
+          await writeDurableMemory(sb, {
             user_id: sig.user_id,
             kind: "favorite_category",
             key: String(category),
