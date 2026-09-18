@@ -143,7 +143,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     if (coverage != null) {
       claims.push({ id: seq(), ...base, type: "percentage", value: coverage * 100, label: "coverage", rank: null });
     }
-    (result.merchants as Array<Record<string, unknown>>).forEach((row, index) => {
+    (result.merchants as Array<Record<string, unknown>>)
+      .slice()
+      .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0))
+      .forEach((row, index) => {
       const name = typeof row.merchant === "string" ? row.merchant : null;
       if (!name) return;
       const amount = num(row.amount);
