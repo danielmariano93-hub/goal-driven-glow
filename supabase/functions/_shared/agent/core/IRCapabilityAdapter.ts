@@ -88,7 +88,13 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "compare") {
-      if (q.filters.length || (group && group !== "category")) return null;
+      // O motor canônico já aceita `category_scope`; o adaptador antigo negava
+      // qualquer filtro e criava um falso "unsupported" para perguntas como
+      // "compare Lazer com o período anterior". A ontologia deve refletir a
+      // capacidade REAL do engine, não uma restrição histórica do adaptador.
+      if ((group && group !== "category") || !onlyFilters(q, ["category"])) return null;
+      const category = filter(q, "category");
+      const categoryScope = category ? [category] : undefined;
       if (q.comparison_baseline === "mean_previous_complete_months") {
         const months = Number(q.comparison_baseline_window);
         if (!Number.isInteger(months) || months < 2 || months > 24) return null;
@@ -103,6 +109,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
             limit: q.limit ?? null,
             months,
             target_period: { from: period.from, to: period.to, label: period.label },
+            ...(categoryScope ? { category_scope: categoryScope } : {}),
           },
         };
       }
@@ -118,6 +125,7 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
           limit: q.limit ?? null,
           period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
           period_b: { from: period.from, to: period.to },
+          ...(categoryScope ? { category_scope: categoryScope } : {}),
         },
       };
     }
@@ -303,7 +311,7 @@ export function ontologySignature(q: FinancialQuery): string {
 export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
-  "expense_amount|income_amount + compare (sem filtro, group opcional category; baseline por período ou média dos N meses completos anteriores)",
+  "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
   "expense_amount + forecast (fechamento do mês)",
@@ -322,7 +330,7 @@ export function ontologyHintFor(q: FinancialQuery): string | null {
   if (q.operation === "trend" && q.group_by.length && q.group_by[0] !== "month") {
     return `${q.metric} + trend group month`;
   }
-  if (q.operation === "compare" && q.filters.length) return `${q.metric} + compare sem filtro`;
+  if (q.operation === "compare" && !onlyFilters(q, ["category"])) return `${q.metric} + compare sem filtro`;
   if (q.group_by[0] === "weekday") return `${q.metric} + breakdown group category`;
   return null;
 }
