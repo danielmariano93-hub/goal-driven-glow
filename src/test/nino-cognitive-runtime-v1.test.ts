@@ -19,6 +19,7 @@ import { verifyFinancialFulfillment } from "../../supabase/functions/_shared/age
 import { computeCompare } from "../../supabase/functions/_shared/analytics/compare";
 import { emptyMemory } from "../../supabase/functions/_shared/agent/core/ConversationMemory";
 import { writeDurableMemory } from "../../supabase/functions/_shared/agent/core/MemoryWriter";
+import { compileFinancialReadFromTurn } from "../../supabase/functions/_shared/agent/core/TurnContractFinancialAdapter";
 import type { FinancialQueryIRv3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3";
 
 function financialTurn(over: Partial<CanonicalConversationTurnContract> = {}): CanonicalConversationTurnContract {
@@ -310,6 +311,22 @@ describe("Financial Read Contract v4 + Contract Fulfillment Gate", () => {
     },
   });
 
+  it("traduz Turn Contract para Financial IR sem uma segunda interpretação de linguagem", () => {
+    const compiled = compileFinancialReadFromTurn({
+      turn,
+      period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      comparison_period: { from: "2026-07-01", to: "2026-07-31", label: "julho" },
+    });
+    expect(compiled?.telemetry).toMatchObject({ llm_calls: 0, model: "deterministic:turn_contract" });
+    expect(compiled?.ir?.queries[0]).toMatchObject({
+      metric: "expense_amount",
+      operation: "compare",
+      group_by: ["category"],
+      filters: [],
+      limit: 5,
+    });
+  });
+
   it("Turn Contract produz um Financial Read Contract subordinado", () => {
     const contract = buildFinancialReadContract({ turn, requested: requestedIR(), grounded_reference: grounded });
     expect(contract).toMatchObject({
@@ -318,6 +335,13 @@ describe("Financial Read Contract v4 + Contract Fulfillment Gate", () => {
       grounded_reference: { target: "category", entity_labels: ["Moradia", "Alimentação"] },
     });
     expect(validateFinancialReadContract(contract)).toEqual([]);
+  });
+
+  it("detecta se o IR financeiro contradiz a semântica emitida pelo Brain", () => {
+    const wrong = requestedIR();
+    wrong.queries[0] = { ...wrong.queries[0], legacy_operation: "rank" };
+    const contract = buildFinancialReadContract({ turn, requested: wrong, grounded_reference: grounded });
+    expect(validateFinancialReadContract(contract)).toContain("turn_semantics_vs_financial_ir_mismatch");
   });
 
   it("bloqueia execução que alargou ou perdeu o conjunto referido", () => {
