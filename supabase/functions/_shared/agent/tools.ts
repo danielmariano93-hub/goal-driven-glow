@@ -716,6 +716,16 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
     } as any;
   }
   args = { ...args, type: inferredType };
+  // Defensive type invariant: inferDraftType resolved the transaction kind
+  // above. Keep the canonical Category Truth V2 call on args.type while making
+  // that guarantee explicit to static typecheckers.
+  if (!args.type) {
+    return {
+      ok: false,
+      error: "needs_type",
+      hint: "Não ficou claro se é gasto ou recebimento. Pergunte isso em UMA frase curta e não crie o rascunho antes da resposta.",
+    } as any;
+  }
   const spelled = parseSpelledMoney(String(ctx.user_text ?? ""));
   const amount = Number(Number.isFinite(Number(args?.amount)) && Number(args?.amount) > 0 ? args.amount : (spelled ?? args?.amount));
   if (!Number.isFinite(amount) || amount <= 0) {
