@@ -126,12 +126,12 @@ describe("regressão 17/09 — média histórica por categoria", () => {
       { from: "2026-06-01", to: "2026-06-30" },
       { from: "2026-07-01", to: "2026-07-31" },
     ]);
+    expect(result.comparison_alignment).toBe("complete_calendar_months");
     expect(result.by_group.find((row) => row.name === "Lazer")).toMatchObject({
       total_a: 100,
       total_b: 160,
       delta_abs: 60,
     });
-    // Saúde teve R$90 só em julho: média correta = 30, não 90.
     expect(result.by_group.find((row) => row.name === "Saúde")).toMatchObject({
       total_a: 30,
       total_b: 10,
@@ -156,7 +156,7 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     expect(reply).not.toContain("Aumentaram:");
   });
 
-  it("normaliza alvo multi-mês antes de comparar com média mensal", () => {
+  it("alinha janelas móveis e calcula o delta pelos centavos exibidos", () => {
     const tx = (id: string, date: string, amount: number, category_id: string) => ({
       id, occurred_at: date + "T12:00:00Z", amount, category_id,
       type: "expense", status: "confirmed", movement_kind: "transaction",
@@ -164,8 +164,8 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     }) as any;
     const result = computeCompareToMonthlyAverage({
       txs: [
-        tx("b1", "2026-03-10", 142.64, "moradia"),
-        tx("b2", "2026-04-10", 363.42, "moradia"),
+        tx("b1", "2026-03-20", 142.64, "moradia"),
+        tx("b2", "2026-04-20", 363.42, "moradia"),
         tx("t1", "2026-06-20", 3529.34, "moradia"),
         tx("t2", "2026-07-20", 8655.37, "moradia"),
         tx("t3", "2026-09-10", 3845.71, "moradia"),
@@ -179,10 +179,46 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     const moradia = result.by_group.find((row) => row.name === "Moradia");
     expect(result.target_window_months).toBe(3);
     expect(result.target_statistic).toBe("monthly_mean");
+    expect(result.comparison_alignment).toBe("preceding_rolling_window");
+    expect(result.baseline_periods).toEqual([
+      { from: "2026-03-18", to: "2026-04-17" },
+      { from: "2026-04-18", to: "2026-05-17" },
+      { from: "2026-05-18", to: "2026-06-17" },
+    ]);
     expect(moradia?.total_a).toBe(168.69);
     expect(moradia?.total_b).toBe(5343.47);
-    expect(moradia?.delta_abs).toBe(5174.79);
-    expect(result.provenance.formula_version).toBe("compare.monthly_mean.v2");
+    expect(moradia?.delta_abs).toBe(5174.78);
+    expect(result.provenance.formula_version).toBe("compare.monthly_mean.v3");
+  });
+
+  it("mês parcial usa o mesmo corte de dias nos meses anteriores", () => {
+    const tx = (id: string, date: string, amount: number, category_id: string) => ({
+      id, occurred_at: date + "T12:00:00Z", amount, category_id,
+      type: "expense", status: "confirmed", movement_kind: "transaction",
+      transfer_group_id: null, settles_card_id: null,
+    }) as any;
+    const result = computeCompareToMonthlyAverage({
+      txs: [
+        tx("j1", "2026-06-10", 100, "lazer"),
+        tx("j2", "2026-06-25", 900, "lazer"),
+        tx("j3", "2026-07-10", 120, "lazer"),
+        tx("j4", "2026-08-10", 140, "lazer"),
+        tx("s1", "2026-09-10", 180, "lazer"),
+      ],
+      categoryNames: new Map([["lazer", "Lazer"]]),
+      metric: "expense",
+      target_period: { from: "2026-09-01", to: "2026-09-18" },
+      months: 3,
+      group_by: "category",
+    });
+    expect(result.comparison_alignment).toBe("aligned_month_to_date");
+    expect(result.target_statistic).toBe("aligned_period_amount");
+    expect(result.baseline_periods).toEqual([
+      { from: "2026-06-01", to: "2026-06-18" },
+      { from: "2026-07-01", to: "2026-07-18" },
+      { from: "2026-08-01", to: "2026-08-18" },
+    ]);
+    expect(result.by_group[0]).toMatchObject({ total_a: 120, total_b: 180, delta_abs: 60 });
   });
 
   it("responde diretamente a categoria singular do follow-up superlativo", () => {
