@@ -113,8 +113,11 @@ export const PROTECTED_SCOPE_MISSING_REPLY =
   + "e eu não vou trocar isso por um total geral. Me diga quais categorias você quer comparar "
   + "(ou peça o overview das suas metas primeiro) que eu refaço a comparação na sua base.";
 
-/** Falha honesta quando o motor canônico não fecha a leitura protegida. */
+/**
+ * Fail-closed quando a execução não consegue provar que preservou o contrato.
+ * Não promete que tentar novamente depois vai resolver: incompatibilidade de
+ * contrato é determinística e precisa ser corrigida no runtime.
+ */
 export const PROTECTED_ENGINE_FAILURE_REPLY =
-  "Não vou te entregar esse número agora: a leitura dessas categorias não fechou com a mesma janela "
-  + "de comparação, e qualquer outro atalho responderia uma pergunta diferente da sua. "
-  + "Me chame de novo em alguns minutos que eu refaço a conta na sua base.";
+  "Não consegui validar com segurança que o cálculo executado preservou exatamente o recorte da sua pergunta. "
+  + "Para não te entregar um número de outra janela, categoria ou regra de comparação, bloqueei a resposta.";
