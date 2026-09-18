@@ -30,15 +30,23 @@ const MONTH_TOKEN = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setem
 const EXPLICIT_TARGET_RX = new RegExp(
   `\\b(?:em|de|no|na)\\s+(?:${MONTH_TOKEN}|este mes|esse mes|neste mes|mes atual|mes passado|mes anterior)\\b|\\b(?:hoje|ontem)\\b`,
 );
+const MONTH_WORDS: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
+  sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
+};
+const HISTORICAL_MEAN_RX = /\bmedia\b.*\bultimos?\s+(\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+meses?\b/;
 
-function ambiguousCategoryAverageComparison(value: string): boolean {
+function ambiguousCategoryAverageComparison(value: string): number | null {
   const hasCategory = /\bcategorias?\b/.test(value);
   const hasDirection = /\b(?:acima|abaixo|aument|diminu|subiu|caiu)\w*\b/.test(value);
-  const hasHistoricalMean = /\bmedia\b.*\bultimos?\s+(?:\d{1,2}|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+meses?\b/.test(value);
-  return hasCategory && hasDirection && hasHistoricalMean && !EXPLICIT_TARGET_RX.test(value);
+  const match = HISTORICAL_MEAN_RX.exec(value);
+  const raw = match?.[1] ?? "";
+  const months = MONTH_WORDS[raw] ?? Number(raw);
+  const validWindow = Number.isInteger(months) && months >= 2 && months <= 24;
+  return hasCategory && hasDirection && validWindow && !EXPLICIT_TARGET_RX.test(value) ? months : null;
 }
 
-function ambiguityContract(text: string): CanonicalConversationTurnContract | null {
+function ambiguityContract(text: string, months: number): CanonicalConversationTurnContract | null {
   return normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
     act: "new_request",
@@ -55,7 +63,7 @@ function ambiguityContract(text: string): CanonicalConversationTurnContract | nu
     },
     action: null,
     direct_reply: null,
-    clarification_question: "Você quer comparar este mês com a média dos 3 meses anteriores ou comparar a média dos últimos 3 meses com a dos 3 meses anteriores?",
+    clarification_question: `Você quer comparar este mês com a média dos ${months} meses anteriores ou comparar a média dos últimos ${months} meses com a dos ${months} meses anteriores?`,
     resolution: {
       intent: "ambiguous",
       reference: "not_applicable",
@@ -74,10 +82,11 @@ export function resolveNarrowDeterministicTurn(
 ): CanonicalConversationTurnContract | null {
   const normalized = norm(text);
 
-  // "Quais categorias ficaram acima da média dos últimos 3 meses?" não diz
+  // "Quais categorias ficaram acima da média dos últimos N meses?" não diz
   // qual período está sendo julgado. Antes o runtime usava a mesma expressão
   // como alvo e baseline, criando uma comparação híbrida silenciosa.
-  if (ambiguousCategoryAverageComparison(normalized)) return ambiguityContract(text);
+  const ambiguousWindow = ambiguousCategoryAverageComparison(normalized);
+  if (ambiguousWindow) return ambiguityContract(text, ambiguousWindow);
 
   const canonical = EXACT_READS.get(normalized);
   if (!canonical) return null;
