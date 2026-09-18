@@ -1609,7 +1609,9 @@ export async function create_split_expense_draft(ctx: ToolContext, args: {
 
 // ---------- Motor analítico (compare, forecast, attribute, goals, artifact) ----------
 
-import { computeCompare, type CompareInput } from "../analytics/compare.ts";
+import {
+  computeCompare, computeCompareToMonthlyAverage, type CompareInput,
+} from "../analytics/compare.ts";
 import { computeAttribution } from "../analytics/attribute.ts";
 import { projectGoal, simulatePace } from "../analytics/goals.ts";
 import { computeDailySpend } from "../analytics/timeseries.ts";
@@ -1792,6 +1794,48 @@ export async function compare_periods(ctx: ToolContext, args: {
       requested_group_by: args?.group_by ?? "none",
       requested_comparison_direction: args?.comparison_direction ?? "any",
       requested_limit: args?.limit ?? null,
+    },
+  };
+}
+
+export async function compare_to_monthly_average(ctx: ToolContext, args: {
+  metric?: "expense" | "income";
+  group_by?: "category" | "none";
+  comparison_direction?: ComparisonDirection;
+  limit?: number | null;
+  months?: number;
+  target_period?: { from: string; to: string; label?: string };
+  category_scope?: string[];
+}): Promise<ToolResult> {
+  const target = args?.target_period;
+  const months = Math.max(2, Math.min(24, Math.trunc(Number(args?.months ?? 3))));
+  if (!target?.from || !target?.to) return { ok: false, error: "target_period_required" };
+  const earliest = monthRange(shiftMonth(target.from, -months)).from;
+  const { txs, names } = await loadTxAndCategories(ctx, earliest, target.to);
+  const gate = reconciliationGate(txs as any);
+  if (!gate.ok) {
+    const g = gate as { ok: false; error: string; violations: unknown };
+    return { ok: false, error: g.error, violations: g.violations };
+  }
+  const result = computeCompareToMonthlyAverage({
+    txs: txs as any,
+    categoryNames: names,
+    metric: args?.metric === "income" ? "income" : "expense",
+    target_period: { from: target.from, to: target.to },
+    months,
+    group_by: args?.group_by ?? "category",
+    category_scope: args?.category_scope ?? [],
+  });
+  return {
+    ok: true,
+    result: {
+      ...result,
+      target_label: target.label ?? null,
+      requested_group_by: args?.group_by ?? "category",
+      requested_comparison_direction: args?.comparison_direction ?? "any",
+      requested_limit: args?.limit ?? null,
+      requested_comparison_baseline: "mean_previous_complete_months",
+      requested_comparison_baseline_window: months,
     },
   };
 }
@@ -3120,6 +3164,30 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: compare_periods,
+  },
+  {
+    name: "compare_to_monthly_average",
+    description: "Compara um período alvo com a média mensal dos N meses completos imediatamente anteriores, inclusive por categoria. Determinístico e sem misturar o período alvo na própria média.",
+    parameters: {
+      type: "object",
+      properties: {
+        metric: { type: "string", enum: ["expense", "income"] },
+        group_by: { type: "string", enum: ["category", "none"] },
+        comparison_direction: { type: "string", enum: [...COMPARISON_DIRECTIONS] },
+        limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+        months: { type: "integer", minimum: 2, maximum: 24 },
+        target_period: {
+          type: "object",
+          properties: { from: requiredStr, to: requiredStr, label: optionalStr },
+          required: ["from", "to"],
+          additionalProperties: false,
+        },
+        category_scope: { type: "array", items: { type: "string" }, maxItems: 20 },
+      },
+      required: ["months", "target_period"],
+      additionalProperties: false,
+    },
+    execute: compare_to_monthly_average,
   },
   {
     name: "forecast_month_close",
