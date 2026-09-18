@@ -59,6 +59,33 @@ type DailyEvolution = {
   formula_version: string;
 };
 
+type AiOpsSnapshot = {
+  contract_version: string;
+  period: { from: string; to: string; timezone: string };
+  totals: {
+    interactions: number;
+    unique_users: number;
+    conversation_threads: number;
+    ai_calls: number;
+    tokens_in: number;
+    tokens_out: number;
+    tokens_total: number;
+    tokens_per_interaction: number | null;
+    tokens_per_ai_call: number | null;
+    ai_avg_latency_ms: number | null;
+    ai_p50_latency_ms: number | null;
+    ai_p95_latency_ms: number | null;
+    run_avg_latency_ms: number | null;
+    run_p50_latency_ms: number | null;
+    run_p95_latency_ms: number | null;
+    perceived_p50_latency_ms: number | null;
+    perceived_p95_latency_ms: number | null;
+    provider: string | null;
+    model: string | null;
+  };
+  coverage?: { days_with_runs?: number; days_with_ai_usage?: number; perceived_latency_available?: boolean };
+};
+
 /** Falha de envio em janela fixa de 7 dias, independente do filtro de período. */
 type Failure7d = {
   window_days: number;
@@ -68,9 +95,22 @@ type Failure7d = {
   measured_at: string;
 };
 
-const dayLabel = (iso: string) =>
-  new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" })
-    .format(new Date(iso));
+// `YYYY-MM-DD` is already a business date. Parsing it with new Date() treats it
+// as UTC and used to render one day earlier in Sao Paulo (18/09 appeared as 17/09).
+const dayLabel = (iso: string) => {
+  const hit = String(iso ?? "").slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return hit ? `${hit[3]}/${hit[2]}` : String(iso ?? "");
+};
+
+const dayKeySP = (value: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(value));
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  return y && m && d ? `${y}-${m}-${d}` : "";
+};
 
 /** Variação percentual entre a segunda e a primeira metade da série. */
 function halfOverHalf(values: number[]): number | null {
@@ -86,7 +126,7 @@ function halfOverHalf(values: number[]): number | null {
 function messagingSeries(rows: MessageRow[]) {
   const byDay = new Map<string, { day: string; enviadas: number; entregues: number; falhas: number }>();
   for (const row of rows) {
-    const key = (row.created_at ?? "").slice(0, 10);
+    const key = dayKeySP(row.created_at ?? "");
     if (!key) continue;
     const bucket = byDay.get(key) ?? { day: key, enviadas: 0, entregues: 0, falhas: 0 };
     if (row.status === "failed") bucket.falhas += 1;
@@ -99,6 +139,8 @@ function messagingSeries(rows: MessageRow[]) {
     .map((b) => ({ ...b, label: dayLabel(b.day) }));
 }
 
+const seconds = (value: number | null | undefined) => value == null ? "—" : `${(Number(value) / 1000).toFixed(1)}s`;
+
 export default function Cockpit() {
   const [preset, setPreset] = useState<PeriodPresetKey>("30d");
   const [range, setRange] = useState<PeriodRange>(() => resolvePreset("30d"));
@@ -107,6 +149,7 @@ export default function Cockpit() {
   const [universe, setUniverse] = useState<AdminUniverse | null>(null);
   const [messages, setMessages] = useState<MessageRow[]>([]);
   const [failure7d, setFailure7d] = useState<Failure7d | null>(null);
+  const [aiOps, setAiOps] = useState<AiOpsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { data: platformStatus } = useAdminPlatformStatus();
@@ -121,7 +164,10 @@ export default function Cockpit() {
       callAdminRpc<AdminUniverse>("admin_v2_metrics_universe"),
       fetchMessages({ from: range.from, to: range.to, limit: 500 }),
       callAdminRpc<Failure7d>("admin_v2_messaging_failure_7d"),
-    ]).then(([cockpitRes, evoRes, universeRes, msgRes, failRes]) => {
+      callAdminRpc<AiOpsSnapshot>("admin_ai_ops_snapshot", {
+        p_from: range.from, p_to: range.to, p_workload: "AGENT_CONVERSATION",
+      }),
+    ]).then(([cockpitRes, evoRes, universeRes, msgRes, failRes, aiRes]) => {
       if (cancelled) return;
       if (cockpitRes.status === "fulfilled") setData(cockpitRes.value);
       else setError(adminErrorMessage(cockpitRes.reason, "Falha ao carregar a visão geral"));
@@ -129,6 +175,7 @@ export default function Cockpit() {
       setUniverse(universeRes.status === "fulfilled" ? universeRes.value : null);
       setMessages(msgRes.status === "fulfilled" ? msgRes.value : []);
       setFailure7d(failRes.status === "fulfilled" ? failRes.value : null);
+      setAiOps(aiRes.status === "fulfilled" ? aiRes.value : null);
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -145,7 +192,6 @@ export default function Cockpit() {
   const contractsMismatch = health && clientsCount !== null && adminsCount !== null
     && health.auth_users !== clientsCount + adminsCount + testCount;
 
-  // Falha de envio vem de uma janela real de 7 dias, não do filtro de período.
   const incidentList = buildIncidents({
     status: platformStatus,
     universe,
@@ -165,8 +211,8 @@ export default function Cockpit() {
   const newSpark = series.map((p) => p.new_clients);
   const activeSpark = series.map((p) => p.active_unique);
   const baseSpark = series.map((p) => p.cumulative_clients);
-
   const costCents = data.agent_cost_cents_today?.value ?? null;
+  const a = aiOps?.totals;
 
   return (
     <div className="space-y-7">
@@ -192,7 +238,6 @@ export default function Cockpit() {
         </div>
       )}
 
-      {/* 1. Algo está quebrado? */}
       <section aria-labelledby="cockpit-incidentes">
         <h2 id="cockpit-incidentes" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Precisa da sua atenção
@@ -200,7 +245,6 @@ export default function Cockpit() {
         <IncidentStrip incidents={incidentList} emptyLabel="Nada exige ação agora." />
       </section>
 
-      {/* 2. O negócio está crescendo? */}
       <section aria-labelledby="cockpit-numeros">
         <h2 id="cockpit-numeros" className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Os quatro números do período
@@ -223,12 +267,12 @@ export default function Cockpit() {
             hint="Cadastros concluídos dentro do período selecionado."
           />
           <MetricTile
-            label="Usando na semana"
-            value={data.wvu?.value === null || data.wvu?.value === undefined ? "—" : INT.format(data.wvu.value)}
+            label="Clientes usando o Nino"
+            value={a ? INT.format(a.unique_users) : "—"}
             spark={activeSpark}
             polarity="higher_is_better"
             deltaPct={halfOverHalf(activeSpark)}
-            hint="Clientes com pelo menos uma ação financeira na semana."
+            hint="Clientes reais com pelo menos uma interação do Nino no período selecionado."
           />
           <MetricTile
             label="Custo do assessor"
@@ -239,7 +283,29 @@ export default function Cockpit() {
         </div>
       </section>
 
-      {/* 3. Para onde está indo? */}
+      <section aria-labelledby="cockpit-ai">
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 id="cockpit-ai" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">IA e eficiência</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Consumo e latência medidos diretamente na telemetria de produção.</p>
+          </div>
+          {a?.provider && <p className="text-xs text-muted-foreground">{a.provider}{a.model ? ` · ${a.model}` : ""}</p>}
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <MetricTile label="Interações do Nino" value={a ? INT.format(a.interactions) : "—"} hint={a ? `${INT.format(a.ai_calls)} chamadas de IA · ${INT.format(a.conversation_threads)} threads` : "Sem telemetria"} />
+          <MetricTile label="Tokens consumidos" value={a ? INT.format(a.tokens_total) : "—"} hint={a ? `Entrada ${INT.format(a.tokens_in)} · saída ${INT.format(a.tokens_out)}` : "Sem telemetria"} polarity="lower_is_better" />
+          <MetricTile label="Tokens / interação" value={a?.tokens_per_interaction == null ? "—" : INT.format(a.tokens_per_interaction)} hint="Tokens do provider divididos pelas interações do Nino." polarity="lower_is_better" />
+          <MetricTile label="Latência IA P50" value={seconds(a?.ai_p50_latency_ms)} hint="Tempo mediano somente do modelo/provider." polarity="lower_is_better" />
+          <MetricTile label="Latência IA P95" value={seconds(a?.ai_p95_latency_ms)} hint="95% das chamadas de IA ficam abaixo deste tempo." polarity="lower_is_better" />
+          <MetricTile label="Tempo total P95" value={seconds(a?.run_p95_latency_ms)} hint="Tempo total do run no backend; não é latência percebida ponta a ponta." polarity="lower_is_better" />
+        </div>
+        {aiOps?.coverage && Number(aiOps.coverage.days_with_runs ?? 0) > Number(aiOps.coverage.days_with_ai_usage ?? 0) && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Cobertura histórica parcial: há dias com interações registradas sem telemetria de tokens. O painel não preenche esses dias artificialmente.
+          </p>
+        )}
+      </section>
+
       <section aria-labelledby="cockpit-tendencia" className="space-y-4">
         <h2 id="cockpit-tendencia" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tendência
@@ -257,7 +323,7 @@ export default function Cockpit() {
               ]}
               caption={evolution && !evolution.sufficient_sample
                 ? `Amostra pequena (${evolution.sample_size} clientes): leia a tendência com cautela.`
-                : undefined}
+                : "Atividade vem dos runs reais do Nino, não de eventos de produto defasados."}
               emptyLabel="Sem movimento de clientes no período."
             />
           </div>
@@ -272,7 +338,7 @@ export default function Cockpit() {
                 { key: "enviadas", label: "Enviadas sem confirmação", tone: "primary" },
                 { key: "falhas", label: "Falhas", tone: "danger" },
               ]}
-              caption="Detalhe por mensagem e reprocessamento ficam em Comunicações › Mensagens."
+              caption="Dias fechados em America/Sao_Paulo, incluindo integralmente hoje e ontem."
               emptyLabel="Nenhuma mensagem no período."
             />
           </div>
@@ -295,6 +361,7 @@ export default function Cockpit() {
             {failure7d?.total ?? 0} mensagens ({failure7d?.rate ?? 0}%)
           </li>
           <li>Valor entregue: {data.value_delivered?.value ?? "—"}</li>
+          {a && <li>Interações do Nino: {INT.format(a.interactions)} · chamadas de IA: {INT.format(a.ai_calls)} · tokens: {INT.format(a.tokens_total)}</li>}
         </ul>
       </TechnicalDetails>
     </div>
