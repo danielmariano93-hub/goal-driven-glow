@@ -20,8 +20,10 @@
 import {
   FINANCIAL_DIMENSIONS,
   FINANCIAL_METRICS,
+  COMPARISON_BASELINES,
   COMPARISON_DIRECTIONS,
   type CanonicalPeriod,
+  type ComparisonBaseline,
   type ComparisonDirection,
   type CompletenessTarget,
   type FinancialDimension,
@@ -83,6 +85,8 @@ export type FinancialQueryV3 = {
   limit: number | null;
   /** Direção semântica pedida para uma comparação agrupada. */
   comparison_direction?: ComparisonDirection;
+  comparison_baseline?: ComparisonBaseline;
+  comparison_baseline_window?: number | null;
   depends_on: string[];
   /** Operação legada preservada só para o canonicalizer/compat. */
   legacy_operation: string | null;
@@ -109,6 +113,7 @@ const ASPECTS = new Set<string>(TIME_ASPECTS);
 const GRAINS = new Set<string>(TIME_GRAINS);
 const REDUCES = new Set<string>(REDUCTIONS);
 const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
+const COMPARISON_BASELINE_SET = new Set<string>(COMPARISON_BASELINES);
 const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
 
 const POINT_IN_TIME_METRICS = new Set<string>([
@@ -179,6 +184,12 @@ export function normalizeToV3(
       comparison_direction: COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))
         ? q.comparison_direction
         : "any",
+      comparison_baseline: COMPARISON_BASELINE_SET.has(String(q.comparison_baseline))
+        ? q.comparison_baseline
+        : "period",
+      comparison_baseline_window: Number.isInteger(Number(q.comparison_baseline_window))
+        ? Number(q.comparison_baseline_window)
+        : null,
       depends_on: q.depends_on ?? [],
       legacy_operation: legacyOperation || null,
     };
@@ -249,6 +260,13 @@ export function validateFinancialIRv3(value: unknown): string[] {
     }
     if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
       errors.push(`${id}_comparison_direction_invalid`);
+    }
+    if (q.comparison_baseline != null && !COMPARISON_BASELINE_SET.has(String(q.comparison_baseline))) {
+      errors.push(`${id}_comparison_baseline_invalid`);
+    }
+    if (q.comparison_baseline === "mean_previous_complete_months"
+      && (!Number.isInteger(q.comparison_baseline_window) || Number(q.comparison_baseline_window) < 2 || Number(q.comparison_baseline_window) > 24)) {
+      errors.push(`${id}_comparison_baseline_window_invalid`);
     }
 
     const time = q.time;
