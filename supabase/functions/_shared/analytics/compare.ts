@@ -17,6 +17,8 @@ export type CompareInput = {
   period_a: { from: string; to: string };
   period_b: { from: string; to: string };
   group_by?: "category" | "none";
+  /** Grounded reference scope from ConversationReferenceStore. */
+  category_scope?: string[];
 };
 
 export type CompareResult = {
@@ -27,6 +29,7 @@ export type CompareResult = {
   delta_pct: number | null; // null se total_a = 0
   by_group: Array<{ name: string; total_a: number; total_b: number; delta_abs: number; delta_pct: number | null }>;
   comparable: boolean;
+  applied_reference_scope: { target: "category"; entity_labels: string[] } | null;
   provenance: Provenance;
 };
 
@@ -39,6 +42,7 @@ function sumInPeriod(
   to: string,
   names: Map<string, string>,
   attribution: Map<string, string | null>,
+  categoryScope?: Set<string> | null,
 ) {
   let total = 0;
   const byCat = new Map<string, number>();
@@ -49,13 +53,15 @@ function sumInPeriod(
     if (d < from || d > to) continue;
     const amt = behavioralMetricAmount(t, metric);
     if (amt === 0) continue;
-    total += amt;
-    rows += 1;
-    daySet.add(d);
     // finance_truth.v1: nunca agrupar por category_id cru — o estorno pertence
     // economicamente à categoria da despesa que ele devolve.
     const effectiveId = effectiveCategoryId(t, attribution);
     const cat = effectiveId ? (names.get(effectiveId) ?? "Sem categoria") : "Sem categoria";
+    const normalizedCat = cat.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (categoryScope && !categoryScope.has(normalizedCat)) continue;
+    total += amt;
+    rows += 1;
+    daySet.add(d);
     byCat.set(cat, (byCat.get(cat) ?? 0) + amt);
   }
   return { total, byCat, rows, days: daySet.size };
@@ -64,8 +70,12 @@ function sumInPeriod(
 export function computeCompare(input: CompareInput): CompareResult {
   const ledger = input.txs.filter((t) => String(t.status ?? "confirmed") !== "superseded");
   const attribution = buildRefundAttribution(ledger);
-  const A = sumInPeriod(ledger, input.metric, input.period_a.from, input.period_a.to, input.categoryNames, attribution);
-  const B = sumInPeriod(ledger, input.metric, input.period_b.from, input.period_b.to, input.categoryNames, attribution);
+  const scopeLabels = [...new Set((input.category_scope ?? []).map((value) => String(value).trim()).filter(Boolean))];
+  const scope = scopeLabels.length
+    ? new Set(scopeLabels.map((value) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")))
+    : null;
+  const A = sumInPeriod(ledger, input.metric, input.period_a.from, input.period_a.to, input.categoryNames, attribution, scope);
+  const B = sumInPeriod(ledger, input.metric, input.period_b.from, input.period_b.to, input.categoryNames, attribution, scope);
 
   const cats = new Set<string>([...A.byCat.keys(), ...B.byCat.keys()]);
   const by_group = [...cats].map(name => {
@@ -100,6 +110,9 @@ export function computeCompare(input: CompareInput): CompareResult {
     delta_pct: delta_pct === null ? null : round4(delta_pct),
     by_group,
     comparable: comparablePeriods(input.period_a, input.period_b),
+    applied_reference_scope: scopeLabels.length
+      ? { target: "category", entity_labels: scopeLabels }
+      : null,
     provenance,
   };
 }
