@@ -20,6 +20,7 @@ import {
   formatComparisonEvidenceRow,
   formatComparisonRankLine,
 } from "./ComparisonPresentation.ts";
+import { structuredContinuationContract } from "./StructuredContinuation.ts";
 
 function norm(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -242,6 +243,16 @@ export function resolveGroundedComparisonFollowup(
   memory: ConversationMemory | null,
 ): CanonicalConversationTurnContract | null {
   if (!memory) return null;
+
+  // `resolveContinuation()` reescreve um aceite inequívoco para este prefixo.
+  // Como o estado ainda contém a ação pendente, esse é um evento estruturado:
+  // compile o contrato diretamente e não faça uma nova chamada de IA. Isso
+  // impede que um 429 do provider quebre "faça isso" depois de uma oferta.
+  if (norm(text).startsWith("sim faca isso") && memory.pending_conversation_action) {
+    const continuation = structuredContinuationContract(memory.pending_conversation_action, memory);
+    if (continuation) return continuation;
+  }
+
   const reference = latestComparisonReference(memory);
   if (!reference) return null;
   const tool = String(reference.source?.tool_name ?? "");
