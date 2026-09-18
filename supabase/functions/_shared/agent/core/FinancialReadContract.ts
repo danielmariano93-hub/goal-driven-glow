@@ -9,6 +9,7 @@
 
 import type {
   CanonicalConversationTurnContract,
+  FinancialReadSemanticRequest,
   ResolutionState,
 } from "./ConversationTurnContract.ts";
 import type { FinancialQueryIRv3 } from "./FinancialIRv3.ts";
@@ -18,6 +19,9 @@ export type FinancialReadContractV4 = {
   version: "financial_read_contract.v4";
   source_turn_version: "conversation_turn_contract.v2";
   domain: "financial_read";
+  /** Semântica emitida pelo Conversation Brain; autoridade do domínio. */
+  semantic_request: FinancialReadSemanticRequest | null;
+  /** IR executável produzido pelo adaptador/resolvers do backend. */
   requested: FinancialQueryIRv3;
   slots: {
     intent: ResolutionState;
@@ -49,6 +53,7 @@ export function buildFinancialReadContract(args: {
     version: "financial_read_contract.v4",
     source_turn_version: "conversation_turn_contract.v2",
     domain: "financial_read",
+    semantic_request: args.turn.financial_read,
     requested: args.requested,
     slots: {
       intent: args.turn.resolution.intent,
@@ -68,6 +73,45 @@ export function buildFinancialReadContract(args: {
   };
 }
 
+function normalizedFilterKey(field: string, value: string): string {
+  return `${field}=${value.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").trim()}`;
+}
+
+function semanticShapeOfExpected(query: FinancialReadSemanticRequest["queries"][number]): string {
+  const filters = query.filters.map((f) => normalizedFilterKey(f.field, f.value)).sort().join("|");
+  return [
+    query.metric,
+    query.operation,
+    [...query.group_by].sort().join("+"),
+    filters,
+    query.limit ?? "null",
+  ].join("/");
+}
+
+function semanticShapeOfExecuted(query: FinancialQueryIRv3["queries"][number]): string {
+  const filters = query.filters.map((f) => normalizedFilterKey(f.field, String(f.value))).sort().join("|");
+  return [
+    query.metric,
+    query.legacy_operation ?? "value",
+    [...query.group_by].sort().join("+"),
+    filters,
+    query.limit ?? "null",
+  ].join("/");
+}
+
+function semanticRequestMatchesIR(
+  semantic: FinancialReadSemanticRequest | null,
+  ir: FinancialQueryIRv3,
+): boolean {
+  if (!semantic) return true; // legacy v1 compatibility only.
+  if (semantic.intent !== ir.intent) return false;
+  const expected = [...new Set(semantic.queries.map(semanticShapeOfExpected))].sort();
+  // Multi-period expansion legitimately duplicates the same semantic shape.
+  const executed = [...new Set(ir.queries.map(semanticShapeOfExecuted))].sort();
+  return expected.length === executed.length
+    && expected.every((shape, index) => shape === executed[index]);
+}
+
 export function validateFinancialReadContract(contract: FinancialReadContractV4 | null): string[] {
   if (!contract) return ["financial_read_contract_missing"];
   const errors: string[] = [];
@@ -82,5 +126,8 @@ export function validateFinancialReadContract(contract: FinancialReadContractV4 
   }
 
   if (contract.grounded_reference?.entity_labels.length === 0) errors.push("grounded_reference_empty");
+  if (!semanticRequestMatchesIR(contract.semantic_request, contract.requested)) {
+    errors.push("turn_semantics_vs_financial_ir_mismatch");
+  }
   return errors;
 }
