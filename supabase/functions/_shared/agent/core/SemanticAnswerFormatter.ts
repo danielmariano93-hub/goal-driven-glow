@@ -5,13 +5,14 @@
 // Sem formatter específico, cai na headline canônica do próprio motor.
 // deno-lint-ignore-file no-explicit-any
 import {
-  formatFinancialSnapshot, formatForecastMonthClose, formatGoalsOverview,
+  formatAverageComparison, formatFinancialSnapshot, formatForecastMonthClose, formatGoalsOverview,
   formatMerchantDistribution, formatSpendingAnalysis, formatEngineNarrative, formatPeriodComparison,
 } from "./DeterministicAnswers.ts";
 
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   analyze_spending: formatSpendingAnalysis,
-  analyze_merchants: formatMerchantDistribution,
+  merchant_distribution: formatMerchantDistribution,
+  compare_to_monthly_average: formatAverageComparison,
   get_financial_snapshot: formatFinancialSnapshot,
   get_goals_overview: formatGoalsOverview,
   forecast_month_close: formatForecastMonthClose,
