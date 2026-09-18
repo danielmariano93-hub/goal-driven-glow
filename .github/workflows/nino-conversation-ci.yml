@@ -78,6 +78,7 @@ jobs:
           supabase/functions/_shared/agent/core/ConversationReferenceStore.ts
           supabase/functions/_shared/agent/core/GroundingEngine.ts
           supabase/functions/_shared/agent/core/FinancialReadContract.ts
+          supabase/functions/_shared/agent/core/TurnContractFinancialAdapter.ts
           supabase/functions/_shared/agent/core/ContractFulfillmentGate.ts
           supabase/functions/_shared/agent/core/NarrowDeterministicGate.ts
           supabase/functions/_shared/agent/core/MemoryWriter.ts
