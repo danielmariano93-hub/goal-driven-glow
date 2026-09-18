@@ -108,17 +108,23 @@ export function groundReply(args: {
     }
   }
 
-  // Direção: subiu/caiu tem de bater com a direção da evidência.
-  const directionClaim = claims.find((c) => c.type === "direction" && c.label);
-  if (directionClaim) {
-    const label = String(directionClaim.label).toLowerCase();
-    const saysUp = /\b(aumentou|subiu|cresceu|maior que)\b/i.test(reply);
-    const saysDown = /\b(diminuiu|caiu|reduziu|menor que)\b/i.test(reply);
-    const expectedUp = /(up|increase|aumento|subiu)/.test(label);
-    const expectedDown = /(down|decrease|queda|caiu)/.test(label);
-    if ((saysUp && expectedDown) || (saysDown && expectedUp)) {
+  // Direção: suporta evidência com alta E queda no mesmo comparativo.
+  // Antes só o primeiro claim era lido; respostas corretas com os dois grupos
+  // podiam ser bloqueadas como "direção invertida".
+  const directionLabels = claims
+    .filter((c) => c.type === "direction" && c.label)
+    .map((c) => String(c.label).toLowerCase());
+  if (directionLabels.length) {
+    const saysUp = /\b(aumentou|aumentaram|subiu|subiram|cresceu|cresceram|maior que)\b/i.test(reply);
+    const saysDown = /\b(diminuiu|diminuíram|diminuiu|caiu|caíram|reduziu|reduziram|menor que)\b/i.test(reply);
+    const expectedUp = directionLabels.some((label) => /^(up|increase|aumento|subiu)$/.test(label));
+    const expectedDown = directionLabels.some((label) => /^(down|decrease|queda|caiu)$/.test(label));
+    if ((saysUp && !expectedUp) || (saysDown && !expectedDown)) {
       verdicts.push({
-        kind: "direction", token: label, status: "semantic_mismatch", detail: "direction_inverted",
+        kind: "direction",
+        token: directionLabels.join(","),
+        status: "semantic_mismatch",
+        detail: "direction_inverted",
       });
     }
   }
