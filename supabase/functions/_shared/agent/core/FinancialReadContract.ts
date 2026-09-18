@@ -56,7 +56,9 @@ export function buildFinancialReadContract(args: {
       time: args.turn.resolution.time,
       entity: args.turn.resolution.entity,
     },
-    grounded_reference: grounded && grounded.status === "resolved"
+    grounded_reference: args.turn.reference
+      && grounded?.status === "resolved"
+      && grounded.entity_labels.length > 0
       ? {
         reference_id: grounded.reference_id,
         target: grounded.target,
