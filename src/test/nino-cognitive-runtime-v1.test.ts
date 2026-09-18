@@ -11,7 +11,10 @@ import {
   invalidateReferences,
   resolveStructuredReference,
 } from "../../supabase/functions/_shared/agent/core/ConversationReferenceStore";
-import { groundTurnContract } from "../../supabase/functions/_shared/agent/core/GroundingEngine";
+import {
+  applyGroundedReferenceScope,
+  groundTurnContract,
+} from "../../supabase/functions/_shared/agent/core/GroundingEngine";
 import {
   buildFinancialReadContract,
   validateFinancialReadContract,
@@ -328,6 +331,54 @@ describe("Reference Store + Grounding — 'delas' é um objeto, não palavra-cha
     ]);
   });
 
+  it("guarda apenas as categorias realmente exibidas pelo ranking de gastos", () => {
+    const refs = captureReferenceObjects([{
+      tool_name: "analyze_spending",
+      args: { group_by: "category" },
+      ok: true,
+      result: {
+        group_by: "category",
+        view: "breakdown",
+        top: [
+          { name: "Moradia", value: 8655.37 },
+          { name: "Lazer", value: 2447.17 },
+        ],
+        categories: [
+          { name: "Moradia", value: 8655.37 },
+          { name: "Lazer", value: 2447.17 },
+          { name: "Educação", value: 806.40 },
+          { name: "Saúde", value: 430.00 },
+        ],
+      },
+    }], now);
+
+    expect(refs).toHaveLength(1);
+    expect(refs[0].entity_labels).toEqual(["Moradia", "Lazer"]);
+  });
+
+  it("guarda o recorte exibido pelo comparativo, não todas as linhas calculadas", () => {
+    const refs = captureReferenceObjects([{
+      tool_name: "compare_to_monthly_average",
+      args: { group_by: "category" },
+      ok: true,
+      result: {
+        requested_group_by: "category",
+        requested_comparison_direction: "both",
+        requested_limit: 1,
+        by_group: [
+          { name: "Moradia", delta_abs: -4809.66 },
+          { name: "Lazer", delta_abs: -1253.44 },
+          { name: "Educação", delta_abs: 806.40 },
+          { name: "Saúde", delta_abs: 220.00 },
+          { name: "Transporte", delta_abs: 0 },
+        ],
+      },
+    }], now);
+
+    expect(refs).toHaveLength(1);
+    expect(refs[0].entity_labels).toEqual(["Educação", "Moradia"]);
+  });
+
   it("grounda 'delas' no conjunto estruturado anterior e expira sem adivinhar", () => {
     const refs = captureReferenceObjects([{
       tool_name: "analyze_spending",
@@ -395,6 +446,26 @@ describe("Reference Store + Grounding — 'delas' é um objeto, não palavra-cha
     const out = groundTurnContract(turn, memory, now);
     expect(out.ok).toBe(false);
     expect(out.clarification).toContain("delas");
+  });
+
+  it("aplica o conjunto grounded também ao motor de média histórica", () => {
+    const grounded = {
+      status: "resolved" as const,
+      reference_id: "ref-average",
+      target: "category" as const,
+      entity_labels: ["Educação", "Moradia"],
+      reason: "reference_store",
+    };
+
+    expect(applyGroundedReferenceScope(
+      "compare_to_monthly_average",
+      { months: 3, group_by: "category" },
+      grounded,
+    )).toMatchObject({
+      months: 3,
+      group_by: "category",
+      category_scope: ["Educação", "Moradia"],
+    });
   });
 });
 

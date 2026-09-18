@@ -56,21 +56,71 @@ function uniqueLabels(values: unknown[]): string[] {
   return out.slice(0, 20);
 }
 
-function labelsFromResult(result: unknown): string[] {
-  const r = (result ?? {}) as Record<string, unknown>;
+function labelsFromRows(rows: unknown[]): string[] {
   const candidates: unknown[] = [];
-
-  for (const key of ["top", "by_group", "items", "rows", "categories", "merchants"]) {
-    const rows = Array.isArray(r[key]) ? r[key] as unknown[] : [];
-    for (const row of rows) {
-      if (typeof row === "string") candidates.push(row);
-      else if (row && typeof row === "object") {
-        const obj = row as Record<string, unknown>;
-        candidates.push(obj.name ?? obj.label ?? obj.category ?? obj.merchant ?? obj.title);
-      }
+  for (const row of rows) {
+    if (typeof row === "string") candidates.push(row);
+    else if (row && typeof row === "object") {
+      const obj = row as Record<string, unknown>;
+      candidates.push(obj.name ?? obj.label ?? obj.category ?? obj.merchant ?? obj.title);
     }
   }
   return uniqueLabels(candidates);
+}
+
+function positiveLimit(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Mirrors the deterministic comparison formatter so the stored referent is
+ * the set the user actually saw, not every row the engine computed. */
+function displayedComparisonRows(result: Record<string, unknown>): unknown[] {
+  const rows = Array.isArray(result.by_group) ? [...result.by_group] as any[] : [];
+  const direction = ["increase", "decrease", "both", "any"].includes(
+    String(result.requested_comparison_direction ?? "any"),
+  )
+    ? String(result.requested_comparison_direction ?? "any")
+    : "any";
+  const limit = positiveLimit(result.requested_limit);
+  const take = (items: any[]) => limit ? items.slice(0, limit) : items;
+  const increases = rows
+    .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+    .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
+  const decreases = rows
+    .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+    .sort((a, b) => Number(a?.delta_abs ?? 0) - Number(b?.delta_abs ?? 0));
+
+  if (direction === "increase") return take(increases);
+  if (direction === "decrease") return take(decreases);
+  if (direction === "both") return [...take(increases), ...take(decreases)];
+  return take(rows
+    .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
+    .sort((a, b) => Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0))));
+}
+
+function labelsFromResult(toolName: string, result: unknown): string[] {
+  const r = (result ?? {}) as Record<string, unknown>;
+  const tool = String(toolName ?? "").toLowerCase();
+
+  if (tool === "compare_periods" || tool === "compare_to_monthly_average") {
+    return labelsFromRows(displayedComparisonRows(r));
+  }
+
+  // analyze_spending renders only `top`; `categories` is the full internal
+  // breakdown and must not leak into a later "delas" reference.
+  if (tool === "analyze_spending") {
+    if (r.view === "total") return [];
+    return labelsFromRows(Array.isArray(r.top) ? r.top : []);
+  }
+
+  // Other deterministic formatters render one primary collection. Use the
+  // first available collection instead of unioning hidden supporting rows.
+  for (const key of ["top", "by_group", "items", "rows", "merchants", "categories"]) {
+    const rows = Array.isArray(r[key]) ? r[key] as unknown[] : [];
+    if (rows.length) return labelsFromRows(rows);
+  }
+  return [];
 }
 
 function targetFromCall(call: any): ReferenceObject["target"] | null {
@@ -108,7 +158,7 @@ export function captureReferenceObjects(
     if (call?.ok === false) continue;
     const target = targetFromCall(call);
     if (!target) continue;
-    const labels = labelsFromResult(call.result);
+    const labels = labelsFromResult(String(call.tool_name ?? ""), call.result);
     if (labels.length < 2) continue;
     const current = grouped.get(target) ?? { labels: [], tools: [], queryIds: [] };
     current.labels = uniqueLabels([...current.labels, ...labels]);
