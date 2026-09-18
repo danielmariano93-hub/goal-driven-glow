@@ -32,6 +32,9 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Typecheck E2E harness
+        run: deno check scripts/nino_prod_comparison_e2e.ts
+
       - name: Resolve backend key without logging it
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -69,18 +72,7 @@ jobs:
             if [ -n "$safe_code" ]; then
               echo "Production comparison E2E failed: $safe_code (financial output suppressed)."
             else
-              if grep -q 'Module not found\|Module .* not found\|Could not resolve' /tmp/nino-e2e.log; then
-                bootstrap='module_resolution'
-              elif grep -q 'Requires .* access' /tmp/nino-e2e.log; then
-                bootstrap='deno_permission'
-              elif grep -q 'TypeError' /tmp/nino-e2e.log; then
-                bootstrap='type_error_before_test'
-              elif grep -q 'SyntaxError' /tmp/nino-e2e.log; then
-                bootstrap='syntax_error_before_test'
-              else
-                bootstrap='unclassified_bootstrap'
-              fi
-              echo "Production comparison E2E failed: $bootstrap (financial output suppressed)."
+              echo 'Production comparison E2E failed during runtime bootstrap; financial output suppressed.'
             fi
             rm -f /tmp/nino-e2e.log
             exit "$code"
