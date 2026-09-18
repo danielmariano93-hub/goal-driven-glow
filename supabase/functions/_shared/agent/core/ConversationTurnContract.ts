@@ -92,12 +92,17 @@ export type FinancialReadSemanticRequest = {
   queries: FinancialReadSemanticQuery[];
 };
 
+/**
+ * Contrato público CANÔNICO. Compatibilidade com payloads v1 existe somente na
+ * fronteira de normalizeConversationTurnContract(raw: unknown); v1 e confidence
+ * numérico não fazem parte do tipo que o runtime pode consumir.
+ */
 export type ConversationTurnContract = {
-  version: "conversation_turn_contract.v1" | "conversation_turn_contract.v2";
+  version: "conversation_turn_contract.v2";
   act: BrainAct;
   mode: BrainMode;
   /** Domínio conversacional de alto nível. Não escolhe tool/engine. */
-  domain?: TurnDomain;
+  domain: TurnDomain;
   canonical_request: string | null;
   inherit_focus: boolean;
   focus: BrainFocus;
@@ -105,31 +110,19 @@ export type ConversationTurnContract = {
   direct_reply: string | null;
   clarification_question: string | null;
   /** Estado explícito por slot; autoridade para decidir se pode seguir. */
-  resolution?: TurnResolution;
+  resolution: TurnResolution;
   /** Referência conversacional estruturada; grounding resolve para entidades reais. */
-  reference?: TurnReference | null;
+  reference: TurnReference | null;
   /**
    * Semântica financeira de alto nível emitida pela MESMA autoridade. Não tem
    * datas resolvidas, IDs nem tools; o backend traduz para Financial IR v3.
    */
-  financial_read?: FinancialReadSemanticRequest | null;
-  /** Subtipo advisory emitido pela mesma autoridade conversacional. */
-  advisory_kind?: AdvisoryKind | null;
-  /**
-   * @deprecated Compatibilidade com fixtures/telemetria v1. Nunca usar para
-   * roteamento, autorização, execução ou decisão de clarificação.
-   */
-  confidence?: number;
-};
-
-export type CanonicalConversationTurnContract = ConversationTurnContract & {
-  version: "conversation_turn_contract.v2";
-  domain: TurnDomain;
-  resolution: TurnResolution;
-  reference: TurnReference | null;
   financial_read: FinancialReadSemanticRequest | null;
+  /** Subtipo advisory emitido pela mesma autoridade conversacional. */
   advisory_kind: AdvisoryKind | null;
 };
+
+export type CanonicalConversationTurnContract = ConversationTurnContract;
 
 export function normalizePeriodExpressions(focus: unknown): string[] {
   const raw = (focus ?? {}) as Record<string, unknown>;
