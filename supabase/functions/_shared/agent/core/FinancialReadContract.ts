@@ -85,6 +85,7 @@ function semanticShapeOfExpected(query: FinancialReadSemanticRequest["queries"][
     [...query.group_by].sort().join("+"),
     filters,
     query.limit ?? "null",
+    query.comparison_direction ?? "any",
   ].join("/");
 }
 
@@ -96,6 +97,7 @@ function semanticShapeOfExecuted(query: FinancialQueryIRv3["queries"][number]): 
     [...query.group_by].sort().join("+"),
     filters,
     query.limit ?? "null",
+    query.comparison_direction ?? "any",
   ].join("/");
 }
 
