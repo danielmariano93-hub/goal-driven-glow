@@ -143,7 +143,16 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     if (coverage != null) {
       claims.push({ id: seq(), ...base, type: "percentage", value: coverage * 100, label: "coverage", rank: null });
     }
-    (result.merchants as Array<Record<string, unknown>>)
+    const merchantRows = (result.merchants as Array<Record<string, unknown>>);
+    const listed = merchantRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const categoryTotal = num(result.category_total);
+    if (categoryTotal != null) {
+      const remainder = Math.max(0, categoryTotal - listed);
+      if (remainder > 0.005) {
+        claims.push({ id: seq(), ...base, type: "money", value: remainder, label: "listed_remainder", rank: null });
+      }
+    }
+    merchantRows
       .slice()
       .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0))
       .forEach((row, index) => {
