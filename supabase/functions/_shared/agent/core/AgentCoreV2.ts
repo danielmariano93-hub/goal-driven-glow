@@ -774,10 +774,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
     compile: async (args) => {
-      // Initial financial semantics come from the canonical Turn Contract.
-      // Only evidence-driven investigation replans may ask the SemanticCompiler
-      // for a revised execution plan, and ContractFulfillmentGate still checks
-      // the result against the original Turn Contract.
+      // Financial semantics come only from the canonical Turn Contract.
+      // Replan semântico por LLM é recusado nesta lane: evidência pode mudar a
+      // execução, nunca reescrever o significado já contratado.
       if (args.replan) return null;
       const compiled = compileFinancialReadFromTurn({
         turn: contract,
