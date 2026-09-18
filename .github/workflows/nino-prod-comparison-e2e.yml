@@ -62,10 +62,17 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set +e
-          deno run --allow-env --allow-net scripts/nino_prod_comparison_e2e.ts >/dev/null 2>&1
+          deno run --allow-env --allow-net scripts/nino_prod_comparison_e2e.ts >/tmp/nino-e2e.log 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
-            echo 'Production comparison E2E failed; sensitive execution output was suppressed.'
+            safe_code="$(grep -oE 'e2e_[a-z_]+' /tmp/nino-e2e.log | tail -n 1)"
+            rm -f /tmp/nino-e2e.log
+            if [ -n "$safe_code" ]; then
+              echo "Production comparison E2E failed: $safe_code (financial output suppressed)."
+            else
+              echo 'Production comparison E2E failed during bootstrap/runtime; financial output suppressed.'
+            fi
             exit "$code"
           fi
+          rm -f /tmp/nino-e2e.log
           echo 'Production comparison E2E passed; sensitive execution output was suppressed.'
