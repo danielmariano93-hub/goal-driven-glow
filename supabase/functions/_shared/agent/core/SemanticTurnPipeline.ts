@@ -69,6 +69,11 @@ export type SemanticPipelineResult = {
   ir_v3: FinancialQueryIRv3 | null;
   /** Compatibilidade pedido-vs-executado do turno. */
   preservation: PreservationResult | null;
+  /**
+   * Diagnóstico factual da resposta. Na lane autoritativa o enforcement final
+   * pertence ao ContractFulfillmentGate; aqui apenas produzimos a evidência.
+   */
+  grounding?: GroundingResult | null;
   validation: PlanValidation | null;
   turn: SemanticPipelineTurn | null;
   deterministic_text: string | null;
@@ -202,8 +207,11 @@ export async function runSemanticTurn(
   const maxQueries = Math.max(1, Math.min(MAX_IR_QUERIES, input.max_queries ?? 1));
   let state = normalizeTopicState(input.topic_state);
 
-  // ---- 1. Pending clarification tem precedência sobre tudo ----------------
-  const pending = pendingClarificationOf(state);
+  // ---- 1. Pending clarification tem precedência no pipeline legado --------
+  // Na lane autoritativa, o Conversation Brain já resolveu answer/follow-up e
+  // os slots do turno. Reinterpretar a resposta curta aqui criaria uma segunda
+  // autoridade semântica.
+  const pending = input.authoritative_contract === true ? null : pendingClarificationOf(state);
   let resumedFromPending = false;
   let pendingIR: FinancialQueryIRv2 | null = null;
   let pendingTelemetry: Record<string, unknown> | null = null;
@@ -291,7 +299,8 @@ export async function runSemanticTurn(
   let irV2 = ir ? normalizeToV2(ir, { acts: input.acts, topic_id: topic.topic_id }) : null;
   // Herança de período do tópico: turno de continuação sem período explícito
   // usa o recorte já combinado ("e por cartão?" mantém os 90 dias).
-  const inheritPeriod = !!irV2 && !resolution.created && !input.constraints.period
+  const inheritPeriod = input.authoritative_contract !== true
+    && !!irV2 && !resolution.created && !input.constraints.period
     && !!topic.period && (topic.period.from !== irV2.period.from || topic.period.to !== irV2.period.to);
   if (inheritPeriod && irV2 && topic.period) {
     irV2 = { ...irV2, period: { ...irV2.period, from: topic.period.from, to: topic.period.to } };
@@ -464,14 +473,22 @@ export async function runSemanticTurn(
     };
   }
 
-  // ---- 6. Compiler falhou: o legado volta a mandar ------------------------
+  // ---- 6. Falha de compilação ------------------------------------------------
+  // Uma lane autoritativa nunca devolve o mesmo turno ao roteador legado:
+  // falha fechado. Callers antigos preservam o comportamento anterior.
   if (status !== "executable" || !irV2 || !validation) {
+    const authoritative = input.authoritative_contract === true;
     return {
       version: "nino_semantic_ir.v3",
       status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
-      turn: null, deterministic_text: null, engines: [],
+      turn: authoritative ? { reply: input.failure_reply, toolCalls: [] } : null,
+      deterministic_text: null, engines: [],
       topic_state: state, topic_id: topic.topic_id, rescue: null, errors,
-      telemetry: { ...baseTelemetry(), executed_by: "legacy_router", action_planner_used_for_tool_choice: true },
+      telemetry: {
+        ...baseTelemetry(),
+        executed_by: authoritative ? "contract_failed_closed" : "legacy_router",
+        action_planner_used_for_tool_choice: authoritative ? false : true,
+      },
     };
   }
 
@@ -511,7 +528,9 @@ export async function runSemanticTurn(
     }
     if (handled && "executed_ir" in handled) {
       preservation = planPreservation([{ requested: typicalQuery, executed: handled.executed_ir }]);
-      const blocked = input.preservation_enforced === true && !preservation.compatible;
+      const blocked = input.authoritative_contract !== true
+        && input.preservation_enforced === true
+        && !preservation.compatible;
       state = upsertTopic(state, {
         ...topic, ir: irV2,
         execution_summary: { engines: [handled.engine], complete: !blocked },
@@ -638,12 +657,19 @@ export async function runSemanticTurn(
       return { requested: q, executed };
     }));
   }
-  const preservationBlocked = input.preservation_enforced === true
+  // Preservation/Grounding continuam calculando evidência, mas na lane
+  // autoritativa o ÚNICO enforcement desses contratos ocorre no
+  // ContractFulfillmentGate do runtime. Isso evita dois gates com decisões
+  // divergentes. Callers legados preservam o bloqueio local.
+  const preservationBlocked = input.authoritative_contract !== true
+    && input.preservation_enforced === true
     && !!preservation && !preservation.compatible;
+  const groundingBlocked = input.authoritative_contract !== true
+    && !!grounding && !grounding.ok;
 
   const okToAnswer = !!deterministic
     && (completeness.complete || completeness.partial_allowed)
-    && (!grounding || grounding.ok)
+    && !groundingBlocked
     && !preservationBlocked;
   if (!okToAnswer) errors.push("semantic_gate_blocked");
   if (preservationBlocked) errors.push("preservation_mismatch");
@@ -725,7 +751,7 @@ export async function runSemanticTurn(
 
   return {
     version: "nino_semantic_ir.v3",
-    status, ir, ir_v2: irV2, ir_v3: irV3, preservation, validation,
+    status, ir, ir_v2: irV2, ir_v3: irV3, preservation, grounding, validation,
     turn: okToAnswer ? { reply: deterministic, toolCalls: toolCallsOf(execution) } : null,
     deterministic_text: deterministic || null,
     engines: execution.engines,
