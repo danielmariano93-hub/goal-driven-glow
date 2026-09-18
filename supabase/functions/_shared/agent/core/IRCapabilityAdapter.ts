@@ -96,6 +96,8 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
         args: {
           metric,
           group_by: group === "category" ? "category" : "none",
+          comparison_direction: q.comparison_direction ?? "any",
+          limit: q.limit ?? null,
           period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
           period_b: { from: period.from, to: period.to },
         },
