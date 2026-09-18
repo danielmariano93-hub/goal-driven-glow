@@ -5,7 +5,7 @@ const migration = readFileSync(
   "supabase/migrations/20260917113000_nino_ai_provider_admin_benchmark.sql",
   "utf8",
 );
-const board = readFileSync("src/components/admin/AiProviderBenchmarkBoard.tsx", "utf8");
+const board = readFileSync("src/components/admin/AiProviderBenchmarkTruthBoard.tsx", "utf8");
 const page = readFileSync("src/pages/admin/CustoLatencia.tsx", "utf8");
 
 describe("AI provider admin benchmark", () => {
@@ -27,15 +27,16 @@ describe("AI provider admin benchmark", () => {
 
   it("does not mislabel parity with production as ground-truth accuracy", () => {
     expect(migration).toContain("semantic_parity_is_not_ground_truth");
-    expect(board).toContain("não é, isoladamente, prova de maior acurácia");
-    expect(board).toContain("Concordância semântica com o Nino atual");
+    expect(board).toContain("não é ground truth");
+    expect(board).toContain("Paridade semântica");
   });
 
-  it("renders the benchmark in the existing cost and latency admin tab", () => {
-    expect(page).toContain("AiEfficiencyHistoryBoard");
-    expect(page).toContain("AiProviderBenchmarkBoard");
-    expect(board).toContain("Latência diária");
-    expect(board).toContain("Tokens por turno");
-    expect(board).toContain("Lovable × Groq");
+  it("renders a provider-neutral benchmark in the cost and latency admin tab", () => {
+    expect(page).toContain("AiEfficiencyTruthBoard");
+    expect(page).toContain("AiProviderBenchmarkTruthBoard");
+    expect(board).toContain("Provider oficial × shadow");
+    expect(board).toContain("Δ latência shadow");
+    expect(board).toContain("Δ tokens shadow");
+    expect(board).not.toContain("Lovable × Groq");
   });
 });
