@@ -16,6 +16,17 @@ verify_jwt = false
 # Internal cron calls authenticate in the handler with x-cron-secret.
 verify_jwt = false
 
+[functions.insights-generate]
+# Cron calls authenticate inside the handler with x-cron-secret. Keeping the
+# gateway JWT check enabled makes valid internal cron calls fail before the
+# function can validate that secret.
+verify_jwt = false
+
+[functions.financial-reports-generate]
+# Weekly/monthly cron calls also authenticate inside the handler with
+# x-cron-secret. User-triggered calls remain protected by the handler JWT check.
+verify_jwt = false
+
 [functions.user-data-export]
 verify_jwt = true
 
