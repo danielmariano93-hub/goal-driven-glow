@@ -15,7 +15,7 @@ import { getState, patchState } from "./StateManager.ts";
 import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
 import type { ComparisonEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 
-function evidenceResult(evidence: ComparisonEvidence) {
+function evidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
     requested_comparison_direction: evidence.requested_direction,
     requested_limit: evidence.requested_limit,
@@ -29,6 +29,9 @@ function evidenceResult(evidence: ComparisonEvidence) {
     delta_abs: evidence.delta_abs,
     delta_pct: evidence.delta_pct,
     by_group: evidence.rows,
+    applied_reference_scope: ref.target === "generic" || !ref.entity_labels.length
+      ? null
+      : { target: ref.target, entity_labels: ref.entity_labels },
     provenance: { formula_version: evidence.formula_version },
   };
 }
@@ -38,6 +41,9 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
   const toolName = String(ref.source?.tool_name ?? fallbackTool).split("+")[0] || fallbackTool;
   if (!evidence || evidence.kind !== "comparison") return null;
   const context = ref.source?.context ?? {};
+  const categoryScope = ref.target === "category" && ref.entity_labels.length
+    ? { category_scope: [...ref.entity_labels] }
+    : {};
   const args = toolName === "compare_to_monthly_average"
     ? {
       months: context.months ?? evidence.baseline_window_months,
@@ -45,6 +51,7 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
       group_by: "category",
       comparison_direction: evidence.requested_direction,
       limit: evidence.requested_limit,
+      ...categoryScope,
     }
     : toolName === "compare_periods"
       ? {
@@ -53,12 +60,13 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
         group_by: "category",
         comparison_direction: evidence.requested_direction,
         limit: evidence.requested_limit,
+        ...categoryScope,
       }
       : { evidence_reconstructed: true };
   return {
     tool_name: toolName,
     args,
-    result: evidenceResult(evidence),
+    result: evidenceResult(evidence, ref),
     ok: true,
     duration_ms: null,
     error: null,

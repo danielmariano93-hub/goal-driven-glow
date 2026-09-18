@@ -144,7 +144,10 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
   const tool = String(toolName ?? "").toLowerCase();
 
   if (tool === "compare_periods" || tool === "compare_to_monthly_average") {
-    return labelsFromRows(displayedComparisonRows(r));
+    const displayed = labelsFromRows(displayedComparisonRows(r));
+    if (displayed.length) return displayed;
+    const scope = r.applied_reference_scope as Record<string, unknown> | null | undefined;
+    return Array.isArray(scope?.entity_labels) ? uniqueLabels(scope.entity_labels) : [];
   }
   if (tool === "analyze_spending") {
     if (r.view === "total") return [];
@@ -158,6 +161,10 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
 }
 
 function targetFromCall(call: any): ReferenceObject["target"] | null {
+  const appliedTarget = String(call?.result?.applied_reference_scope?.target ?? "").toLowerCase();
+  if (["category", "merchant", "card", "account", "goal"].includes(appliedTarget)) {
+    return appliedTarget as ReferenceObject["target"];
+  }
   const group = String(
     call?.args?.group_by
       ?? call?.result?.requested_group_by

@@ -7,7 +7,7 @@
 // Duas fontes, nesta ordem:
 // 1. `result.executed_ir` declarado pela própria engine (verdade preferida);
 // 2. leitura estrutural de resultados canônicos que já carregam período e
-//    filtros (`spending_report`) — derivação determinística, nunca invenção.
+//    filtros aplicados — derivação determinística, nunca invenção.
 // Nada além disso: engine que não declara nem carrega estrutura devolve `null`
 // e a preservação falha fechada.
 import type { FinancialQueryV3 } from "./FinancialIRv3.ts";
@@ -25,6 +25,25 @@ function filtersFromRecord(raw: unknown): FinancialFilter[] {
     out.push({ field, op: "eq", value: String(value) });
   }
   return out;
+}
+
+/**
+ * Converte somente o escopo que a engine declarou ter APLICADO, quando ele
+ * confirma um filtro explícito do IR. Escopos vindos de "delas/essas" vivem
+ * no GroundedReference e são validados separadamente pelo Fulfillment Gate;
+ * tratá-los como filtro novo aqui criaria um falso `filter_added`.
+ */
+function filtersFromAppliedReferenceScope(
+  requested: FinancialQueryV3,
+  result: unknown,
+): FinancialFilter[] {
+  const hasRequestedCategory = requested.filters.some((filter) => filter.field === "category");
+  if (!hasRequestedCategory) return [];
+  const r = (result ?? {}) as Record<string, unknown>;
+  const scope = r.applied_reference_scope as Record<string, unknown> | null | undefined;
+  if (!scope || scope.target !== "category" || !Array.isArray(scope.entity_labels)) return [];
+  return [...new Set(scope.entity_labels.map((value) => String(value).trim()).filter(Boolean))]
+    .map((value) => ({ field: "category" as const, op: "eq" as const, value }));
 }
 
 function declared(result: unknown): ExecutedIR | null {
@@ -58,7 +77,7 @@ function fromPeriodComparison(requested: FinancialQueryV3, result: unknown): Exe
   const requestedGroup = String(r.requested_group_by ?? "none") === "category" ? ["category"] : [];
   return {
     metric: requested.metric,
-    filters: [],
+    filters: filtersFromAppliedReferenceScope(requested, result),
     time: {
       aspect: requested.time.aspect,
       from: requested.time.from,
@@ -83,7 +102,7 @@ function fromMonthlyAverageComparison(requested: FinancialQueryV3, result: unkno
   const target = (r.target_period ?? {}) as Record<string, unknown>;
   return {
     metric: requested.metric,
-    filters: [],
+    filters: filtersFromAppliedReferenceScope(requested, result),
     time: {
       aspect: requested.time.aspect,
       from: target.from ? String(target.from) : requested.time.from,

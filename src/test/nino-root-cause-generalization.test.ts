@@ -10,6 +10,11 @@ import { emptyMemory } from "../../supabase/functions/_shared/agent/core/Convers
 import { normalizeToV2 } from "../../supabase/functions/_shared/agent/core/FinancialQueryIR";
 import { expandIRForPeriods } from "../../supabase/functions/_shared/agent/core/MultiPeriodPlan";
 import { validateFinancialPlan } from "../../supabase/functions/_shared/agent/core/FinancialPlanValidator";
+import { normalizeToV3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3";
+import { executedIRFrom } from "../../supabase/functions/_shared/agent/core/ExecutedIRBridge";
+import { requestedSubsumesExecuted } from "../../supabase/functions/_shared/agent/core/SemanticPreservation";
+import { verifyFinancialFulfillment } from "../../supabase/functions/_shared/agent/core/ContractFulfillmentGate";
+import { computeCompare, computeCompareToMonthlyAverage } from "../../supabase/functions/_shared/analytics/compare";
 
 const period = { from: "2026-09-01", to: "2026-09-18", label: "este mês" };
 const previous = { from: "2026-08-01", to: "2026-08-18", label: "período anterior equivalente" };
@@ -130,6 +135,109 @@ describe("nino root-cause generalization", () => {
     const out = capabilityFromFinancialIR(value);
     expect(out.capability?.required_tool).toBe("compare_to_monthly_average");
     expect(out.capability?.tool_args).toMatchObject({ category_scope: ["Lazer"], months: 3 });
+  });
+
+  it("carries the engine-applied category through executed_ir and the final fulfillment gate", () => {
+    const ir = normalizeToV3(normalizeToV2(comparisonIR("category")), { today: "2026-09-18" });
+    const requested = ir.queries[0];
+    const engineResult = {
+      ...computeCompare({
+        txs: [],
+        categoryNames: new Map(),
+        metric: "expense",
+        period_a: previous,
+        period_b: period,
+        group_by: "none",
+        category_scope: ["Lazer"],
+      }),
+      requested_group_by: "none",
+    };
+    const executed = executedIRFrom(requested, engineResult);
+    const preservation = requestedSubsumesExecuted(requested, executed);
+    const fulfillment = verifyFinancialFulfillment({
+      contract: {
+        version: "financial_read_contract.v4",
+        source_turn_version: "conversation_turn_contract.v2",
+        domain: "financial_read",
+        semantic_request: null,
+        requested: ir,
+        slots: {
+          intent: "resolved",
+          reference: "not_applicable",
+          time: "resolved",
+          entity: "resolved",
+        },
+        grounded_reference: null,
+      },
+      preservation,
+      grounding: null,
+      applied_reference_scope: engineResult.applied_reference_scope,
+    });
+
+    expect(executed?.filters).toEqual([{ field: "category", op: "eq", value: "Lazer" }]);
+    expect(preservation).toMatchObject({ compatible: true, mismatches: [] });
+    expect(fulfillment).toMatchObject({ ok: true, violations: [] });
+  });
+
+  it("still fails closed when a comparison result does not prove the applied filter", () => {
+    const ir = normalizeToV3(normalizeToV2(comparisonIR("category")), { today: "2026-09-18" });
+    const requested = ir.queries[0];
+    const engineResult = {
+      total_a: 100,
+      total_b: 120,
+      by_group: [],
+      requested_group_by: "none",
+    };
+    const preservation = requestedSubsumesExecuted(requested, executedIRFrom(requested, engineResult));
+
+    expect(preservation.compatible).toBe(false);
+    expect(preservation.mismatches.map((m) => m.reason)).toContain("filter_lost");
+  });
+
+  it("keeps grounded reference scope separate from explicit IR filters", () => {
+    const ir = normalizeToV3(normalizeToV2(comparisonIR(null)), { today: "2026-09-18" });
+    const requested = ir.queries[0];
+    const engineResult = {
+      ...computeCompare({
+        txs: [],
+        categoryNames: new Map(),
+        metric: "expense",
+        period_a: previous,
+        period_b: period,
+        group_by: "none",
+        category_scope: ["Lazer", "Alimentação"],
+      }),
+      requested_group_by: "none",
+    };
+    const executed = executedIRFrom(requested, engineResult);
+
+    expect(executed?.filters).toEqual([]);
+    expect(requestedSubsumesExecuted(requested, executed).compatible).toBe(true);
+  });
+
+  it("preserves the same category evidence for historical-mean comparisons", () => {
+    const value = comparisonIR("category");
+    value.queries[0].comparison_baseline = "mean_previous_complete_months";
+    value.queries[0].comparison_baseline_window = 3;
+    const ir = normalizeToV3(normalizeToV2(value), { today: "2026-09-18" });
+    const requested = ir.queries[0];
+    const engineResult = {
+      ...computeCompareToMonthlyAverage({
+        txs: [],
+        categoryNames: new Map(),
+        metric: "expense",
+        target_period: period,
+        months: 3,
+        group_by: "none",
+        category_scope: ["Lazer"],
+      }),
+      requested_group_by: "none",
+    };
+    const executed = executedIRFrom(requested, engineResult);
+    const preservation = requestedSubsumesExecuted(requested, executed);
+
+    expect(executed?.filters).toEqual([{ field: "category", op: "eq", value: "Lazer" }]);
+    expect(preservation).toMatchObject({ compatible: true, mismatches: [] });
   });
 
   it("does not let last_query rename a durable topic", () => {
