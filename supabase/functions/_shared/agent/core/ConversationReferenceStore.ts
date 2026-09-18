@@ -95,26 +95,44 @@ export function captureReferenceObjects(
   toolCalls: Array<{ tool_name?: string; args?: any; result?: any; ok?: boolean }> | null | undefined,
   now: Date = new Date(),
 ): ReferenceObject[] {
-  const refs: ReferenceObject[] = [];
+  // One assistant answer can be backed by multiple executions (e.g. July and
+  // August). An anaphora in the next turn refers to the DISPLAYED SET of that
+  // answer, so merge labels by target instead of storing one set per tool call.
+  const grouped = new Map<ReferenceObject["target"], {
+    labels: string[];
+    tools: string[];
+    queryIds: string[];
+  }>();
+
   for (const call of toolCalls ?? []) {
     if (call?.ok === false) continue;
     const target = targetFromCall(call);
     if (!target) continue;
     const labels = labelsFromResult(call.result);
     if (labels.length < 2) continue;
+    const current = grouped.get(target) ?? { labels: [], tools: [], queryIds: [] };
+    current.labels = uniqueLabels([...current.labels, ...labels]);
+    if (call.tool_name) current.tools.push(String(call.tool_name));
+    if (call?.args?.query_id) current.queryIds.push(String(call.args.query_id));
+    grouped.set(target, current);
+  }
+
+  const refs: ReferenceObject[] = [];
+  for (const [target, group] of grouped.entries()) {
+    if (group.labels.length < 2) continue;
     const created = nowIso(now);
     refs.push({
       id: crypto.randomUUID(),
       type: "entity_set",
       target,
-      entity_labels: labels,
+      entity_labels: group.labels,
       created_at: created,
       expires_at: new Date(now.getTime() + REFERENCE_TTL_MS).toISOString(),
       turns_remaining: REFERENCE_MAX_TURNS,
       status: "active",
       source: {
-        tool_name: call.tool_name ? String(call.tool_name) : null,
-        query_id: call?.args?.query_id ? String(call.args.query_id) : null,
+        tool_name: [...new Set(group.tools)].join("+") || null,
+        query_id: [...new Set(group.queryIds)].join("+") || null,
       },
     });
   }
