@@ -66,6 +66,7 @@ import {
   applyGroundedReferenceScope, executedReferenceScope, groundTurnContract,
 } from "./GroundingEngine.ts";
 import { buildFinancialReadContract } from "./FinancialReadContract.ts";
+import { compileFinancialReadFromTurn } from "./TurnContractFinancialAdapter.ts";
 import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
@@ -704,26 +705,51 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     preservation_enforced: true,
     // "por mês/costumo" jamais pode cair no MTD na arquitetura nova.
     typical_monthly_enabled: true,
+    authoritative_contract: true,
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
-    compile: (args) => compileFinancialQuery({
-      text: args.text,
-      model: BRAIN_MODEL,
-      period: {
-        from: basePeriod.from,
-        to: basePeriod.to,
-        label: basePeriod.label,
-      },
-      comparison_period: plan.previous_period,
-      previous_query: args.previous_query,
-      max_queries: args.max_queries,
-      replan: args.replan ?? null,
-      reason: "conversation_brain_v1_read_compile",
-      skip_fast_path: true,
-      sb,
-      user_id: input.user_id,
-      run_id: null,
-    }),
+    compile: async (args) => {
+      // Initial financial semantics come from the canonical Turn Contract.
+      // Only evidence-driven investigation replans may ask the SemanticCompiler
+      // for a revised execution plan, and ContractFulfillmentGate still checks
+      // the result against the original Turn Contract.
+      if (!args.replan) {
+        const compiled = compileFinancialReadFromTurn({
+          turn: contract,
+          period: {
+            from: basePeriod.from,
+            to: basePeriod.to,
+            label: basePeriod.label ?? "período solicitado",
+          },
+          comparison_period: plan.previous_period
+            ? {
+              from: plan.previous_period.from,
+              to: plan.previous_period.to,
+              label: plan.previous_period.label ?? "período anterior",
+            }
+            : null,
+        });
+        if (compiled) return compiled;
+      }
+      return await compileFinancialQuery({
+        text: args.text,
+        model: BRAIN_MODEL,
+        period: {
+          from: basePeriod.from,
+          to: basePeriod.to,
+          label: basePeriod.label,
+        },
+        comparison_period: plan.previous_period,
+        previous_query: args.previous_query,
+        max_queries: args.max_queries,
+        replan: args.replan ?? null,
+        reason: args.replan ? "conversation_brain_v2_evidence_replan" : "conversation_brain_v2_legacy_domain_compile",
+        skip_fast_path: true,
+        sb,
+        user_id: input.user_id,
+        run_id: null,
+      });
+    },
     runEngine: async (tool, toolArgs) => {
       const scopedArgs = applyGroundedReferenceScope(tool, toolArgs, groundedTurn.reference);
       const exec = await runTool({
