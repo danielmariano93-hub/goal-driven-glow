@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  comparisonPeriodExpressions,
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
 } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract";
@@ -22,6 +23,7 @@ import { writeDurableMemory } from "../../supabase/functions/_shared/agent/core/
 import { compileFinancialReadFromTurn } from "../../supabase/functions/_shared/agent/core/TurnContractFinancialAdapter";
 import type { FinancialQueryIRv3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3";
 import { runSemanticTurn } from "../../supabase/functions/_shared/agent/core/SemanticTurnPipeline";
+import { formatPeriodComparison } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers";
 
 function financialTurn(over: Partial<CanonicalConversationTurnContract> = {}): CanonicalConversationTurnContract {
   return {
@@ -206,6 +208,85 @@ describe("Nino Cognitive Runtime v1 — autoridade única e contratos hierárqui
     expect(out.telemetry.executed_by).toBe("contract_failed_closed");
     expect(out.telemetry.action_planner_used_for_tool_choice).toBe(false);
     expect(runEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe("Comparação direcional — regressão do caso agosto x julho", () => {
+  it("preserva baseline/target e direção emitidos pelo Brain", () => {
+    const turn = financialTurn({
+      act: "follow_up",
+      inherit_focus: true,
+      focus: {
+        category: null,
+        merchant: null,
+        goal: null,
+        period_expression: "julho",
+        period_expressions: ["agosto", "julho"],
+      },
+      financial_read: {
+        intent: "analyze",
+        queries: [{
+          metric: "expense_amount",
+          operation: "compare",
+          group_by: ["category"],
+          filters: [],
+          limit: null,
+          comparison_direction: "both",
+          comparison_baseline_expression: "julho",
+          comparison_target_expression: "agosto",
+        }],
+      },
+    });
+
+    // A ordem textual/focus não manda na direção temporal da comparação.
+    expect(comparisonPeriodExpressions(turn)).toEqual(["julho", "agosto"]);
+
+    const compiled = compileFinancialReadFromTurn({
+      turn,
+      period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      comparison_period: { from: "2026-07-01", to: "2026-07-31", label: "julho" },
+    });
+    expect(compiled?.ir?.queries[0].comparison_direction).toBe("both");
+    expect(compiled?.ir?.period.label).toBe("agosto");
+    expect(compiled?.ir?.comparison_period?.label).toBe("julho");
+  });
+
+  it("lista altas e quedas sem transformar queda em aumento", () => {
+    const base = {
+      total_a: 12_000,
+      total_b: 8_900,
+      delta_abs: -3_100,
+      requested_group_by: "category",
+      requested_limit: null,
+      by_group: [
+        { name: "Educação", total_a: 0, total_b: 806.40, delta_abs: 806.40, delta_pct: null },
+        { name: "Moradia", total_a: 8655.37, total_b: 3845.71, delta_abs: -4809.66, delta_pct: -0.5557 },
+        { name: "Lazer", total_a: 2447.17, total_b: 1193.73, delta_abs: -1253.44, delta_pct: -0.5122 },
+      ],
+    };
+
+    const both = formatPeriodComparison({ ...base, requested_comparison_direction: "both" });
+    expect(both).toContain("Aumentaram:");
+    expect(both).toContain("Educação");
+    expect(both).toContain("Diminuíram:");
+    expect(both).toContain("Moradia");
+
+    const decreases = formatPeriodComparison({ ...base, requested_comparison_direction: "decrease" });
+    expect(decreases).toContain("Diminuíram:");
+    expect(decreases).toContain("Moradia");
+    expect(decreases).toContain("Lazer");
+    expect(decreases).not.toContain("Educação");
+
+    const biggestDecrease = formatPeriodComparison({
+      ...base,
+      requested_comparison_direction: "decrease",
+      requested_limit: 1,
+    });
+    expect(biggestDecrease).toContain("mais diminuiu");
+    expect(biggestDecrease).toContain("Moradia");
+    expect(biggestDecrease).toContain("R$ 4.809,66");
+    expect(biggestDecrease).toContain("R$ 8.655,37");
+    expect(biggestDecrease).toContain("R$ 3.845,71");
   });
 });
 
