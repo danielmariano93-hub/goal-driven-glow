@@ -28,6 +28,8 @@ export type StructuredCallResult = {
   latency_ms: number;
   error_code: string | null;
   error_detail: string | null;
+  /** Tentativas HTTP efetuadas. Parse failure do provedor pode ter 1 retry. */
+  attempts?: number;
 };
 
 export function safeAiErrorDetail(raw: string): string | null {
@@ -91,40 +93,57 @@ export async function callStructuredFunction(args: {
     body.reasoning_effort = args.reasoning_effort ?? "low";
   }
 
-  let response: Response;
-  try {
-    response = await fetch(aiEndpoint(args.provider, "chat/completions"), {
-      method: "POST",
-      headers: aiJsonHeaders(args.provider),
-      body: JSON.stringify(body),
-      signal: args.signal,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      status: null,
-      provider: args.provider.provider,
-      model,
-      arguments: "",
-      body: null,
-      input_tokens: 0,
-      output_tokens: 0,
-      latency_ms: Date.now() - started,
-      error_code: (error as { name?: string })?.name === "AbortError"
-        ? "structured_call_timeout"
-        : "structured_call_network_error",
-      error_detail: safeAiErrorDetail(String((error as Error)?.message ?? error)),
-    };
+  let response: Response | null = null;
+  let raw = "";
+  let json: any = null;
+  let attempts = 0;
+
+  while (attempts < 2) {
+    attempts += 1;
+    try {
+      response = await fetch(aiEndpoint(args.provider, "chat/completions"), {
+        method: "POST",
+        headers: aiJsonHeaders(args.provider),
+        body: JSON.stringify(body),
+        signal: args.signal,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        status: null,
+        provider: args.provider.provider,
+        model,
+        arguments: "",
+        body: null,
+        input_tokens: 0,
+        output_tokens: 0,
+        latency_ms: Date.now() - started,
+        error_code: (error as { name?: string })?.name === "AbortError"
+          ? "structured_call_timeout"
+          : "structured_call_network_error",
+        error_detail: safeAiErrorDetail(String((error as Error)?.message ?? error)),
+        attempts,
+      };
+    }
+
+    raw = await response.text();
+    json = null;
+    try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
+
+    // Groq/gpt-oss pode devolver 400 quando a geração não fecha o JSON do
+    // tool-call (output_parse_failed). Isso é falha estocástica de geração,
+    // não pedido inválido. Uma única nova amostra preserva a mesma semântica
+    // sem cair para outro interpretador/rota.
+    const retryableParseFailure = response.status === 400
+      && /output_parse_failed|tool_use_failed|failed_generation/i.test(raw);
+    if (retryableParseFailure && attempts < 2) continue;
+    break;
   }
 
-  const raw = await response.text();
-  let json: any = null;
-  try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
-
-  if (!response.ok || !json) {
+  if (!response || !response.ok || !json) {
     return {
       ok: false,
-      status: response.status || null,
+      status: response?.status || null,
       provider: args.provider.provider,
       model,
       arguments: "",
@@ -132,8 +151,9 @@ export async function callStructuredFunction(args: {
       input_tokens: 0,
       output_tokens: 0,
       latency_ms: Date.now() - started,
-      error_code: `structured_call_gateway_${response.status || "bad_json"}`,
+      error_code: `structured_call_gateway_${response?.status || "bad_json"}`,
       error_detail: safeAiErrorDetail(raw),
+      attempts,
     };
   }
 
@@ -158,6 +178,7 @@ export async function callStructuredFunction(args: {
       latency_ms: Date.now() - started,
       error_code: "structured_call_missing_tool_call",
       error_detail: null,
+      attempts,
     };
   }
 
@@ -173,5 +194,6 @@ export async function callStructuredFunction(args: {
     latency_ms: Date.now() - started,
     error_code: null,
     error_detail: null,
+    attempts,
   };
 }
