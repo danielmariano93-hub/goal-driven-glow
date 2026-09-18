@@ -73,7 +73,8 @@ export type BrainFocus = {
   /** Primeira expressão temporal (compatibilidade retroativa). */
   period_expression: string | null;
   /**
-   * TODAS as expressões temporais do pedido, na ordem em que aparecem.
+   * TODAS as expressões temporais relevantes. Em comparação, baseline/target
+   * são declarados separadamente na query financeira.
    * Datas são resolvidas no backend, nunca pela LLM.
    */
   period_expressions?: string[];
