@@ -323,7 +323,8 @@ export async function runSemanticTurn(
   // `unsupported` com motor seguro capaz de satisfazer o MESMO pedido não pode
   // virar texto genérico. O parser legado não é consultado aqui.
   let canonicalDegradation: string[] | null = null;
-  if (status === "unsupported" && irV2 && irV2.intent !== "unsupported") {
+  if (input.authoritative_contract !== true
+    && status === "unsupported" && irV2 && irV2.intent !== "unsupported") {
     const degraded = degradeForCanonicalRead(irV2);
     if (degraded) {
       const nextValidation = validateFinancialPlan(degraded.ir);
