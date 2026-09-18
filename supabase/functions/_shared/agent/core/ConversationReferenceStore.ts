@@ -148,10 +148,12 @@ export function advanceReferences(
     if (ref.status !== "active") return ref;
     const expiredByTime = Date.parse(ref.expires_at) <= ts;
     const nextTurns = Math.max(0, Number(ref.turns_remaining ?? 0) - 1);
+    const status: ReferenceObject["status"] =
+      expiredByTime || nextTurns <= 0 ? "expired" : "active";
     return {
       ...ref,
       turns_remaining: nextTurns,
-      status: expiredByTime || nextTurns <= 0 ? "expired" : "active",
+      status,
     };
   }).slice(-8);
 }
