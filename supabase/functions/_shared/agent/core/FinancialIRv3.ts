@@ -187,7 +187,8 @@ export function normalizeToV3(
       comparison_baseline: COMPARISON_BASELINE_SET.has(String(q.comparison_baseline))
         ? q.comparison_baseline
         : "period",
-      comparison_baseline_window: Number.isInteger(Number(q.comparison_baseline_window))
+      comparison_baseline_window: q.comparison_baseline_window != null
+        && Number.isInteger(Number(q.comparison_baseline_window))
         ? Number(q.comparison_baseline_window)
         : null,
       depends_on: q.depends_on ?? [],
