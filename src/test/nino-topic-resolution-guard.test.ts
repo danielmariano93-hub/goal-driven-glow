@@ -28,6 +28,18 @@ const active = {
   last_activity_at: "2026-09-18T14:00:00Z",
 };
 
+const septemberCategories = {
+  ...active,
+  id: "september-categories",
+  title: "Categorias de setembro",
+  keywords: ["categorias", "setembro", "gastos"],
+  original_query: "Quais categorias mais gastei em setembro?",
+  last_query: "Quais categorias mais gastei em setembro?",
+  period_from: "2026-09-01",
+  period_to: "2026-09-18",
+  last_activity_at: "2026-09-18T14:30:00Z",
+};
+
 describe("topic continuity guard", () => {
   it("não classifica palavra interrogativa standalone como follow-up contextual", () => {
     expect(looksContextDependentFollowup("Quais categorias mais gastei em setembro?")).toBe(false);
@@ -40,13 +52,14 @@ describe("topic continuity guard", () => {
     expect(looksContextDependentFollowup("E comparado ao mês passado?")).toBe(true);
   });
 
-  it("uma pergunta nova iniciada por 'Quais' não é forçada ao tópico ativo", () => {
+  it("uma pergunta standalone pode selecionar outro tópico em vez de ser forçada ao ativo", () => {
     const out = resolveConversation({
       text: "Quais categorias mais gastei em setembro?",
       active_topic_id: active.id,
-      topics: [active] as any,
+      topics: [active, septemberCategories] as any,
       now: NOW,
     });
+    expect(out.topic_id).toBe(septemberCategories.id);
     expect(out.source).not.toBe("active_topic");
   });
 });
