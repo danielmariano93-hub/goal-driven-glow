@@ -73,10 +73,11 @@ function brainTool() {
       type: "object",
       additionalProperties: false,
       required: [
-        "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
+        "version", "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
         "direct_reply", "clarification_question", "resolution", "reference", "financial_read", "advisory_kind",
       ],
       properties: {
+        version: { type: "string", enum: ["conversation_turn_contract.v2"] },
         act: { type: "string", enum: [...BRAIN_ACTS] },
         mode: { type: "string", enum: [...BRAIN_MODES] },
         domain: { type: "string", enum: [...TURN_DOMAINS] },
@@ -135,6 +136,7 @@ function brainTool() {
           ],
         },
         financial_read: {
+          description: "OBRIGATÓRIO como objeto quando domain=financial_read; use null somente fora de financial_read.",
           anyOf: [
             { type: "null" },
             {
@@ -304,6 +306,14 @@ function actionKind(contract: ConversationTurnContract | null): string | null {
   return contract?.action?.action ?? null;
 }
 
+function strictNormalizeConversationTurnContract(raw: unknown): CanonicalConversationTurnContract | null {
+  // First pass keeps the documented v1 input compatibility. The second pass
+  // validates the canonical v2 object, so a provider cannot declare
+  // domain=financial_read while silently returning financial_read=null.
+  const canonical = normalizeConversationTurnContract(raw);
+  return canonical ? normalizeConversationTurnContract(canonical) : null;
+}
+
 async function writeProviderShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
   try {
     await sb.from("ai_provider_shadow_evaluations").insert(row);
@@ -439,7 +449,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       "Emita somente emit_conversation_turn_contract.",
     ].filter(Boolean).join("\n\n");
 
-    const structured = await callStructuredFunction({
+    let structured = await callStructuredFunction({
       provider,
       model: input.model,
       system: SYSTEM,
@@ -473,31 +483,91 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       return fail(error);
     }
 
+    let llmCalls = structured.attempts ?? 1;
+    let tokensIn = structured.input_tokens;
+    let tokensOut = structured.output_tokens;
+    let providerLatency = structured.latency_ms;
+
+    const parseContract = (rawArguments: string): CanonicalConversationTurnContract | null => {
+      try {
+        return strictNormalizeConversationTurnContract(JSON.parse(rawArguments));
+      } catch {
+        return null;
+      }
+    };
+
+    let contract = parseContract(structured.arguments);
+    if (!contract) {
+      const repairUser = [
+        user,
+        "REPARO OBRIGATÓRIO: sua saída anterior foi rejeitada pelo contrato canônico.",
+        "Emita novamente o objeto completo. version deve ser conversation_turn_contract.v2.",
+        "Se domain=financial_read, financial_read NÃO pode ser null e deve descrever a mesma intenção com metric, operation, group_by, filters, limit e campos de comparação.",
+        "Não altere o pedido do usuário apenas para satisfazer o schema.",
+      ].join("\n\n");
+      const repaired = await callStructuredFunction({
+        provider,
+        model: input.model,
+        system: SYSTEM,
+        user: repairUser,
+        tool: brainTool(),
+        signal: controller.signal,
+        temperature: 0,
+        reasoning_effort: "low",
+      });
+      llmCalls += repaired.attempts ?? 1;
+      tokensIn += repaired.input_tokens;
+      tokensOut += repaired.output_tokens;
+      providerLatency += repaired.latency_ms;
+      if (repaired.ok) {
+        structured = repaired;
+        requestModel = repaired.model;
+        contract = parseContract(repaired.arguments);
+      }
+    }
+
+    if (!contract) {
+      if (input.sb) await recordAiUsage(input.sb, {
+        workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
+        user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: requestModel,
+        provider: structured.provider, success: false,
+        error_code: "conversation_brain_contract_invalid", latency_ms: providerLatency,
+        reason_for_ai_call: "conversation_brain_v1",
+        metadata: {
+          provider: structured.provider,
+          transport: "chat_completions_structured",
+          structured_attempts: llmCalls,
+          repair_attempted: true,
+        },
+      });
+      return {
+        contract: null,
+        telemetry: {
+          model: requestModel, provider: structured.provider, llm_calls: llmCalls,
+          tokens_in: tokensIn, tokens_out: tokensOut, latency_ms: providerLatency,
+          ok: false, error: "conversation_brain_contract_invalid",
+        },
+      };
+    }
+
     if (input.sb) await recordGatewayCall(input.sb, {
       workload: "AGENT_CONVERSATION", function_name: "agent-run", operation: "conversation_brain",
       user_id: input.user_id ?? null, run_id: input.run_id ?? null, model: structured.model,
-      provider: structured.provider, success: true, latency_ms: structured.latency_ms,
+      provider: structured.provider, success: true, latency_ms: providerLatency,
       reason_for_ai_call: "conversation_brain_v1",
       metadata: {
         contract_version: "conversation_turn_contract.v2",
         provider: structured.provider,
         transport: "chat_completions_structured",
-        structured_attempts: structured.attempts ?? 1,
+        structured_attempts: llmCalls,
+        contract_repair_attempted: llmCalls > (structured.attempts ?? 1),
       },
     }, structured.body);
 
-    const rawArguments = structured.arguments;
-
-    let parsed: unknown;
-    try { parsed = JSON.parse(rawArguments); }
-    catch { return fail("conversation_brain_invalid_json"); }
-    const contract = normalizeConversationTurnContract(parsed);
-    if (!contract) return fail("conversation_brain_contract_invalid");
-
     const telemetry: ConversationBrainTelemetry = {
-      model: requestModel, provider: structured.provider, llm_calls: structured.attempts ?? 1,
-      tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
-      latency_ms: structured.latency_ms, ok: true, error: null,
+      model: requestModel, provider: structured.provider, llm_calls: llmCalls,
+      tokens_in: tokensIn, tokens_out: tokensOut,
+      latency_ms: providerLatency, ok: true, error: null,
     };
 
     if (!input.provider_override && input.sb && input.user_id) {
