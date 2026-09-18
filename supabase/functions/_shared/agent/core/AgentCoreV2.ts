@@ -252,6 +252,16 @@ async function finishV2(args: {
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
 
+  // Reference Store is working memory, not semantic inference. Repairs
+  // invalidate the previous referent; successful tool results can publish a
+  // new structured entity set for later "delas/essa categoria" follow-ups.
+  let nextReferences = args.memory?.references ?? [];
+  if (args.contract.act === "repair") nextReferences = invalidateReferences(nextReferences);
+  const capturedReferences = captureReferenceObjects(args.tool_calls ?? []);
+  if (capturedReferences.length) {
+    nextReferences = [...nextReferences, ...capturedReferences].slice(-8);
+  }
+
   // Durable topic continuity is updated for meaningful V2 topics. Pure social
   // turns ("oi", "obrigado") must not replace the financial topic the user may
   // resume a message later.
@@ -330,6 +340,7 @@ async function finishV2(args: {
       conversation_summary: incidentalConversation
         ? args.memory?.conversation_summary ?? null
         : String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
+      references: nextReferences,
     }).catch(() => null);
   }
 
