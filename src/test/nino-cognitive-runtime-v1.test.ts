@@ -381,6 +381,36 @@ describe("Reference Store + Grounding — 'delas' é um objeto, não palavra-cha
     expect(refs[0].entity_labels).toEqual(["Educação", "Moradia"]);
   });
 
+  it("captura o filtro aplicado mesmo quando o comparativo pediu somente o total", () => {
+    const refs = captureReferenceObjects([{
+      tool_name: "compare_periods",
+      args: {
+        group_by: "none",
+        period_a: { from: "2026-08-01", to: "2026-08-31" },
+        period_b: { from: "2026-09-01", to: "2026-09-18" },
+      },
+      ok: true,
+      result: {
+        requested_group_by: "none",
+        requested_comparison_direction: "any",
+        requested_limit: null,
+        applied_reference_scope: { target: "category", entity_labels: ["Lazer"] },
+        total_a: 100,
+        total_b: 120,
+        delta_abs: 20,
+        delta_pct: 0.2,
+        by_group: [],
+      },
+    }], now);
+
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      target: "category",
+      entity_labels: ["Lazer"],
+      source: { context: { evidence: { kind: "comparison" } } },
+    });
+  });
+
   it("grounda 'delas' no conjunto estruturado anterior e expira sem adivinhar", () => {
     const refs = captureReferenceObjects([{
       tool_name: "analyze_spending",
