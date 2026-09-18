@@ -443,15 +443,21 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     const outcome = await confirmAndBuildReceipt(sb, pending, {
       source_message_id: input.inbound_message_id ?? null,
     });
-    const contract: ConversationTurnContract = {
-      version: "conversation_turn_contract.v1", act: "answer", mode: "converse",
+    const contract = normalizeConversationTurnContract({
+      version: "conversation_turn_contract.v2", act: "answer", mode: "converse",
+      domain: "conversation",
       canonical_request: null, inherit_focus: true,
-      focus: { category: null, merchant: null, goal: null, period_expression: null },
+      focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
       action: null,
       direct_reply: "Confirmação resolvida pelo estado financeiro pendente.",
       clarification_question: null,
-      confidence: 1,
-    };
+      resolution: {
+        intent: "resolved", reference: "not_applicable", time: "not_applicable",
+        entity: "not_applicable", action: "not_applicable",
+      },
+      reference: null,
+      advisory_kind: null,
+    })!;
     return await finishV2({
       sb, input, contract, reply: outcome.reply,
       reply_kind: outcome.ok ? "receipt" : "info",
@@ -480,7 +486,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ? createTopicRepository({ sb, user_id: input.user_id, conversation_id: input.conversation_id })
     : null;
 
-  const [loadedHistory, memory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
+  const [loadedHistory, rawMemory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
     loadHistory(sb, input.conversation_id, { limit: 16, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
@@ -490,6 +496,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? topicRepo.findByMessageId(input.reply_context.quoted_message_id).catch(() => null)
       : Promise.resolve(null),
   ]);
+  const memory = rawMemory
+    ? { ...rawMemory, references: advanceReferences(rawMemory.references ?? []) }
+    : rawMemory;
 
   // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
   // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
@@ -523,22 +532,51 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
-  const brain = await interpretConversationTurn({
-    text: brainText,
-    history,
-    memory,
-    workflow,
-    user_context: userContext,
-    model: BRAIN_MODEL,
-    sb,
-    user_id: input.user_id,
-    run_id: null,
-  });
+  const narrowContract = resolveNarrowDeterministicTurn(brainText);
+  const brain = narrowContract
+    ? {
+      contract: narrowContract,
+      telemetry: {
+        model: "deterministic",
+        provider: null,
+        llm_calls: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        latency_ms: 0,
+        ok: true,
+        error: null,
+      },
+    }
+    : await interpretConversationTurn({
+      text: brainText,
+      history,
+      memory,
+      workflow,
+      user_context: userContext,
+      model: BRAIN_MODEL,
+      sb,
+      user_id: input.user_id,
+      run_id: null,
+    });
 
   // O cérebro nunca vira mais uma camada em cima do legado: se ele falha, sai
   // completamente do caminho e o Core anterior assume o turno original.
   if (!brain.contract) return await handleLegacyTurn(input);
-  const contract = brain.contract;
+  const contract: CanonicalConversationTurnContract = brain.contract;
+
+  // Grounding only binds the reference already declared by the Turn Contract.
+  // Missing/expired referents fail closed instead of widening scope.
+  const groundedTurn = groundTurnContract(contract, memory);
+  if (!groundedTurn.ok) {
+    return await finishV2({
+      sb, input, contract,
+      reply: groundedTurn.clarification ?? "Pode me dizer a que você está se referindo?",
+      reply_kind: "question", path: "deterministic_fallback", started_at: started,
+      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    });
+  }
 
   if (contract.mode === "converse") {
     return await finishV2({
