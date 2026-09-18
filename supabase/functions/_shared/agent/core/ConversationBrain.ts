@@ -13,6 +13,9 @@ import {
   resolveAiProvider, type AiProviderConfig, type AiProviderName,
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
+import {
+  FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+} from "./FinancialQueryIR.ts";
 import { NINO_IDENTITY } from "./Conversational.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
@@ -71,7 +74,7 @@ function brainTool() {
       additionalProperties: false,
       required: [
         "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
-        "direct_reply", "clarification_question", "resolution", "reference", "advisory_kind",
+        "direct_reply", "clarification_question", "resolution", "reference", "financial_read", "advisory_kind",
       ],
       properties: {
         act: { type: "string", enum: [...BRAIN_ACTS] },
@@ -131,6 +134,45 @@ function brainTool() {
             },
           ],
         },
+        financial_read: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object", additionalProperties: false,
+              required: ["intent", "queries"],
+              properties: {
+                intent: { type: "string", enum: ["lookup", "analyze", "investigate"] },
+                queries: {
+                  type: "array", minItems: 1, maxItems: 4,
+                  items: {
+                    type: "object", additionalProperties: false,
+                    required: ["metric", "operation", "group_by", "filters", "limit"],
+                    properties: {
+                      metric: { type: "string", enum: [...FINANCIAL_METRICS] },
+                      operation: { type: "string", enum: [...FINANCIAL_OPERATIONS] },
+                      group_by: {
+                        type: "array", maxItems: 1,
+                        items: { type: "string", enum: [...FINANCIAL_DIMENSIONS] },
+                      },
+                      filters: {
+                        type: "array",
+                        items: {
+                          type: "object", additionalProperties: false,
+                          required: ["field", "value"],
+                          properties: {
+                            field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
+                            value: { type: "string" },
+                          },
+                        },
+                      },
+                      limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
         advisory_kind: {
           anyOf: [
             { type: "null" },
@@ -177,6 +219,7 @@ Regras obrigatórias:
 22. Se domain=advisory, advisory_kind é obrigatório e deve ser exatamente um de: next_best_action, goal_strategy, wealth_opportunity, financial_plan. Nenhuma camada posterior reclassifica o tipo de conselho.
 23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Defaults financeiros de baixo risco e resolução de datas/entidades pertencem aos resolvers do backend. Use missing/ambiguous/conflicting apenas quando a informação é realmente necessária para entender o turno; nesse caso, mode=clarify.
 24. Se houver active_references e a mensagem usar uma referência plural/anáfora compatível ("delas", "essas categorias", "entre elas"), emita reference.kind=previous_result_set, target correto e status=resolved. Não copie a lista para canonical_request; o Grounding Engine vincula o objeto estruturado.
+25. Se domain=financial_read, financial_read é obrigatório e descreve a MESMA interpretação canônica: metric, operation, group_by, filters e limit. Não inclua datas resolvidas nem nomes de tools. Se domain não for financial_read, financial_read=null. Exemplos: "quanto gastei" => expense_amount/sum; "quais categorias mais gastei" => expense_amount/rank/group_by=[category]; "qual categoria aumentou mais" => expense_amount/compare/group_by=[category]. O backend pode traduzir, mas não pode mudar essa semântica.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
