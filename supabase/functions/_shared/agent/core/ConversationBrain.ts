@@ -467,6 +467,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
           provider: structured.provider,
           transport: "chat_completions_structured",
           upstream_error: structured.error_detail,
+          structured_attempts: structured.attempts ?? 1,
         },
       });
       return fail(error);
@@ -481,6 +482,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
         contract_version: "conversation_turn_contract.v2",
         provider: structured.provider,
         transport: "chat_completions_structured",
+        structured_attempts: structured.attempts ?? 1,
       },
     }, structured.body);
 
@@ -493,7 +495,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
     if (!contract) return fail("conversation_brain_contract_invalid");
 
     const telemetry: ConversationBrainTelemetry = {
-      model: requestModel, provider: structured.provider, llm_calls: 1,
+      model: requestModel, provider: structured.provider, llm_calls: structured.attempts ?? 1,
       tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
       latency_ms: structured.latency_ms, ok: true, error: null,
     };
