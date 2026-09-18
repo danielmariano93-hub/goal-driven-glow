@@ -80,11 +80,13 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
 
     const categoryMode = String(result.requested_group_by ?? "none") === "category";
     if (categoryMode) {
-      const increases = (result.by_group as Array<Record<string, unknown>>)
-        .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+      const changed = (result.by_group as Array<Record<string, unknown>>)
+        .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
         .slice()
-        .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
-      increases.forEach((row, index) => {
+        .sort((a, b) => Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)));
+      const increases = changed.filter((row) => Number(row?.delta_abs ?? 0) > 0.005);
+      const decreases = changed.filter((row) => Number(row?.delta_abs ?? 0) < -0.005);
+      changed.forEach((row, index) => {
         const name = typeof row.name === "string" ? row.name : null;
         if (!name) return;
         const change = Math.abs(Number(row.delta_abs ?? 0));
@@ -98,6 +100,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       claims.push({
         id: seq(), ...base, type: "direction", value: null,
         label: increases.length ? "increase" : "no_increase", rank: null,
+      });
+      claims.push({
+        id: seq(), ...base, type: "direction", value: null,
+        label: decreases.length ? "decrease" : "no_decrease", rank: null,
       });
     } else {
       claims.push({
