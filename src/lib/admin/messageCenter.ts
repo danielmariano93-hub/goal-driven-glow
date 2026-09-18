@@ -32,9 +32,17 @@ export type MessageFilters = {
   limit?: number; offset?: number;
 };
 
+// Admin filters are calendar dates in America/Sao_Paulo. A bare YYYY-MM-DD
+// sent to a timestamptz RPC truncates the final day at midnight, so expand the
+// selected dates to explicit local-day boundaries before querying.
+function spBoundary(value: string, endOfDay: boolean): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return `${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}-03:00`;
+}
+
 export async function fetchMessages(f: MessageFilters): Promise<MessageRow[]> {
   const { data, error } = await (supabase.rpc as any)("admin_message_activity", {
-    p_from: f.from, p_to: f.to,
+    p_from: spBoundary(f.from, false), p_to: spBoundary(f.to, true),
     p_status: f.status || null, p_kind: null,
     p_surface: f.surface || null, p_feature: f.feature || null,
     p_user_id: f.user_id || null, p_search: f.search || null,
@@ -45,7 +53,10 @@ export async function fetchMessages(f: MessageFilters): Promise<MessageRow[]> {
 }
 
 export async function fetchMetrics(from: string, to: string): Promise<Metrics> {
-  const { data, error } = await (supabase.rpc as any)("admin_message_metrics", { p_from: from, p_to: to });
+  const { data, error } = await (supabase.rpc as any)("admin_message_metrics", {
+    p_from: spBoundary(from, false),
+    p_to: spBoundary(to, true),
+  });
   if (error) throw error;
   return data as Metrics;
 }
