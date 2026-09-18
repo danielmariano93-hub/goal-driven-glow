@@ -89,10 +89,12 @@ function evidenceOf(reference: ReferenceObject): ComparisonEvidence | null {
 }
 
 function latestComparisonReference(memory: ConversationMemory): ReferenceObject | null {
+  // loadConversationMemory/advanceReferences is the single authority that turns
+  // TTL into status=expired. Avoid a second wall-clock decision here: it made
+  // deterministic tests and adjacent follow-ups disagree at the exact boundary.
   const refs = (memory.references ?? [])
     .filter((ref) =>
       ref.status === "active"
-      && Date.parse(ref.expires_at) > Date.now()
       && ref.target === "category"
       && ref.entity_labels.length >= 1
       && /(?:^|\+)compare_(?:to_monthly_average|periods)(?:\+|$)/.test(String(ref.source?.tool_name ?? ""))
@@ -250,9 +252,6 @@ export function resolveGroundedComparisonFollowup(
     return directReplyContract(text, statisticReply(evidence, historicalWindow(memory, reference)));
   }
 
-  // After a superlative selection, finishV2 stores the selected category in
-  // active_category. "Quanto ela ficou acima?" now resolves against the exact
-  // evidence row instead of the first item from the old set.
   if (evidence && asksSelectedEntityAmount(text)) {
     const selected = rowForEntity(evidence, memory.active_category);
     if (selected) return directReplyContract(text, rowReply(selected), selected.name);
@@ -268,9 +267,6 @@ export function resolveGroundedComparisonFollowup(
   const rank = requestedRank(text);
   if (rank && evidence) {
     const rows = sortedRows(evidence, rank.direction);
-    // Evidence only contains what was actually displayed. Never widen a prior
-    // scoped result silently; if the requested rank exceeds it, let the normal
-    // READ path recalculate from canonical data.
     if (rows.length >= rank.limit) {
       const selected = rows.slice(0, rank.limit);
       const lines = selected.map((row, index) => `${index + 1}. *${row.name}* — ${BRL.format(Math.abs(row.delta_abs))} ${relationWord(row)}`);
@@ -284,8 +280,6 @@ export function resolveGroundedComparisonFollowup(
     if (selected) return directReplyContract(text, rowReply(selected), selected.name);
   }
 
-  // Backward-compatible fallback for references created before evidence.v2.
-  // It re-executes the canonical comparison instead of inventing a number.
   if (!direction) return null;
   const context = reference.source?.context ?? null;
   const targetPeriod = context?.target_period ?? context?.period_b ?? memory.active_period;
