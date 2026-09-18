@@ -165,8 +165,8 @@ describe("gate entity_set_identity", () => {
 
 describe("contrato de runtime", () => {
   it("expõe versões estampadas em cada run", () => {
-    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-09-18.5");
-    expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v4");
+    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-09-18.6");
+    expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v5");
   });
 });
 
@@ -177,7 +177,6 @@ describe("incidente em dois turnos (overview → comparação anafórica)", () =
       "../../supabase/functions/_shared/agent/core/ScopeCarryover"
     );
 
-    // Turno 1: pergunta de overview respondida pelo fluxo ANTIGO (get_goals_overview).
     const turn1Scope = scopeFromToolCalls([{
       name: "get_goals_overview",
       result: {
@@ -190,8 +189,6 @@ describe("incidente em dois turnos (overview → comparação anafórica)", () =
     }] as any);
     expect(turn1Scope?.entity_ids).toEqual(["c1", "c2", "c3"]);
 
-    // Turno 2: a frase do incidente. Nunca pode virar agregado global,
-    // nunca pode comparar julho contra maio/junho, nunca pode usar substituto.
     const classification = classifyProtectedAnalytical({ text: INCIDENT_TEXT, previous_scope: turn1Scope });
     expect(classification.is_protected).toBe(true);
 
