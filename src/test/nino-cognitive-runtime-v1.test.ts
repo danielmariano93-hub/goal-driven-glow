@@ -27,6 +27,8 @@ import { compileFinancialReadFromTurn } from "../../supabase/functions/_shared/a
 import type { FinancialQueryIRv3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3";
 import { runSemanticTurn } from "../../supabase/functions/_shared/agent/core/SemanticTurnPipeline";
 import { formatPeriodComparison } from "../../supabase/functions/_shared/agent/core/DeterministicAnswers";
+import { resolveGroundedComparisonFollowup } from "../../supabase/functions/_shared/agent/core/GroundedComparisonFollowup";
+import { capabilityFromFinancialIR } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
 
 function financialTurn(over: Partial<CanonicalConversationTurnContract> = {}): CanonicalConversationTurnContract {
   return {
@@ -466,6 +468,136 @@ describe("Reference Store + Grounding — 'delas' é um objeto, não palavra-cha
       group_by: "category",
       category_scope: ["Educação", "Moradia"],
     });
+  });
+});
+
+describe("Follow-up comparativo grounded — regressão produção 18/09 09:21", () => {
+  it("reconstrói deterministicamente 'qual delas ficou mais acima' sobre a média anterior", () => {
+    const memory = {
+      ...emptyMemory(),
+      active_period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      conversation_summary: "Quais categorias ficaram acima da média dos últimos 3 meses em agosto?",
+      references: [{
+        id: "ref-production",
+        type: "entity_set" as const,
+        target: "category" as const,
+        entity_labels: ["Educação", "Energia", "Internet"],
+        created_at: "2026-09-18T12:20:24.475Z",
+        expires_at: "2026-09-18T12:50:24.475Z",
+        turns_remaining: 4,
+        status: "active" as const,
+        source: { tool_name: "compare_to_monthly_average", query_id: null },
+      }],
+    };
+
+    const turn = resolveGroundedComparisonFollowup("Qual delas ficou mais acima?", memory);
+
+    expect(turn).toMatchObject({
+      act: "follow_up",
+      mode: "read",
+      domain: "financial_read",
+      inherit_focus: true,
+      reference: { kind: "previous_result_set", target: "category", status: "resolved" },
+      financial_read: {
+        intent: "analyze",
+        queries: [{
+          metric: "expense_amount",
+          operation: "compare",
+          group_by: ["category"],
+          limit: 1,
+          comparison_direction: "increase",
+          comparison_baseline: "mean_previous_complete_months",
+          comparison_baseline_window: 3,
+          comparison_target_expression: "agosto",
+        }],
+      },
+    });
+
+    const grounded = groundTurnContract(turn!, memory, new Date("2026-09-18T12:20:52Z"));
+    const compiled = compileFinancialReadFromTurn({
+      turn: turn!,
+      period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      comparison_period: null,
+    });
+    const capability = capabilityFromFinancialIR(compiled!.ir!);
+    expect(capability.mapped_tools).toEqual(["compare_to_monthly_average"]);
+    expect(applyGroundedReferenceScope(
+      "compare_to_monthly_average",
+      capability.capability!.tool_args,
+      grounded.reference,
+    )).toMatchObject({
+      months: 3,
+      comparison_direction: "increase",
+      limit: 1,
+      category_scope: ["Educação", "Energia", "Internet"],
+    });
+  });
+
+  it("usa o contrato salvo na referência mesmo sem depender do resumo textual", () => {
+    const memory = {
+      ...emptyMemory(),
+      active_period: null,
+      conversation_summary: null,
+      references: [{
+        id: "ref-context",
+        type: "entity_set" as const,
+        target: "category" as const,
+        entity_labels: ["Educação", "Energia"],
+        created_at: "2026-09-18T12:20:24.475Z",
+        expires_at: "2026-09-18T12:50:24.475Z",
+        turns_remaining: 4,
+        status: "active" as const,
+        source: {
+          tool_name: "compare_to_monthly_average",
+          query_id: "q1",
+          context: {
+            months: 3,
+            target_period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+          },
+        },
+      }],
+    };
+
+    expect(resolveGroundedComparisonFollowup("Qual delas ficou mais acima?", memory))
+      .toMatchObject({
+        financial_read: { queries: [{ comparison_baseline_window: 3, limit: 1 }] },
+        focus: { period_expression: "agosto" },
+      });
+  });
+
+  it("preserva a comparação entre períodos e muda apenas direção e limite", () => {
+    const memory = {
+      ...emptyMemory(),
+      active_period: { from: "2026-08-01", to: "2026-08-31", label: "agosto" },
+      comparison_period: { from: "2026-07-01", to: "2026-07-31" },
+      conversation_summary: "Quais categorias aumentaram e diminuíram de julho para agosto?",
+      references: [{
+        id: "ref-periods",
+        type: "entity_set" as const,
+        target: "category" as const,
+        entity_labels: ["Educação", "Moradia"],
+        created_at: "2026-09-18T12:00:00.000Z",
+        expires_at: "2026-09-18T12:30:00.000Z",
+        turns_remaining: 4,
+        status: "active" as const,
+        source: { tool_name: "compare_periods", query_id: "q1" },
+      }],
+    };
+
+    const turn = resolveGroundedComparisonFollowup("Qual delas mais diminuiu?", memory);
+
+    expect(turn?.financial_read?.queries[0]).toMatchObject({
+      operation: "compare",
+      comparison_direction: "decrease",
+      comparison_baseline: "period",
+      comparison_baseline_expression: "julho de 2026",
+      comparison_target_expression: "agosto",
+      limit: 1,
+    });
+  });
+
+  it("não inventa comparação para uma referência sem pedido superlativo", () => {
+    expect(resolveGroundedComparisonFollowup("Qual delas?", emptyMemory())).toBeNull();
   });
 });
 

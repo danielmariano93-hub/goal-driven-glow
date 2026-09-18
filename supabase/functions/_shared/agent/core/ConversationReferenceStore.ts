@@ -27,6 +27,13 @@ export type ReferenceObject = {
   source: {
     tool_name: string | null;
     query_id: string | null;
+    /** Minimal execution contract required to continue the same comparison. */
+    context?: {
+      months?: number;
+      target_period?: { from: string; to: string; label?: string | null };
+      period_a?: { from: string; to: string; label?: string | null };
+      period_b?: { from: string; to: string; label?: string | null };
+    } | null;
   };
 };
 
@@ -141,6 +148,35 @@ function targetFromCall(call: any): ReferenceObject["target"] | null {
   return null;
 }
 
+function comparisonContextFromCall(call: unknown): NonNullable<ReferenceObject["source"]["context"]> | null {
+  const record = (call ?? {}) as Record<string, unknown>;
+  const tool = String(record.tool_name ?? "").toLowerCase();
+  const value = (record.args ?? {}) as Record<string, unknown>;
+  const period = (raw: unknown) => {
+    const candidate = (raw ?? {}) as Record<string, unknown>;
+    return candidate.from && candidate.to
+      ? {
+        from: String(candidate.from),
+        to: String(candidate.to),
+        ...(candidate.label ? { label: String(candidate.label) } : {}),
+      }
+      : undefined;
+  };
+  if (tool === "compare_to_monthly_average") {
+    const months = Number(value.months);
+    const target = period(value.target_period);
+    if (!Number.isInteger(months) || months < 2 || months > 24 || !target) return null;
+    return { months, target_period: target };
+  }
+  if (tool === "compare_periods") {
+    const periodA = period(value.period_a);
+    const periodB = period(value.period_b);
+    if (!periodA || !periodB) return null;
+    return { period_a: periodA, period_b: periodB };
+  }
+  return null;
+}
+
 export function captureReferenceObjects(
   toolCalls: Array<{ tool_name?: string; args?: any; result?: any; ok?: boolean }> | null | undefined,
   now: Date = new Date(),
@@ -152,6 +188,7 @@ export function captureReferenceObjects(
     labels: string[];
     tools: string[];
     queryIds: string[];
+    contexts: NonNullable<ReferenceObject["source"]["context"]>[];
   }>();
 
   for (const call of toolCalls ?? []) {
@@ -160,10 +197,12 @@ export function captureReferenceObjects(
     if (!target) continue;
     const labels = labelsFromResult(String(call.tool_name ?? ""), call.result);
     if (labels.length < 2) continue;
-    const current = grouped.get(target) ?? { labels: [], tools: [], queryIds: [] };
+    const current = grouped.get(target) ?? { labels: [], tools: [], queryIds: [], contexts: [] };
     current.labels = uniqueLabels([...current.labels, ...labels]);
     if (call.tool_name) current.tools.push(String(call.tool_name));
     if (call?.args?.query_id) current.queryIds.push(String(call.args.query_id));
+    const context = comparisonContextFromCall(call);
+    if (context) current.contexts.push(context);
     grouped.set(target, current);
   }
 
@@ -183,6 +222,7 @@ export function captureReferenceObjects(
       source: {
         tool_name: [...new Set(group.tools)].join("+") || null,
         query_id: [...new Set(group.queryIds)].join("+") || null,
+        context: group.contexts[group.contexts.length - 1] ?? null,
       },
     });
   }

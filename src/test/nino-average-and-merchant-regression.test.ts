@@ -155,6 +155,23 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     expect(reply).not.toContain("Saúde");
     expect(reply).not.toContain("Aumentaram:");
   });
+
+  it("responde diretamente a categoria singular do follow-up superlativo", () => {
+    const reply = formatAverageComparison({
+      requested_comparison_direction: "increase",
+      requested_limit: 1,
+      baseline_window_months: 3,
+      target_label: "agosto",
+      by_group: [
+        { name: "Energia", total_a: 135.80, total_b: 507.05, delta_abs: 371.25 },
+        { name: "Educação", total_a: 0, total_b: 806.40, delta_abs: 806.40 },
+      ],
+    });
+    expect(reply).toContain("mais acima da média");
+    expect(reply).toContain("Educação");
+    expect(reply).toContain("806,40");
+    expect(reply).not.toContain("Energia");
+  });
 });
 
 describe("regressão 17/09 — estabelecimentos de Lazer em agosto", () => {

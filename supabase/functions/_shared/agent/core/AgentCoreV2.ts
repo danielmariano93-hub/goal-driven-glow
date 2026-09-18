@@ -67,6 +67,7 @@ import {
 import { buildFinancialReadContract } from "./FinancialReadContract.ts";
 import { compileFinancialReadFromTurn } from "./TurnContractFinancialAdapter.ts";
 import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
+import { resolveGroundedComparisonFollowup } from "./GroundedComparisonFollowup.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -566,12 +567,13 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
-  const narrowContract = resolveNarrowDeterministicTurn(brainText);
+  const groundedFollowupContract = resolveGroundedComparisonFollowup(brainText, memory);
+  const narrowContract = groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText);
   const brain = narrowContract
     ? {
       contract: narrowContract,
       telemetry: {
-        model: "deterministic",
+        model: groundedFollowupContract ? "deterministic:grounded_comparison_followup" : "deterministic",
         provider: null,
         llm_calls: 0,
         tokens_in: 0,
@@ -910,6 +912,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
 
+  // A lane autoritativa pode devolver a resposta protegida antes de executar
+  // qualquer engine. Isso é uma falha real do contrato, não um run "done".
+  // Sem este sinal, o incidente de produção aparecia saudável na telemetria.
+  const semanticContractFailed = semantic.telemetry?.executed_by === "contract_failed_closed";
+
   return await finishV2({
     sb, input, contract, reply, reply_kind: replyKind,
     path: "llm", started_at: started,
@@ -926,6 +933,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     })),
     error: fulfillmentBlocked
       ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
+      : semanticContractFailed
+        ? `semantic_contract_failed_closed:${semantic.status}`.slice(0, 300)
       : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     // Persist the period contract that was ACTUALLY executed. Using the
