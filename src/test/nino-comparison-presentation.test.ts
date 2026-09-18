@@ -69,8 +69,8 @@ describe("comparison presentation", () => {
     });
     expect(text).toContain("janela de 3 meses imediatamente anterior");
     expect(text).not.toContain("3 meses completos anteriores");
-    expect(text).toContain("R$ 5.222,33 (4.311,0% acima)");
-    expect(text).toContain("R$ 9,94 (15,9% acima)");
+    expect(text).toContain("R$ 5.222,33 (4.311,0%)");
+    expect(text).toContain("R$ 9,94 (15,9%)");
   });
 
   it("does not invent a percentage when the baseline is zero", () => {
@@ -86,7 +86,7 @@ describe("comparison presentation", () => {
       requested_group_by: "none",
       by_group: [],
     });
-    expect(text).toContain("R$ 25,00 (25,0% acima)");
+    expect(text).toContain("R$ 25,00 (25,0%)");
   });
 });
 
@@ -94,13 +94,13 @@ describe("grounded comparison follow-up", () => {
   it("interprets 'quanto menos acima' before the generic selected-entity amount path", () => {
     const contract = resolveGroundedComparisonFollowup("Ficou quanto menos acima da média?", memory("Moradia"));
     expect(contract?.direct_reply).toContain("Internet");
-    expect(contract?.direct_reply).toContain("R$ 9,94 (15,9% acima)");
+    expect(contract?.direct_reply).toContain("R$ 9,94 (15,9%) acima");
     expect(contract?.focus.category).toBe("Internet");
   });
 
   it("keeps selected-entity amount grounded and includes percentage", () => {
     const contract = resolveGroundedComparisonFollowup("Quanto acima da média ela ficou?", memory("Moradia"));
     expect(contract?.direct_reply).toContain("Moradia");
-    expect(contract?.direct_reply).toContain("R$ 5.222,33 (4.311,0% acima)");
+    expect(contract?.direct_reply).toContain("R$ 5.222,33 (4.311,0%) acima");
   });
 });
