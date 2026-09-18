@@ -142,6 +142,11 @@ export type SemanticPipelineInput = {
   preservation_enforced?: boolean;
   /** `typical_monthly_v1`: handler determinístico de gasto típico mensal. */
   typical_monthly_enabled?: boolean;
+  /**
+   * A semântica já veio de ConversationTurnContract v2. Neste modo a pipeline
+   * pode traduzir/validar/executar, mas não roda outro classificador lexical.
+   */
+  authoritative_contract?: boolean;
   failure_reply: string;
 };
 
@@ -259,7 +264,7 @@ export async function runSemanticTurn(
   let compilerTelemetry: SemanticCompilerTelemetry | null = null;
 
   if (!ir) {
-    const fastIR = fastPathIR({
+    const fastIR = input.authoritative_contract === true ? null : fastPathIR({
       text: input.text,
       acts: input.acts,
       constraints: input.constraints,
@@ -352,6 +357,7 @@ export async function runSemanticTurn(
     semantic_status: status,
     dialogue_acts: input.acts,
     fast_path: fast,
+    authoritative_contract: input.authoritative_contract === true,
     resumed_from_pending: resumedFromPending,
     topic: {
       topic_id: topic.topic_id,
