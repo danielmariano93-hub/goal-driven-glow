@@ -1,5 +1,6 @@
 project_id = "amjanjlvsatubxdreyep"
 
+# Background communication cron handlers authenticate internally with x-cron-secret.
 [functions.whatsapp-webhook]
 verify_jwt = false
 
