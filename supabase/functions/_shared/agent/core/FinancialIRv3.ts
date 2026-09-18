@@ -20,7 +20,9 @@
 import {
   FINANCIAL_DIMENSIONS,
   FINANCIAL_METRICS,
+  COMPARISON_DIRECTIONS,
   type CanonicalPeriod,
+  type ComparisonDirection,
   type CompletenessTarget,
   type FinancialDimension,
   type FinancialFilter,
@@ -79,6 +81,8 @@ export type FinancialQueryV3 = {
   reduce: Reduction;
   group_by: FinancialDimension[];
   limit: number | null;
+  /** Direção semântica pedida para uma comparação agrupada. */
+  comparison_direction?: ComparisonDirection;
   depends_on: string[];
   /** Operação legada preservada só para o canonicalizer/compat. */
   legacy_operation: string | null;
@@ -104,6 +108,7 @@ const DIMS = new Set<string>(FINANCIAL_DIMENSIONS);
 const ASPECTS = new Set<string>(TIME_ASPECTS);
 const GRAINS = new Set<string>(TIME_GRAINS);
 const REDUCES = new Set<string>(REDUCTIONS);
+const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
 const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
 
 const POINT_IN_TIME_METRICS = new Set<string>([
@@ -171,6 +176,9 @@ export function normalizeToV3(
       reduce,
       group_by: q.group_by ?? [],
       limit: q.limit ?? null,
+      comparison_direction: COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))
+        ? q.comparison_direction
+        : "any",
       depends_on: q.depends_on ?? [],
       legacy_operation: legacyOperation || null,
     };
@@ -238,6 +246,9 @@ export function validateFinancialIRv3(value: unknown): string[] {
     }
     if (q.limit != null && (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > 20)) {
       errors.push(`${id}_limit_invalid`);
+    }
+    if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
+      errors.push(`${id}_comparison_direction_invalid`);
     }
 
     const time = q.time;
