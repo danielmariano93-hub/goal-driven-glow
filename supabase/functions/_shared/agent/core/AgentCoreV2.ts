@@ -725,13 +725,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       run_id: null,
     }),
     runEngine: async (tool, toolArgs) => {
+      const scopedArgs = applyGroundedReferenceScope(tool, toolArgs, groundedTurn.reference);
       const exec = await runTool({
         sb,
         user_id: input.user_id,
         conversation_id: input.conversation_id,
         user_text: canonical,
         evidenceCache,
-      } as any, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
+      } as any, tool, scopedArgs, { timeoutMs: 12_000, maxRetries: 1 });
       return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
     },
     runTypicalMonthly: async (query) => {
@@ -762,11 +763,38 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
+  // Hierarquia de contratos: Turn Contract -> financial_read_contract.v4.
+  // O contrato financeiro encapsula o IR v3 existente; ele não compete com a
+  // autoridade conversacional e é verificado contra a execução/evidência.
+  const financialReadContract = semantic.ir_v3
+    ? buildFinancialReadContract({
+      turn: contract,
+      requested: semantic.ir_v3,
+      grounded_reference: groundedTurn.reference,
+    })
+    : null;
+  const appliedReferenceScope = (semantic.turn?.toolCalls ?? [])
+    .map((call: any) => executedReferenceScope(call?.result))
+    .find((scope: any) => !!scope) ?? null;
+  const fulfillment = financialReadContract
+    ? verifyFinancialFulfillment({
+      contract: financialReadContract,
+      preservation: semantic.preservation,
+      grounding: null, // GroundingGateV3 already blocks inside SemanticTurnPipeline.
+      applied_reference_scope: appliedReferenceScope,
+    })
+    : null;
+
   let reply = semantic.turn?.reply
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
-  const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
-  if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
+  let replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
+  const fulfillmentBlocked = !!fulfillment && !fulfillment.ok && !!semantic.turn;
+  if (fulfillmentBlocked) {
+    reply = PROTECTED_ENGINE_FAILURE_REPLY;
+    replyKind = "info";
+  }
+  if (replyKind === "info" && !fulfillmentBlocked && suggestionsAllowed(durableUserContext)) {
     const suggestion = suggestionForSemantic(semantic);
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
@@ -785,7 +813,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       result: call.result,
       ok: call.ok === true,
     })),
-    error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
+    error: fulfillmentBlocked
+      ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
+      : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     // Persist the period contract that was ACTUALLY executed. Using the
     // pre-semantic planner period here stored July + an unrelated June window
