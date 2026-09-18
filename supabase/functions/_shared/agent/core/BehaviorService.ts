@@ -2,7 +2,8 @@
 // hypotheses into the canonical agent_memory store.
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { decay, forget, remember } from "./MemoryStore.ts";
+import { decay, forget } from "./MemoryStore.ts";
+import { writeDurableMemory } from "./MemoryWriter.ts";
 import { fetchAllPages } from "../../derived/pagedSelect.ts";
 import {
   runBehaviorDetectors,
@@ -155,7 +156,7 @@ export async function refreshBehaviorHypotheses(
     persisted++;
 
     if (shouldPersistBehaviorMemory(effectiveStatus)) {
-      const memory = await remember(sb, {
+      const memory = (await writeDurableMemory(sb, {
         user_id,
         kind: "behavior_hypothesis",
         key: candidate.dedup_key,
@@ -168,7 +169,7 @@ export async function refreshBehaviorHypotheses(
         confidence: effectiveStatus === "confirmed" ? 1 : Math.max(candidate.confidence, 0.75),
         source: "correction",
         expires_at: candidate.expires_at,
-      });
+      })).fact;
       if (memory) remembered++;
     } else {
       // Remove any memory created by an older implementation while the item was
