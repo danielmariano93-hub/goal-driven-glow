@@ -1,8 +1,9 @@
 // Orchestrator — thin shim over the shared agent entrypoint.
 // Conversation Architecture V2 is rollout-gated inside AgentCoreV2; when the
-// flag is off it delegates 100% to the legacy AgentCore.
+// flag is off it delegates 100% to the legacy AgentCore. The Entry wrapper only
+// binds post-turn V2 evidence to run/topic audit identifiers.
 // Re-exports preserved for compatibility with tests and call-sites.
-import { handleTurnV2 } from "./core/AgentCoreV2.ts";
+import { handleTurnV2 } from "./core/AgentCoreV2Entry.ts";
 import type { HandleTurnResult } from "./core/AgentCore.ts";
 
 export {
