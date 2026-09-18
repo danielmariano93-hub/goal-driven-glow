@@ -23,12 +23,23 @@ function targetAmount(text: string): number | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+const MONTH_WORDS: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
+  sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
+};
+
 function monthsFrom(text: string): number | undefined {
   const normalized = String(text ?? "").toLowerCase().normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
-  const hit = normalized.match(/\b(?:ultimos?|proximos?|em|nos?)\s+(\d{1,2})\s+mes(?:es)?\b/);
-  const value = Number(hit?.[1] ?? 0);
+  const hit = normalized.match(/\b(?:ultimos?|proximos?|em|nos?)\s+(\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+mes(?:es)?\b/);
+  const token = String(hit?.[1] ?? "");
+  const value = /^\d+$/.test(token) ? Number(token) : (MONTH_WORDS[token] ?? 0);
   return value >= 3 && value <= 36 ? value : undefined;
+}
+
+function normalizedPeriod(contract: ConversationTurnContract): string {
+  return String(contract.focus.period_expression ?? contract.focus.period_expressions?.[0] ?? "")
+    .toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }
 
 function cap(
@@ -62,6 +73,16 @@ export function resolveBrainAdvisory(
   const months = monthsFrom(raw);
 
   switch (kind) {
+    case "current_insight": {
+      // O significado (insight) vem do Brain; aqui só vinculamos o escopo
+      // temporal já resolvido a um engine existente. Insight de hoje usa dicas
+      // ativas; insight do mês usa os destaques factuais do mês corrente.
+      const period = normalizedPeriod(contract);
+      const monthScoped = /\bmes\b|\bmensal\b/.test(period);
+      return monthScoped
+        ? cap("insights", "get_spending_highlights", "turn_contract:current_month_insight")
+        : cap("insights", "get_daily_insights", "turn_contract:current_daily_insight", { limit: 3 });
+    }
     case "next_best_action":
       return cap("next_best_action", "get_next_best_action", "turn_contract:next_best_action", {
         ...(months ? { months } : {}),
