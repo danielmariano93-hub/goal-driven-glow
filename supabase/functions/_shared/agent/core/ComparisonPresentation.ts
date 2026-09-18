@@ -17,11 +17,10 @@ function directionWord(delta: number): "acima" | "abaixo" {
   return delta >= 0 ? "acima" : "abaixo";
 }
 
-function percentText(deltaPct: unknown, deltaAbs: unknown): string | null {
+function percentText(deltaPct: unknown): string | null {
   const ratio = Number(deltaPct);
   if (!Number.isFinite(ratio)) return null;
-  const direction = Number(deltaAbs ?? 0) >= 0 ? "acima" : "abaixo";
-  return `${PCT.format(Math.abs(ratio) * 100)}% ${direction}`;
+  return `${PCT.format(Math.abs(ratio) * 100)}%`;
 }
 
 export function comparisonDeltaLabel(row: {
@@ -30,7 +29,7 @@ export function comparisonDeltaLabel(row: {
   total_a?: unknown;
 }): string {
   const delta = Number(row.delta_abs ?? 0);
-  const pct = percentText(row.delta_pct, delta);
+  const pct = percentText(row.delta_pct);
   if (pct) return `${money(Math.abs(delta))} (${pct})`;
   if (Math.abs(Number(row.total_a ?? 0)) < 0.005 && Math.abs(delta) > 0.005) {
     return `${money(Math.abs(delta))} (base anterior zerada; % não aplicável)`;
