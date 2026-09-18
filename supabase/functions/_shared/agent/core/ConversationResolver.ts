@@ -44,7 +44,10 @@ const EXPLICIT_RX =
 
 const NEW_TOPIC_RX = /\b(muda(?:ndo)? de assunto|outra coisa|esquece|deixa (?:isso|pra la)|nova pergunta)\b/i;
 
-const CONTEXTUAL_FOLLOWUP_RX = /^(?:e\s+)?(?:ela|ele|elas|eles|isso|nisso|esse|essa|esses|essas|dessa|dessas|desse|desses|aquela|aquele|aqueles|aquelas|qual|quais|quanto|quantos|quanta|quantas|como|por que|porque|entao|agora)\b|\b(?:esses valores|essas categorias|entre elas|entre esses|mais acima|menos acima|mais abaixo|menos abaixo|quanto acima|quanto abaixo|media mensal|medias mensais|valores totais|qual delas|qual deles)\b/i;
+// Somente marcas realmente anafóricas/deíticas. Palavras interrogativas soltas
+// ("qual", "quanto", "como") NÃO bastam: uma pergunta standalone como
+// "Quais categorias mais gastei em setembro?" precisa poder abrir outro tópico.
+const CONTEXTUAL_FOLLOWUP_RX = /^(?:e\s+)?(?:ela|ele|elas|eles|isso|nisso|esse|essa|esses|essas|dessa|dessas|desse|desses|aquela|aquele|aqueles|aquelas)\b|^e\s+(?:qual|quais|quanto|quantos|quanta|quantas|como|comparad[oa]s?|em\s+rela[cç][aã]o)\b|\b(?:esses valores|essas categorias|entre elas|entre esses|mais acima|menos acima|mais abaixo|menos abaixo|quanto acima|quanto abaixo|quanto (?:ela|ele|isso)|qual delas|qual deles|como isso|media mensal|medias mensais|valores totais)\b/i;
 
 const HIGH = 0.6;
 const NEAR = 0.12;
@@ -58,9 +61,9 @@ export function looksContextDependentFollowup(text: string): boolean {
   if (!value || NEW_TOPIC_RX.test(value) || EXPLICIT_RX.test(value)) return false;
   if (CONTEXTUAL_FOLLOWUP_RX.test(value)) return true;
   const words = value.split(/\s+/).filter(Boolean);
-  // Fragments this short generally cannot establish a durable topic by
-  // themselves. Full standalone questions continue through semantic matching.
-  return words.length <= 5 && /\?\s*$/.test(String(text ?? "").trim());
+  // Fragmentos muito curtos só herdam contexto quando começam por "e";
+  // perguntas curtas completas continuam livres para abrir novo tópico.
+  return words.length <= 5 && /^e\b/.test(value) && /\?\s*$/.test(String(text ?? "").trim());
 }
 
 export function resolveConversation(input: ResolverInput): ResolverOutput {
