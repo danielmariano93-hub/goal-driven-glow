@@ -4,16 +4,15 @@
 // expressions are grounded against objects captured from executed tool results,
 // never against regex guesses over user text.
 //
-// References expire by time, not by arbitrary message count. A reference is also
-// bound to the durable topic that produced it when that topic is known, so an old
-// discussion cannot silently hijack a current follow-up.
+// Evidence-backed analytical references expire by time, not by arbitrary
+// message count. Generic display references retain the short turn budget to
+// avoid unrelated stale sets leaking across conversation. A reference is also
+// bound to the durable topic that produced it when that topic is known.
 
 import type { TurnReference } from "./ConversationTurnContract.ts";
 
 export const REFERENCE_TTL_MS = 30 * 60 * 1000;
-// Kept for backwards-compatible state shape. v2 no longer decrements this on
-// every message; TTL + topic binding are the authority for freshness.
-export const REFERENCE_MAX_TURNS = 24;
+export const REFERENCE_MAX_TURNS = 5;
 
 export type ReferenceObjectType = "entity_set" | "entity";
 
@@ -176,6 +175,12 @@ function targetFromCall(call: any): ReferenceObject["target"] | null {
   return null;
 }
 
+function finiteOrNull(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function comparisonEvidenceFromCall(call: unknown): ComparisonEvidence | null {
   const record = (call ?? {}) as Record<string, unknown>;
   const tool = String(record.tool_name ?? "").toLowerCase();
@@ -193,7 +198,6 @@ function comparisonEvidenceFromCall(call: unknown): ComparisonEvidence | null {
     ? directionRaw as ComparisonEvidence["requested_direction"]
     : "any";
   const provenance = (result.provenance ?? {}) as Record<string, unknown>;
-  const finiteOrNull = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : null;
   return {
     kind: "comparison",
     formula_version: String(provenance.formula_version ?? result.formula_version ?? "").trim() || null,
@@ -309,9 +313,17 @@ export function advanceReferences(
   return (refs ?? []).map((ref) => {
     if (ref.status !== "active") return ref;
     const expiredByTime = Date.parse(ref.expires_at) <= ts;
-    return expiredByTime
-      ? { ...ref, status: "expired" as const, turns_remaining: 0 }
-      : { ...ref, turns_remaining: Math.max(1, Number(ref.turns_remaining ?? REFERENCE_MAX_TURNS)) };
+    const durableEvidence = ref.source?.context?.evidence?.kind === "comparison";
+    if (expiredByTime) return { ...ref, status: "expired" as const, turns_remaining: 0 };
+    if (durableEvidence) {
+      return { ...ref, turns_remaining: Math.max(1, Number(ref.turns_remaining ?? REFERENCE_MAX_TURNS)) };
+    }
+    const nextTurns = Math.max(0, Number(ref.turns_remaining ?? REFERENCE_MAX_TURNS) - 1);
+    return {
+      ...ref,
+      turns_remaining: nextTurns,
+      status: nextTurns <= 0 ? "expired" as const : "active" as const,
+    };
   }).slice(-8);
 }
 
@@ -344,6 +356,7 @@ export function resolveStructuredReference(
     .filter((ref) =>
       ref.status === "active"
       && Date.parse(ref.expires_at) > now.getTime()
+      && ref.turns_remaining > 0
       && (requested.target === "generic" || ref.target === requested.target)
       && (!options.topic_id || !ref.topic_id || ref.topic_id === options.topic_id)
     )
