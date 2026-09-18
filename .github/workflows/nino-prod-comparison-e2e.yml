@@ -27,10 +27,19 @@ jobs:
       - name: Checkout exact test revision
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
+      - name: Install repository dependencies
+        run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Typecheck E2E harness
         run: deno check scripts/nino_prod_comparison_e2e.ts
