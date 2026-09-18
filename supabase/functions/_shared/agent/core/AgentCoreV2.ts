@@ -734,8 +734,13 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // O resolver abaixo só converte as expressões humanas em datas — ele não
   // decide mais qual período é referência e qual é o avaliado.
   const comparisonExpressions = comparisonPeriodExpressions(contract);
+  const statisticalTargetExpression = contract.financial_read?.queries.find((query) =>
+    query.operation === "compare"
+    && query.comparison_baseline === "mean_previous_complete_months"
+  )?.comparison_target_expression?.trim() || null;
   const multiPeriod = resolvePeriodExpressions(
-    comparisonExpressions ?? normalizePeriodExpressions(contract.focus),
+    comparisonExpressions
+      ?? (statisticalTargetExpression ? [statisticalTargetExpression] : normalizePeriodExpressions(contract.focus)),
     canonical,
   );
   const hasExplicitComparisonRoles = comparisonIntent
