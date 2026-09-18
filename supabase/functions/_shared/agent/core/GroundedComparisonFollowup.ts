@@ -6,6 +6,7 @@
 // LLM to reconstruct money or methodology from conversation text.
 
 import {
+  GROUNDED_FINANCIAL_EVIDENCE_MARKER,
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
 } from "./ConversationTurnContract.ts";
@@ -198,7 +199,7 @@ function directReplyContract(
     reference: {
       kind: "previous_result_set",
       target: "category",
-      expression: "resultado anterior",
+      expression: GROUNDED_FINANCIAL_EVIDENCE_MARKER,
       status: "resolved",
     },
     financial_read: null,
