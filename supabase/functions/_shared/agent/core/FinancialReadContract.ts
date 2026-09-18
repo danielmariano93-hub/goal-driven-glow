@@ -86,6 +86,8 @@ function semanticShapeOfExpected(query: FinancialReadSemanticRequest["queries"][
     filters,
     query.limit ?? "null",
     query.comparison_direction ?? "any",
+    query.comparison_baseline ?? "period",
+    query.comparison_baseline_window ?? "null",
   ].join("/");
 }
 
@@ -98,6 +100,8 @@ function semanticShapeOfExecuted(query: FinancialQueryIRv3["queries"][number]): 
     filters,
     query.limit ?? "null",
     query.comparison_direction ?? "any",
+    query.comparison_baseline ?? "period",
+    query.comparison_baseline_window ?? "null",
   ].join("/");
 }
 
