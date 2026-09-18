@@ -82,16 +82,32 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     if (categoryMode) {
       const changed = (result.by_group as Array<Record<string, unknown>>)
         .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
-        .slice()
-        .sort((a, b) => Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)));
-      const increases = changed.filter((row) => Number(row?.delta_abs ?? 0) > 0.005);
-      const decreases = changed.filter((row) => Number(row?.delta_abs ?? 0) < -0.005);
-      changed.forEach((row, index) => {
+        .slice();
+      const increases = changed
+        .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+        .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
+      const decreases = changed
+        .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+        .sort((a, b) => Number(a?.delta_abs ?? 0) - Number(b?.delta_abs ?? 0));
+      const direction = String(result.requested_comparison_direction ?? "any");
+      const ranked = direction === "increase"
+        ? increases
+        : direction === "decrease"
+          ? decreases
+          : direction === "any"
+            ? changed.slice().sort((a, b) =>
+              Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)))
+            : [];
+
+      changed.forEach((row) => {
         const name = typeof row.name === "string" ? row.name : null;
         if (!name) return;
         const change = Math.abs(Number(row.delta_abs ?? 0));
-        claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: index + 1 });
-        claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: index + 1 });
+        const rankIndex = ranked.indexOf(row);
+        if (rankIndex >= 0) {
+          claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: rankIndex + 1 });
+        }
+        claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: rankIndex >= 0 ? rankIndex + 1 : null });
         for (const [field, raw] of [["total_a", row.total_a], ["total_b", row.total_b], ["delta_abs", row.delta_abs]] as const) {
           const value = num(raw);
           if (value != null) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(value), label: `${name}:${field}`, rank: null });
