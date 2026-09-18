@@ -1,6 +1,6 @@
 import { Activity } from "lucide-react";
 import { AiEfficiencyTruthBoard } from "@/components/admin/AiEfficiencyTruthBoard";
-import { AiProviderBenchmarkBoard } from "@/components/admin/AiProviderBenchmarkBoard";
+import { AiProviderBenchmarkTruthBoard } from "@/components/admin/AiProviderBenchmarkTruthBoard";
 import { SupabaseCapacityBoard } from "@/components/admin/SupabaseCapacityBoard";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/admin/PageHeader";
@@ -14,7 +14,7 @@ export default function CustoLatencia() {
         status={<Badge variant="secondary" className="gap-1"><Activity size={12} /> Operação global</Badge>}
       />
       <AiEfficiencyTruthBoard />
-      <AiProviderBenchmarkBoard />
+      <AiProviderBenchmarkTruthBoard />
       <SupabaseCapacityBoard />
     </div>
   );
