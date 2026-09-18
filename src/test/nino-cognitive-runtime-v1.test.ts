@@ -21,6 +21,7 @@ import { emptyMemory } from "../../supabase/functions/_shared/agent/core/Convers
 import { writeDurableMemory } from "../../supabase/functions/_shared/agent/core/MemoryWriter";
 import { compileFinancialReadFromTurn } from "../../supabase/functions/_shared/agent/core/TurnContractFinancialAdapter";
 import type { FinancialQueryIRv3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3";
+import { runSemanticTurn } from "../../supabase/functions/_shared/agent/core/SemanticTurnPipeline";
 
 function financialTurn(over: Partial<CanonicalConversationTurnContract> = {}): CanonicalConversationTurnContract {
   return {
@@ -173,6 +174,38 @@ describe("Nino Cognitive Runtime v1 — autoridade única e contratos hierárqui
     });
     expect(resolveNarrowDeterministicTurn("E qual delas piorou?")).toBeNull();
     expect(resolveNarrowDeterministicTurn("Quanto gastei com alimentação?")).toBeNull();
+  });
+
+  it("falha de compilação na lane autoritativa não devolve autoridade ao legado", async () => {
+    const runEngine = vi.fn(async () => ({ ok: false, result: null, error: "should_not_run", duration_ms: 0 }));
+    const out = await runSemanticTurn({
+      text: "Quanto gastei em julho?",
+      acts: ["new_query"],
+      constraints: { period: true, dimension: false, entity: false },
+      period: { from: "2026-07-01", to: "2026-07-31", label: "julho" },
+      comparison_period: null,
+      periods: null,
+      comparison_intent: false,
+      previous_query: null,
+      topic_state: null,
+      max_queries: 1,
+      investigation_enabled: false,
+      preservation_enforced: true,
+      typical_monthly_enabled: false,
+      authoritative_contract: true,
+      failure_reply: "FALHA_CANONICA",
+      now: new Date("2026-09-17T12:00:00Z"),
+    }, {
+      compile: async () => ({ ir: null, telemetry: null }),
+      runEngine,
+      loadOptions: async () => [],
+      recordStage: () => undefined,
+    });
+
+    expect(out.turn?.reply).toBe("FALHA_CANONICA");
+    expect(out.telemetry.executed_by).toBe("contract_failed_closed");
+    expect(out.telemetry.action_planner_used_for_tool_choice).toBe(false);
+    expect(runEngine).not.toHaveBeenCalled();
   });
 });
 
@@ -371,6 +404,22 @@ describe("Financial Read Contract v4 + Contract Fulfillment Gate", () => {
       applied_reference_scope: { target: "category", entity_labels: ["Alimentação", "Moradia"] },
     });
     expect(exact.ok).toBe(true);
+  });
+
+  it("Contract Fulfillment Gate também bloqueia violação factual de grounding", () => {
+    const contract = buildFinancialReadContract({ turn, requested: requestedIR(), grounded_reference: grounded });
+    const out = verifyFinancialFulfillment({
+      contract,
+      preservation: null,
+      grounding: {
+        ok: false,
+        violations: [{ type: "unsupported_numeric_claim", reason: "claim_without_evidence" }],
+      } as any,
+      applied_reference_scope: { target: "category", entity_labels: ["Moradia", "Alimentação"] },
+    });
+
+    expect(out.ok).toBe(false);
+    expect(out.violations.map((v) => v.code)).toContain("evidence_grounding_violation");
   });
 
   it("compare engine calcula somente o conjunto grounded", () => {
