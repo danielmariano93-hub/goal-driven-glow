@@ -221,6 +221,7 @@ async function recordV2Run(args: {
   path: HandleTurnResult["path"];
   tools?: string[];
   error?: string | null;
+  diagnostics?: Record<string, unknown> | null;
 }): Promise<string | undefined> {
   try {
     const now = new Date().toISOString();
@@ -244,7 +245,10 @@ async function recordV2Run(args: {
       latency_ms: Date.now() - args.started_at,
       error_sanitized: args.error ?? null,
       error_masked: args.error ?? null,
-      context_layers: runtimeContext(`conversation_brain:${args.contract.mode}`),
+      context_layers: {
+        ...runtimeContext(`conversation_brain:${args.contract.mode}`),
+        ...(args.diagnostics ? { semantic_execution: args.diagnostics } : {}),
+      },
     }).select("id").maybeSingle();
     if (error) {
       console.error("[AgentCoreV2] agent_runs insert failed", JSON.stringify({
@@ -284,6 +288,7 @@ async function finishV2(args: {
   topic_resolution?: ResolverOutput | null;
   active_period?: { from: string; to: string; label?: string | null } | null;
   comparison_period?: { from: string; to: string } | null;
+  diagnostics?: Record<string, unknown> | null;
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
 
@@ -384,7 +389,7 @@ async function finishV2(args: {
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
     model: args.model, provider: args.provider, path: args.path,
-    tools: args.tools, error: args.error,
+    tools: args.tools, error: args.error, diagnostics: args.diagnostics,
   });
 
   // V2 must learn too. Previously the 100% Conversation Brain rollout bypassed
@@ -916,6 +921,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // qualquer engine. Isso é uma falha real do contrato, não um run "done".
   // Sem este sinal, o incidente de produção aparecia saudável na telemetria.
   const semanticContractFailed = semantic.telemetry?.executed_by === "contract_failed_closed";
+  const semanticUnsupported = semantic.status === "unsupported" && !semantic.turn;
+  const successfulSemanticExecution = (semantic.turn?.toolCalls ?? []).some((call) => call?.ok === true);
 
   return await finishV2({
     sb, input, contract, reply, reply_kind: replyKind,
@@ -935,16 +942,27 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
       : semanticContractFailed
         ? `semantic_contract_failed_closed:${semantic.status}`.slice(0, 300)
+      : semanticUnsupported
+        ? `semantic_unsupported:${semantic.validation?.errors.join(",") || "no_engine"}`.slice(0, 300)
       : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     // Persist the period contract that was ACTUALLY executed. Using the
     // pre-semantic planner period here stored July + an unrelated June window
     // after a July/August turn, poisoning the next elliptical follow-up.
-    active_period: semantic.ir_v2?.period
+    active_period: successfulSemanticExecution && semantic.ir_v2?.period
       ? { from: semantic.ir_v2.period.from, to: semantic.ir_v2.period.to, label: semantic.ir_v2.period.label ?? null }
-      : { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
-    comparison_period: semantic.ir_v2?.comparison_period
+      : memory?.active_period ?? { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
+    comparison_period: successfulSemanticExecution && semantic.ir_v2?.comparison_period
       ? { from: semantic.ir_v2.comparison_period.from, to: semantic.ir_v2.comparison_period.to }
-      : null,
+      : memory?.comparison_period ?? null,
+    diagnostics: {
+      semantic_status: semantic.status,
+      executed_by: semantic.telemetry?.executed_by ?? null,
+      mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],
+      validation_errors: semantic.validation?.errors ?? [],
+      unsupported_queries: semantic.validation?.unsupported_queries ?? [],
+      engines: semantic.engines,
+      successful_execution: successfulSemanticExecution,
+    },
   });
 }

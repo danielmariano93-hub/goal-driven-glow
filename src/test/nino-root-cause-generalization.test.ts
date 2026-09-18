@@ -7,6 +7,9 @@ import { resolveBrainAdvisory } from "../../supabase/functions/_shared/agent/cor
 import { structuredContinuationContract } from "../../supabase/functions/_shared/agent/core/StructuredContinuation";
 import { resolveGroundedComparisonFollowup } from "../../supabase/functions/_shared/agent/core/GroundedComparisonFollowup";
 import { emptyMemory } from "../../supabase/functions/_shared/agent/core/ConversationMemory";
+import { normalizeToV2 } from "../../supabase/functions/_shared/agent/core/FinancialQueryIR";
+import { expandIRForPeriods } from "../../supabase/functions/_shared/agent/core/MultiPeriodPlan";
+import { validateFinancialPlan } from "../../supabase/functions/_shared/agent/core/FinancialPlanValidator";
 
 const period = { from: "2026-09-01", to: "2026-09-18", label: "este mês" };
 const previous = { from: "2026-08-01", to: "2026-08-18", label: "período anterior equivalente" };
@@ -90,6 +93,28 @@ describe("nino root-cause generalization", () => {
     expect(out.unsupported_queries).toEqual([]);
     expect(out.capability?.required_tool).toBe("compare_periods");
     expect(out.capability?.tool_args).toMatchObject({ category_scope: ["Lazer"] });
+  });
+
+  it("preserves category-scoped comparison through the real multi-period planner", () => {
+    const expanded = expandIRForPeriods(
+      normalizeToV2(comparisonIR("category")),
+      [previous, period],
+      true,
+    );
+    const validation = validateFinancialPlan(expanded.ir);
+
+    expect(expanded.mode).toBe("comparison");
+    expect(expanded.ir.queries).toHaveLength(1);
+    expect(expanded.ir.period).toMatchObject(period);
+    expect(expanded.ir.comparison_period).toMatchObject(previous);
+    expect(validation.ok).toBe(true);
+    expect(validation.mapped).toEqual([
+      expect.objectContaining({
+        query_id: "q1",
+        tool: "compare_periods",
+        args: expect.objectContaining({ category_scope: ["Lazer"] }),
+      }),
+    ]);
   });
 
   it("keeps unsupported filters fail-closed", () => {

@@ -843,9 +843,8 @@ function ontologyGaps(
 
 function unsupportedReply(gaps: string[], periodKnown = false): string {
   if (gaps.length) {
-    return "Entendi exatamente o que você quer, mas esse corte específico eu ainda não calculo "
-      + `com número confiável (${gaps[0].split(" → ")[0]}). `
-      + "Posso te dar a leitura mais próxima disso agora — quer que eu vá por aí?";
+    return "Entendi o recorte, mas não consegui executar essa análise com segurança agora. "
+      + "Não vou substituir por outro cálculo, porque isso responderia uma pergunta diferente.";
   }
   // Período já dito NUNCA é pedido de novo: foi exatamente assim que o Nino
   // respondeu "me diga o período" para quem tinha escrito "julho e agosto".
