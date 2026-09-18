@@ -5,18 +5,22 @@
 // Sem formatter específico, cai na headline canônica do próprio motor.
 // deno-lint-ignore-file no-explicit-any
 import {
-  formatAverageComparison, formatFinancialSnapshot, formatForecastMonthClose, formatGoalsOverview,
-  formatMerchantDistribution, formatSpendingAnalysis, formatEngineNarrative, formatPeriodComparison,
+  formatFinancialSnapshot, formatForecastMonthClose, formatGoalsOverview,
+  formatMerchantDistribution, formatSpendingAnalysis, formatEngineNarrative,
 } from "./DeterministicAnswers.ts";
+import {
+  formatAverageComparisonEnhanced,
+  formatPeriodComparisonEnhanced,
+} from "./ComparisonPresentation.ts";
 
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   analyze_spending: formatSpendingAnalysis,
   merchant_distribution: formatMerchantDistribution,
-  compare_to_monthly_average: formatAverageComparison,
+  compare_to_monthly_average: formatAverageComparisonEnhanced,
   get_financial_snapshot: formatFinancialSnapshot,
   get_goals_overview: formatGoalsOverview,
   forecast_month_close: formatForecastMonthClose,
-  compare_periods: formatPeriodComparison,
+  compare_periods: formatPeriodComparisonEnhanced,
 };
 
 function headline(result: any): string | null {

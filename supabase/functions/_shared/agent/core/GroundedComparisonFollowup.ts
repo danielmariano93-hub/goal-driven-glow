@@ -16,8 +16,10 @@ import type {
   ComparisonEvidenceRow,
   ReferenceObject,
 } from "./ConversationReferenceStore.ts";
-
-const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+import {
+  formatComparisonEvidenceRow,
+  formatComparisonRankLine,
+} from "./ComparisonPresentation.ts";
 
 function norm(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -221,12 +223,8 @@ function rowForEntity(evidence: ComparisonEvidence, entity: string | null | unde
   return evidence.rows.find((row) => norm(row.name) === wanted) ?? null;
 }
 
-function relationWord(row: ComparisonEvidenceRow): string {
-  return row.delta_abs >= 0 ? "acima" : "abaixo";
-}
-
 function rowReply(row: ComparisonEvidenceRow): string {
-  return `*${row.name}* ficou ${BRL.format(Math.abs(row.delta_abs))} ${relationWord(row)} da referência: ${BRL.format(row.total_b)} versus ${BRL.format(row.total_a)}.`;
+  return formatComparisonEvidenceRow(row);
 }
 
 function statisticReply(evidence: ComparisonEvidence, months: number | null): string {
@@ -253,15 +251,18 @@ export function resolveGroundedComparisonFollowup(
     return directReplyContract(text, statisticReply(evidence, historicalWindow(memory, reference)));
   }
 
-  if (evidence && asksSelectedEntityAmount(text)) {
-    const selected = rowForEntity(evidence, memory.active_category);
-    if (selected) return directReplyContract(text, rowReply(selected), selected.name);
-  }
-
+  // Superlativos como "quanto menos acima" precisam vencer a leitura genérica
+  // de "quanto ... acima"; caso contrário o foco ativo poderia mascarar o
+  // menor delta positivo do conjunto.
   const leastDirection = requestedLeastDirection(text);
   if (leastDirection && evidence) {
     const rows = sortedRows(evidence, leastDirection);
     const selected = rows[rows.length - 1] ?? null;
+    if (selected) return directReplyContract(text, rowReply(selected), selected.name);
+  }
+
+  if (evidence && asksSelectedEntityAmount(text)) {
+    const selected = rowForEntity(evidence, memory.active_category);
     if (selected) return directReplyContract(text, rowReply(selected), selected.name);
   }
 
@@ -270,7 +271,7 @@ export function resolveGroundedComparisonFollowup(
     const rows = sortedRows(evidence, rank.direction);
     if (rows.length >= rank.limit) {
       const selected = rows.slice(0, rank.limit);
-      const lines = selected.map((row, index) => `${index + 1}. *${row.name}* — ${BRL.format(Math.abs(row.delta_abs))} ${relationWord(row)}`);
+      const lines = selected.map((row, index) => formatComparisonRankLine(row, index + 1));
       return directReplyContract(text, lines.join("\n"));
     }
   }
