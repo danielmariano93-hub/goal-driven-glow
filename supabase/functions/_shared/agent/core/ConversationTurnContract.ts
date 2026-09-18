@@ -13,8 +13,8 @@
 
 import { isActionKind, type ActionIR } from "./ActionIR.ts";
 import {
-  COMPARISON_DIRECTIONS, FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
-  type ComparisonDirection, type FinancialDimension, type FinancialFilter, type FinancialMetric, type FinancialOperation,
+  COMPARISON_BASELINES, COMPARISON_DIRECTIONS, FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+  type ComparisonBaseline, type ComparisonDirection, type FinancialDimension, type FinancialFilter, type FinancialMetric, type FinancialOperation,
 } from "./FinancialQueryIR.ts";
 
 export const BRAIN_ACTS = [
@@ -88,6 +88,9 @@ export type FinancialReadSemanticQuery = {
   limit: number | null;
   /** Sinal pedido pelo usuário em uma comparação agrupada. */
   comparison_direction?: ComparisonDirection;
+  /** Tipo de baseline: outro período ou média dos meses anteriores ao alvo. */
+  comparison_baseline?: ComparisonBaseline;
+  comparison_baseline_window?: number | null;
   /**
    * Papéis temporais explícitos da comparação. São expressões humanas, não
    * datas. O backend apenas resolve os intervalos, sem reinterpretar o papel.
@@ -137,6 +140,7 @@ export function comparisonPeriodExpressions(
   turn: Pick<ConversationTurnContract, "financial_read">,
 ): [string, string] | null {
   const query = turn.financial_read?.queries.find((q) => q.operation === "compare") ?? null;
+  if ((query?.comparison_baseline ?? "period") !== "period") return null;
   const baseline = query?.comparison_baseline_expression?.trim() || null;
   const target = query?.comparison_target_expression?.trim() || null;
   return baseline && target ? [baseline, target] : null;
@@ -246,14 +250,20 @@ function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | nu
     if (limit != null && (!Number.isInteger(limit) || limit < 1 || limit > 20)) return null;
     const rawDirection = String(q.comparison_direction ?? "any") as ComparisonDirection;
     if (!COMPARISON_DIRECTIONS.includes(rawDirection)) return null;
+    const rawBaselineKind = String(q.comparison_baseline ?? "period") as ComparisonBaseline;
+    if (!COMPARISON_BASELINES.includes(rawBaselineKind)) return null;
+    const baselineWindow = q.comparison_baseline_window == null ? null : Number(q.comparison_baseline_window);
+    if (rawBaselineKind === "mean_previous_complete_months"
+      && (!Number.isInteger(baselineWindow) || Number(baselineWindow) < 2 || Number(baselineWindow) > 24)) return null;
     const baseline = q.comparison_baseline_expression == null
       ? null
       : String(q.comparison_baseline_expression).trim() || null;
     const target = q.comparison_target_expression == null
       ? null
       : String(q.comparison_target_expression).trim() || null;
-    // Um papel temporal sem o outro deixa a direção temporal ambígua.
-    if (operation === "compare" && Boolean(baseline) !== Boolean(target)) return null;
+    // Comparação período-a-período exige os dois papéis. Média histórica usa
+    // apenas o período alvo; a janela histórica é derivada deterministicamente.
+    if (operation === "compare" && rawBaselineKind === "period" && Boolean(baseline) !== Boolean(target)) return null;
     queries.push({
       metric,
       operation,
@@ -261,7 +271,11 @@ function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | nu
       filters,
       limit,
       comparison_direction: operation === "compare" ? rawDirection : "any",
-      comparison_baseline_expression: operation === "compare" ? baseline : null,
+      comparison_baseline: operation === "compare" ? rawBaselineKind : "period",
+      comparison_baseline_window: operation === "compare" && rawBaselineKind === "mean_previous_complete_months"
+        ? baselineWindow
+        : null,
+      comparison_baseline_expression: operation === "compare" && rawBaselineKind === "period" ? baseline : null,
       comparison_target_expression: operation === "compare" ? target : null,
     });
   }

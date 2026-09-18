@@ -14,7 +14,7 @@ import {
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
 import {
-  COMPARISON_DIRECTIONS, FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+  COMPARISON_BASELINES, COMPARISON_DIRECTIONS, FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
 } from "./FinancialQueryIR.ts";
 import { NINO_IDENTITY } from "./Conversational.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
@@ -148,7 +148,8 @@ function brainTool() {
                     type: "object", additionalProperties: false,
                     required: [
                       "metric", "operation", "group_by", "filters", "limit",
-                      "comparison_direction", "comparison_baseline_expression", "comparison_target_expression",
+                      "comparison_direction", "comparison_baseline", "comparison_baseline_window",
+                      "comparison_baseline_expression", "comparison_target_expression",
                     ],
                     properties: {
                       metric: { type: "string", enum: [...FINANCIAL_METRICS] },
@@ -170,6 +171,8 @@ function brainTool() {
                       },
                       limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
                       comparison_direction: { type: "string", enum: [...COMPARISON_DIRECTIONS] },
+                      comparison_baseline: { type: "string", enum: [...COMPARISON_BASELINES] },
+                      comparison_baseline_window: { anyOf: [{ type: "integer", minimum: 2, maximum: 24 }, { type: "null" }] },
                       comparison_baseline_expression: { anyOf: [{ type: "string" }, { type: "null" }] },
                       comparison_target_expression: { anyOf: [{ type: "string" }, { type: "null" }] },
                     },
@@ -226,15 +229,18 @@ Regras obrigatórias:
 23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Defaults financeiros de baixo risco e resolução de datas/entidades pertencem aos resolvers do backend. Use missing/ambiguous/conflicting apenas quando a informação é realmente necessária para entender o turno; nesse caso, mode=clarify.
 24. Se houver active_references e a mensagem usar uma referência plural/anáfora compatível ("delas", "essas categorias", "entre elas"), emita reference.kind=previous_result_set, target correto e status=resolved. Não copie a lista para canonical_request; o Grounding Engine vincula o objeto estruturado.
 25. Se domain=financial_read, financial_read é obrigatório e descreve a MESMA interpretação canônica: metric, operation, group_by, filters, limit e semântica de comparação. Não inclua datas resolvidas nem nomes de tools. Se domain não for financial_read, financial_read=null. Exemplos: "quanto gastei" => expense_amount/sum; "quais categorias mais gastei" => expense_amount/rank/group_by=[category].
-26. Para operation=compare, NUNCA reduza "aumentou", "diminuiu" e "aumentaram e diminuíram" ao mesmo significado. comparison_direction deve ser: increase quando o usuário pede altas; decrease quando pede quedas; both quando pede altas E quedas; any quando pede apenas maior variação sem sinal. Para "qual mais..." use limit=1; para "quais..." preserve o conjunto (limit=null ou o limite explicitamente herdado). Em qualquer operation diferente de compare, use comparison_direction=any e comparison_baseline_expression/comparison_target_expression=null.
-27. Em toda comparação temporal com dois períodos semanticamente identificáveis, preencha comparison_baseline_expression e comparison_target_expression com EXPRESSÕES humanas. Baseline é o período de referência; target é o período cujo desempenho está sendo avaliado. Ex.: contexto atual=agosto e usuário diz "comparando essas categorias com julho" => baseline="julho", target="agosto", mesmo que "agosto" venha do contexto e não da frase atual. "de julho para agosto" => baseline="julho", target="agosto". Não use a ordem textual como substituto desses papéis. Para compare sem dois períodos identificáveis, deixe ambos null e o backend aplicará o default temporal permitido.
+26. Para operation=compare, NUNCA reduza "aumentou", "diminuiu" e "aumentaram e diminuíram" ao mesmo significado. comparison_direction deve ser: increase quando o usuário pede altas; decrease quando pede quedas; both quando pede altas E quedas; any quando pede apenas maior variação sem sinal. Para "qual mais..." use limit=1; para "quais..." preserve o conjunto (limit=null ou o limite explicitamente herdado).
+27. comparison_baseline descreve A BASE MATEMÁTICA. Use period para outro período explícito. Use mean_previous_complete_months quando o usuário pedir "média dos últimos N meses", "média dos N meses anteriores" ou equivalente em relação a um período alvo. Nesse caso comparison_baseline_window=N, comparison_baseline_expression=null e comparison_target_expression=período alvo (herdado do contexto quando necessário). Os N meses são os meses completos imediatamente ANTERIORES ao alvo; nunca inclua o mês alvo na própria média sem pedido explícito.
+28. Em comparação period-a-period, preencha comparison_baseline_expression e comparison_target_expression com EXPRESSÕES humanas. Baseline é o período de referência; target é o período avaliado. Ex.: contexto atual=agosto e usuário diz "comparando essas categorias com julho" => baseline="julho", target="agosto". Não use ordem textual como substituto desses papéis. Para compare sem dois períodos identificáveis e sem baseline estatístico, deixe ambos null para o default temporal permitido.
+29. Em qualquer operation diferente de compare, use comparison_direction=any, comparison_baseline=period, comparison_baseline_window=null e comparison_baseline_expression/comparison_target_expression=null.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
 - Nino: "Quer que eu detalhe essa oportunidade?"; usuário: "Quero" => answer/read, canonical_request=pedido completo da oferta, nunca emotional_checkin.
 - usuário: "Cria uma meta de R$ 5.000 até o fim do ano" => write, action=goal.create, slots target_amount=5000 e target_date_expression="fim do ano".
 - usuário: "Quanto gastei em alimentação no mês de julho e agosto?" => new_request/read, focus.category="Alimentação", focus.period_expressions=["julho","agosto"].
-- contexto: ranking de agosto; usuário: "Comparando essas categorias com julho, quais aumentaram e quais diminuíram?" => follow_up/read; compare/category; comparison_direction=both; comparison_baseline_expression="julho"; comparison_target_expression="agosto"; reference=previous_result_set/category.
+- contexto: ranking de agosto; usuário: "Comparando essas categorias com julho, quais aumentaram e quais diminuíram?" => follow_up/read; compare/category; comparison_direction=both; comparison_baseline=period; comparison_baseline_expression="julho"; comparison_target_expression="agosto"; reference=previous_result_set/category.
+- contexto: ranking de agosto; usuário: "Quais categorias ficaram acima da média dos últimos 3 meses?" => follow_up/read; compare/category; comparison_direction=increase; comparison_baseline=mean_previous_complete_months; comparison_baseline_window=3; comparison_target_expression="agosto". Isso significa agosto versus média de maio, junho e julho — NUNCA compare_periods entre duas janelas arbitrárias.
 - mesmo contexto; usuário: "Quais diminuíram?" => follow_up/read; compare/category; comparison_direction=decrease; baseline="julho"; target="agosto". Nunca responda com uma categoria cujo delta target-baseline seja positivo.
 - após mostrar um conjunto de categorias, usuário: "E qual delas mais piorou?" => follow_up/read, reference.kind=previous_result_set, reference.target=category, reference.expression="delas", resolution.reference=resolved; o backend vincula o conjunto.
 - usuário: "Não foi isso que eu pedi" => repair; preserve o foco anterior e corrija a interpretação, não cancele por conta própria.`;
@@ -461,6 +467,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
           provider: structured.provider,
           transport: "chat_completions_structured",
           upstream_error: structured.error_detail,
+          structured_attempts: structured.attempts ?? 1,
         },
       });
       return fail(error);
@@ -475,6 +482,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
         contract_version: "conversation_turn_contract.v2",
         provider: structured.provider,
         transport: "chat_completions_structured",
+        structured_attempts: structured.attempts ?? 1,
       },
     }, structured.body);
 
@@ -487,7 +495,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
     if (!contract) return fail("conversation_brain_contract_invalid");
 
     const telemetry: ConversationBrainTelemetry = {
-      model: requestModel, provider: structured.provider, llm_calls: 1,
+      model: requestModel, provider: structured.provider, llm_calls: structured.attempts ?? 1,
       tokens_in: structured.input_tokens, tokens_out: structured.output_tokens,
       latency_ms: structured.latency_ms, ok: true, error: null,
     };

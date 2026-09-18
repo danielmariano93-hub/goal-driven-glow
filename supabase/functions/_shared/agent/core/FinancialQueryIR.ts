@@ -28,6 +28,11 @@ export const COMPARISON_DIRECTIONS = [
 ] as const;
 export type ComparisonDirection = typeof COMPARISON_DIRECTIONS[number];
 
+export const COMPARISON_BASELINES = [
+  "period", "mean_previous_complete_months",
+] as const;
+export type ComparisonBaseline = typeof COMPARISON_BASELINES[number];
+
 export type FinancialFilter = {
   field: "category" | "card" | "account" | "payment_method";
   op: "eq";
@@ -47,6 +52,12 @@ export type FinancialQuery = {
    * e quedas; increase/decrease = filtrar pelo sinal pedido.
    */
   comparison_direction?: ComparisonDirection;
+  /**
+   * Base de comparação. "period" usa comparison_period; média histórica usa
+   * os N meses completos imediatamente anteriores ao período alvo.
+   */
+  comparison_baseline?: ComparisonBaseline;
+  comparison_baseline_window?: number | null;
   /**
    * Período vinculado À QUERY (`period_truth.v2`). Quando presente, vale sobre
    * `ir.period`: é assim que o mesmo contrato financeiro roda em vários
@@ -79,6 +90,7 @@ const METRICS = new Set<string>(FINANCIAL_METRICS);
 const DIMS = new Set<string>(FINANCIAL_DIMENSIONS);
 const OPS = new Set<string>(FINANCIAL_OPERATIONS);
 const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
+const COMPARISON_BASELINE_SET = new Set<string>(COMPARISON_BASELINES);
 const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
 
 export function validateFinancialIR(value: unknown): string[] {
@@ -123,6 +135,13 @@ export function validateFinancialIR(value: unknown): string[] {
   }
   if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
     errors.push("q0_comparison_direction_invalid");
+  }
+  if (q.comparison_baseline != null && !COMPARISON_BASELINE_SET.has(String(q.comparison_baseline))) {
+    errors.push("q0_comparison_baseline_invalid");
+  }
+  if (q.comparison_baseline === "mean_previous_complete_months"
+    && (!Number.isInteger(q.comparison_baseline_window) || Number(q.comparison_baseline_window) < 2 || Number(q.comparison_baseline_window) > 24)) {
+    errors.push("q0_comparison_baseline_window_invalid");
   }
   return errors;
 }
@@ -337,6 +356,13 @@ export function normalizeToV2(
       comparison_direction: COMPARISON_DIRECTION_SET.has(String(q?.comparison_direction))
         ? q.comparison_direction
         : "any",
+      comparison_baseline: COMPARISON_BASELINE_SET.has(String(q?.comparison_baseline))
+        ? q.comparison_baseline
+        : "period",
+      comparison_baseline_window: q?.comparison_baseline_window != null
+        && Number.isInteger(Number(q.comparison_baseline_window))
+        ? Number(q.comparison_baseline_window)
+        : null,
       period: q?.period ?? null,
       depends_on: Array.isArray(q?.depends_on) ? q.depends_on.map(String) : [],
     };
@@ -393,7 +419,7 @@ function queryKey(q: FinancialQueryV2): string {
   // O período entra na chave: "julho" e "agosto" com a mesma métrica são duas
   // execuções legítimas, não query duplicada.
   const period = q.period ? `${q.period.from}..${q.period.to}` : "ir";
-  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}/${q.comparison_direction ?? "any"}/${period}`;
+  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}/${q.comparison_direction ?? "any"}/${q.comparison_baseline ?? "period"}/${q.comparison_baseline_window ?? "null"}/${period}`;
 }
 
 /**
@@ -446,8 +472,17 @@ export function validateFinancialIRv2(value: unknown): string[] {
     if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
       errors.push(`${id}_comparison_direction_invalid`);
     }
+    if (q.comparison_baseline != null && !COMPARISON_BASELINE_SET.has(String(q.comparison_baseline))) {
+      errors.push(`${id}_comparison_baseline_invalid`);
+    }
+    if (q.comparison_baseline === "mean_previous_complete_months"
+      && (!Number.isInteger(q.comparison_baseline_window) || Number(q.comparison_baseline_window) < 2 || Number(q.comparison_baseline_window) > 24)) {
+      errors.push(`${id}_comparison_baseline_window_invalid`);
+    }
     // Combinações inválidas de métrica/operação/dimensão.
-    if (q.operation === "compare" && !ir.comparison_period) errors.push(`${id}_compare_without_comparison_period`);
+    if (q.operation === "compare"
+      && (q.comparison_baseline ?? "period") === "period"
+      && !ir.comparison_period) errors.push(`${id}_compare_without_comparison_period`);
     if (q.operation === "explain" && !ir.comparison_period) errors.push(`${id}_explain_without_base`);
     if (["value", "sum"].includes(String(q.operation)) && (q.group_by?.length ?? 0) > 0) {
       errors.push(`${id}_value_with_group_by`);

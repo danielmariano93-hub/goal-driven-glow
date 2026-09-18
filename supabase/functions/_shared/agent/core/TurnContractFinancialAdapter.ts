@@ -36,6 +36,8 @@ export function compileFinancialReadFromTurn(args: {
     filters: query.filters.map((filter) => ({ ...filter, op: "eq" as const })),
     limit: query.limit,
     comparison_direction: query.comparison_direction ?? "any",
+    comparison_baseline: query.comparison_baseline ?? "period",
+    comparison_baseline_window: query.comparison_baseline_window ?? null,
   }));
 
   const ir: FinancialQueryIR = {

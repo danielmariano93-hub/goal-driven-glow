@@ -129,7 +129,49 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     }
   }
 
-  const rows = isComparison ? [] : Array.isArray(result.top) ? result.top
+  const isMerchantDistribution = result.engine === "merchant_distribution" && Array.isArray(result.merchants);
+  if (isMerchantDistribution) {
+    for (const [label, raw] of [
+      ["category_total", result.category_total],
+      ["resolved_total", result.resolved_total],
+      ["unresolved_total", result.unresolved_total],
+    ] as const) {
+      const value = num(raw);
+      if (value != null) claims.push({ id: seq(), ...base, type: "money", value, label, rank: null });
+    }
+    const coverage = num(result.coverage);
+    if (coverage != null) {
+      claims.push({ id: seq(), ...base, type: "percentage", value: coverage * 100, label: "coverage", rank: null });
+    }
+    const merchantRows = (result.merchants as Array<Record<string, unknown>>);
+    const listed = merchantRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const categoryTotal = num(result.category_total);
+    if (categoryTotal != null) {
+      const remainder = Math.max(0, categoryTotal - listed);
+      if (remainder > 0.005) {
+        claims.push({ id: seq(), ...base, type: "money", value: remainder, label: "listed_remainder", rank: null });
+      }
+    }
+    merchantRows
+      .slice()
+      .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0))
+      .forEach((row, index) => {
+      const name = typeof row.merchant === "string" ? row.merchant : null;
+      if (!name) return;
+      const amount = num(row.amount);
+      claims.push({ id: seq(), ...base, type: "rank", value: amount, label: name, rank: index + 1 });
+      claims.push({ id: seq(), ...base, type: "entity", value: amount, label: name, rank: index + 1 });
+      if (amount != null) claims.push({ id: seq(), ...base, type: "money", value: amount, label: name, rank: index + 1 });
+      const share = num(row.share_of_category);
+      if (share != null) {
+        claims.push({ id: seq(), ...base, type: "percentage", value: share * 100, label: name, rank: index + 1 });
+      }
+      const txCount = num(row.transactions_count);
+      if (txCount != null) claims.push({ id: seq(), ...base, type: "count", value: txCount, label: name, rank: index + 1 });
+    });
+  }
+
+  const rows = isComparison || isMerchantDistribution ? [] : Array.isArray(result.top) ? result.top
     : Array.isArray(result.rows) ? result.rows
     : Array.isArray(result.breakdown) ? result.breakdown
     : [];

@@ -8,7 +8,7 @@ import {
   type TransactionRow,
 } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
-import { comparablePeriods, daysBetween } from "./periods.ts";
+import { comparablePeriods, daysBetween, monthRange, shiftMonth } from "./periods.ts";
 
 export type CompareInput = {
   txs: TransactionRow[];
@@ -67,6 +67,32 @@ function sumInPeriod(
   return { total, byCat, rows, days: daySet.size };
 }
 
+export type CompareToMonthlyAverageInput = {
+  txs: TransactionRow[];
+  categoryNames: Map<string, string>;
+  metric: "expense" | "income";
+  target_period: { from: string; to: string };
+  months: number;
+  group_by?: "category" | "none";
+  category_scope?: string[];
+};
+
+export type CompareToMonthlyAverageResult = {
+  metric: "expense" | "income";
+  total_a: number;
+  total_b: number;
+  delta_abs: number;
+  delta_pct: number | null;
+  by_group: Array<{ name: string; total_a: number; total_b: number; delta_abs: number; delta_pct: number | null }>;
+  comparable: boolean;
+  baseline_statistic: "mean";
+  baseline_window_months: number;
+  baseline_periods: Array<{ from: string; to: string }>;
+  target_period: { from: string; to: string };
+  applied_reference_scope: { target: "category"; entity_labels: string[] } | null;
+  provenance: Provenance;
+};
+
 export function computeCompare(input: CompareInput): CompareResult {
   const ledger = input.txs.filter((t) => String(t.status ?? "confirmed") !== "superseded");
   const attribution = buildRefundAttribution(ledger);
@@ -110,6 +136,81 @@ export function computeCompare(input: CompareInput): CompareResult {
     delta_pct: delta_pct === null ? null : round4(delta_pct),
     by_group,
     comparable: comparablePeriods(input.period_a, input.period_b),
+    applied_reference_scope: scopeLabels.length
+      ? { target: "category", entity_labels: scopeLabels }
+      : null,
+    provenance,
+  };
+}
+
+export function computeCompareToMonthlyAverage(
+  input: CompareToMonthlyAverageInput,
+): CompareToMonthlyAverageResult {
+  const months = Math.max(2, Math.min(24, Math.trunc(input.months)));
+  const ledger = input.txs.filter((t) => String(t.status ?? "confirmed") !== "superseded");
+  const attribution = buildRefundAttribution(ledger);
+  const scopeLabels = [...new Set((input.category_scope ?? []).map((value) => String(value).trim()).filter(Boolean))];
+  const scope = scopeLabels.length
+    ? new Set(scopeLabels.map((value) => value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")))
+    : null;
+
+  const baselinePeriods = Array.from({ length: months }, (_, index) => {
+    const offset = months - index;
+    const shifted = shiftMonth(input.target_period.from, -offset);
+    const range = monthRange(shifted);
+    return { from: range.from, to: range.to };
+  });
+  const baseline = baselinePeriods.map((period) =>
+    sumInPeriod(ledger, input.metric, period.from, period.to, input.categoryNames, attribution, scope)
+  );
+  const target = sumInPeriod(
+    ledger, input.metric, input.target_period.from, input.target_period.to,
+    input.categoryNames, attribution, scope,
+  );
+
+  const totalA = baseline.reduce((sum, item) => sum + item.total, 0) / months;
+  const totalB = target.total;
+  const names = new Set<string>(target.byCat.keys());
+  for (const item of baseline) for (const name of item.byCat.keys()) names.add(name);
+
+  const by_group = [...names].map((name) => {
+    const baselineMean = baseline.reduce((sum, item) => sum + (item.byCat.get(name) ?? 0), 0) / months;
+    const targetTotal = target.byCat.get(name) ?? 0;
+    const delta = targetTotal - baselineMean;
+    const pct = baselineMean > 0 ? delta / baselineMean : (targetTotal > 0 ? null : 0);
+    return {
+      name,
+      total_a: round2(baselineMean),
+      total_b: round2(targetTotal),
+      delta_abs: round2(delta),
+      delta_pct: pct == null ? null : round4(pct),
+    };
+  }).sort((a, b) => Math.abs(b.delta_abs) - Math.abs(a.delta_abs));
+
+  const delta = totalB - totalA;
+  const totalRows = baseline.reduce((sum, item) => sum + item.rows, 0) + target.rows;
+  const totalDays = baseline.reduce((sum, item) => sum + item.days, 0) + target.days;
+  const provenance = makeProvenance({
+    from: baselinePeriods[0].from,
+    to: input.target_period.to,
+    row_count: totalRows,
+    formula_version: "compare.monthly_mean.v1",
+    confidence: confidenceFromSample(totalRows, totalDays),
+    notes: ["Baseline = média de " + months + " meses completos imediatamente anteriores ao período alvo."],
+  });
+
+  return {
+    metric: input.metric,
+    total_a: round2(totalA),
+    total_b: round2(totalB),
+    delta_abs: round2(delta),
+    delta_pct: totalA > 0 ? round4(delta / totalA) : null,
+    by_group,
+    comparable: true,
+    baseline_statistic: "mean",
+    baseline_window_months: months,
+    baseline_periods: baselinePeriods,
+    target_period: { ...input.target_period },
     applied_reference_scope: scopeLabels.length
       ? { target: "category", entity_labels: scopeLabels }
       : null,

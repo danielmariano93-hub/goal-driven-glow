@@ -67,9 +67,9 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
       if (group === "merchant") {
         if (metric !== "expense" || !onlyFilters(q, ["category"])) return null;
         return {
-          tool: "analyze_merchants",
-          capability: "financial_analysis",
-          execution: "llm_scoped",
+          tool: "merchant_distribution",
+          capability: "merchant_distribution",
+          execution: "deterministic",
           args: {
             from: period.from, to: period.to,
             ...(filter(q, "category") ? { category_name: filter(q, "category") } : {}),
@@ -88,7 +88,25 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "compare") {
-      if (q.filters.length || (group && group !== "category") || !ir.comparison_period) return null;
+      if (q.filters.length || (group && group !== "category")) return null;
+      if (q.comparison_baseline === "mean_previous_complete_months") {
+        const months = Number(q.comparison_baseline_window);
+        if (!Number.isInteger(months) || months < 2 || months > 24) return null;
+        return {
+          tool: "compare_to_monthly_average",
+          capability: "financial_comparison",
+          execution: "deterministic",
+          args: {
+            metric,
+            group_by: group === "category" ? "category" : "none",
+            comparison_direction: q.comparison_direction ?? "any",
+            limit: q.limit ?? null,
+            months,
+            target_period: { from: period.from, to: period.to, label: period.label },
+          },
+        };
+      }
+      if (!ir.comparison_period) return null;
       return {
         tool: "compare_periods",
         capability: "financial_comparison",
@@ -284,8 +302,8 @@ export function ontologySignature(q: FinancialQuery): string {
 /** Combinações realmente mapeadas, para o prompt do compilador. */
 export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
-  "expense_amount + rank|breakdown group merchant (filtro opcional: category)",
-  "expense_amount|income_amount + compare (sem filtro, group opcional category, exige período de comparação)",
+  "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
+  "expense_amount|income_amount + compare (sem filtro, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
   "expense_amount + forecast (fechamento do mês)",

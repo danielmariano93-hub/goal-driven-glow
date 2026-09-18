@@ -44,6 +44,8 @@ function declared(result: unknown): ExecutedIR | null {
     grain: (e.grain ?? "none") as ExecutedIR["grain"],
     reduce: (e.reduce ?? "sum") as ExecutedIR["reduce"],
     group_by: Array.isArray(e.group_by) ? e.group_by.map(String) : [],
+    comparison_baseline: e.comparison_baseline ?? "period",
+    comparison_baseline_window: e.comparison_baseline_window ?? null,
     partial: Boolean(e.partial),
   };
 }
@@ -67,6 +69,60 @@ function fromPeriodComparison(requested: FinancialQueryV3, result: unknown): Exe
     grain: requested.grain,
     reduce: requested.reduce,
     group_by: requestedGroup,
+    comparison_baseline: "period",
+    comparison_baseline_window: null,
+    partial: false,
+  };
+}
+
+/** Derivação estrutural da comparação contra média histórica. */
+function fromMonthlyAverageComparison(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (r.baseline_statistic !== "mean" || !Array.isArray(r.by_group)) return null;
+  if (requested.legacy_operation !== "compare") return null;
+  const target = (r.target_period ?? {}) as Record<string, unknown>;
+  return {
+    metric: requested.metric,
+    filters: [],
+    time: {
+      aspect: requested.time.aspect,
+      from: target.from ? String(target.from) : requested.time.from,
+      to: target.to ? String(target.to) : requested.time.to,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: String(r.requested_group_by ?? "none") === "category" ? ["category"] : [],
+    comparison_baseline: "mean_previous_complete_months",
+    comparison_baseline_window: Number(r.baseline_window_months ?? r.requested_comparison_baseline_window ?? 0) || null,
+    partial: false,
+  };
+}
+
+/** Derivação estrutural da distribuição por estabelecimento. */
+function fromMerchantDistribution(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (r.engine !== "merchant_distribution" || !Array.isArray(r.merchants)) return null;
+  const period = (r.period ?? {}) as Record<string, unknown>;
+  const category = (r.category ?? {}) as Record<string, unknown>;
+  const filters: FinancialFilter[] = [];
+  if (category.name) filters.push({ field: "category", op: "eq", value: String(category.name) });
+  return {
+    metric: requested.metric,
+    filters,
+    time: {
+      aspect: requested.time.aspect,
+      from: period.from ? String(period.from) : null,
+      to: period.to ? String(period.to) : null,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: ["merchant"],
+    comparison_baseline: requested.comparison_baseline ?? "period",
+    comparison_baseline_window: requested.comparison_baseline_window ?? null,
     partial: false,
   };
 }
@@ -103,5 +159,9 @@ export function executedIRFrom(
   requested: FinancialQueryV3,
   result: unknown,
 ): ExecutedIR | null {
-  return declared(result) ?? fromPeriodComparison(requested, result) ?? fromSpendingReport(requested, result);
+  return declared(result)
+    ?? fromMonthlyAverageComparison(requested, result)
+    ?? fromPeriodComparison(requested, result)
+    ?? fromMerchantDistribution(requested, result)
+    ?? fromSpendingReport(requested, result);
 }
