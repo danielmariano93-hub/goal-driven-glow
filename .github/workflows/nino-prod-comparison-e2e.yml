@@ -1,0 +1,71 @@
+name: Nino Production Comparison E2E
+
+on:
+  push:
+    branches:
+      - test/nino-prod-comparison-e2e-20260918
+    paths:
+      - 'scripts/nino_prod_comparison_e2e.ts'
+      - '.github/workflows/nino-prod-comparison-e2e.yml'
+
+permissions:
+  contents: read
+
+env:
+  SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
+  SUPABASE_URL: https://amjanjlvsatubxdreyep.supabase.co
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+  GROQ_BASE_URL: https://api.groq.com/openai/v1
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact test revision
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Resolve backend key without logging it
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          status="$(curl --silent --show-error \
+            --output /tmp/nino-api-keys.json \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/api-keys?reveal=true")"
+          test "$status" = "200"
+          node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/nino-api-keys.json', 'utf8'));
+          const rows = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : []);
+          const legacy = rows.find(r => String(r?.name ?? r?.type ?? '').toLowerCase() === 'service_role');
+          const modern = rows.find(r => String(r?.type ?? '').toLowerCase() === 'secret');
+          const row = legacy ?? modern;
+          const key = row?.api_key ?? row?.key ?? row?.secret ?? row?.value ?? null;
+          if (!key) process.exit(2);
+          fs.appendFileSync(process.env.GITHUB_ENV, `SUPABASE_SERVICE_ROLE_KEY=${key}\n`);
+          NODE
+          rm -f /tmp/nino-api-keys.json
+
+      - name: Run production sequence with financial output suppressed
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set +e
+          deno run --allow-env --allow-net scripts/nino_prod_comparison_e2e.ts >/dev/null 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            echo 'Production comparison E2E failed; sensitive execution output was suppressed.'
+            exit "$code"
+          fi
+          echo 'Production comparison E2E passed; sensitive execution output was suppressed.'
