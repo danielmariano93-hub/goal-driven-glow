@@ -210,17 +210,68 @@ export function formatPeriodComparison(result: any): string {
   const delta = Number(result?.delta_abs ?? (totalB - totalA));
   const byCategory = result?.requested_group_by === "category";
   const rows: any[] = Array.isArray(result?.by_group) ? result.by_group : [];
+  const requestedDirection = ["increase", "decrease", "both", "any"].includes(
+    String(result?.requested_comparison_direction ?? "any"),
+  )
+    ? String(result?.requested_comparison_direction ?? "any")
+    : "any";
+  const rawLimit = Number(result?.requested_limit);
+  const requestedLimit = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : null;
 
   if (byCategory) {
     const increases = rows
       .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
       .slice()
       .sort((a, b) => Number(b.delta_abs ?? 0) - Number(a.delta_abs ?? 0));
-    const top = increases[0];
-    if (!top) {
-      return "Nenhuma categoria aumentou nesse comparativo; todas ficaram estáveis ou caíram.";
+    const decreases = rows
+      .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+      .slice()
+      .sort((a, b) => Number(a.delta_abs ?? 0) - Number(b.delta_abs ?? 0));
+
+    const limited = (items: any[]) => requestedLimit ? items.slice(0, requestedLimit) : items;
+    const compact = (row: any, direction: "increase" | "decrease") =>
+      `*${String(row.name)}* (${money(Math.abs(Number(row.delta_abs ?? 0)))} ${direction === "increase" ? "a mais" : "a menos"})`;
+    const detailed = (row: any, direction: "increase" | "decrease") =>
+      `*${String(row.name)}*: ${money(Math.abs(Number(row.delta_abs ?? 0)))} ${direction === "increase" ? "a mais" : "a menos"}, de ${money(row.total_a)} para ${money(row.total_b)}.`;
+
+    if (requestedDirection === "increase") {
+      const selected = limited(increases);
+      if (!selected.length) return "Nenhuma dessas categorias aumentou nesse comparativo.";
+      if (requestedLimit === 1) return `A categoria que mais aumentou foi ${detailed(selected[0], "increase")}`;
+      return `Aumentaram: ${selected.map((row) => compact(row, "increase")).join("; ")}.`;
     }
-    return `A categoria que mais aumentou foi *${String(top.name)}*: ${money(Math.abs(Number(top.delta_abs)))} a mais, de ${money(top.total_a)} para ${money(top.total_b)}.`;
+
+    if (requestedDirection === "decrease") {
+      const selected = limited(decreases);
+      if (!selected.length) return "Nenhuma dessas categorias diminuiu nesse comparativo.";
+      if (requestedLimit === 1) return `A categoria que mais diminuiu foi ${detailed(selected[0], "decrease")}`;
+      return `Diminuíram: ${selected.map((row) => compact(row, "decrease")).join("; ")}.`;
+    }
+
+    if (requestedDirection === "any" && requestedLimit === 1) {
+      const changed = rows
+        .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
+        .slice()
+        .sort((a, b) => Math.abs(Number(b.delta_abs ?? 0)) - Math.abs(Number(a.delta_abs ?? 0)));
+      const top = changed[0];
+      if (!top) return "Essas categorias ficaram praticamente estáveis nesse comparativo.";
+      const direction = Number(top.delta_abs) > 0 ? "increase" : "decrease";
+      return `A maior variação foi em ${detailed(top, direction)}`;
+    }
+
+    const selectedIncreases = limited(increases);
+    const selectedDecreases = limited(decreases);
+    if (!selectedIncreases.length && !selectedDecreases.length) {
+      return "Essas categorias ficaram praticamente estáveis nesse comparativo.";
+    }
+    const lines: string[] = [];
+    lines.push(selectedIncreases.length
+      ? `Aumentaram: ${selectedIncreases.map((row) => compact(row, "increase")).join("; ")}.`
+      : "Aumentaram: nenhuma.");
+    lines.push(selectedDecreases.length
+      ? `Diminuíram: ${selectedDecreases.map((row) => compact(row, "decrease")).join("; ")}.`
+      : "Diminuíram: nenhuma.");
+    return lines.join("\n");
   }
 
   if (Math.abs(delta) < 0.005) {
