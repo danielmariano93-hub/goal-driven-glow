@@ -65,6 +65,16 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
   };
 }
 
+function formulaVersionsFromCalls(calls: V2ToolCall[]): Record<string, string> | null {
+  const entries: Array<[string, string]> = [];
+  for (const call of calls) {
+    const version = String((call.result as any)?.provenance?.formula_version ?? "").trim();
+    if (!version) continue;
+    entries.push([call.tool_name, version]);
+  }
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
 async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Promise<void> {
   if (!turn.run_id || !turn.session_id) return;
   const sb = service();
@@ -133,6 +143,16 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
   if (!toolCallIds.length) return;
 
   const activeTopicId = String(conversation.active_topic_id ?? "").trim() || null;
+  const formulaVersions = formulaVersionsFromCalls(calls);
+
+  // Keep agent_runs self-contained for observability: the run now points to
+  // the durable topic and to the exact analytical formula that generated its
+  // evidence, instead of requiring a join through session state/tool calls.
+  await sb.from("agent_runs").update({
+    topic_id: activeTopicId,
+    formula_versions: formulaVersions,
+  }).eq("id", turn.run_id);
+
   const boundIds = new Set(callRefs.map((ref) => ref.id));
   const nextReferences = references.map((ref) => {
     if (!boundIds.has(ref.id)) return ref;
