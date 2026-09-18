@@ -18,7 +18,10 @@ import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
-import { normalizePeriodExpressions, type ConversationTurnContract } from "./ConversationTurnContract.ts";
+import {
+  normalizeConversationTurnContract, normalizePeriodExpressions,
+  type CanonicalConversationTurnContract, type ConversationTurnContract,
+} from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
 import {
   attachLegacyShadowObservation,
@@ -55,6 +58,15 @@ import { detectContinuationOffer, resolveContinuation } from "./ContinuationCont
 import { detectExpectation } from "./ConversationExpectation.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { loadBrainUserContext } from "./BrainUserContext.ts";
+import { resolveNarrowDeterministicTurn } from "./NarrowDeterministicGate.ts";
+import {
+  advanceReferences, captureReferenceObjects, invalidateReferences,
+} from "./ConversationReferenceStore.ts";
+import {
+  applyGroundedReferenceScope, executedReferenceScope, groundTurnContract,
+} from "./GroundingEngine.ts";
+import { buildFinancialReadContract } from "./FinancialReadContract.ts";
+import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
