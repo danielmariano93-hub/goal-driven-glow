@@ -19,7 +19,7 @@ import { loadConversationMemory, saveConversationMemory, type ConversationMemory
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
 import {
-  normalizeConversationTurnContract, normalizePeriodExpressions,
+  comparisonPeriodExpressions, normalizeConversationTurnContract, normalizePeriodExpressions,
   type CanonicalConversationTurnContract, type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
@@ -729,13 +729,26 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // canonical_request já incorporou continuidade/elipse. O resolver temporal
   // não recebe histórico, portanto não pode reclassificar o turno novamente.
   const plan = buildTurnPlan({ text: canonical, history: [] });
-  const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
   const comparisonIntent = contract.financial_read?.queries.some((query) => query.operation === "compare") ?? false;
-  const basePeriod = multiPeriod.periods[0] ?? {
+  // Em comparação, o Brain declara baseline/target como papéis semânticos.
+  // O resolver abaixo só converte as expressões humanas em datas — ele não
+  // decide mais qual período é referência e qual é o avaliado.
+  const comparisonExpressions = comparisonPeriodExpressions(contract);
+  const multiPeriod = resolvePeriodExpressions(
+    comparisonExpressions ?? normalizePeriodExpressions(contract.focus),
+    canonical,
+  );
+  const hasExplicitComparisonRoles = comparisonIntent
+    && !!comparisonExpressions
+    && multiPeriod.periods.length >= 2;
+  const basePeriod = (hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0]) ?? {
     from: plan.effective_period.from,
     to: plan.effective_period.to,
     label: plan.effective_period.label,
   };
+  const resolvedComparisonPeriod = hasExplicitComparisonRoles
+    ? multiPeriod.periods[0]
+    : plan.previous_period;
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
@@ -759,7 +772,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       to: basePeriod.to,
       label: basePeriod.label,
     },
-    comparison_period: plan.previous_period,
+    comparison_period: resolvedComparisonPeriod,
     periods: multiPeriod.periods.length >= 2 ? multiPeriod.periods : null,
     comparison_intent: comparisonIntent,
     previous_query: contract.inherit_focus ? (memory?.conversation_summary ?? null) : null,
@@ -785,11 +798,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
           to: basePeriod.to,
           label: basePeriod.label ?? "período solicitado",
         },
-        comparison_period: plan.previous_period
+        comparison_period: resolvedComparisonPeriod
           ? {
-            from: plan.previous_period.from,
-            to: plan.previous_period.to,
-            label: plan.previous_period.label ?? "período anterior",
+            from: resolvedComparisonPeriod.from,
+            to: resolvedComparisonPeriod.to,
+            label: resolvedComparisonPeriod.label ?? "período anterior",
           }
           : null,
       });
