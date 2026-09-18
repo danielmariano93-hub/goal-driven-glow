@@ -10,6 +10,8 @@
 // - só sobrescreve queries de fluxo (expense/income) cujo aspecto veio do
 //   inferidor legado (`mtd`/`calendar`) — aspecto declarado explicitamente é
 //   respeitado;
+// - uma comparação com baseline estatístico já tem semântica temporal explícita
+//   no contrato e NÃO pode ser reinterpretada por palavras como "últimos 3 meses";
 // - habitual/last_n_complete SEMPRE excluem o mês parcial e viram grão mensal;
 // - a premissa entra em `assumptions`, para a resposta poder declarar a régua.
 import type { FinancialQueryIRv3, FinancialQueryV3 } from "./FinancialIRv3.ts";
@@ -39,6 +41,20 @@ export function applyTurnAspect(
 
   const queries: FinancialQueryV3[] = ir.queries.map((q) => {
     if (!FLOW_METRICS.has(String(q.metric))) return q;
+
+    // O baseline estatístico é um slot semântico explícito do Turn Contract.
+    // Ex.: "agosto acima da média dos últimos 3 meses" significa:
+    // target=agosto, baseline=média(maio,junho,julho). O resolver lexical de
+    // aspecto enxerga "últimos 3 meses" e tentaria transformar o TARGET numa
+    // janela last_n_complete, criando requested_vs_executed_mismatch mesmo com
+    // o motor correto. Depois do Brain, isso seria uma segunda autoridade
+    // semântica; portanto é proibido.
+    const hasExplicitStatisticalBaseline = q.legacy_operation === "compare"
+      && q.comparison_baseline === "mean_previous_complete_months"
+      && Number.isInteger(q.comparison_baseline_window)
+      && Number(q.comparison_baseline_window) >= 2;
+    if (hasExplicitStatisticalBaseline) return q;
+
     // Um sinal habitual inequívoco no texto atual é autoridade sobre um
     // `trend` emitido pelo compilador. Tendência real continua protegida porque
     // o resolver a classifica como `trend`, não como `habitual`.
