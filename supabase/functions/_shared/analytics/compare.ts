@@ -183,45 +183,51 @@ export function computeCompareToMonthlyAverage(
   );
 
   const targetMonths = targetWindowMonths(input.target_period);
-  const totalA = baseline.reduce((sum, item) => sum + item.total, 0) / months;
-  const totalB = target.total / targetMonths;
+  // Monetary means become cents before any derived delta/percentage. This
+  // guarantees that the arithmetic shown to the user reconciles exactly:
+  // displayed target - displayed baseline = displayed delta.
+  const totalA = round2(baseline.reduce((sum, item) => sum + item.total, 0) / months);
+  const totalB = round2(target.total / targetMonths);
   const names = new Set<string>(target.byCat.keys());
   for (const item of baseline) for (const name of item.byCat.keys()) names.add(name);
 
   const by_group = [...names].map((name) => {
-    const baselineMean = baseline.reduce((sum, item) => sum + (item.byCat.get(name) ?? 0), 0) / months;
-    const targetTotal = (target.byCat.get(name) ?? 0) / targetMonths;
-    const delta = targetTotal - baselineMean;
-    const pct = baselineMean > 0 ? delta / baselineMean : (targetTotal > 0 ? null : 0);
+    const baselineMean = round2(
+      baseline.reduce((sum, item) => sum + (item.byCat.get(name) ?? 0), 0) / months,
+    );
+    const targetMean = round2((target.byCat.get(name) ?? 0) / targetMonths);
+    const delta = round2(targetMean - baselineMean);
+    const pct = baselineMean > 0 ? delta / baselineMean : (targetMean > 0 ? null : 0);
     return {
       name,
-      total_a: round2(baselineMean),
-      total_b: round2(targetTotal),
-      delta_abs: round2(delta),
+      total_a: baselineMean,
+      total_b: targetMean,
+      delta_abs: delta,
       delta_pct: pct == null ? null : round4(pct),
     };
   }).sort((a, b) => Math.abs(b.delta_abs) - Math.abs(a.delta_abs));
 
-  const delta = totalB - totalA;
+  const delta = round2(totalB - totalA);
   const totalRows = baseline.reduce((sum, item) => sum + item.rows, 0) + target.rows;
   const totalDays = baseline.reduce((sum, item) => sum + item.days, 0) + target.days;
   const provenance = makeProvenance({
     from: baselinePeriods[0].from,
     to: input.target_period.to,
     row_count: totalRows,
-    formula_version: "compare.monthly_mean.v2",
+    formula_version: "compare.monthly_mean.v3",
     confidence: confidenceFromSample(totalRows, totalDays),
     notes: [
       "Baseline = média de " + months + " meses completos imediatamente anteriores ao período alvo.",
       "Alvo = média mensal do período alvo (" + targetMonths + " mês(es) equivalentes); nunca comparar total multi-mês com média mensal.",
+      "Médias monetárias são arredondadas a centavos antes do delta, garantindo reconciliação exata dos valores exibidos.",
     ],
   });
 
   return {
     metric: input.metric,
-    total_a: round2(totalA),
-    total_b: round2(totalB),
-    delta_abs: round2(delta),
+    total_a: totalA,
+    total_b: totalB,
+    delta_abs: delta,
     delta_pct: totalA > 0 ? round4(delta / totalA) : null,
     by_group,
     comparable: true,
