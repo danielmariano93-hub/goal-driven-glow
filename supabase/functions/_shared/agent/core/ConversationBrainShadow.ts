@@ -99,7 +99,9 @@ export async function evaluateConversationBrainShadow(args: {
       brain_canonical_request: contract?.canonical_request ?? null,
       brain_focus: contract?.focus ?? {},
       brain_action: contract?.action ?? null,
-      brain_confidence: contract?.confidence ?? null,
+      // Coluna legada mantida apenas para compatibilidade do painel shadow.
+      // O Turn Contract v2 não possui confidence numérico.
+      brain_confidence: null,
       brain_latency_ms: brain.telemetry.latency_ms ?? (Date.now() - started),
       tokens_in: brain.telemetry.tokens_in ?? 0,
       tokens_out: brain.telemetry.tokens_out ?? 0,

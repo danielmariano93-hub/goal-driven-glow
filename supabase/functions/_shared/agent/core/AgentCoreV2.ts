@@ -18,7 +18,10 @@ import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
-import { normalizePeriodExpressions, type ConversationTurnContract } from "./ConversationTurnContract.ts";
+import {
+  normalizeConversationTurnContract, normalizePeriodExpressions,
+  type CanonicalConversationTurnContract, type ConversationTurnContract,
+} from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
 import {
   attachLegacyShadowObservation,
@@ -36,7 +39,6 @@ import { humanizeReply } from "./ReplyHumanizer.ts";
 import { runtimeContext } from "./RuntimeContract.ts";
 import { buildTurnPlan } from "./ConversationOrchestrator.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
-import { compileFinancialQuery } from "./SemanticCompiler.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { getState, patchState } from "./StateManager.ts";
 import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
@@ -55,6 +57,16 @@ import { detectContinuationOffer, resolveContinuation } from "./ContinuationCont
 import { detectExpectation } from "./ConversationExpectation.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { loadBrainUserContext } from "./BrainUserContext.ts";
+import { resolveNarrowDeterministicTurn } from "./NarrowDeterministicGate.ts";
+import {
+  advanceReferences, captureReferenceObjects, invalidateReferences,
+} from "./ConversationReferenceStore.ts";
+import {
+  applyGroundedReferenceScope, executedReferenceScope, groundTurnContract,
+} from "./GroundingEngine.ts";
+import { buildFinancialReadContract } from "./FinancialReadContract.ts";
+import { compileFinancialReadFromTurn } from "./TurnContractFinancialAdapter.ts";
+import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -75,18 +87,52 @@ function safeReply(text: string): string {
   return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo."));
 }
 
+function runtimeFailureContract(reply: string): CanonicalConversationTurnContract {
+  return {
+    version: "conversation_turn_contract.v2",
+    act: "conversational",
+    mode: "converse",
+    domain: "conversation",
+    canonical_request: null,
+    inherit_focus: false,
+    focus: {
+      category: null,
+      merchant: null,
+      goal: null,
+      period_expression: null,
+      period_expressions: [],
+    },
+    action: null,
+    direct_reply: reply,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: "not_applicable",
+      time: "not_applicable",
+      entity: "not_applicable",
+      action: "not_applicable",
+    },
+    reference: null,
+    financial_read: null,
+    advisory_kind: null,
+  };
+}
+
 /**
  * Na V2, explicitness vem do contrato emitido pela autoridade conversacional.
  * O backend pode validar/bindar os slots, mas não chama outro classificador para
  * decidir novamente se o usuário mudou de assunto/entidade/período.
  */
-function constraintsFromContract(contract: ConversationTurnContract, canonical: string) {
+function constraintsFromContract(contract: ConversationTurnContract, _canonical: string) {
+  const semanticQueries = contract.financial_read?.queries ?? [];
   return {
     period: normalizePeriodExpressions(contract.focus).length > 0,
-    entity: Boolean(contract.focus.category || contract.focus.merchant || contract.focus.goal),
-    // Dimensão é forma de saída (por cartão/categoria/conta/estabelecimento),
-    // não uma nova intenção. Detectá-la lexicalmente não troca o significado.
-    dimension: /\bpor\s+(?:cart[aã]o|conta|categoria|estabelecimento|m[eê]s|dia)\b/i.test(canonical),
+    entity: Boolean(
+      contract.focus.category || contract.focus.merchant || contract.focus.goal
+      || semanticQueries.some((q) => q.filters.length > 0),
+    ),
+    // Dimensão vem do Turn Contract, nunca de uma segunda leitura lexical.
+    dimension: semanticQueries.some((q) => q.group_by.length > 0),
   };
 }
 
@@ -240,6 +286,16 @@ async function finishV2(args: {
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
 
+  // Reference Store is working memory, not semantic inference. Repairs
+  // invalidate the previous referent; successful tool results can publish a
+  // new structured entity set for later "delas/essa categoria" follow-ups.
+  let nextReferences = args.memory?.references ?? [];
+  if (args.contract.act === "repair") nextReferences = invalidateReferences(nextReferences);
+  const capturedReferences = captureReferenceObjects(args.tool_calls ?? []);
+  if (capturedReferences.length) {
+    nextReferences = [...nextReferences, ...capturedReferences].slice(-8);
+  }
+
   // Durable topic continuity is updated for meaningful V2 topics. Pure social
   // turns ("oi", "obrigado") must not replace the financial topic the user may
   // resume a message later.
@@ -318,6 +374,7 @@ async function finishV2(args: {
       conversation_summary: incidentalConversation
         ? args.memory?.conversation_summary ?? null
         : String(args.contract.canonical_request ?? args.input.text).slice(0, 500),
+      references: nextReferences,
     }).catch(() => null);
   }
 
@@ -420,15 +477,21 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     const outcome = await confirmAndBuildReceipt(sb, pending, {
       source_message_id: input.inbound_message_id ?? null,
     });
-    const contract: ConversationTurnContract = {
-      version: "conversation_turn_contract.v1", act: "answer", mode: "converse",
+    const contract = normalizeConversationTurnContract({
+      version: "conversation_turn_contract.v2", act: "answer", mode: "converse",
+      domain: "conversation",
       canonical_request: null, inherit_focus: true,
-      focus: { category: null, merchant: null, goal: null, period_expression: null },
+      focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
       action: null,
       direct_reply: "Confirmação resolvida pelo estado financeiro pendente.",
       clarification_question: null,
-      confidence: 1,
-    };
+      resolution: {
+        intent: "resolved", reference: "not_applicable", time: "not_applicable",
+        entity: "not_applicable", action: "not_applicable",
+      },
+      reference: null,
+      advisory_kind: null,
+    })!;
     return await finishV2({
       sb, input, contract, reply: outcome.reply,
       reply_kind: outcome.ok ? "receipt" : "info",
@@ -457,7 +520,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ? createTopicRepository({ sb, user_id: input.user_id, conversation_id: input.conversation_id })
     : null;
 
-  const [loadedHistory, memory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
+  const [loadedHistory, rawMemory, workflow, durableUserContext, recentTopics, quotedTopic] = await Promise.all([
     loadHistory(sb, input.conversation_id, { limit: 16, excludeMessageId: input.inbound_message_id }).catch(() => []),
     loadConversationMemory(sb, session_id ?? null).catch(() => null),
     loadWorkflow(sb, { user_id: input.user_id, conversation_id: input.conversation_id }).catch(() => null),
@@ -467,6 +530,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? topicRepo.findByMessageId(input.reply_context.quoted_message_id).catch(() => null)
       : Promise.resolve(null),
   ]);
+  const memory = rawMemory
+    ? { ...rawMemory, references: advanceReferences(rawMemory.references ?? []) }
+    : rawMemory;
 
   // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
   // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
@@ -500,22 +566,63 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
-  const brain = await interpretConversationTurn({
-    text: brainText,
-    history,
-    memory,
-    workflow,
-    user_context: userContext,
-    model: BRAIN_MODEL,
-    sb,
-    user_id: input.user_id,
-    run_id: null,
-  });
+  const narrowContract = resolveNarrowDeterministicTurn(brainText);
+  const brain = narrowContract
+    ? {
+      contract: narrowContract,
+      telemetry: {
+        model: "deterministic",
+        provider: null,
+        llm_calls: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        latency_ms: 0,
+        ok: true,
+        error: null,
+      },
+    }
+    : await interpretConversationTurn({
+      text: brainText,
+      history,
+      memory,
+      workflow,
+      user_context: userContext,
+      model: BRAIN_MODEL,
+      sb,
+      user_id: input.user_id,
+      run_id: null,
+    });
 
-  // O cérebro nunca vira mais uma camada em cima do legado: se ele falha, sai
-  // completamente do caminho e o Core anterior assume o turno original.
-  if (!brain.contract) return await handleLegacyTurn(input);
-  const contract = brain.contract;
+  // Depois que a lane V2 assumiu o turno, nenhuma falha do Brain pode devolver
+  // autoridade ao parser/router legado. Falha de interpretação é fail-closed:
+  // não executa ferramenta, não alarga escopo e pede reformulação.
+  if (!brain.contract) {
+    const reply = "Não consegui interpretar essa mensagem com segurança. Pode reformular o pedido em uma frase?";
+    const failureContract = runtimeFailureContract(reply);
+    return await finishV2({
+      sb, input, contract: failureContract, reply, reply_kind: "question",
+      path: "deterministic_fallback", started_at: started,
+      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      error: brain.telemetry.error ?? "conversation_brain_contract_unavailable",
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    });
+  }
+  const contract: CanonicalConversationTurnContract = brain.contract;
+
+  // Grounding only binds the reference already declared by the Turn Contract.
+  // Missing/expired referents fail closed instead of widening scope.
+  const groundedTurn = groundTurnContract(contract, memory);
+  if (!groundedTurn.ok) {
+    return await finishV2({
+      sb, input, contract,
+      reply: groundedTurn.clarification ?? "Pode me dizer a que você está se referindo?",
+      reply_kind: "question", path: "deterministic_fallback", started_at: started,
+      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    });
+  }
 
   if (contract.mode === "converse") {
     return await finishV2({
@@ -547,7 +654,17 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       contract,
       evidenceCache,
     });
-    if (!write.handled) return await handleLegacyTurn(input);
+    if (!write.handled) {
+      return await finishV2({
+        sb, input, contract,
+        reply: "Entendi o pedido, mas não consegui executá-lo com segurança. Não alterei nada.",
+        reply_kind: "info", path: "deterministic_fallback", started_at: started,
+        tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+        model: brain.telemetry.model, provider: brain.telemetry.provider,
+        error: write.error ?? "conversation_brain_write_unhandled",
+        session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+      });
+    }
     const writeExecuted = Boolean(write.tool_name && write.reply_kind !== "question");
     return await finishV2({
       sb, input, contract, reply: write.reply,
@@ -609,8 +726,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     }
   }
 
-  const plan = buildTurnPlan({ text: canonical, history });
+  // canonical_request já incorporou continuidade/elipse. O resolver temporal
+  // não recebe histórico, portanto não pode reclassificar o turno novamente.
+  const plan = buildTurnPlan({ text: canonical, history: [] });
   const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
+  const comparisonIntent = contract.financial_read?.queries.some((query) => query.operation === "compare") ?? false;
   const basePeriod = multiPeriod.periods[0] ?? {
     from: plan.effective_period.from,
     to: plan.effective_period.to,
@@ -620,8 +740,15 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
 
-  const multiQuery = await isEnabled("semantic_ir_multiquery_v1", input.user_id);
-  const investigation = await isEnabled("semantic_investigation_loop_v1", input.user_id);
+  // O contrato já declara quantas subconsultas fazem parte do pedido. Uma flag
+  // antiga não pode truncar essa semântica depois do Brain.
+  const contractQueryCount = Math.max(
+    1,
+    Math.min(MAX_IR_QUERIES, contract.financial_read?.queries.length ?? 1),
+  );
+  // Replan semântico por LLM permanece disponível no pipeline legado, mas não
+  // na lane autoritativa: um IR revisado seria uma segunda interpretação.
+  const authoritativeInvestigationEnabled = false;
 
   const semantic = await runSemanticTurn({
     text: canonical,
@@ -634,43 +761,61 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     },
     comparison_period: plan.previous_period,
     periods: multiPeriod.periods.length >= 2 ? multiPeriod.periods : null,
-    comparison_intent: multiPeriod.comparison_intent,
+    comparison_intent: comparisonIntent,
     previous_query: contract.inherit_focus ? (memory?.conversation_summary ?? null) : null,
     topic_state: state?.semantic_topic_state ?? null,
-    max_queries: multiQuery ? MAX_IR_QUERIES : 1,
-    investigation_enabled: investigation,
+    max_queries: contractQueryCount,
+    investigation_enabled: authoritativeInvestigationEnabled,
     // Segurança semântica é parte da V2, não uma otimização opcional.
     preservation_enforced: true,
     // "por mês/costumo" jamais pode cair no MTD na arquitetura nova.
     typical_monthly_enabled: true,
+    authoritative_contract: true,
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
-    compile: (args) => compileFinancialQuery({
-      text: args.text,
-      model: BRAIN_MODEL,
-      period: {
-        from: basePeriod.from,
-        to: basePeriod.to,
-        label: basePeriod.label,
-      },
-      comparison_period: plan.previous_period,
-      previous_query: args.previous_query,
-      max_queries: args.max_queries,
-      replan: args.replan ?? null,
-      reason: "conversation_brain_v1_read_compile",
-      skip_fast_path: true,
-      sb,
-      user_id: input.user_id,
-      run_id: null,
-    }),
+    compile: async (args) => {
+      // Financial semantics come only from the canonical Turn Contract.
+      // Replan semântico por LLM é recusado nesta lane: evidência pode mudar a
+      // execução, nunca reescrever o significado já contratado.
+      if (args.replan) return null;
+      const compiled = compileFinancialReadFromTurn({
+        turn: contract,
+        period: {
+          from: basePeriod.from,
+          to: basePeriod.to,
+          label: basePeriod.label ?? "período solicitado",
+        },
+        comparison_period: plan.previous_period
+          ? {
+            from: plan.previous_period.from,
+            to: plan.previous_period.to,
+            label: plan.previous_period.label ?? "período anterior",
+          }
+          : null,
+      });
+      return compiled ?? {
+        ir: null,
+        telemetry: {
+          model: "deterministic:turn_contract",
+          llm_calls: 0,
+          tokens_in: 0,
+          tokens_out: 0,
+          latency_ms: 0,
+          ok: false,
+          error: "turn_contract_financial_adapter_failed",
+          source: "unavailable" as const,
+        },
+      };
+    },
     runEngine: async (tool, toolArgs) => {
+      const scopedArgs = applyGroundedReferenceScope(tool, toolArgs, groundedTurn.reference);
       const exec = await runTool({
         sb,
         user_id: input.user_id,
         conversation_id: input.conversation_id,
         user_text: canonical,
         evidenceCache,
-      } as any, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
+      } as any, tool, scopedArgs, { timeoutMs: 12_000, maxRetries: 1 });
       return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
     },
     runTypicalMonthly: async (query) => {
@@ -696,16 +841,53 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     recordStage: () => undefined,
   }).catch(() => null);
 
-  if (!semantic) return await handleLegacyTurn(input);
+  if (!semantic) {
+    return await finishV2({
+      sb, input, contract,
+      reply: PROTECTED_ENGINE_FAILURE_REPLY,
+      reply_kind: "info", path: "deterministic_fallback", started_at: started,
+      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      model: brain.telemetry.model, provider: brain.telemetry.provider,
+      error: "authoritative_semantic_pipeline_failed",
+      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    });
+  }
   if (session_id) {
     await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
+  // Hierarquia de contratos: Turn Contract -> financial_read_contract.v4.
+  // O contrato financeiro encapsula o IR v3 existente; ele não compete com a
+  // autoridade conversacional e é verificado contra a execução/evidência.
+  const financialReadContract = semantic.ir_v3
+    ? buildFinancialReadContract({
+      turn: contract,
+      requested: semantic.ir_v3,
+      grounded_reference: groundedTurn.reference,
+    })
+    : null;
+  const appliedReferenceScope = (semantic.turn?.toolCalls ?? [])
+    .map((call: any) => executedReferenceScope(call?.result))
+    .find((scope: any) => !!scope) ?? null;
+  const fulfillment = financialReadContract
+    ? verifyFinancialFulfillment({
+      contract: financialReadContract,
+      preservation: semantic.preservation,
+      grounding: semantic.grounding ?? null,
+      applied_reference_scope: appliedReferenceScope,
+    })
+    : null;
+
   let reply = semantic.turn?.reply
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
-  const replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
-  if (replyKind === "info" && suggestionsAllowed(durableUserContext)) {
+  let replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
+  const fulfillmentBlocked = !!fulfillment && !fulfillment.ok && !!semantic.turn;
+  if (fulfillmentBlocked) {
+    reply = PROTECTED_ENGINE_FAILURE_REPLY;
+    replyKind = "info";
+  }
+  if (replyKind === "info" && !fulfillmentBlocked && suggestionsAllowed(durableUserContext)) {
     const suggestion = suggestionForSemantic(semantic);
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
@@ -724,7 +906,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       result: call.result,
       ok: call.ok === true,
     })),
-    error: semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
+    error: fulfillmentBlocked
+      ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
+      : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     // Persist the period contract that was ACTUALLY executed. Using the
     // pre-semantic planner period here stored July + an unrelated June window

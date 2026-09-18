@@ -28,6 +28,21 @@ if (!normalized.some((p) => p.includes("julho")) || !normalized.some((p) => p.in
 if (!String(outcome.contract.canonical_request ?? "").toLowerCase().includes("categor")) {
   throw new Error(`ConversationBrain lost category scope: ${outcome.contract.canonical_request}`);
 }
+if (outcome.contract.version !== "conversation_turn_contract.v2") {
+  throw new Error(`Expected Turn Contract v2, got ${outcome.contract.version}`);
+}
+if (outcome.contract.domain !== "financial_read") {
+  throw new Error(`Expected financial_read domain, got ${outcome.contract.domain}`);
+}
+const semantic = outcome.contract.financial_read;
+if (!semantic || semantic.queries[0]?.metric !== "expense_amount"
+  || semantic.queries[0]?.operation !== "rank"
+  || semantic.queries[0]?.group_by?.[0] !== "category") {
+  throw new Error(`ConversationBrain lost authoritative financial semantics: ${JSON.stringify(semantic)}`);
+}
+if ("confidence" in outcome.contract) {
+  throw new Error("ConversationBrain reintroduced numeric self-confidence");
+}
 
 console.log(JSON.stringify({
   ok: true,
@@ -37,4 +52,5 @@ console.log(JSON.stringify({
   act: outcome.contract.act,
   periods,
   canonical_request: outcome.contract.canonical_request,
+  financial_read: outcome.contract.financial_read,
 }));

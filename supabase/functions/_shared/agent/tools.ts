@@ -172,6 +172,8 @@ export async function analyze_spending(ctx: ToolContext, args: {
   category?: string;
   card?: string;
   account?: string;
+  /** Grounded set from ConversationReferenceStore; never inferred here. */
+  category_scope?: string[];
 }): Promise<ToolResult> {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   const to = iso.test(args?.to ?? "") ? args.to! : todaySaoPaulo();
@@ -221,6 +223,10 @@ export async function analyze_spending(ctx: ToolContext, args: {
   const names = new Map((categoriesResult.data ?? []).map((c: any) => [c.id, c.name]));
   const cardNames = new Map((cardsResult.data ?? []).map((c: any) => [c.id, c.name]));
   const accountNames = new Map((accountsResult.data ?? []).map((a: any) => [a.id, a.name]));
+  const categoryScopeLabels = [...new Set((args?.category_scope ?? []).map((v) => String(v).trim()).filter(Boolean))];
+  const categoryScope = categoryScopeLabels.length
+    ? new Set(categoryScopeLabels.map((v) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")))
+    : null;
   if (cardFilter) cardNames.set(cardFilter.id, cardFilter.name);
   if (accountFilter) accountNames.set(accountFilter.id, accountFilter.name);
 
@@ -245,12 +251,15 @@ export async function analyze_spending(ctx: ToolContext, args: {
     if (cardFilter && String(row.credit_card_id ?? "") !== cardFilter.id) continue;
     if (accountFilter && String(row.account_id ?? "") !== accountFilter.id) continue;
 
-    totalExpense += expenseAmount;
-    totalIncome += incomeAmount;
     const metricAmount = metric === "income" ? incomeAmount : expenseAmount;
     if (metricAmount === 0) continue;
 
     const category = String(effectiveCategory ? (names.get(effectiveCategory) ?? "Sem categoria") : "Sem categoria");
+    const categoryKey = category.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (categoryScope && !categoryScope.has(categoryKey)) continue;
+
+    totalExpense += expenseAmount;
+    totalIncome += incomeAmount;
     byCategory.set(category, (byCategory.get(category) ?? 0) + metricAmount);
 
     const groupName = groupBy === "card"
@@ -308,6 +317,9 @@ export async function analyze_spending(ctx: ToolContext, args: {
       top_category: categoriesRank[0] ?? null,
       uncategorized,
       data_limit: metricRows === 0 ? "no_data" : metricRows < 3 ? "small_sample" : null,
+      applied_reference_scope: categoryScopeLabels.length
+        ? { target: "category", entity_labels: categoryScopeLabels }
+        : null,
       formula_version: "analyze_spending.composable.v4",
     },
   };
@@ -704,6 +716,16 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
     } as any;
   }
   args = { ...args, type: inferredType };
+  // Defensive type invariant: inferDraftType resolved the transaction kind
+  // above. Keep the canonical Category Truth V2 call on args.type while making
+  // that guarantee explicit to static typecheckers.
+  if (!args.type) {
+    return {
+      ok: false,
+      error: "needs_type",
+      hint: "Não ficou claro se é gasto ou recebimento. Pergunte isso em UMA frase curta e não crie o rascunho antes da resposta.",
+    } as any;
+  }
   const spelled = parseSpelledMoney(String(ctx.user_text ?? ""));
   const amount = Number(Number.isFinite(Number(args?.amount)) && Number(args?.amount) > 0 ? args.amount : (spelled ?? args?.amount));
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -879,7 +901,7 @@ export async function add_goal_contribution_draft(ctx: ToolContext, args: {
     const { data, error } = await ctx.sb.from("goals").select("id,name").eq("user_id", ctx.user_id).eq("status", "active");
     if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     const h = hint.toLowerCase();
-    const m = (data ?? []).find(g => (g.name as string).toLowerCase().includes(h));
+    const m = (data ?? []).find((g: any) => (g.name as string).toLowerCase().includes(h));
     if (m) { goalId = m.id as string; goalName = m.name as string; }
   }
   if (!goalId) return { ok: false, error: "goal_not_found" };
@@ -1736,6 +1758,7 @@ export async function compare_periods(ctx: ToolContext, args: {
   group_by?: "category" | "none";
   period_a?: { from: string; to: string };
   period_b?: { from: string; to: string };
+  category_scope?: string[];
 }): Promise<ToolResult> {
   const today = todaySP();
   const cur = monthRange(today);
@@ -1749,7 +1772,10 @@ export async function compare_periods(ctx: ToolContext, args: {
   const { txs, names } = await loadTxAndCategories(ctx, from, to);
   const gate = reconciliationGate(txs as any);
   if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
-  const result = computeCompare({ txs: txs as any, categoryNames: names, metric, period_a, period_b, group_by: "category" });
+  const result = computeCompare({
+    txs: txs as any, categoryNames: names, metric, period_a, period_b,
+    group_by: "category", category_scope: args?.category_scope ?? [],
+  });
   // `requested_group_by` describes the semantic shape requested by the
   // caller. The engine always computes category deltas as evidence, but a
   // total-only question must not be rendered as a category ranking.
@@ -3072,6 +3098,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
         metric: { type: "string", enum: ["expense", "income"] },
         period_a: periodSchema,
         period_b: periodSchema,
+        category_scope: { type: "array", items: { type: "string" }, maxItems: 20 },
       },
       additionalProperties: false,
     },

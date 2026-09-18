@@ -14,7 +14,7 @@ import {
   type AdvisorSignal,
   type TopicResolutionInput,
 } from "../../finance-core/advisorTopics.ts";
-import { remember } from "./MemoryStore.ts";
+import { writeDurableMemory } from "./MemoryWriter.ts";
 
 export type AdvisorSignalSource = "app" | "whatsapp" | "simulator" | "proactive" | "report";
 
@@ -143,7 +143,7 @@ export async function learnComparisonPreference(
 ): Promise<void> {
   const mode = detectPreferredComparisonMode(text);
   if (!mode) return;
-  await remember(sb, {
+  await writeDurableMemory(sb, {
     user_id,
     kind: "advisor_preference",
     key: mode,

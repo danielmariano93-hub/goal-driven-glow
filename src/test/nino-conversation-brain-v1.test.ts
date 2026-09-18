@@ -197,8 +197,10 @@ describe("Wiring arquitetural", () => {
     expect(v2).not.toContain("classifyDialogueState(");
   });
 
-  it("falha do Brain abandona V2 em vez de empilhar o legado depois da interpretação", () => {
+  it("falha do Brain fecha a lane V2 e nunca devolve autoridade ao legado", () => {
     const v2 = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
-    expect(v2).toContain("if (!brain.contract) return await handleLegacyTurn(input)");
+    expect(v2).toContain('error: brain.telemetry.error ?? "conversation_brain_contract_unavailable"');
+    expect(v2).not.toContain("if (!brain.contract) return await handleLegacyTurn(input)");
+    expect(v2).toContain("if (!brain.contract) {");
   });
 });

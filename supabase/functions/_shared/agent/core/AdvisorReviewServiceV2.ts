@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { loadProfile } from "./UserProfile.ts";
-import { remember } from "./MemoryStore.ts";
+import { writeDurableMemory } from "./MemoryWriter.ts";
 import { periodReviewKey } from "../../intelligence/logicalDedup.ts";
 import { fetchAllPages } from "../../derived/pagedSelect.ts";
 
@@ -630,7 +630,7 @@ export async function generateAdvisorReviews(
       status: "pending",
     }, { onConflict: "user_id,dedup_key", ignoreDuplicates: true });
 
-    await remember(sb, {
+    await writeDurableMemory(sb, {
       user_id: userId,
       kind: "advisor_review",
       key: `${review.period_kind}:${review.period_start}`,

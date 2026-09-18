@@ -1,30 +1,18 @@
-// BrainAdvisoryBridge (nino_advisory_bridge.v1)
+// BrainAdvisoryBridge (nino_advisory_bridge.v2)
 //
-// Conversation Brain remains the authority of meaning. This module does NOT
-// classify the raw user turn again: it receives the Brain's canonical request
-// and only binds a small set of high-confidence advisory intents to existing
-// deterministic financial engines.
-//
-// Why it exists: advisory engines such as get_next_best_action and
-// build_financial_plan predate FinancialQueryIR and are not monetary query
-// primitives. Sending them through the generic semantic IR can incorrectly
-// produce "unsupported" even though Nino already has a canonical engine.
+// Conversation Brain is the ONLY authority for advisory intent. This bridge
+// binds the already-resolved advisory_kind to existing deterministic engines.
+// It never classifies the user's language again.
+
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
 import type { ConversationTurnContract } from "./ConversationTurnContract.ts";
 import { parseBrAmountWithScale } from "../parser.ts";
 
 export type AdvisoryBridgeResult = {
-  version: "nino_advisory_bridge.v1";
+  version: "nino_advisory_bridge.v2";
   capability: CapabilityDecision;
   reason: string;
 };
-
-function norm(text: string): string {
-  return String(text ?? "").toLowerCase().normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function targetAmount(text: string): number | undefined {
   const raw = String(text ?? "");
@@ -36,8 +24,9 @@ function targetAmount(text: string): number | undefined {
 }
 
 function monthsFrom(text: string): number | undefined {
-  const t = norm(text);
-  const hit = t.match(/\b(?:ultimos?|proximos?|em|nos?)\s+(\d{1,2})\s+mes(?:es)?\b/);
+  const normalized = String(text ?? "").toLowerCase().normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+  const hit = normalized.match(/\b(?:ultimos?|proximos?|em|nos?)\s+(\d{1,2})\s+mes(?:es)?\b/);
   const value = Number(hit?.[1] ?? 0);
   return value >= 3 && value <= 36 ? value : undefined;
 }
@@ -49,7 +38,7 @@ function cap(
   args: Record<string, unknown> = {},
 ): AdvisoryBridgeResult {
   return {
-    version: "nino_advisory_bridge.v1",
+    version: "nino_advisory_bridge.v2",
     reason,
     capability: {
       name,
@@ -66,66 +55,34 @@ function cap(
 export function resolveBrainAdvisory(
   contract: ConversationTurnContract,
 ): AdvisoryBridgeResult | null {
-  if (contract.mode !== "read") return null;
+  if (contract.mode !== "read" || contract.domain !== "advisory") return null;
+  const kind = contract.advisory_kind ?? null;
+  if (!kind) return null;
   const raw = String(contract.canonical_request ?? "").trim();
-  const t = norm(raw);
-  if (!t) return null;
+  const months = monthsFrom(raw);
 
-  // Holistic "what should I do now?" — one canonical next action based on
-  // cash, debt pressure, goals and wealth-building evidence.
-  const nextBest =
-    /\bqual (?:e )?o meu proximo passo financeiro\b/.test(t)
-    || /\bo que (?:eu )?devo fazer agora (?:com|pelo|pro) (?:o |meu )?dinheiro\b/.test(t)
-    || /\bpor onde (?:eu )?comeco (?:financeiramente|a organizar minha vida financeira)\b/.test(t)
-    || /\bcomo (?:eu )?comeco a construir patrimonio\b/.test(t)
-    || /\bqual (?:e )?a melhor coisa que (?:eu )?posso fazer agora (?:financeiramente|com meu dinheiro)\b/.test(t)
-    || /\bo que mais mudaria minha vida financeira agora\b/.test(t)
-    || /\bproxima melhor acao\b.*\b(financeir|dinheiro|patrimonio|meta)/.test(t)
-    || /\bo que (?:voce|vc) me (?:sugere|recomenda) agora\b.*\b(financeir|dinheiro|patrimonio|vida financeira)/.test(t)
-    || /\bqual (?:e )?a sua sugestao pra mim agora\b.*\b(financeir|dinheiro|patrimonio|vida financeira)/.test(t);
-  if (nextBest) {
-    const months = monthsFrom(raw);
-    return cap("next_best_action", "get_next_best_action", "brain_advisory_next_best_action", {
-      ...(months ? { months } : {}),
-    });
+  switch (kind) {
+    case "next_best_action":
+      return cap("next_best_action", "get_next_best_action", "turn_contract:next_best_action", {
+        ...(months ? { months } : {}),
+      });
+    case "goal_strategy":
+      return cap("goal_strategy", "get_goal_strategy", "turn_contract:goal_strategy", {
+        ...(contract.focus.goal ? { goal: contract.focus.goal } : {}),
+      });
+    case "wealth_opportunity":
+      return cap("wealth_opportunity", "analyze_wealth_opportunity", "turn_contract:wealth_opportunity", {
+        ...(months ? { months } : {}),
+      });
+    case "financial_plan": {
+      const target = targetAmount(raw);
+      return cap("financial_plan", "build_financial_plan", "turn_contract:financial_plan", {
+        ...(target ? { target_amount: target } : {}),
+        ...(contract.focus.goal ? { goal: contract.focus.goal } : {}),
+        ...(months ? { months } : {}),
+      });
+    }
+    default:
+      return null;
   }
-
-  // Goal strategy is different from merely reading goal progress: the user is
-  // explicitly asking for direction on how to reach it.
-  const goalStrategy = /\bmeta\w*\b/.test(t)
-    && /\b(como (?:faco|fazer|chego|chegar|consigo|conseguir|atinjo|atingir|bater|alcanco|alcancar)|o que (?:faco|fazer|preciso|devo)|plano|estrategia|dicas?|me ajuda|ajuda a|caminho|passos?|quanto (?:preciso|devo|tenho que) (?:guardar|separar|economizar))\b/.test(t);
-  if (goalStrategy) {
-    return cap("goal_strategy", "get_goal_strategy", "brain_advisory_goal_strategy", {
-      ...(contract.focus.goal ? { goal: contract.focus.goal } : {}),
-    });
-  }
-
-  const wealthOpportunity =
-    /\bpoderia ter (?:guardado|acumulado|investido)\b/.test(t)
-    || /\bquanto (?:eu )?perdi gastando\b/.test(t)
-    || /\bquanto consigo (?:guardar|poupar)\b/.test(t)
-    || /\bpatrimonio (?:possivel|potencial)\b/.test(t)
-    || /\bse eu tivesse (?:guardado|economizado)\b/.test(t);
-  if (wealthOpportunity) {
-    const months = monthsFrom(raw);
-    return cap("wealth_opportunity", "analyze_wealth_opportunity", "brain_advisory_wealth_opportunity", {
-      ...(months ? { months } : {}),
-    });
-  }
-
-  const financialPlan =
-    /\b(?:monte?|montar|faz|fazer|cria[r]?|elabora[r]?) (?:um )?plano\b/.test(t)
-    || /\bplano (?:para|pra) (?:eu )?(?:chegar|juntar|alcancar|ter)\b/.test(t)
-    || /\bcomo (?:eu )?(?:chego|faco para chegar|junto) (?:a|em|nos?) r?\$?\s?\d/.test(t);
-  if (financialPlan) {
-    const target = targetAmount(raw);
-    const months = monthsFrom(raw);
-    return cap("financial_plan", "build_financial_plan", "brain_advisory_financial_plan", {
-      ...(target ? { target_amount: target } : {}),
-      ...(contract.focus.goal ? { goal: contract.focus.goal } : {}),
-      ...(months ? { months } : {}),
-    });
-  }
-
-  return null;
 }

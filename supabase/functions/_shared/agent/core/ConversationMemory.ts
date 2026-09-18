@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { getState, patchState } from "./StateManager.ts";
 import type { ConversationExpectation } from "./ConversationExpectation.ts";
 import type { PendingConversationAction } from "./ContinuationContract.ts";
+import type { ReferenceObject } from "./ConversationReferenceStore.ts";
 
 export type ConversationMemory = {
   current_topic: string | null;
@@ -42,6 +43,8 @@ export type ConversationMemory = {
     engines: string[];
   } | null;
   conversation_summary: string | null;
+  /** Referências estruturadas a conjuntos/entidades exibidos recentemente. */
+  references: ReferenceObject[];
   updated_at: string;
 };
 
@@ -53,7 +56,7 @@ export function emptyMemory(): ConversationMemory {
     current_topic: null, active_topic_id: null, previous_intent: null, active_category: null, active_merchant: null,
     active_period: null, comparison_period: null, pending_action: null, pending_slots: [],
     awaiting: null, pending_conversation_action: null,
-    last_tool_context: null, last_analysis: null, conversation_summary: null, updated_at: new Date(0).toISOString(),
+    last_tool_context: null, last_analysis: null, conversation_summary: null, references: [], updated_at: new Date(0).toISOString(),
   };
 }
 

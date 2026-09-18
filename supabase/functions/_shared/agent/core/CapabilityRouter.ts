@@ -807,7 +807,7 @@ export function resumeDeterministicCapability(
     ...previous,
     required_tool: "run_before_spending",
     tool_args: mergedArgs,
-    clarification: null,
+    clarification: undefined,
     reason: "canonical_spending_simulation_resumed",
   };
 }

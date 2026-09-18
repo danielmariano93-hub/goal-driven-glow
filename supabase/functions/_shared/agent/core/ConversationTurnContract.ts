@@ -1,8 +1,21 @@
-// ConversationTurnContract (`nino_conversation_brain.v1`)
-// Pure contract between the conversational authority and deterministic runtime.
-// No DB, no LLM and no tools: this module is intentionally easy to unit-test.
+// ConversationTurnContract (`nino_conversation_brain.v2`)
+//
+// Contrato CANÔNICO único entre entendimento conversacional e runtime.
+// A LLM pode interpretar linguagem; depois daqui nenhuma camada pode mudar o
+// significado do turno. Contratos de domínio (ex.: financial_read_contract.v4)
+// são derivados deste contrato e nunca competem com ele.
+//
+// v1 continua aceito apenas como formato de entrada para compatibilidade.
+// normalizeConversationTurnContract() sempre devolve v2.
+// No numeric self-confidence is used for routing. Each relevant slot has an
+// explicit resolution state: resolved | ambiguous | missing | conflicting |
+// not_applicable.
 
 import { isActionKind, type ActionIR } from "./ActionIR.ts";
+import {
+  FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+  type FinancialDimension, type FinancialFilter, type FinancialMetric, type FinancialOperation,
+} from "./FinancialQueryIR.ts";
 
 export const BRAIN_ACTS = [
   "new_request", "follow_up", "repair", "answer", "topic_switch", "conversational",
@@ -12,6 +25,47 @@ export type BrainAct = typeof BRAIN_ACTS[number];
 export const BRAIN_MODES = ["converse", "read", "write", "clarify"] as const;
 export type BrainMode = typeof BRAIN_MODES[number];
 
+export const TURN_DOMAINS = [
+  "conversation", "financial_read", "financial_write", "advisory",
+] as const;
+export type TurnDomain = typeof TURN_DOMAINS[number];
+
+export const ADVISORY_KINDS = [
+  "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
+] as const;
+export type AdvisoryKind = typeof ADVISORY_KINDS[number];
+
+export const RESOLUTION_STATES = [
+  "resolved", "ambiguous", "missing", "conflicting", "not_applicable",
+] as const;
+export type ResolutionState = typeof RESOLUTION_STATES[number];
+
+export type TurnResolution = {
+  intent: ResolutionState;
+  reference: ResolutionState;
+  time: ResolutionState;
+  entity: ResolutionState;
+  action: ResolutionState;
+};
+
+export const REFERENCE_KINDS = [
+  "none", "previous_result_set", "previous_entity", "quoted_turn", "active_topic",
+] as const;
+export type ReferenceKind = typeof REFERENCE_KINDS[number];
+
+export const REFERENCE_TARGETS = [
+  "category", "merchant", "card", "account", "goal", "generic",
+] as const;
+export type ReferenceTarget = typeof REFERENCE_TARGETS[number];
+
+export type TurnReference = {
+  kind: ReferenceKind;
+  target: ReferenceTarget;
+  /** Expressão literal usada pelo usuário: "delas", "essa categoria", etc. */
+  expression: string | null;
+  status: ResolutionState;
+};
+
 export type BrainFocus = {
   category: string | null;
   merchant: string | null;
@@ -19,31 +73,57 @@ export type BrainFocus = {
   /** Primeira expressão temporal (compatibilidade retroativa). */
   period_expression: string | null;
   /**
-   * TODAS as expressões temporais do pedido, na ordem em que aparecem
-   * ("julho", "agosto"). Multi-período é capacidade de primeira classe: quem
-   * transforma expressão em intervalo é o backend, nunca a LLM.
+   * TODAS as expressões temporais do pedido, na ordem em que aparecem.
+   * Datas são resolvidas no backend, nunca pela LLM.
    */
   period_expressions?: string[];
 };
 
+export type FinancialReadSemanticQuery = {
+  metric: FinancialMetric;
+  operation: FinancialOperation;
+  group_by: FinancialDimension[];
+  filters: FinancialFilter[];
+  limit: number | null;
+};
+
+export type FinancialReadSemanticRequest = {
+  intent: "lookup" | "analyze" | "investigate";
+  queries: FinancialReadSemanticQuery[];
+};
+
+/**
+ * Contrato público CANÔNICO. Compatibilidade com payloads v1 existe somente na
+ * fronteira de normalizeConversationTurnContract(raw: unknown); v1 e confidence
+ * numérico não fazem parte do tipo que o runtime pode consumir.
+ */
 export type ConversationTurnContract = {
-  version: "conversation_turn_contract.v1";
+  version: "conversation_turn_contract.v2";
   act: BrainAct;
   mode: BrainMode;
+  /** Domínio conversacional de alto nível. Não escolhe tool/engine. */
+  domain: TurnDomain;
   canonical_request: string | null;
   inherit_focus: boolean;
   focus: BrainFocus;
   action: ActionIR | null;
   direct_reply: string | null;
   clarification_question: string | null;
-  confidence: number;
+  /** Estado explícito por slot; autoridade para decidir se pode seguir. */
+  resolution: TurnResolution;
+  /** Referência conversacional estruturada; grounding resolve para entidades reais. */
+  reference: TurnReference | null;
+  /**
+   * Semântica financeira de alto nível emitida pela MESMA autoridade. Não tem
+   * datas resolvidas, IDs nem tools; o backend traduz para Financial IR v3.
+   */
+  financial_read: FinancialReadSemanticRequest | null;
+  /** Subtipo advisory emitido pela mesma autoridade conversacional. */
+  advisory_kind: AdvisoryKind | null;
 };
 
-/**
- * Lista ordenada e deduplicada das expressões temporais do foco. Aceita o campo
- * novo (`period_expressions`) e o antigo (`period_expression`) sem quebrar
- * contratos já gravados.
- */
+export type CanonicalConversationTurnContract = ConversationTurnContract;
+
 export function normalizePeriodExpressions(focus: unknown): string[] {
   const raw = (focus ?? {}) as Record<string, unknown>;
   const list = Array.isArray(raw.period_expressions) ? raw.period_expressions : [];
@@ -58,7 +138,106 @@ export function normalizePeriodExpressions(focus: unknown): string[] {
   return out;
 }
 
-export function normalizeConversationTurnContract(raw: unknown): ConversationTurnContract | null {
+function resolutionState(value: unknown, fallback: ResolutionState): ResolutionState {
+  const state = String(value ?? "");
+  return RESOLUTION_STATES.includes(state as ResolutionState) ? state as ResolutionState : fallback;
+}
+
+function inferDomain(mode: BrainMode, rawDomain: unknown): TurnDomain {
+  const domain = String(rawDomain ?? "");
+  if (TURN_DOMAINS.includes(domain as TurnDomain)) return domain as TurnDomain;
+  if (mode === "write") return "financial_write";
+  if (mode === "read") return "financial_read";
+  return "conversation";
+}
+
+function normalizeReference(raw: unknown): TurnReference | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const kind = REFERENCE_KINDS.includes(String(value.kind) as ReferenceKind)
+    ? String(value.kind) as ReferenceKind
+    : "none";
+  if (kind === "none") return null;
+  const target = REFERENCE_TARGETS.includes(String(value.target) as ReferenceTarget)
+    ? String(value.target) as ReferenceTarget
+    : "generic";
+  return {
+    kind,
+    target,
+    expression: value.expression == null ? null : String(value.expression).trim(),
+    status: resolutionState(value.status, "missing"),
+  };
+}
+
+function inferResolution(args: {
+  raw: any;
+  mode: BrainMode;
+  action: ActionIR | null;
+  focus: BrainFocus;
+  reference: TurnReference | null;
+}): TurnResolution {
+  const declared = args.raw?.resolution ?? {};
+  const hasEntity = Boolean(args.focus.category || args.focus.merchant || args.focus.goal);
+  const hasTime = normalizePeriodExpressions(args.focus).length > 0;
+  const refFallback: ResolutionState = args.reference
+    ? args.reference.status
+    : "not_applicable";
+
+  return {
+    intent: resolutionState(
+      declared.intent,
+      args.mode === "clarify" ? "ambiguous" : "resolved",
+    ),
+    reference: resolutionState(declared.reference, refFallback),
+    time: resolutionState(declared.time, hasTime ? "resolved" : "not_applicable"),
+    entity: resolutionState(declared.entity, hasEntity ? "resolved" : "not_applicable"),
+    action: resolutionState(
+      declared.action,
+      args.mode === "write" ? (args.action ? "resolved" : "missing") : "not_applicable",
+    ),
+  };
+}
+
+function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const intent = String(value.intent ?? "");
+  if (!["lookup", "analyze", "investigate"].includes(intent)) return null;
+  const queriesRaw = Array.isArray(value.queries) ? value.queries : [];
+  if (queriesRaw.length < 1 || queriesRaw.length > 4) return null;
+  const queries: FinancialReadSemanticQuery[] = [];
+  for (const item of queriesRaw) {
+    if (!item || typeof item !== "object") return null;
+    const q = item as Record<string, unknown>;
+    const metric = String(q.metric ?? "") as FinancialMetric;
+    const operation = String(q.operation ?? "") as FinancialOperation;
+    if (!FINANCIAL_METRICS.includes(metric) || !FINANCIAL_OPERATIONS.includes(operation)) return null;
+    const groupBy = Array.isArray(q.group_by) ? q.group_by.map(String) : [];
+    if (groupBy.length > 1 || groupBy.some((d) => !FINANCIAL_DIMENSIONS.includes(d as FinancialDimension))) return null;
+    const filtersRaw = Array.isArray(q.filters) ? q.filters : [];
+    const filters: FinancialFilter[] = [];
+    for (const rawFilter of filtersRaw) {
+      if (!rawFilter || typeof rawFilter !== "object") return null;
+      const filter = rawFilter as Record<string, unknown>;
+      const field = String(filter.field ?? "") as FinancialFilter["field"];
+      const filterValue = String(filter.value ?? "").trim();
+      if (!["category", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
+      filters.push({ field, op: "eq", value: filterValue });
+    }
+    const limit = q.limit == null ? null : Number(q.limit);
+    if (limit != null && (!Number.isInteger(limit) || limit < 1 || limit > 20)) return null;
+    queries.push({
+      metric,
+      operation,
+      group_by: groupBy as FinancialDimension[],
+      filters,
+      limit,
+    });
+  }
+  return { intent: intent as FinancialReadSemanticRequest["intent"], queries };
+}
+
+export function normalizeConversationTurnContract(raw: unknown): CanonicalConversationTurnContract | null {
   const value = raw as any;
   if (!value
     || !BRAIN_ACTS.includes(String(value.act) as BrainAct)
@@ -75,39 +254,66 @@ export function normalizeConversationTurnContract(raw: unknown): ConversationTur
   const act = value.act as BrainAct;
   const inheritFocus = Boolean(value.inherit_focus);
 
-  // Cross-field invariants: invalid contracts fail closed instead of being
-  // silently reinterpreted by the runtime.
   if (mode === "write" && !action) return null;
   if (mode !== "write" && action) return null;
   if (mode === "read" && !String(value.canonical_request ?? "").trim()) return null;
   if (mode === "clarify" && !String(value.clarification_question ?? "").trim()) return null;
   if (mode === "converse" && !String(value.direct_reply ?? "").trim()) return null;
 
-  // Continuation semantics are part of the contract, not a downstream guess.
-  // A repair must preserve the rejected turn's focus; follow-up/answer also
-  // inherit. A topic switch must explicitly drop old focus.
   if ((act === "follow_up" || act === "answer" || act === "repair") && !inheritFocus) return null;
   if (act === "topic_switch" && inheritFocus) return null;
 
   const periodExpressions = normalizePeriodExpressions(value.focus);
+  const focus: BrainFocus = {
+    category: value.focus?.category == null ? null : String(value.focus.category).trim(),
+    merchant: value.focus?.merchant == null ? null : String(value.focus.merchant).trim(),
+    goal: value.focus?.goal == null ? null : String(value.focus.goal).trim(),
+    period_expression: periodExpressions[0] ?? null,
+    period_expressions: periodExpressions,
+  };
+  const reference = normalizeReference(value.reference);
+  const resolution = inferResolution({ raw: value, mode, action, focus, reference });
+  const domain = inferDomain(mode, value.domain);
+  const advisoryKind = ADVISORY_KINDS.includes(String(value.advisory_kind) as AdvisoryKind)
+    ? String(value.advisory_kind) as AdvisoryKind
+    : null;
+  const financialRead = normalizeFinancialRead(value.financial_read);
+  const explicitV2 = String(value.version ?? "") === "conversation_turn_contract.v2";
+  if (domain === "advisory" && !advisoryKind) return null;
+  if (domain !== "advisory" && advisoryKind) return null;
+  if (explicitV2 && domain === "financial_read" && !financialRead) return null;
+  if (domain !== "financial_read" && financialRead) return null;
+
+  // Fail closed on explicit unresolved semantics. Clarify is the only mode that
+  // may intentionally carry ambiguous/missing/conflicting intent/reference.
+  const unresolved = Object.values(resolution).some(
+    (state) => state === "ambiguous" || state === "missing" || state === "conflicting",
+  );
+  if (mode !== "clarify" && resolution.intent !== "resolved") return null;
+  if (mode !== "clarify" && reference && resolution.reference !== "resolved") return null;
+  if (mode === "write" && resolution.action !== "resolved") return null;
+  // Entity/time may be not_applicable; if declared unresolved for a READ, the
+  // Brain must clarify before execution.
+  if (mode === "read" && unresolved
+    && [resolution.time, resolution.entity].some((s) => ["ambiguous", "missing", "conflicting"].includes(s))) {
+    return null;
+  }
 
   return {
-    version: "conversation_turn_contract.v1",
+    version: "conversation_turn_contract.v2",
     act,
     mode,
+    domain,
     canonical_request: value.canonical_request == null ? null : String(value.canonical_request).trim(),
     inherit_focus: inheritFocus,
-    focus: {
-      category: value.focus?.category == null ? null : String(value.focus.category).trim(),
-      merchant: value.focus?.merchant == null ? null : String(value.focus.merchant).trim(),
-      goal: value.focus?.goal == null ? null : String(value.focus.goal).trim(),
-      period_expression: periodExpressions[0] ?? null,
-      period_expressions: periodExpressions,
-    },
+    focus,
     action,
     direct_reply: value.direct_reply == null ? null : String(value.direct_reply).trim(),
     clarification_question: value.clarification_question == null ? null : String(value.clarification_question).trim(),
-    confidence: Math.max(0, Math.min(1, Number(value.confidence ?? 0))),
+    resolution,
+    reference,
+    financial_read: financialRead,
+    advisory_kind: advisoryKind,
   };
 }
 
@@ -119,7 +325,6 @@ export function dialogueActsFromContract(contract: ConversationTurnContract): st
   return ["new_query"];
 }
 
-/** Hard release invariants for golden conversation fixtures. */
 export function validateConversationTurnContract(contract: ConversationTurnContract): string[] {
   const errors: string[] = [];
   if (contract.mode === "write" && !contract.action) errors.push("write_without_action");
@@ -129,5 +334,12 @@ export function validateConversationTurnContract(contract: ConversationTurnContr
     errors.push("continuation_without_focus_inheritance");
   }
   if (contract.act === "topic_switch" && contract.inherit_focus) errors.push("topic_switch_inherits_old_focus");
-  return errors;
+
+  const canonical = normalizeConversationTurnContract(contract);
+  if (!canonical) errors.push("contract_not_canonicalizable");
+  else {
+    if (canonical.mode !== "clarify" && canonical.resolution.intent !== "resolved") errors.push("intent_not_resolved");
+    if (canonical.reference && canonical.resolution.reference !== "resolved") errors.push("reference_not_resolved");
+  }
+  return [...new Set(errors)];
 }

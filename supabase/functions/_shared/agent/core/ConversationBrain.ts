@@ -13,13 +13,17 @@ import {
   resolveAiProvider, type AiProviderConfig, type AiProviderName,
 } from "../../ai-runtime.ts";
 import { ACTION_KINDS } from "./ActionIR.ts";
+import {
+  FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+} from "./FinancialQueryIR.ts";
 import { NINO_IDENTITY } from "./Conversational.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import {
-  BRAIN_ACTS, BRAIN_MODES, normalizeConversationTurnContract,
-  type ConversationTurnContract,
+  ADVISORY_KINDS, BRAIN_ACTS, BRAIN_MODES, REFERENCE_KINDS, REFERENCE_TARGETS,
+  RESOLUTION_STATES, TURN_DOMAINS, normalizeConversationTurnContract,
+  type CanonicalConversationTurnContract, type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 
 export { dialogueActsFromContract } from "./ConversationTurnContract.ts";
@@ -39,7 +43,7 @@ export type ConversationBrainTelemetry = {
 };
 
 export type ConversationBrainOutcome = {
-  contract: ConversationTurnContract | null;
+  contract: CanonicalConversationTurnContract | null;
   telemetry: ConversationBrainTelemetry;
 };
 
@@ -69,12 +73,13 @@ function brainTool() {
       type: "object",
       additionalProperties: false,
       required: [
-        "act", "mode", "canonical_request", "inherit_focus", "focus", "action",
-        "direct_reply", "clarification_question", "confidence",
+        "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
+        "direct_reply", "clarification_question", "resolution", "reference", "financial_read", "advisory_kind",
       ],
       properties: {
         act: { type: "string", enum: [...BRAIN_ACTS] },
         mode: { type: "string", enum: [...BRAIN_MODES] },
+        domain: { type: "string", enum: [...TURN_DOMAINS] },
         canonical_request: { anyOf: [{ type: "string" }, { type: "null" }] },
         inherit_focus: { type: "boolean" },
         focus: {
@@ -103,7 +108,77 @@ function brainTool() {
         },
         direct_reply: { anyOf: [{ type: "string" }, { type: "null" }] },
         clarification_question: { anyOf: [{ type: "string" }, { type: "null" }] },
-        confidence: { type: "number", minimum: 0, maximum: 1 },
+        resolution: {
+          type: "object", additionalProperties: false,
+          required: ["intent", "reference", "time", "entity", "action"],
+          properties: {
+            intent: { type: "string", enum: [...RESOLUTION_STATES] },
+            reference: { type: "string", enum: [...RESOLUTION_STATES] },
+            time: { type: "string", enum: [...RESOLUTION_STATES] },
+            entity: { type: "string", enum: [...RESOLUTION_STATES] },
+            action: { type: "string", enum: [...RESOLUTION_STATES] },
+          },
+        },
+        reference: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object", additionalProperties: false,
+              required: ["kind", "target", "expression", "status"],
+              properties: {
+                kind: { type: "string", enum: [...REFERENCE_KINDS] },
+                target: { type: "string", enum: [...REFERENCE_TARGETS] },
+                expression: { anyOf: [{ type: "string" }, { type: "null" }] },
+                status: { type: "string", enum: [...RESOLUTION_STATES] },
+              },
+            },
+          ],
+        },
+        financial_read: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object", additionalProperties: false,
+              required: ["intent", "queries"],
+              properties: {
+                intent: { type: "string", enum: ["lookup", "analyze", "investigate"] },
+                queries: {
+                  type: "array", minItems: 1, maxItems: 4,
+                  items: {
+                    type: "object", additionalProperties: false,
+                    required: ["metric", "operation", "group_by", "filters", "limit"],
+                    properties: {
+                      metric: { type: "string", enum: [...FINANCIAL_METRICS] },
+                      operation: { type: "string", enum: [...FINANCIAL_OPERATIONS] },
+                      group_by: {
+                        type: "array", maxItems: 1,
+                        items: { type: "string", enum: [...FINANCIAL_DIMENSIONS] },
+                      },
+                      filters: {
+                        type: "array",
+                        items: {
+                          type: "object", additionalProperties: false,
+                          required: ["field", "value"],
+                          properties: {
+                            field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
+                            value: { type: "string" },
+                          },
+                        },
+                      },
+                      limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        advisory_kind: {
+          anyOf: [
+            { type: "null" },
+            { type: "string", enum: [...ADVISORY_KINDS] },
+          ],
+        },
       },
     },
   } as const;
@@ -137,12 +212,21 @@ Regras obrigatórias:
 15. Se UserContext disser TopicResolution=ambiguous e a mensagem depender de contexto anterior, mode=clarify e faça UMA pergunta curta com as opções; não escolha um tópico no chute.
 16. Em converse, seja útil: responda primeiro e, quando fizer sentido, termine com UM próximo passo concreto. Não repita convite genérico em toda mensagem.
 17. Preferências de resposta no UserContext devem ser respeitadas (tom, verbosidade, nível técnico e frequência de sugestões), desde que não conflitem com segurança/verdade.
+18. Nunca emita confiança numérica. Para cada slot semântico, use somente resolved | ambiguous | missing | conflicting | not_applicable.
+19. domain é hierárquico: conversation para conversa sem dados pessoais; financial_read para leitura factual; financial_write para mutação; advisory para pedido de orientação/estratégia financeira. Domain NÃO escolhe ferramenta.
+20. Referências como "delas", "essa categoria", "aquele estabelecimento", "isso" devem ser representadas em reference. Não resolva para entidades por palpite: o Grounding Engine fará isso contra Working Memory/Reference Store.
+21. Se uma referência necessária estiver ambígua ou ausente, mode=clarify. Nenhum componente posterior pode reinterpretar essa referência.
+22. Se domain=advisory, advisory_kind é obrigatório e deve ser exatamente um de: next_best_action, goal_strategy, wealth_opportunity, financial_plan. Nenhuma camada posterior reclassifica o tipo de conselho.
+23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Defaults financeiros de baixo risco e resolução de datas/entidades pertencem aos resolvers do backend. Use missing/ambiguous/conflicting apenas quando a informação é realmente necessária para entender o turno; nesse caso, mode=clarify.
+24. Se houver active_references e a mensagem usar uma referência plural/anáfora compatível ("delas", "essas categorias", "entre elas"), emita reference.kind=previous_result_set, target correto e status=resolved. Não copie a lista para canonical_request; o Grounding Engine vincula o objeto estruturado.
+25. Se domain=financial_read, financial_read é obrigatório e descreve a MESMA interpretação canônica: metric, operation, group_by, filters e limit. Não inclua datas resolvidas nem nomes de tools. Se domain não for financial_read, financial_read=null. Exemplos: "quanto gastei" => expense_amount/sum; "quais categorias mais gastei" => expense_amount/rank/group_by=[category]; "qual categoria aumentou mais" => expense_amount/compare/group_by=[category]. O backend pode traduzir, mas não pode mudar essa semântica.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
 - Nino: "Quer que eu detalhe essa oportunidade?"; usuário: "Quero" => answer/read, canonical_request=pedido completo da oferta, nunca emotional_checkin.
 - usuário: "Cria uma meta de R$ 5.000 até o fim do ano" => write, action=goal.create, slots target_amount=5000 e target_date_expression="fim do ano".
 - usuário: "Quanto gastei em alimentação no mês de julho e agosto?" => new_request/read, focus.category="Alimentação", focus.period_expressions=["julho","agosto"].
+- após mostrar um conjunto de categorias, usuário: "E qual delas mais piorou?" => follow_up/read, reference.kind=previous_result_set, reference.target=category, reference.expression="delas", resolution.reference=resolved; o backend vincula o conjunto.
 - usuário: "Não foi isso que eu pedi" => repair; preserve o foco anterior e corrija a interpretação, não cancele por conta própria.`;
 
 function compactHistory(history: HistoryTurn[]): string {
@@ -165,6 +249,16 @@ function statePrompt(memory: ConversationMemory | null, workflow: WriteWorkflow 
     awaiting: memory.awaiting,
     pending_conversation_action: memory.pending_conversation_action,
     last_analysis: memory.last_analysis,
+    active_references: (memory.references ?? [])
+      .filter((ref) => ref.status === "active")
+      .slice(-4)
+      .map((ref) => ({
+        id: ref.id,
+        target: ref.target,
+        entity_labels: ref.entity_labels,
+        turns_remaining: ref.turns_remaining,
+        expires_at: ref.expires_at,
+      })),
   } : null;
   const openWrite = workflow ? {
     kind: workflow.kind,
@@ -223,7 +317,7 @@ async function runProviderShadow(args: {
     official_canonical_request: args.official_contract.canonical_request,
     official_focus: args.official_contract.focus,
     official_action: args.official_contract.action,
-    official_confidence: args.official_contract.confidence,
+    official_confidence: null,
     official_latency_ms: args.official_telemetry.latency_ms,
   };
 
@@ -273,7 +367,7 @@ async function runProviderShadow(args: {
     shadow_canonical_request: candidate?.canonical_request ?? null,
     shadow_focus: candidate?.focus ?? {},
     shadow_action: candidate?.action ?? null,
-    shadow_confidence: candidate?.confidence ?? null,
+    shadow_confidence: null,
     same_act: candidate ? candidate.act === args.official_contract.act : null,
     same_mode: candidate ? candidate.mode === args.official_contract.mode : null,
     same_canonical_request: candidate
@@ -368,7 +462,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       provider: structured.provider, success: true, latency_ms: structured.latency_ms,
       reason_for_ai_call: "conversation_brain_v1",
       metadata: {
-        contract_version: "conversation_turn_contract.v1",
+        contract_version: "conversation_turn_contract.v2",
         provider: structured.provider,
         transport: "chat_completions_structured",
       },
