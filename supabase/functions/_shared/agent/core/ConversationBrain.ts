@@ -18,7 +18,7 @@ import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import {
-  BRAIN_ACTS, BRAIN_MODES, REFERENCE_KINDS, REFERENCE_TARGETS,
+  ADVISORY_KINDS, BRAIN_ACTS, BRAIN_MODES, REFERENCE_KINDS, REFERENCE_TARGETS,
   RESOLUTION_STATES, TURN_DOMAINS, normalizeConversationTurnContract,
   type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
@@ -71,7 +71,7 @@ function brainTool() {
       additionalProperties: false,
       required: [
         "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
-        "direct_reply", "clarification_question", "resolution", "reference",
+        "direct_reply", "clarification_question", "resolution", "reference", "advisory_kind",
       ],
       properties: {
         act: { type: "string", enum: [...BRAIN_ACTS] },
@@ -131,6 +131,12 @@ function brainTool() {
             },
           ],
         },
+        advisory_kind: {
+          anyOf: [
+            { type: "null" },
+            { type: "string", enum: [...ADVISORY_KINDS] },
+          ],
+        },
       },
     },
   } as const;
@@ -168,6 +174,7 @@ Regras obrigatórias:
 19. domain é hierárquico: conversation para conversa sem dados pessoais; financial_read para leitura factual; financial_write para mutação; advisory para pedido de orientação/estratégia financeira. Domain NÃO escolhe ferramenta.
 20. Referências como "delas", "essa categoria", "aquele estabelecimento", "isso" devem ser representadas em reference. Não resolva para entidades por palpite: o Grounding Engine fará isso contra Working Memory/Reference Store.
 21. Se uma referência necessária estiver ambígua ou ausente, mode=clarify. Nenhum componente posterior pode reinterpretar essa referência.
+22. Se domain=advisory, advisory_kind é obrigatório e deve ser exatamente um de: next_best_action, goal_strategy, wealth_opportunity, financial_plan. Nenhuma camada posterior reclassifica o tipo de conselho.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
