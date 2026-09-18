@@ -18,7 +18,8 @@ import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { WriteWorkflow } from "./WriteWorkflowManager.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import {
-  BRAIN_ACTS, BRAIN_MODES, normalizeConversationTurnContract,
+  BRAIN_ACTS, BRAIN_MODES, REFERENCE_KINDS, REFERENCE_TARGETS,
+  RESOLUTION_STATES, TURN_DOMAINS, normalizeConversationTurnContract,
   type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 
@@ -69,12 +70,13 @@ function brainTool() {
       type: "object",
       additionalProperties: false,
       required: [
-        "act", "mode", "canonical_request", "inherit_focus", "focus", "action",
-        "direct_reply", "clarification_question", "confidence",
+        "act", "mode", "domain", "canonical_request", "inherit_focus", "focus", "action",
+        "direct_reply", "clarification_question", "resolution", "reference",
       ],
       properties: {
         act: { type: "string", enum: [...BRAIN_ACTS] },
         mode: { type: "string", enum: [...BRAIN_MODES] },
+        domain: { type: "string", enum: [...TURN_DOMAINS] },
         canonical_request: { anyOf: [{ type: "string" }, { type: "null" }] },
         inherit_focus: { type: "boolean" },
         focus: {
@@ -103,7 +105,32 @@ function brainTool() {
         },
         direct_reply: { anyOf: [{ type: "string" }, { type: "null" }] },
         clarification_question: { anyOf: [{ type: "string" }, { type: "null" }] },
-        confidence: { type: "number", minimum: 0, maximum: 1 },
+        resolution: {
+          type: "object", additionalProperties: false,
+          required: ["intent", "reference", "time", "entity", "action"],
+          properties: {
+            intent: { type: "string", enum: [...RESOLUTION_STATES] },
+            reference: { type: "string", enum: [...RESOLUTION_STATES] },
+            time: { type: "string", enum: [...RESOLUTION_STATES] },
+            entity: { type: "string", enum: [...RESOLUTION_STATES] },
+            action: { type: "string", enum: [...RESOLUTION_STATES] },
+          },
+        },
+        reference: {
+          anyOf: [
+            { type: "null" },
+            {
+              type: "object", additionalProperties: false,
+              required: ["kind", "target", "expression", "status"],
+              properties: {
+                kind: { type: "string", enum: [...REFERENCE_KINDS] },
+                target: { type: "string", enum: [...REFERENCE_TARGETS] },
+                expression: { anyOf: [{ type: "string" }, { type: "null" }] },
+                status: { type: "string", enum: [...RESOLUTION_STATES] },
+              },
+            },
+          ],
+        },
       },
     },
   } as const;
@@ -137,6 +164,10 @@ Regras obrigatórias:
 15. Se UserContext disser TopicResolution=ambiguous e a mensagem depender de contexto anterior, mode=clarify e faça UMA pergunta curta com as opções; não escolha um tópico no chute.
 16. Em converse, seja útil: responda primeiro e, quando fizer sentido, termine com UM próximo passo concreto. Não repita convite genérico em toda mensagem.
 17. Preferências de resposta no UserContext devem ser respeitadas (tom, verbosidade, nível técnico e frequência de sugestões), desde que não conflitem com segurança/verdade.
+18. Nunca emita confiança numérica. Para cada slot semântico, use somente resolved | ambiguous | missing | conflicting | not_applicable.
+19. domain é hierárquico: conversation para conversa sem dados pessoais; financial_read para leitura factual; financial_write para mutação; advisory para pedido de orientação/estratégia financeira. Domain NÃO escolhe ferramenta.
+20. Referências como "delas", "essa categoria", "aquele estabelecimento", "isso" devem ser representadas em reference. Não resolva para entidades por palpite: o Grounding Engine fará isso contra Working Memory/Reference Store.
+21. Se uma referência necessária estiver ambígua ou ausente, mode=clarify. Nenhum componente posterior pode reinterpretar essa referência.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
@@ -223,7 +254,7 @@ async function runProviderShadow(args: {
     official_canonical_request: args.official_contract.canonical_request,
     official_focus: args.official_contract.focus,
     official_action: args.official_contract.action,
-    official_confidence: args.official_contract.confidence,
+    official_confidence: null,
     official_latency_ms: args.official_telemetry.latency_ms,
   };
 
@@ -273,7 +304,7 @@ async function runProviderShadow(args: {
     shadow_canonical_request: candidate?.canonical_request ?? null,
     shadow_focus: candidate?.focus ?? {},
     shadow_action: candidate?.action ?? null,
-    shadow_confidence: candidate?.confidence ?? null,
+    shadow_confidence: null,
     same_act: candidate ? candidate.act === args.official_contract.act : null,
     same_mode: candidate ? candidate.mode === args.official_contract.mode : null,
     same_canonical_request: candidate
@@ -368,7 +399,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       provider: structured.provider, success: true, latency_ms: structured.latency_ms,
       reason_for_ai_call: "conversation_brain_v1",
       metadata: {
-        contract_version: "conversation_turn_contract.v1",
+        contract_version: "conversation_turn_contract.v2",
         provider: structured.provider,
         transport: "chat_completions_structured",
       },
