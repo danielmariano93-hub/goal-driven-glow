@@ -160,8 +160,8 @@ export function executedIRFrom(
   result: unknown,
 ): ExecutedIR | null {
   return declared(result)
-    ?? fromPeriodComparison(requested, result)
     ?? fromMonthlyAverageComparison(requested, result)
+    ?? fromPeriodComparison(requested, result)
     ?? fromMerchantDistribution(requested, result)
     ?? fromSpendingReport(requested, result);
 }
