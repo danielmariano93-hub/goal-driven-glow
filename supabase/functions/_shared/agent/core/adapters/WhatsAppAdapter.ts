@@ -1,7 +1,7 @@
 // WhatsAppAdapter — translates a WhatsApp/simulator turn into the shared
 // rollout-gated Conversation Architecture V2 entrypoint. When the V2 flag is
 // off, AgentCoreV2 delegates to the legacy AgentCore with no behavior change.
-import { handleTurnV2 } from "../AgentCoreV2.ts";
+import { handleTurnV2 } from "../AgentCoreV2Entry.ts";
 import type { HandleTurnResult } from "../AgentCore.ts";
 
 export type WhatsAppTurn = {

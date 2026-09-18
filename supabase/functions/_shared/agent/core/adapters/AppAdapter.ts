@@ -7,7 +7,7 @@
 // makes lives here or deeper in the Core.
 // deno-lint-ignore-file no-explicit-any
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { handleTurnV2 } from "../AgentCoreV2.ts";
+import { handleTurnV2 } from "../AgentCoreV2Entry.ts";
 import type { HandleTurnResult } from "../AgentCore.ts";
 import { evaluate as evaluatePolicy } from "../PolicyEngine.ts";
 import { routeIntent } from "../IntentRouter.ts";
@@ -65,7 +65,6 @@ export async function handleAppAction(args: {
     body_masked: args.action === "confirm" ? "[Confirmar]" : "[Cancelar]",
   } as any);
 
-  // Lote (kind bulk_transactions) é executado em TypeScript, não pela RPC.
   const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id, args.pending_id);
   if (bulkPending) {
     let replyBulk: string;
@@ -118,15 +117,12 @@ export async function handleAppMessage(args: {
 }): Promise<AppTurnResult> {
   const sb = svc();
 
-  // Persist inbound message first so history is coherent.
   const { data: inbound } = await sb.from("conversation_messages").insert({
     conversation_id: args.conversation_id, user_id: args.user_id, direction: "inbound", body_masked: args.text,
   } as any).select("id").maybeSingle();
   const inbound_message_id = ((inbound as any)?.id as string | undefined) ?? crypto.randomUUID();
   const turnStartedAt = new Date().toISOString();
 
-  // Explicit UI-like free-text confirmation/cancel remains a state transition.
-  // Repair phrases are protected by IntentRouter and therefore do not enter here.
   const routed = routeIntent(args.text);
   if (routed.intent.kind === "confirm" || routed.intent.kind === "cancel") {
     const bulkPending = await findBulkPending(sb, args.conversation_id, args.user_id);
@@ -156,8 +152,6 @@ export async function handleAppMessage(args: {
     return { reply, pending: null, executed: decision.kind === "reply" ? decision.result ?? null : null };
   }
 
-  // Free-text app e WhatsApp entram pelo mesmo entrypoint V2. Com a flag OFF,
-  // AgentCoreV2 delega integralmente ao Core legado.
   const turn = await handleTurnV2({
     user_id: args.user_id,
     conversation_id: args.conversation_id,
@@ -168,13 +162,9 @@ export async function handleAppMessage(args: {
 
   const pendingOut = await findPendingApp(sb, args.conversation_id, args.user_id, null);
 
-  // Surface any chart artifact created during this turn.
   let recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
   let reply = turn.reply;
 
-  // Fallback determinístico: usuário pediu gráfico/tendência mas o LLM não
-  // chamou generate_chart_artifact. Renderiza a média diária acumulada (rota
-  // padrão) para não devolver texto genérico. Idempotente pelo findRecent.
   if (!recent?.payload && wantsChart(args.text)) {
     try {
       const kind = pickDeterministicChartKind(args.text);
@@ -214,9 +204,6 @@ function mentionsChart(text: string): boolean {
   return /\b(gr[aá]fico|visualiza|abaixo|📊|📈|📉)\b/i.test(text || "");
 }
 
-// Intenção visual EXPLÍCITA apenas (`nino_brain.v2`). "evolução", "tendência",
-// "dia a dia" e "ritmo dos gastos" são análise TEXTUAL: não geram artefato em
-// nenhuma camada. Fonte única: intelligence/chartIntent.ts.
 export function wantsChart(text: string): boolean {
   return hasExplicitChartIntent(text || "");
 }

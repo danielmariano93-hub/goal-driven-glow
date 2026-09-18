@@ -1,17 +1,19 @@
-// ConversationResolver (`nino_threads.v1`)
+// ConversationResolver (`nino_threads.v2`)
 //
-// "Sobre o que este turno é?" — com ordem de precedência explícita, em vez de
-// assumir que o assunto é sempre a última mensagem.
+// "Sobre o que este turno é?" — com ordem de precedência explícita.
 //
 //   1. mensagem citada (WhatsApp reply)     -> autoridade máxima
 //   2. expectativa pendente (o Nino perguntou / há rascunho)
 //   3. referência explícita ("voltando pra meta da viagem")
-//   4. tópico com alta confiança semântica
-//   5. tópico ativo
-//   6. histórico recente
-//   7. assunto novo
+//   4. follow-up contextual                 -> tópico ativo
+//   5. tópico com alta confiança semântica
+//   6. tópico ativo com algum match
+//   7. histórico recente
+//   8. assunto novo
 //
-// Empate plausível entre dois tópicos NÃO chuta: devolve `clarification`.
+// A mudança v2 é deliberada: uma pergunta como "esses valores são médias ou
+// totais?" não pode ser sequestrada por uma thread histórica lexicalmente
+// parecida enquanto existe um tópico ativo que produziu "esses valores".
 import type { TopicResolutionSource } from "./ExecutionTrace.ts";
 import { topicScore, type TopicThread } from "./TopicRepository.ts";
 
@@ -40,11 +42,29 @@ export type ResolverOutput = {
 const EXPLICIT_RX =
   /\b(voltando|retomando|sobre aquilo|aquela (?:pergunta|conversa)|aquele assunto|falamos (?:antes|ontem|na semana)|lembra (?:quando|que)|volta (?:pra|para))\b/i;
 
-/** Marcas de assunto claramente NOVO: não herdar contexto anterior. */
 const NEW_TOPIC_RX = /\b(muda(?:ndo)? de assunto|outra coisa|esquece|deixa (?:isso|pra la)|nova pergunta)\b/i;
+
+// Somente marcas realmente anafóricas/deíticas. Palavras interrogativas soltas
+// ("qual", "quanto", "como") NÃO bastam: uma pergunta standalone como
+// "Quais categorias mais gastei em setembro?" precisa poder abrir outro tópico.
+const CONTEXTUAL_FOLLOWUP_RX = /^(?:e\s+)?(?:ela|ele|elas|eles|isso|nisso|esse|essa|esses|essas|dessa|dessas|desse|desses|aquela|aquele|aqueles|aquelas)\b|^e\s+(?:qual|quais|quanto|quantos|quanta|quantas|como|comparad[oa]s?|em\s+rela[cç][aã]o)\b|\b(?:esses valores|essas categorias|entre elas|entre esses|mais acima|menos acima|mais abaixo|menos abaixo|quanto acima|quanto abaixo|quanto (?:ela|ele|isso)|qual delas|qual deles|como isso|media mensal|medias mensais|valores totais)\b/i;
 
 const HIGH = 0.6;
 const NEAR = 0.12;
+
+function normalized(text: string): string {
+  return String(text ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+export function looksContextDependentFollowup(text: string): boolean {
+  const value = normalized(text);
+  if (!value || NEW_TOPIC_RX.test(value) || EXPLICIT_RX.test(value)) return false;
+  if (CONTEXTUAL_FOLLOWUP_RX.test(value)) return true;
+  const words = value.split(/\s+/).filter(Boolean);
+  // Fragmentos muito curtos só herdam contexto quando começam por "e";
+  // perguntas curtas completas continuam livres para abrir novo tópico.
+  return words.length <= 5 && /^e\b/.test(value) && /\?\s*$/.test(String(text ?? "").trim());
+}
 
 export function resolveConversation(input: ResolverInput): ResolverOutput {
   const now = input.now ?? new Date();
@@ -57,7 +77,6 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     ...extra,
   });
 
-  // 1. mensagem citada
   if (input.quoted_message_id && input.quoted_topic) {
     return {
       source: "quoted_message", topic: input.quoted_topic, topic_id: input.quoted_topic.id,
@@ -66,7 +85,6 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // 2. expectativa pendente (rascunho ou pergunta em aberto do Nino)
   if (input.has_pending_confirmation || input.awaiting_answer) {
     const active = topics.find((t) => t.id === input.active_topic_id) ?? null;
     return {
@@ -76,7 +94,6 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // Assunto explicitamente novo encerra a herança.
   if (NEW_TOPIC_RX.test(text)) return empty("new_topic", { is_new_topic: true });
 
   const scored = topics
@@ -85,8 +102,9 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
   const candidates = scored.map((s) => ({ topic_id: s.topic.id, score: s.score }));
   const best = scored[0] ?? null;
   const second = scored[1] ?? null;
+  const active = topics.find((t) => t.id === input.active_topic_id) ?? null;
 
-  // 3. referência explícita
+  // Explicit resume is intentionally allowed to leave the active topic.
   if (EXPLICIT_RX.test(text) && best && best.score > 0) {
     if (second && best.score - second.score < NEAR && second.score > 0) {
       return {
@@ -103,7 +121,18 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // 4. alta confiança semântica (com desempate por clarificação)
+  // Anaphora/meta-questions belong to the active topic before we search old
+  // threads for lexical similarity. This closes the production jump from the
+  // current rolling comparison to an older "...em agosto?" thread.
+  if (active && looksContextDependentFollowup(text)) {
+    const activeScore = scored.find((row) => row.topic.id === active.id)?.score ?? 1;
+    return {
+      source: "active_topic", topic: active, topic_id: active.id,
+      score: activeScore, candidates, clarification_required: false,
+      clarification_options: [], is_new_topic: false,
+    };
+  }
+
   if (best && best.score >= HIGH) {
     if (second && second.score >= HIGH && best.score - second.score < NEAR) {
       return {
@@ -120,8 +149,6 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // 5. tópico ativo (só quando o turno depende de contexto)
-  const active = topics.find((t) => t.id === input.active_topic_id) ?? null;
   if (active && (best?.score ?? 0) > 0) {
     return {
       source: "active_topic", topic: active, topic_id: active.id,
@@ -130,7 +157,6 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // 6. histórico recente
   if (best && best.score > 0.2) {
     return {
       source: "recent_history", topic: best.topic, topic_id: best.topic.id,
@@ -139,6 +165,5 @@ export function resolveConversation(input: ResolverInput): ResolverOutput {
     };
   }
 
-  // 7. assunto novo
   return empty("new_topic", { candidates, is_new_topic: true });
 }

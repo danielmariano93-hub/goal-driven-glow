@@ -1,16 +1,23 @@
-// Deterministic continuation for a narrow class of analytical follow-ups.
+// Deterministic continuation for analytical comparison follow-ups.
 //
-// The previous result already carries the engine and the entity set that the
-// user saw. Follow-ups that only change the comparison superlative or ask what
-// statistic was used must not be recompiled by an LLM: doing so creates an
-// avoidable semantic failure point and can contradict the executed engine.
+// The previous tool result is captured as structured evidence in the Reference
+// Store. Follow-ups such as "qual ficou menos acima?", "quanto ela ficou?" and
+// "são médias ou totais?" are answered from that evidence instead of asking an
+// LLM to reconstruct money or methodology from conversation text.
 
 import {
+  GROUNDED_FINANCIAL_EVIDENCE_MARKER,
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 import type { ConversationMemory } from "./ConversationMemory.ts";
-import type { ReferenceObject } from "./ConversationReferenceStore.ts";
+import type {
+  ComparisonEvidence,
+  ComparisonEvidenceRow,
+  ReferenceObject,
+} from "./ConversationReferenceStore.ts";
+
+const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function norm(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -22,7 +29,6 @@ function norm(text: string): string {
 
 function requestedDirection(text: string): "increase" | "decrease" | null {
   const value = norm(text);
-  if (!/\b(?:delas|dessas|destas|entre elas)\b/.test(value)) return null;
   if (/\b(?:mais acima|mais aument\w*|maior aument\w*|mais subiu|maior alta|mais piorou)\b/.test(value)) {
     return "increase";
   }
@@ -43,25 +49,70 @@ function requestedLeastDirection(text: string): "increase" | "decrease" | null {
   return null;
 }
 
+function requestedRank(text: string): { direction: "increase" | "decrease"; limit: number } | null {
+  const value = norm(text);
+  const match = /\b(?:top\s*)?(\d{1,2})\b/.exec(value);
+  if (!match) return null;
+  const limit = Math.max(1, Math.min(20, Number(match[1])));
+  if (/\b(?:mais acima|maiores? altas?|mais aument\w*|que mais ficaram acima)\b/.test(value)) {
+    return { direction: "increase", limit };
+  }
+  if (/\b(?:mais abaixo|maiores? quedas?|mais diminu\w*|que mais ficaram abaixo)\b/.test(value)) {
+    return { direction: "decrease", limit };
+  }
+  return null;
+}
+
 function asksStatisticExplanation(text: string): boolean {
   const value = norm(text);
   const hasMean = /\b(?:media|medias|mensal|mensais)\b/.test(value);
   const hasTotal = /\b(?:total|totais|somados|soma)\b/.test(value);
-  return hasMean && hasTotal
+  return (hasMean && hasTotal)
     || /\b(?:esses|esses valores|os valores).*(?:media|mensal|total)\b/.test(value);
 }
 
+function asksSelectedEntityAmount(text: string): boolean {
+  const value = norm(text);
+  const amount = /\b(?:quanto|valor|diferenca|delta)\b/.test(value);
+  const relation = /\b(?:ela|ele|essa|esse|acima|abaixo|media)\b/.test(value);
+  return amount && relation;
+}
+
+function samePeriod(
+  a: { from: string; to: string } | null | undefined,
+  b: { from: string; to: string } | null | undefined,
+): boolean {
+  return !!a && !!b && a.from === b.from && a.to === b.to;
+}
+
+function evidenceOf(reference: ReferenceObject): ComparisonEvidence | null {
+  return reference.source?.context?.evidence ?? null;
+}
+
 function latestComparisonReference(memory: ConversationMemory): ReferenceObject | null {
+  // loadConversationMemory/advanceReferences is the single authority that turns
+  // TTL into status=expired. Avoid a second wall-clock decision here: it made
+  // deterministic tests and adjacent follow-ups disagree at the exact boundary.
   const refs = (memory.references ?? [])
     .filter((ref) =>
       ref.status === "active"
-      && ref.turns_remaining > 0
       && ref.target === "category"
-      && ref.entity_labels.length > 1
+      && ref.entity_labels.length >= 1
       && /(?:^|\+)compare_(?:to_monthly_average|periods)(?:\+|$)/.test(String(ref.source?.tool_name ?? ""))
-    )
-    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  return refs[0] ?? null;
+    );
+  if (!refs.length) return null;
+
+  return refs.sort((a, b) => {
+    const aTopic = memory.active_topic_id && a.topic_id === memory.active_topic_id ? 1 : 0;
+    const bTopic = memory.active_topic_id && b.topic_id === memory.active_topic_id ? 1 : 0;
+    if (aTopic !== bTopic) return bTopic - aTopic;
+    const aPeriod = a.source?.context?.target_period ?? a.source?.context?.period_b ?? null;
+    const bPeriod = b.source?.context?.target_period ?? b.source?.context?.period_b ?? null;
+    const aSame = samePeriod(aPeriod, memory.active_period) ? 1 : 0;
+    const bSame = samePeriod(bPeriod, memory.active_period) ? 1 : 0;
+    if (aSame !== bSame) return bSame - aSame;
+    return Date.parse(b.created_at) - Date.parse(a.created_at);
+  })[0] ?? null;
 }
 
 const MONTHS_PT = [
@@ -84,6 +135,8 @@ function periodLabel(period: { from: string; to: string; label?: string | null }
 }
 
 function historicalWindow(memory: ConversationMemory, reference: ReferenceObject): number | null {
+  const fromEvidence = Number(evidenceOf(reference)?.baseline_window_months);
+  if (Number.isInteger(fromEvidence) && fromEvidence >= 2 && fromEvidence <= 24) return fromEvidence;
   const fromContext = Number(reference.source?.context?.months);
   if (Number.isInteger(fromContext) && fromContext >= 2 && fromContext <= 24) return fromContext;
   const summary = norm(memory.conversation_summary ?? "");
@@ -117,6 +170,7 @@ function comparisonQuery(args: {
 function directReplyContract(
   text: string,
   reply: string,
+  category: string | null = null,
 ): CanonicalConversationTurnContract | null {
   return normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
@@ -126,7 +180,7 @@ function directReplyContract(
     canonical_request: text,
     inherit_focus: true,
     focus: {
-      category: null,
+      category,
       merchant: null,
       goal: null,
       period_expression: null,
@@ -139,18 +193,50 @@ function directReplyContract(
       intent: "resolved",
       reference: "resolved",
       time: "not_applicable",
-      entity: "not_applicable",
+      entity: category ? "resolved" : "not_applicable",
       action: "not_applicable",
     },
     reference: {
       kind: "previous_result_set",
       target: "category",
-      expression: "resultado anterior",
+      expression: GROUNDED_FINANCIAL_EVIDENCE_MARKER,
       status: "resolved",
     },
     financial_read: null,
     advisory_kind: null,
   });
+}
+
+function sortedRows(evidence: ComparisonEvidence, direction: "increase" | "decrease"): ComparisonEvidenceRow[] {
+  const rows = [...evidence.rows];
+  if (direction === "increase") {
+    return rows.filter((row) => row.delta_abs > 0.005).sort((a, b) => b.delta_abs - a.delta_abs);
+  }
+  return rows.filter((row) => row.delta_abs < -0.005).sort((a, b) => a.delta_abs - b.delta_abs);
+}
+
+function rowForEntity(evidence: ComparisonEvidence, entity: string | null | undefined): ComparisonEvidenceRow | null {
+  const wanted = norm(entity ?? "");
+  if (!wanted) return null;
+  return evidence.rows.find((row) => norm(row.name) === wanted) ?? null;
+}
+
+function relationWord(row: ComparisonEvidenceRow): string {
+  return row.delta_abs >= 0 ? "acima" : "abaixo";
+}
+
+function rowReply(row: ComparisonEvidenceRow): string {
+  return `*${row.name}* ficou ${BRL.format(Math.abs(row.delta_abs))} ${relationWord(row)} da referência: ${BRL.format(row.total_b)} versus ${BRL.format(row.total_a)}.`;
+}
+
+function statisticReply(evidence: ComparisonEvidence, months: number | null): string {
+  if (evidence.comparison_alignment === "aligned_month_to_date") {
+    return `Estou comparando valores acumulados até o mesmo dia do mês: o período atual até hoje contra a média do mesmo recorte nos ${months ?? "meses"} anteriores. Assim, mês parcial não é comparado com mês completo.`;
+  }
+  if (evidence.comparison_alignment === "preceding_rolling_window") {
+    return `Estou comparando médias mensais de janelas equivalentes: a média mensal do período analisado contra a média mensal da janela imediatamente anterior. Não misturo total de vários meses com média de um mês.`;
+  }
+  return `São valores mensais comparáveis: o mês analisado contra a média mensal dos ${months ?? "meses"} meses completos anteriores. Não estou comparando um total de vários meses com uma média mensal.`;
 }
 
 export function resolveGroundedComparisonFollowup(
@@ -161,43 +247,41 @@ export function resolveGroundedComparisonFollowup(
   const reference = latestComparisonReference(memory);
   if (!reference) return null;
   const tool = String(reference.source?.tool_name ?? "");
+  const evidence = evidenceOf(reference);
 
-  // Meta-pergunta sobre a conta que acabou de ser exibida. A resposta vem do
-  // contrato do motor, não de uma nova interpretação da LLM.
-  if (asksStatisticExplanation(text) && tool.includes("compare_to_monthly_average")) {
-    const months = historicalWindow(memory, reference);
-    const suffix = months ? ` dos ${months} meses completos anteriores` : " dos meses completos anteriores";
-    return directReplyContract(
-      text,
-      `São médias mensais dos dois lados. O período analisado é normalizado para uma média mensal e comparado com a média mensal${suffix}. Não estou comparando o total de vários meses com a média de um único mês.`,
-    );
+  if (asksStatisticExplanation(text) && evidence) {
+    return directReplyContract(text, statisticReply(evidence, historicalWindow(memory, reference)));
   }
 
-  // "menos acima" / "menos abaixo" é uma seleção do conjunto que o usuário
-  // acabou de ver. Esse conjunto já está ordenado pelo formatter canônico, então
-  // o último item é o menor desvio dentro da direção exibida. Não recalculamos
-  // dinheiro pela memória: respondemos apenas a entidade pedida.
+  if (evidence && asksSelectedEntityAmount(text)) {
+    const selected = rowForEntity(evidence, memory.active_category);
+    if (selected) return directReplyContract(text, rowReply(selected), selected.name);
+  }
+
   const leastDirection = requestedLeastDirection(text);
-  if (leastDirection) {
-    const summary = norm(memory.conversation_summary ?? "");
-    const summaryMatchesDirection = leastDirection === "increase"
-      ? /\b(?:acima|aument\w*|subiu|alta)\b/.test(summary)
-      : /\b(?:abaixo|diminu\w*|caiu|queda)\b/.test(summary);
-    if (summaryMatchesDirection) {
-      const entity = reference.entity_labels[reference.entity_labels.length - 1];
-      if (entity) {
-        const phrase = leastDirection === "increase" ? "menos acima" : "menos abaixo";
-        return directReplyContract(
-          text,
-          `Entre as categorias que eu tinha acabado de listar, a que ficou ${phrase} foi *${entity}*.`,
-        );
-      }
+  if (leastDirection && evidence) {
+    const rows = sortedRows(evidence, leastDirection);
+    const selected = rows[rows.length - 1] ?? null;
+    if (selected) return directReplyContract(text, rowReply(selected), selected.name);
+  }
+
+  const rank = requestedRank(text);
+  if (rank && evidence) {
+    const rows = sortedRows(evidence, rank.direction);
+    if (rows.length >= rank.limit) {
+      const selected = rows.slice(0, rank.limit);
+      const lines = selected.map((row, index) => `${index + 1}. *${row.name}* — ${BRL.format(Math.abs(row.delta_abs))} ${relationWord(row)}`);
+      return directReplyContract(text, lines.join("\n"));
     }
   }
 
   const direction = requestedDirection(text);
-  if (!direction) return null;
+  if (direction && evidence) {
+    const selected = sortedRows(evidence, direction)[0] ?? null;
+    if (selected) return directReplyContract(text, rowReply(selected), selected.name);
+  }
 
+  if (!direction) return null;
   const context = reference.source?.context ?? null;
   const targetPeriod = context?.target_period ?? context?.period_b ?? memory.active_period;
   const targetLabel = periodLabel(targetPeriod);

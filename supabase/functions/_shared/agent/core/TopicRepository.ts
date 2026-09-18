@@ -184,6 +184,9 @@ export function topicScore(text: string, topic: TopicThread, now: Date = new Dat
   if (!terms.size || !bag.size) return 0;
   let hits = 0;
   for (const t of terms) if (bag.has(t)) hits++;
+  // Recência e status apenas REFORÇAM uma correspondência semântica existente.
+  // Sem ao menos uma palavra relevante em comum, tópico antigo não é candidato.
+  if (hits === 0) return 0;
   const lexical = hits / Math.max(terms.size, 1);
   const ageDays = Math.max(0, (now.getTime() - Date.parse(topic.last_activity_at)) / 86_400_000);
   const recency = ageDays <= 1 ? 0.2 : ageDays <= 7 ? 0.1 : ageDays <= 30 ? 0.05 : 0;

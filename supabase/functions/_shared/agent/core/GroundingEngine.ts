@@ -1,4 +1,4 @@
-// GroundingEngine (`nino_grounding_engine.v1`)
+// GroundingEngine (`nino_grounding_engine.v2`)
 //
 // Deterministic binding of conversational references to structured working
 // memory. It never changes intent; it only proves what a reference points to.
@@ -25,6 +25,13 @@ function clarificationFor(turn: CanonicalConversationTurnContract): string {
   return "A referência anterior não está clara para mim. Pode me dizer quais itens você quer usar?";
 }
 
+function preferredEntity(turn: CanonicalConversationTurnContract, memory: ConversationMemory | null): string | null {
+  const target = turn.reference?.target;
+  if (target === "category") return turn.focus.category ?? memory?.active_category ?? null;
+  if (target === "merchant") return turn.focus.merchant ?? memory?.active_merchant ?? null;
+  return null;
+}
+
 export function groundTurnContract(
   turn: CanonicalConversationTurnContract,
   memory: ConversationMemory | null,
@@ -41,7 +48,15 @@ export function groundTurnContract(
       clarification: null,
     };
   }
-  const grounded = resolveStructuredReference(turn.reference, memory?.references ?? [], now);
+  const grounded = resolveStructuredReference(
+    turn.reference,
+    memory?.references ?? [],
+    now,
+    {
+      topic_id: memory?.active_topic_id ?? null,
+      preferred_entity: preferredEntity(turn, memory),
+    },
+  );
   if (!turn.reference) {
     return { turn, reference: grounded, ok: true, clarification: null };
   }

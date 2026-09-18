@@ -58,6 +58,11 @@ export const REFERENCE_TARGETS = [
 ] as const;
 export type ReferenceTarget = typeof REFERENCE_TARGETS[number];
 
+/** Internal marker emitted only by deterministic evidence-backed responders.
+ * ConversationBrain is instructed to preserve the user's literal reference, so
+ * LLM-generated direct replies cannot satisfy this proof marker accidentally. */
+export const GROUNDED_FINANCIAL_EVIDENCE_MARKER = "__nino_grounded_financial_evidence_v1__";
+
 export type TurnReference = {
   kind: ReferenceKind;
   target: ReferenceTarget;
@@ -282,6 +287,29 @@ function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | nu
   return { intent: intent as FinancialReadSemanticRequest["intent"], queries };
 }
 
+function normalizedReply(text: unknown): string {
+  return String(text ?? "").toLowerCase().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * A conversational LLM may explain generic finance, but it may not assert a
+ * PERSONAL numeric result or the methodology of the previous personal analysis
+ * from prose memory. Those replies must be produced by an evidence-backed
+ * deterministic continuation or by a fresh financial READ.
+ */
+function looksLikePersonalFinancialAssertion(text: unknown): boolean {
+  const value = normalizedReply(text);
+  if (!value) return false;
+  const moneyOrPct = /r\$\s*\d|\b\d+[.,]\d{1,2}\s*%/.test(value);
+  const financeContext = /\b(?:saldo|fatura|patrimonio|gasto|despesa|receita|divida|categoria|media|total|acima|abaixo)\b/.test(value);
+  const executedMethodology = /\b(?:estou comparando|estamos comparando|esses valores|os valores)\b.*\b(?:media|mensal|total|periodo)\b/.test(value)
+    || /\b(?:total gasto|media mensal|medias mensais|acima da media|abaixo da media)\b/.test(value);
+  return (moneyOrPct && financeContext) || executedMethodology;
+}
+
 export function normalizeConversationTurnContract(raw: unknown): CanonicalConversationTurnContract | null {
   const value = raw as any;
   if (!value
@@ -328,6 +356,18 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
   if (domain !== "advisory" && advisoryKind) return null;
   if (explicitV2 && domain === "financial_read" && !financialRead) return null;
   if (domain !== "financial_read" && financialRead) return null;
+
+  // Financial follow-ups cannot escape through mode=converse unless the direct
+  // reply carries an internal proof marker emitted by deterministic evidence.
+  const groundedFinancialDirectReply = mode === "converse"
+    && reference?.kind === "previous_result_set"
+    && reference.expression === GROUNDED_FINANCIAL_EVIDENCE_MARKER
+    && resolution.reference === "resolved";
+  if (mode === "converse" && act === "follow_up"
+    && looksLikePersonalFinancialAssertion(value.direct_reply)
+    && !groundedFinancialDirectReply) {
+    return null;
+  }
 
   // Fail closed on explicit unresolved semantics. Clarify is the only mode that
   // may intentionally carry ambiguous/missing/conflicting intent/reference.
