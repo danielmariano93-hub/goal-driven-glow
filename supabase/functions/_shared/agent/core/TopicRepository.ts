@@ -7,6 +7,10 @@
 // Regra dura: um tópico guarda SEMÂNTICA e REFERÊNCIAS (assunto, período,
 // entidades, run/tool ids). Nunca guarda valor financeiro como verdade — todo
 // número é recalculado no motor canônico quando o assunto é retomado.
+//
+// Invariante de identidade: subject/title/keywords/original_query nascem com o
+// tópico e NÃO mudam a cada turno. last_query pode evoluir, mas nunca participa
+// da identidade usada para reencontrar uma thread histórica.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -147,8 +151,11 @@ export function createTopicRepository(args: {
 
     touch: (topic_id, patch) => safe(async () => {
       const row: Record<string, unknown> = { last_activity_at: new Date().toISOString() };
+      // subject/title/keywords/original_query são identidade imutável da thread.
+      // Um follow-up pode atualizar estado/evidência sem transformar o assunto
+      // original em outro tema e contaminar futuras resoluções semânticas.
       for (const key of [
-        "subject", "title", "summary", "status", "keywords", "entities", "acts",
+        "summary", "status", "entities", "acts",
         "period_from", "period_to", "last_query", "evidence_reference", "execution_summary",
       ] as const) {
         if (key in patch) row[key] = (patch as any)[key];
@@ -176,9 +183,12 @@ export function createTopicRepository(args: {
 /** Similaridade léxica simples entre a pergunta atual e um tópico durável. */
 export function topicScore(text: string, topic: TopicThread, now: Date = new Date()): number {
   const terms = new Set(keywordsOf(text));
+  // A identidade de busca usa apenas campos estáveis. last_query representa a
+  // ponta atual da conversa e não pode rebatizar retroativamente a thread.
   const bag = new Set([
     ...(topic.keywords ?? []),
-    ...keywordsOf(topic.last_query ?? ""),
+    ...keywordsOf(topic.original_query ?? ""),
+    ...keywordsOf(topic.title ?? ""),
     ...keywordsOf(topic.subject ?? ""),
   ]);
   if (!terms.size || !bag.size) return 0;

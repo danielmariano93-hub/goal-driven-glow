@@ -31,7 +31,7 @@ export const TURN_DOMAINS = [
 export type TurnDomain = typeof TURN_DOMAINS[number];
 
 export const ADVISORY_KINDS = [
-  "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
+  "current_insight", "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
 ] as const;
 export type AdvisoryKind = typeof ADVISORY_KINDS[number];
 
@@ -296,9 +296,10 @@ function normalizedReply(text: unknown): string {
 
 /**
  * A conversational LLM may explain generic finance, but it may not assert a
- * PERSONAL numeric result or the methodology of the previous personal analysis
- * from prose memory. Those replies must be produced by an evidence-backed
- * deterministic continuation or by a fresh financial READ.
+ * PERSONAL numeric result or the methodology of a personal analysis from prose
+ * memory. This invariant applies to EVERY conversational act, not only follow-up:
+ * a new request such as "qual insight para hoje?" may not hallucinate a personal
+ * fact merely because history happens to contain one.
  */
 function looksLikePersonalFinancialAssertion(text: unknown): boolean {
   const value = normalizedReply(text);
@@ -357,13 +358,13 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
   if (explicitV2 && domain === "financial_read" && !financialRead) return null;
   if (domain !== "financial_read" && financialRead) return null;
 
-  // Financial follow-ups cannot escape through mode=converse unless the direct
-  // reply carries an internal proof marker emitted by deterministic evidence.
+  // Personal financial truth may never escape through free-form conversation.
+  // Only an evidence-backed deterministic responder can carry the proof marker.
   const groundedFinancialDirectReply = mode === "converse"
     && reference?.kind === "previous_result_set"
     && reference.expression === GROUNDED_FINANCIAL_EVIDENCE_MARKER
     && resolution.reference === "resolved";
-  if (mode === "converse" && act === "follow_up"
+  if (mode === "converse"
     && looksLikePersonalFinancialAssertion(value.direct_reply)
     && !groundedFinancialDirectReply) {
     return null;
