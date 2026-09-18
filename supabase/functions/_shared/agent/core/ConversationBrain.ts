@@ -20,7 +20,7 @@ import { isEnabled } from "./FeatureFlags.ts";
 import {
   ADVISORY_KINDS, BRAIN_ACTS, BRAIN_MODES, REFERENCE_KINDS, REFERENCE_TARGETS,
   RESOLUTION_STATES, TURN_DOMAINS, normalizeConversationTurnContract,
-  type ConversationTurnContract,
+  type CanonicalConversationTurnContract, type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 
 export { dialogueActsFromContract } from "./ConversationTurnContract.ts";
@@ -40,7 +40,7 @@ export type ConversationBrainTelemetry = {
 };
 
 export type ConversationBrainOutcome = {
-  contract: ConversationTurnContract | null;
+  contract: CanonicalConversationTurnContract | null;
   telemetry: ConversationBrainTelemetry;
 };
 
@@ -203,6 +203,16 @@ function statePrompt(memory: ConversationMemory | null, workflow: WriteWorkflow 
     awaiting: memory.awaiting,
     pending_conversation_action: memory.pending_conversation_action,
     last_analysis: memory.last_analysis,
+    active_references: (memory.references ?? [])
+      .filter((ref) => ref.status === "active")
+      .slice(-4)
+      .map((ref) => ({
+        id: ref.id,
+        target: ref.target,
+        entity_labels: ref.entity_labels,
+        turns_remaining: ref.turns_remaining,
+        expires_at: ref.expires_at,
+      })),
   } : null;
   const openWrite = workflow ? {
     kind: workflow.kind,
