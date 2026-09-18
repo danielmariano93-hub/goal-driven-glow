@@ -30,6 +30,17 @@ export function groundTurnContract(
   memory: ConversationMemory | null,
   now: Date = new Date(),
 ): GroundedTurn {
+  if (turn.reference && (turn.reference.kind === "quoted_turn" || turn.reference.kind === "active_topic")) {
+    return {
+      turn,
+      reference: {
+        status: "resolved", reference_id: null, target: turn.reference.target,
+        entity_labels: [], reason: turn.reference.kind,
+      },
+      ok: true,
+      clarification: null,
+    };
+  }
   const grounded = resolveStructuredReference(turn.reference, memory?.references ?? [], now);
   if (!turn.reference) {
     return { turn, reference: grounded, ok: true, clarification: null };
