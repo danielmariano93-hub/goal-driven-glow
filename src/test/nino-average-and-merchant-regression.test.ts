@@ -156,6 +156,35 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     expect(reply).not.toContain("Aumentaram:");
   });
 
+  it("normaliza alvo multi-mês antes de comparar com média mensal", () => {
+    const tx = (id: string, date: string, amount: number, category_id: string) => ({
+      id, occurred_at: date + "T12:00:00Z", amount, category_id,
+      type: "expense", status: "confirmed", movement_kind: "transaction",
+      transfer_group_id: null, settles_card_id: null,
+    }) as any;
+    const result = computeCompareToMonthlyAverage({
+      txs: [
+        tx("b1", "2026-03-10", 142.64, "moradia"),
+        tx("b2", "2026-04-10", 363.42, "moradia"),
+        tx("t1", "2026-06-20", 3529.34, "moradia"),
+        tx("t2", "2026-07-20", 8655.37, "moradia"),
+        tx("t3", "2026-09-10", 3845.71, "moradia"),
+      ],
+      categoryNames: new Map([["moradia", "Moradia"]]),
+      metric: "expense",
+      target_period: { from: "2026-06-18", to: "2026-09-18" },
+      months: 3,
+      group_by: "category",
+    });
+    const moradia = result.by_group.find((row) => row.name === "Moradia");
+    expect(result.target_window_months).toBe(3);
+    expect(result.target_statistic).toBe("monthly_mean");
+    expect(moradia?.total_a).toBe(168.69);
+    expect(moradia?.total_b).toBe(5343.47);
+    expect(moradia?.delta_abs).toBe(5174.78);
+    expect(result.provenance.formula_version).toBe("compare.monthly_mean.v2");
+  });
+
   it("responde diretamente a categoria singular do follow-up superlativo", () => {
     const reply = formatAverageComparison({
       requested_comparison_direction: "increase",
