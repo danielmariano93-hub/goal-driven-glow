@@ -68,7 +68,10 @@ export function applyGroundedReferenceScope(
   grounded: GroundedReference | null | undefined,
 ): Record<string, unknown> {
   if (!grounded || grounded.status !== "resolved" || !grounded.entity_labels.length) return args;
-  if (grounded.target === "category" && ["compare_periods", "analyze_spending"].includes(tool)) {
+  if (
+    grounded.target === "category"
+    && ["compare_periods", "compare_to_monthly_average", "analyze_spending"].includes(tool)
+  ) {
     return { ...args, category_scope: [...grounded.entity_labels] };
   }
   return args;
