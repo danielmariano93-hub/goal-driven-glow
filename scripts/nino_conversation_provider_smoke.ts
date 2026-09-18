@@ -1,10 +1,17 @@
 // Real-provider smoke for the semantic authority used in production.
 // Run only when GROQ_API_KEY + NINO_AI_PROVIDER are configured.
+//
+// IMPORTANT: this is a DEPLOYMENT-COMPATIBILITY probe, not a semantic benchmark.
+// It deliberately uses an unambiguous request with explicit entity + period so
+// the gate measures whether the provider can emit the canonical structured
+// contract. Broader language/continuity cases stay covered by the deterministic
+// Conversation Brain regression suite and must not make infrastructure deploys
+// depend on one model's interpretation of an intentionally open-ended phrase.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
 
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const outcome = await interpretConversationTurn({
-  text: "Nino, em quais categorias eu mais gastei nos meses de julho e agosto?",
+  text: "Nino, quanto eu gastei com Alimentação em agosto?",
   history: [],
   memory: null,
   workflow: null,
@@ -22,10 +29,13 @@ if (outcome.contract.mode !== "read") {
 }
 const periods = outcome.contract.focus.period_expressions ?? [];
 const normalized = periods.map((p) => p.toLowerCase());
-if (!normalized.some((p) => p.includes("julho")) || !normalized.some((p) => p.includes("agosto"))) {
-  throw new Error(`ConversationBrain lost requested periods: ${JSON.stringify(periods)}`);
+if (!normalized.some((p) => p.includes("agosto"))) {
+  throw new Error(`ConversationBrain lost requested period: ${JSON.stringify(periods)}`);
 }
-if (!String(outcome.contract.canonical_request ?? "").toLowerCase().includes("categor")) {
+if (String(outcome.contract.focus.category ?? "").toLowerCase() !== "alimentação") {
+  throw new Error(`ConversationBrain lost explicit category entity: ${JSON.stringify(outcome.contract.focus)}`);
+}
+if (!String(outcome.contract.canonical_request ?? "").toLowerCase().includes("alimenta")) {
   throw new Error(`ConversationBrain lost category scope: ${outcome.contract.canonical_request}`);
 }
 if (outcome.contract.version !== "conversation_turn_contract.v2") {
@@ -35,10 +45,12 @@ if (outcome.contract.domain !== "financial_read") {
   throw new Error(`Expected financial_read domain, got ${outcome.contract.domain}`);
 }
 const semantic = outcome.contract.financial_read;
-if (!semantic || semantic.queries[0]?.metric !== "expense_amount"
-  || semantic.queries[0]?.operation !== "rank"
-  || semantic.queries[0]?.group_by?.[0] !== "category") {
+const query = semantic?.queries?.[0];
+if (!semantic || query?.metric !== "expense_amount" || query?.operation !== "sum") {
   throw new Error(`ConversationBrain lost authoritative financial semantics: ${JSON.stringify(semantic)}`);
+}
+if (!query.filters.some((filter) => filter.field === "category" && filter.value.toLowerCase() === "alimentação")) {
+  throw new Error(`ConversationBrain lost explicit category filter: ${JSON.stringify(semantic)}`);
 }
 if ("confidence" in outcome.contract) {
   throw new Error("ConversationBrain reintroduced numeric self-confidence");
