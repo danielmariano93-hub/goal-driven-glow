@@ -93,13 +93,16 @@ function safeReply(text: string): string {
  * O backend pode validar/bindar os slots, mas não chama outro classificador para
  * decidir novamente se o usuário mudou de assunto/entidade/período.
  */
-function constraintsFromContract(contract: ConversationTurnContract, canonical: string) {
+function constraintsFromContract(contract: ConversationTurnContract, _canonical: string) {
+  const semanticQueries = contract.financial_read?.queries ?? [];
   return {
     period: normalizePeriodExpressions(contract.focus).length > 0,
-    entity: Boolean(contract.focus.category || contract.focus.merchant || contract.focus.goal),
-    // Dimensão é forma de saída (por cartão/categoria/conta/estabelecimento),
-    // não uma nova intenção. Detectá-la lexicalmente não troca o significado.
-    dimension: /\bpor\s+(?:cart[aã]o|conta|categoria|estabelecimento|m[eê]s|dia)\b/i.test(canonical),
+    entity: Boolean(
+      contract.focus.category || contract.focus.merchant || contract.focus.goal
+      || semanticQueries.some((q) => q.filters.length > 0),
+    ),
+    // Dimensão vem do Turn Contract, nunca de uma segunda leitura lexical.
+    dimension: semanticQueries.some((q) => q.group_by.length > 0),
   };
 }
 
@@ -671,7 +674,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     }
   }
 
-  const plan = buildTurnPlan({ text: canonical, history });
+  // canonical_request já incorporou continuidade/elipse. O resolver temporal
+  // não recebe histórico, portanto não pode reclassificar o turno novamente.
+  const plan = buildTurnPlan({ text: canonical, history: [] });
   const multiPeriod = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical);
   const basePeriod = multiPeriod.periods[0] ?? {
     from: plan.effective_period.from,
