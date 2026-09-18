@@ -16,12 +16,14 @@ export type ExecutedIR = {
   grain: TimeGrain;
   reduce: Reduction;
   group_by: string[];
+  comparison_baseline?: "period" | "mean_previous_complete_months";
+  comparison_baseline_window?: number | null;
   /** Resultado incompleto (cobertura parcial de dados). */
   partial: boolean;
 };
 
 export type PreservationMismatch = {
-  slot: "metric" | "filters" | "aspect" | "window" | "grain" | "reduce" | "group_by";
+  slot: "metric" | "filters" | "aspect" | "window" | "grain" | "reduce" | "group_by" | "comparison_baseline";
   reason: string;
   requested: string;
   executed: string;
@@ -122,6 +124,27 @@ export function requestedSubsumesExecuted(
   const gotDims = [...(executed.group_by ?? [])].map(String).sort().join("+");
   if (wantDims !== gotDims) {
     mismatches.push({ slot: "group_by", reason: "dimension_changed", requested: wantDims || "none", executed: gotDims || "none" });
+  }
+
+  if (requested.legacy_operation === "compare") {
+    const wantBaseline = requested.comparison_baseline ?? "period";
+    const gotBaseline = executed.comparison_baseline ?? "period";
+    if (wantBaseline !== gotBaseline) {
+      mismatches.push({
+        slot: "comparison_baseline", reason: "comparison_baseline_changed",
+        requested: wantBaseline, executed: gotBaseline,
+      });
+    }
+    if (wantBaseline === "mean_previous_complete_months") {
+      const wantWindow = requested.comparison_baseline_window ?? null;
+      const gotWindow = executed.comparison_baseline_window ?? null;
+      if (wantWindow !== gotWindow) {
+        mismatches.push({
+          slot: "comparison_baseline", reason: "comparison_baseline_window_changed",
+          requested: String(wantWindow ?? "none"), executed: String(gotWindow ?? "none"),
+        });
+      }
+    }
   }
 
   return { version: "nino_preservation.v1", compatible: mismatches.length === 0, mismatches };
