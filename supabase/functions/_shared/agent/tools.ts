@@ -47,6 +47,10 @@ import { confirmAndBuildReceipt } from "./core/ConfirmAndReceipt.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
 import {
+  COMPARISON_DIRECTIONS,
+  type ComparisonDirection,
+} from "./core/FinancialQueryIR.ts";
+import {
   candidateFeelingTerm, customEmotionOption, emotionByKey, emotionOptionsSentence, emotionSlug,
   moodToEmotion, parseEmotionCorrection, parseEmotionFromText, resolveEmotionTerm,
 } from "../intelligence/emotionParse.ts";
@@ -1756,7 +1760,7 @@ async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
 export async function compare_periods(ctx: ToolContext, args: {
   metric?: "expense" | "income";
   group_by?: "category" | "none";
-  comparison_direction?: "any" | "increase" | "decrease" | "both";
+  comparison_direction?: ComparisonDirection;
   limit?: number | null;
   period_a?: { from: string; to: string };
   period_b?: { from: string; to: string };
@@ -3107,7 +3111,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
       properties: {
         metric: { type: "string", enum: ["expense", "income"] },
         group_by: { type: "string", enum: ["category", "none"] },
-        comparison_direction: { type: "string", enum: ["any", "increase", "decrease", "both"] },
+        comparison_direction: { type: "string", enum: [...COMPARISON_DIRECTIONS] },
         limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
         period_a: periodSchema,
         period_b: periodSchema,
