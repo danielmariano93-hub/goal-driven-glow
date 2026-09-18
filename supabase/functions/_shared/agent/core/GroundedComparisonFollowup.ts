@@ -1,9 +1,9 @@
-// Deterministic continuation for a very narrow class of analytical follow-ups.
+// Deterministic continuation for a narrow class of analytical follow-ups.
 //
 // The previous result already carries the engine and the entity set that the
-// user saw. A phrase such as "qual delas ficou mais acima?" changes only two
-// slots of that comparison: direction and limit. Asking the LLM to rebuild the
-// whole financial contract here creates an avoidable semantic failure point.
+// user saw. Follow-ups that only change the comparison superlative or ask what
+// statistic was used must not be recompiled by an LLM: doing so creates an
+// avoidable semantic failure point and can contradict the executed engine.
 
 import {
   normalizeConversationTurnContract,
@@ -32,6 +32,25 @@ function requestedDirection(text: string): "increase" | "decrease" | null {
   return null;
 }
 
+function requestedLeastDirection(text: string): "increase" | "decrease" | null {
+  const value = norm(text);
+  if (/\b(?:menos acima|menor alta|menos aument\w*|menor aument\w*|menos subiu)\b/.test(value)) {
+    return "increase";
+  }
+  if (/\b(?:menos abaixo|menor queda|menos diminu\w*|menor diminu\w*|menos caiu)\b/.test(value)) {
+    return "decrease";
+  }
+  return null;
+}
+
+function asksStatisticExplanation(text: string): boolean {
+  const value = norm(text);
+  const hasMean = /\b(?:media|medias|mensal|mensais)\b/.test(value);
+  const hasTotal = /\b(?:total|totais|somados|soma)\b/.test(value);
+  return hasMean && hasTotal
+    || /\b(?:esses|esses valores|os valores).*(?:media|mensal|total)\b/.test(value);
+}
+
 function latestComparisonReference(memory: ConversationMemory): ReferenceObject | null {
   const refs = (memory.references ?? [])
     .filter((ref) =>
@@ -50,6 +69,11 @@ const MONTHS_PT = [
   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ] as const;
 
+const MONTH_NUMBER_WORDS: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
+  sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
+};
+
 function periodLabel(period: { from: string; to: string; label?: string | null } | null | undefined): string | null {
   const explicit = String(period?.label ?? "").trim();
   if (explicit) return explicit;
@@ -63,8 +87,9 @@ function historicalWindow(memory: ConversationMemory, reference: ReferenceObject
   const fromContext = Number(reference.source?.context?.months);
   if (Number.isInteger(fromContext) && fromContext >= 2 && fromContext <= 24) return fromContext;
   const summary = norm(memory.conversation_summary ?? "");
-  const match = /media (?:dos )?(?:ultimos )?(\d{1,2}) meses/.exec(summary);
-  const value = Number(match?.[1]);
+  const match = /media (?:dos )?(?:ultimos )?(\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze) meses?/.exec(summary);
+  const raw = match?.[1] ?? "";
+  const value = MONTH_NUMBER_WORDS[raw] ?? Number(raw);
   return Number.isInteger(value) && value >= 2 && value <= 24 ? value : null;
 }
 
@@ -89,17 +114,91 @@ function comparisonQuery(args: {
   };
 }
 
+function directReplyContract(
+  text: string,
+  reply: string,
+): CanonicalConversationTurnContract | null {
+  return normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "follow_up",
+    mode: "converse",
+    domain: "conversation",
+    canonical_request: text,
+    inherit_focus: true,
+    focus: {
+      category: null,
+      merchant: null,
+      goal: null,
+      period_expression: null,
+      period_expressions: [],
+    },
+    action: null,
+    direct_reply: reply,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: "resolved",
+      time: "not_applicable",
+      entity: "not_applicable",
+      action: "not_applicable",
+    },
+    reference: {
+      kind: "previous_result_set",
+      target: "category",
+      expression: "resultado anterior",
+      status: "resolved",
+    },
+    financial_read: null,
+    advisory_kind: null,
+  });
+}
+
 export function resolveGroundedComparisonFollowup(
   text: string,
   memory: ConversationMemory | null,
 ): CanonicalConversationTurnContract | null {
-  const direction = requestedDirection(text);
-  if (!direction || !memory) return null;
+  if (!memory) return null;
   const reference = latestComparisonReference(memory);
   if (!reference) return null;
+  const tool = String(reference.source?.tool_name ?? "");
+
+  // Meta-pergunta sobre a conta que acabou de ser exibida. A resposta vem do
+  // contrato do motor, não de uma nova interpretação da LLM.
+  if (asksStatisticExplanation(text) && tool.includes("compare_to_monthly_average")) {
+    const months = historicalWindow(memory, reference);
+    const suffix = months ? ` dos ${months} meses completos anteriores` : " dos meses completos anteriores";
+    return directReplyContract(
+      text,
+      `São médias mensais dos dois lados. O período analisado é normalizado para uma média mensal e comparado com a média mensal${suffix}. Não estou comparando o total de vários meses com a média de um único mês.`,
+    );
+  }
+
+  // "menos acima" / "menos abaixo" é uma seleção do conjunto que o usuário
+  // acabou de ver. Esse conjunto já está ordenado pelo formatter canônico, então
+  // o último item é o menor desvio dentro da direção exibida. Não recalculamos
+  // dinheiro pela memória: respondemos apenas a entidade pedida.
+  const leastDirection = requestedLeastDirection(text);
+  if (leastDirection) {
+    const summary = norm(memory.conversation_summary ?? "");
+    const summaryMatchesDirection = leastDirection === "increase"
+      ? /\b(?:acima|aument\w*|subiu|alta)\b/.test(summary)
+      : /\b(?:abaixo|diminu\w*|caiu|queda)\b/.test(summary);
+    if (summaryMatchesDirection) {
+      const entity = reference.entity_labels[reference.entity_labels.length - 1];
+      if (entity) {
+        const phrase = leastDirection === "increase" ? "menos acima" : "menos abaixo";
+        return directReplyContract(
+          text,
+          `Entre as categorias que eu tinha acabado de listar, a que ficou ${phrase} foi *${entity}*.`,
+        );
+      }
+    }
+  }
+
+  const direction = requestedDirection(text);
+  if (!direction) return null;
 
   const context = reference.source?.context ?? null;
-  const tool = String(reference.source?.tool_name ?? "");
   const targetPeriod = context?.target_period ?? context?.period_b ?? memory.active_period;
   const targetLabel = periodLabel(targetPeriod);
   if (!targetLabel) return null;

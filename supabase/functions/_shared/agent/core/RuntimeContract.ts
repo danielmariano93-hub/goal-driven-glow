@@ -10,10 +10,10 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .4 includes comparable monthly-average normalization.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-18.4";
+// Deployment stamp .5 hardens trailing-month semantics and grounded comparison follow-ups.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-18.5";
 
-export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v3";
+export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v4";
 
 export type RuntimeStamp = {
   runtime_version: string;

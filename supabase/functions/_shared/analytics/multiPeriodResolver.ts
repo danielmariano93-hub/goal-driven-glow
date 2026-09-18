@@ -28,6 +28,7 @@ export type MultiPeriodResolution = {
 };
 
 const MONTHS = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
+const MONTH_COUNTS = "um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|\\d{1,2}";
 
 /** Expressões temporais reconhecidas, mais longas primeiro. */
 const TOKEN_RX = new RegExp(
@@ -43,6 +44,7 @@ const TOKEN_RX = new RegExp(
     "esta semana",
     "essa semana",
     `\\b(?:${MONTHS})(?:\\s+de\\s+20\\d{2})?\\b`,
+    `ultimos?\\s+(?:${MONTH_COUNTS})\\s+meses?`,
     "ultimos?\\s+\\d{1,3}\\s+dias",
     "hoje",
     "ontem",
