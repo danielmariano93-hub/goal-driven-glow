@@ -26,6 +26,11 @@ const MONTHS: Record<string, number> = {
   julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
 };
 const MONTH_LABELS = Object.keys(MONTHS);
+const MONTH_COUNT_WORDS: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
+  sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
+};
+const MONTH_COUNT_TOKEN = "um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|\\d{1,2}";
 
 function norm(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -46,6 +51,25 @@ function shift(ymd: string, days: number): string {
 
 function lastDayOfMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** Desloca meses preservando o dia do mês e faz clamp no fim do mês. */
+function shiftMonthsClamped(ymd: string, months: number): string {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const monthIndex = year * 12 + (month - 1) + months;
+  const targetYear = Math.floor(monthIndex / 12);
+  const targetMonthZero = ((monthIndex % 12) + 12) % 12;
+  const targetMonth = targetMonthZero + 1;
+  const targetDay = Math.min(day, lastDayOfMonth(targetYear, targetMonth));
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
+function parseMonthCount(token: string | null | undefined, min = 1, max = 24): number | null {
+  const raw = String(token ?? "").trim();
+  if (!raw) return null;
+  const value = MONTH_COUNT_WORDS[raw] ?? Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) return null;
+  return value;
 }
 
 function monthPeriod(year: number, month: number, today: string, complete: boolean): ResolvedPeriod {
@@ -105,16 +129,17 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const p = monthPeriod(prevYear, prevMonth, today, true);
     return { ...p, label: "mês passado", matched: "mês passado" };
   }
-  const lastMonths = t.match(/\bultimos?\s+(dois|tres|2|3|4|5|6)\s+meses\b/);
+  const lastMonths = t.match(new RegExp(`\\bultimos?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`));
   if (lastMonths) {
-    const map: Record<string, number> = { dois: 2, tres: 3 };
-    const count = map[lastMonths[1]] ?? Number(lastMonths[1]);
-    const startMonth = ((month - count) % 12 + 12) % 12 || 12;
-    const startYear = month - count < 1 ? year - 1 : year;
-    return {
-      from: `${startYear}-${String(startMonth).padStart(2, "0")}-01`, to: today,
-      label: `últimos ${count} meses`, matched: lastMonths[0], complete: false, kind: "range",
-    };
+    const count = parseMonthCount(lastMonths[1]);
+    if (count) {
+      return {
+        // Janela móvel em MESES de calendário: preserva o dia do mês. Em
+        // 18/09, "últimos 3 meses" começa em 18/06 — nunca em 01/06.
+        from: shiftMonthsClamped(today, -count), to: today,
+        label: `últimos ${count} meses`, matched: lastMonths[0], complete: false, kind: "range",
+      };
+    }
   }
   const rollingDays = t.match(/\bultimos?\s+(\d{1,3})\s+dias\b/);
   if (rollingDays) {
@@ -241,8 +266,9 @@ export function resolveTimeAspectPt(text: string, now: Date = new Date()): Resol
 
   // "média mensal dos últimos N meses" → janela fechada explícita com mean.
   if (MEAN_RX.test(t)) {
-    const declared = t.match(/\bultimos?\s+(\d{1,2})\s+meses\b/);
-    const n = declared ? Math.max(2, Math.min(12, Number(declared[1]))) : HABITUAL_WINDOW_MONTHS;
+    const declared = t.match(new RegExp(`\\bultimos?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`));
+    const parsed = parseMonthCount(declared?.[1], 2, 12);
+    const n = parsed ?? HABITUAL_WINDOW_MONTHS;
     const w = lastCompleteMonths(n, now);
     return {
       aspect: "last_n_complete", from: w.from, to: w.to, n, exclude_partial: true,
