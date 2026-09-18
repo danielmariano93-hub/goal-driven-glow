@@ -15,6 +15,7 @@ import {
   type CanonicalPeriod, type CompletenessTarget,
   type FinancialQueryIRv2, type FinancialQueryV2,
 } from "./FinancialQueryIR.ts";
+import { mappingForQuery } from "./IRCapabilityAdapter.ts";
 
 export type MultiPeriodMode = "none" | "fanout" | "comparison";
 
@@ -40,16 +41,33 @@ function canonical(period: { from: string; to: string; label?: string }, index: 
   };
 }
 
-/** Comparação real (motor `compare_periods`) só existe sem filtro e sem dimensão. */
-function comparableShape(ir: FinancialQueryIRv2): boolean {
-  if (ir.queries.length !== 1) return false;
-  const q = ir.queries[0];
-  const group = q.group_by?.[0] ?? null;
-  const comparisonByCategory = q.operation === "compare" && group === "category";
-  return q.filters.length === 0
-    && ((q.group_by?.length ?? 0) === 0 || comparisonByCategory)
-    && ["value", "sum", "compare"].includes(String(q.operation))
-    && ["expense_amount", "income_amount"].includes(String(q.metric));
+/**
+ * Constrói a comparação e pergunta ao registro CANÔNICO de capacidades se ela
+ * é executável. Antes este módulo mantinha uma segunda whitelist, mais restrita
+ * que IRCapabilityAdapter, e descartava `category_scope` mesmo quando
+ * `compare_periods` já o suportava.
+ */
+function periodComparison(
+  ir: FinancialQueryIRv2,
+  periods: CanonicalPeriod[],
+): FinancialQueryIRv2 | null {
+  if (ir.queries.length !== 1 || periods.length !== 2) return null;
+  const query = { ...ir.queries[0], operation: "compare" as const, period: null };
+  const candidate: FinancialQueryIRv2 = {
+    ...ir,
+    queries: [query],
+    period: periods[1],
+    comparison_period: periods[0],
+    completeness_targets: (ir.completeness_targets ?? []).map((target) => ({
+      ...target,
+      claim: "direction" as const,
+    })),
+    assumptions: [...new Set([
+      ...ir.assumptions,
+      `comparação: ${periods[0].label} vs ${periods[1].label}`,
+    ])],
+  };
+  return mappingForQuery(query, candidate)?.tool === "compare_periods" ? candidate : null;
 }
 
 export function expandIRForPeriods(
@@ -74,24 +92,26 @@ export function expandIRForPeriods(
 
   // Comparação explícita entre EXATAMENTE dois períodos usa a semântica de
   // comparação. Pedido de "valores em vários períodos" nunca vira comparação.
-  if (comparisonIntent && periods.length === 2 && comparableShape(ir)) {
-    const q = ir.queries[0];
-    return {
-      version: "period_truth.v2",
-      applied: true,
-      mode: "comparison",
-      ir: {
-        ...ir,
-        queries: [{ ...q, operation: "compare", period: null }],
-        period: periods[1],
-        comparison_period: periods[0],
-        completeness_targets: (ir.completeness_targets ?? []).map((t) => ({ ...t, claim: "direction" as const })),
-        assumptions: [...new Set([...ir.assumptions, `comparação: ${periods[0].label} vs ${periods[1].label}`])],
-      },
-      periods,
-      labels: { [q.id]: `${periods[0].label} vs ${periods[1].label}` },
-      reason: null,
-    };
+  if (comparisonIntent && periods.length === 2) {
+    const comparison = periodComparison(ir, periods);
+    if (comparison) {
+      const q = comparison.queries[0];
+      return {
+        version: "period_truth.v2",
+        applied: true,
+        mode: "comparison",
+        ir: comparison,
+        periods,
+        labels: { [q.id]: `${periods[0].label} vs ${periods[1].label}` },
+        reason: null,
+      };
+    }
+
+    // Uma query que JÁ é comparação não pode virar duas comparações sem base.
+    // Isso destrói `comparison_period` e produz um falso `unsupported` depois.
+    if (ir.queries.some((query) => query.operation === "compare")) {
+      return none("comparison_shape_unsupported");
+    }
   }
 
   // Fan-out: o mesmo contrato roda uma vez por período.
