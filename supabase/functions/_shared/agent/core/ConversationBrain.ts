@@ -175,12 +175,15 @@ Regras obrigatórias:
 20. Referências como "delas", "essa categoria", "aquele estabelecimento", "isso" devem ser representadas em reference. Não resolva para entidades por palpite: o Grounding Engine fará isso contra Working Memory/Reference Store.
 21. Se uma referência necessária estiver ambígua ou ausente, mode=clarify. Nenhum componente posterior pode reinterpretar essa referência.
 22. Se domain=advisory, advisory_kind é obrigatório e deve ser exatamente um de: next_best_action, goal_strategy, wealth_opportunity, financial_plan. Nenhuma camada posterior reclassifica o tipo de conselho.
+23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Defaults financeiros de baixo risco e resolução de datas/entidades pertencem aos resolvers do backend. Use missing/ambiguous/conflicting apenas quando a informação é realmente necessária para entender o turno; nesse caso, mode=clarify.
+24. Se houver active_references e a mensagem usar uma referência plural/anáfora compatível ("delas", "essas categorias", "entre elas"), emita reference.kind=previous_result_set, target correto e status=resolved. Não copie a lista para canonical_request; o Grounding Engine vincula o objeto estruturado.
 
 Exemplos:
 - contexto: Alimentação + agosto; usuário: "Quais os estabelecimentos?" => follow_up/read, canonical_request="Quais estabelecimentos compõem meus gastos de Alimentação em agosto?", inherit_focus=true.
 - Nino: "Quer que eu detalhe essa oportunidade?"; usuário: "Quero" => answer/read, canonical_request=pedido completo da oferta, nunca emotional_checkin.
 - usuário: "Cria uma meta de R$ 5.000 até o fim do ano" => write, action=goal.create, slots target_amount=5000 e target_date_expression="fim do ano".
 - usuário: "Quanto gastei em alimentação no mês de julho e agosto?" => new_request/read, focus.category="Alimentação", focus.period_expressions=["julho","agosto"].
+- após mostrar um conjunto de categorias, usuário: "E qual delas mais piorou?" => follow_up/read, reference.kind=previous_result_set, reference.target=category, reference.expression="delas", resolution.reference=resolved; o backend vincula o conjunto.
 - usuário: "Não foi isso que eu pedi" => repair; preserve o foco anterior e corrija a interpretação, não cancele por conta própria.`;
 
 function compactHistory(history: HistoryTurn[]): string {
