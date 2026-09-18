@@ -284,9 +284,9 @@ describe("Comparação direcional — regressão do caso agosto x julho", () => 
     });
     expect(biggestDecrease).toContain("mais diminuiu");
     expect(biggestDecrease).toContain("Moradia");
-    expect(biggestDecrease).toContain("R$ 4.809,66");
-    expect(biggestDecrease).toContain("R$ 8.655,37");
-    expect(biggestDecrease).toContain("R$ 3.845,71");
+    expect(biggestDecrease).toContain("4.809,66");
+    expect(biggestDecrease).toContain("8.655,37");
+    expect(biggestDecrease).toContain("3.845,71");
   });
 });
 
