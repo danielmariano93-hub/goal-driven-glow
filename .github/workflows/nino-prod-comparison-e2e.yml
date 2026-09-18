@@ -42,7 +42,7 @@ jobs:
         run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Typecheck E2E harness
-        run: deno check scripts/nino_prod_comparison_e2e.ts
+        run: deno check --node-modules-dir=auto scripts/nino_prod_comparison_e2e.ts
 
       - name: Resolve backend key without logging it
         env:
@@ -74,7 +74,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set +e
-          deno run --allow-env --allow-net --allow-read scripts/nino_prod_comparison_e2e.ts >/tmp/nino-e2e.log 2>&1
+          deno run --node-modules-dir=auto --allow-env --allow-net --allow-read scripts/nino_prod_comparison_e2e.ts >/tmp/nino-e2e.log 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
             safe_code="$(grep -oE 'e2e_[a-z_]+' /tmp/nino-e2e.log | tail -n 1)"
