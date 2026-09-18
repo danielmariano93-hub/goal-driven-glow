@@ -23,6 +23,11 @@ export const FINANCIAL_OPERATIONS = [
 ] as const;
 export type FinancialOperation = typeof FINANCIAL_OPERATIONS[number];
 
+export const COMPARISON_DIRECTIONS = [
+  "any", "increase", "decrease", "both",
+] as const;
+export type ComparisonDirection = typeof COMPARISON_DIRECTIONS[number];
+
 export type FinancialFilter = {
   field: "category" | "card" | "account" | "payment_method";
   op: "eq";
@@ -36,6 +41,12 @@ export type FinancialQuery = {
   group_by: FinancialDimension[];
   filters: FinancialFilter[];
   limit: number | null;
+  /**
+   * Semântica direcional de comparação. Só tem efeito em operation=compare.
+   * "any" = maior variação independentemente do sinal; "both" = separar altas
+   * e quedas; increase/decrease = filtrar pelo sinal pedido.
+   */
+  comparison_direction?: ComparisonDirection;
   /**
    * Período vinculado À QUERY (`period_truth.v2`). Quando presente, vale sobre
    * `ir.period`: é assim que o mesmo contrato financeiro roda em vários
@@ -67,6 +78,7 @@ export type FinancialQueryIR = {
 const METRICS = new Set<string>(FINANCIAL_METRICS);
 const DIMS = new Set<string>(FINANCIAL_DIMENSIONS);
 const OPS = new Set<string>(FINANCIAL_OPERATIONS);
+const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
 const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
 
 export function validateFinancialIR(value: unknown): string[] {
@@ -108,6 +120,9 @@ export function validateFinancialIR(value: unknown): string[] {
   }
   if (q.limit != null && (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > 20)) {
     errors.push("q0_limit_invalid");
+  }
+  if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
+    errors.push("q0_comparison_direction_invalid");
   }
   return errors;
 }
@@ -319,6 +334,9 @@ export function normalizeToV2(
       group_by: Array.isArray(q?.group_by) ? q.group_by : [],
       filters: Array.isArray(q?.filters) ? q.filters : [],
       limit: q?.limit ?? null,
+      comparison_direction: COMPARISON_DIRECTION_SET.has(String(q?.comparison_direction))
+        ? q.comparison_direction
+        : "any",
       period: q?.period ?? null,
       depends_on: Array.isArray(q?.depends_on) ? q.depends_on.map(String) : [],
     };
@@ -375,7 +393,7 @@ function queryKey(q: FinancialQueryV2): string {
   // O período entra na chave: "julho" e "agosto" com a mesma métrica são duas
   // execuções legítimas, não query duplicada.
   const period = q.period ? `${q.period.from}..${q.period.to}` : "ir";
-  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}/${period}`;
+  return `${q.metric}/${q.operation}/${[...q.group_by].sort().join("+")}/${filters}/${q.limit ?? "null"}/${q.comparison_direction ?? "any"}/${period}`;
 }
 
 /**
@@ -424,6 +442,9 @@ export function validateFinancialIRv2(value: unknown): string[] {
     }
     if (q.limit != null && (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > 20)) {
       errors.push(`${id}_limit_invalid`);
+    }
+    if (q.comparison_direction != null && !COMPARISON_DIRECTION_SET.has(String(q.comparison_direction))) {
+      errors.push(`${id}_comparison_direction_invalid`);
     }
     // Combinações inválidas de métrica/operação/dimensão.
     if (q.operation === "compare" && !ir.comparison_period) errors.push(`${id}_compare_without_comparison_period`);
