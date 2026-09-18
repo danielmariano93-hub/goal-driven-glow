@@ -12,6 +12,10 @@
 // not_applicable.
 
 import { isActionKind, type ActionIR } from "./ActionIR.ts";
+import {
+  FINANCIAL_DIMENSIONS, FINANCIAL_METRICS, FINANCIAL_OPERATIONS,
+  type FinancialDimension, type FinancialFilter, type FinancialMetric, type FinancialOperation,
+} from "./FinancialQueryIR.ts";
 
 export const BRAIN_ACTS = [
   "new_request", "follow_up", "repair", "answer", "topic_switch", "conversational",
@@ -75,6 +79,19 @@ export type BrainFocus = {
   period_expressions?: string[];
 };
 
+export type FinancialReadSemanticQuery = {
+  metric: FinancialMetric;
+  operation: FinancialOperation;
+  group_by: FinancialDimension[];
+  filters: FinancialFilter[];
+  limit: number | null;
+};
+
+export type FinancialReadSemanticRequest = {
+  intent: "lookup" | "analyze" | "investigate";
+  queries: FinancialReadSemanticQuery[];
+};
+
 export type ConversationTurnContract = {
   version: "conversation_turn_contract.v1" | "conversation_turn_contract.v2";
   act: BrainAct;
@@ -91,6 +108,11 @@ export type ConversationTurnContract = {
   resolution?: TurnResolution;
   /** Referência conversacional estruturada; grounding resolve para entidades reais. */
   reference?: TurnReference | null;
+  /**
+   * Semântica financeira de alto nível emitida pela MESMA autoridade. Não tem
+   * datas resolvidas, IDs nem tools; o backend traduz para Financial IR v3.
+   */
+  financial_read?: FinancialReadSemanticRequest | null;
   /** Subtipo advisory emitido pela mesma autoridade conversacional. */
   advisory_kind?: AdvisoryKind | null;
   /**
@@ -105,6 +127,7 @@ export type CanonicalConversationTurnContract = ConversationTurnContract & {
   domain: TurnDomain;
   resolution: TurnResolution;
   reference: TurnReference | null;
+  financial_read: FinancialReadSemanticRequest | null;
   advisory_kind: AdvisoryKind | null;
 };
 
@@ -182,6 +205,45 @@ function inferResolution(args: {
   };
 }
 
+function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const intent = String(value.intent ?? "");
+  if (!["lookup", "analyze", "investigate"].includes(intent)) return null;
+  const queriesRaw = Array.isArray(value.queries) ? value.queries : [];
+  if (queriesRaw.length < 1 || queriesRaw.length > 4) return null;
+  const queries: FinancialReadSemanticQuery[] = [];
+  for (const item of queriesRaw) {
+    if (!item || typeof item !== "object") return null;
+    const q = item as Record<string, unknown>;
+    const metric = String(q.metric ?? "") as FinancialMetric;
+    const operation = String(q.operation ?? "") as FinancialOperation;
+    if (!FINANCIAL_METRICS.includes(metric) || !FINANCIAL_OPERATIONS.includes(operation)) return null;
+    const groupBy = Array.isArray(q.group_by) ? q.group_by.map(String) : [];
+    if (groupBy.length > 1 || groupBy.some((d) => !FINANCIAL_DIMENSIONS.includes(d as FinancialDimension))) return null;
+    const filtersRaw = Array.isArray(q.filters) ? q.filters : [];
+    const filters: FinancialFilter[] = [];
+    for (const rawFilter of filtersRaw) {
+      if (!rawFilter || typeof rawFilter !== "object") return null;
+      const filter = rawFilter as Record<string, unknown>;
+      const field = String(filter.field ?? "") as FinancialFilter["field"];
+      const filterValue = String(filter.value ?? "").trim();
+      if (!["category", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
+      filters.push({ field, op: "eq", value: filterValue });
+    }
+    const limit = q.limit == null ? null : Number(q.limit);
+    if (limit != null && (!Number.isInteger(limit) || limit < 1 || limit > 20)) return null;
+    queries.push({
+      metric,
+      operation,
+      group_by: groupBy as FinancialDimension[],
+      filters,
+      limit,
+    });
+  }
+  return { intent: intent as FinancialReadSemanticRequest["intent"], queries };
+}
+
 export function normalizeConversationTurnContract(raw: unknown): CanonicalConversationTurnContract | null {
   const value = raw as any;
   if (!value
@@ -222,8 +284,12 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
   const advisoryKind = ADVISORY_KINDS.includes(String(value.advisory_kind) as AdvisoryKind)
     ? String(value.advisory_kind) as AdvisoryKind
     : null;
+  const financialRead = normalizeFinancialRead(value.financial_read);
+  const explicitV2 = String(value.version ?? "") === "conversation_turn_contract.v2";
   if (domain === "advisory" && !advisoryKind) return null;
   if (domain !== "advisory" && advisoryKind) return null;
+  if (explicitV2 && domain === "financial_read" && !financialRead) return null;
+  if (domain !== "financial_read" && financialRead) return null;
 
   // Fail closed on explicit unresolved semantics. Clarify is the only mode that
   // may intentionally carry ambiguous/missing/conflicting intent/reference.
@@ -253,6 +319,7 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
     clarification_question: value.clarification_question == null ? null : String(value.clarification_question).trim(),
     resolution,
     reference,
+    financial_read: financialRead,
     advisory_kind: advisoryKind,
   };
 }
