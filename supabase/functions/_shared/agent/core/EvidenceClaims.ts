@@ -80,16 +80,34 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
 
     const categoryMode = String(result.requested_group_by ?? "none") === "category";
     if (categoryMode) {
-      const increases = (result.by_group as Array<Record<string, unknown>>)
+      const changed = (result.by_group as Array<Record<string, unknown>>)
+        .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
+        .slice();
+      const increases = changed
         .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
-        .slice()
         .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
-      increases.forEach((row, index) => {
+      const decreases = changed
+        .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+        .sort((a, b) => Number(a?.delta_abs ?? 0) - Number(b?.delta_abs ?? 0));
+      const direction = String(result.requested_comparison_direction ?? "any");
+      const ranked = direction === "increase"
+        ? increases
+        : direction === "decrease"
+          ? decreases
+          : direction === "any"
+            ? changed.slice().sort((a, b) =>
+              Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)))
+            : [];
+
+      changed.forEach((row) => {
         const name = typeof row.name === "string" ? row.name : null;
         if (!name) return;
         const change = Math.abs(Number(row.delta_abs ?? 0));
-        claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: index + 1 });
-        claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: index + 1 });
+        const rankIndex = ranked.indexOf(row);
+        if (rankIndex >= 0) {
+          claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: rankIndex + 1 });
+        }
+        claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: rankIndex >= 0 ? rankIndex + 1 : null });
         for (const [field, raw] of [["total_a", row.total_a], ["total_b", row.total_b], ["delta_abs", row.delta_abs]] as const) {
           const value = num(raw);
           if (value != null) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(value), label: `${name}:${field}`, rank: null });
@@ -98,6 +116,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       claims.push({
         id: seq(), ...base, type: "direction", value: null,
         label: increases.length ? "increase" : "no_increase", rank: null,
+      });
+      claims.push({
+        id: seq(), ...base, type: "direction", value: null,
+        label: decreases.length ? "decrease" : "no_decrease", rank: null,
       });
     } else {
       claims.push({

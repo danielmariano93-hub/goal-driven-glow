@@ -47,6 +47,10 @@ import { confirmAndBuildReceipt } from "./core/ConfirmAndReceipt.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
 import { makeProvenance } from "../analytics/provenance.ts";
 import {
+  COMPARISON_DIRECTIONS,
+  type ComparisonDirection,
+} from "./core/FinancialQueryIR.ts";
+import {
   candidateFeelingTerm, customEmotionOption, emotionByKey, emotionOptionsSentence, emotionSlug,
   moodToEmotion, parseEmotionCorrection, parseEmotionFromText, resolveEmotionTerm,
 } from "../intelligence/emotionParse.ts";
@@ -1756,6 +1760,8 @@ async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
 export async function compare_periods(ctx: ToolContext, args: {
   metric?: "expense" | "income";
   group_by?: "category" | "none";
+  comparison_direction?: ComparisonDirection;
+  limit?: number | null;
   period_a?: { from: string; to: string };
   period_b?: { from: string; to: string };
   category_scope?: string[];
@@ -1779,7 +1785,15 @@ export async function compare_periods(ctx: ToolContext, args: {
   // `requested_group_by` describes the semantic shape requested by the
   // caller. The engine always computes category deltas as evidence, but a
   // total-only question must not be rendered as a category ranking.
-  return { ok: true, result: { ...result, requested_group_by: args?.group_by ?? "none" } };
+  return {
+    ok: true,
+    result: {
+      ...result,
+      requested_group_by: args?.group_by ?? "none",
+      requested_comparison_direction: args?.comparison_direction ?? "any",
+      requested_limit: args?.limit ?? null,
+    },
+  };
 }
 
 /** Histórico de 400 dias + recorrências, base da banda/backtest do forecast. */
@@ -3096,6 +3110,9 @@ export const AGENT_TOOLS: ToolSpec[] = [
       type: "object",
       properties: {
         metric: { type: "string", enum: ["expense", "income"] },
+        group_by: { type: "string", enum: ["category", "none"] },
+        comparison_direction: { type: "string", enum: [...COMPARISON_DIRECTIONS] },
+        limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
         period_a: periodSchema,
         period_b: periodSchema,
         category_scope: { type: "array", items: { type: "string" }, maxItems: 20 },

@@ -35,6 +35,7 @@ export function compileFinancialReadFromTurn(args: {
     group_by: [...query.group_by],
     filters: query.filters.map((filter) => ({ ...filter, op: "eq" as const })),
     limit: query.limit,
+    comparison_direction: query.comparison_direction ?? "any",
   }));
 
   const ir: FinancialQueryIR = {
