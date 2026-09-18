@@ -310,6 +310,10 @@ export function formatAverageComparison(result: any): string {
   if (direction === "increase") {
     const selected = take(increases);
     if (!selected.length) return `Nenhuma categoria de ${targetLabel} ficou acima da média dos ${months} meses completos anteriores.`;
+    if (limit === 1) {
+      const row = selected[0];
+      return `A categoria que ficou mais acima da média foi *${String(row.name)}*: ${targetLabel} ${money(row.total_b)} versus média anterior ${money(row.total_a)} — ${money(Math.abs(Number(row.delta_abs ?? 0)))} acima.`;
+    }
     return [
       `Em *${targetLabel}*, ficaram acima da média dos *${months} meses completos anteriores*:`,
       "",
@@ -320,6 +324,10 @@ export function formatAverageComparison(result: any): string {
   if (direction === "decrease") {
     const selected = take(decreases);
     if (!selected.length) return `Nenhuma categoria de ${targetLabel} ficou abaixo da média dos ${months} meses completos anteriores.`;
+    if (limit === 1) {
+      const row = selected[0];
+      return `A categoria que ficou mais abaixo da média foi *${String(row.name)}*: ${targetLabel} ${money(row.total_b)} versus média anterior ${money(row.total_a)} — ${money(Math.abs(Number(row.delta_abs ?? 0)))} abaixo.`;
+    }
     return [
       `Em *${targetLabel}*, ficaram abaixo da média dos *${months} meses completos anteriores*:`,
       "",
@@ -852,4 +860,3 @@ export function formatGoalPerformance(
 
   return blocks.join("\n\n");
 }
-
