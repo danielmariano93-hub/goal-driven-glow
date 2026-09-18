@@ -58,6 +58,8 @@ jobs:
           src/test/nino-conversation-brain-v1.test.ts
           src/test/nino-action-slot-resolver.test.ts
           src/test/nino-conversation-v2-golden-scenarios.test.ts
+          src/test/nino-cognitive-runtime-v1.test.ts
+          src/test/nino-advisory-bridge.test.ts
           src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
@@ -73,6 +75,12 @@ jobs:
           supabase/functions/_shared/ai-runtime.ts
           supabase/functions/_shared/agent/core/ActionIR.ts
           supabase/functions/_shared/agent/core/ConversationTurnContract.ts
+          supabase/functions/_shared/agent/core/ConversationReferenceStore.ts
+          supabase/functions/_shared/agent/core/GroundingEngine.ts
+          supabase/functions/_shared/agent/core/FinancialReadContract.ts
+          supabase/functions/_shared/agent/core/ContractFulfillmentGate.ts
+          supabase/functions/_shared/agent/core/NarrowDeterministicGate.ts
+          supabase/functions/_shared/agent/core/MemoryWriter.ts
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
           supabase/functions/_shared/agent/core/ConversationBrain.ts
           supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
