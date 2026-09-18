@@ -734,7 +734,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   // Category Truth V2: only a category literally requested by the user may enter the draft as user truth.
   // Any model-inferred category stays null and is resolved by the central queue after confirmation.
   const explicitCategoryHint = isExplicitCategoryMention(ctx.user_text, args.category) ? args.category : undefined;
-  const cat = await resolveCategoryId(ctx, explicitCategoryHint, inferredType);
+  const cat = await resolveCategoryId(ctx, explicitCategoryHint, args.type);
   const categoryName = cat ? await categoryNameById(ctx, cat) : null;
 
   // "gastei 96 em adega" — "adega" é DESCRIÇÃO/estabelecimento, não categoria.
