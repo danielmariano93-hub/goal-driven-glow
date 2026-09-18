@@ -199,9 +199,9 @@ const CONFIDENCE_SENTENCE: Record<string, string> = {
 };
 
 /**
- * Comparação factual entre dois períodos. Quando a pergunta pede a dimensão
- * categoria, responde diretamente qual categoria aumentou mais; para leitura
- * total, responde somente o delta agregado. Todos os valores vêm de
+ * Comparação factual entre dois períodos. Para categoria, respeita a direção
+ * contratada (alta, queda, ambas ou maior variação); para leitura total,
+ * responde somente o delta agregado. Todos os valores vêm de
  * compare_periods — nada é recalculado pela LLM.
  */
 export function formatPeriodComparison(result: any): string {
