@@ -30,8 +30,10 @@ const EXACT_READS = new Map<string, string>([
 export function resolveNarrowDeterministicTurn(
   text: string,
 ): CanonicalConversationTurnContract | null {
-  const canonical = EXACT_READS.get(norm(text));
+  const normalized = norm(text);
+  const canonical = EXACT_READS.get(normalized);
   if (!canonical) return null;
+  const metric = normalized.includes("patrimonio") ? "net_worth" : "balance";
 
   return normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
@@ -58,6 +60,16 @@ export function resolveNarrowDeterministicTurn(
       action: "not_applicable",
     },
     reference: null,
+    financial_read: {
+      intent: "lookup",
+      queries: [{
+        metric,
+        operation: "value",
+        group_by: [],
+        filters: [],
+        limit: null,
+      }],
+    },
     advisory_kind: null,
   });
 }
