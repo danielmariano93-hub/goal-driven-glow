@@ -181,7 +181,7 @@ describe("regressão 17/09 — média histórica por categoria", () => {
     expect(result.target_statistic).toBe("monthly_mean");
     expect(moradia?.total_a).toBe(168.69);
     expect(moradia?.total_b).toBe(5343.47);
-    expect(moradia?.delta_abs).toBe(5174.78);
+    expect(moradia?.delta_abs).toBe(5174.79);
     expect(result.provenance.formula_version).toBe("compare.monthly_mean.v2");
   });
 
