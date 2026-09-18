@@ -230,7 +230,7 @@ export function formatPeriodComparison(result: any): string {
 
     const limited = (items: any[]) => requestedLimit ? items.slice(0, requestedLimit) : items;
     const compact = (row: any, direction: "increase" | "decrease") =>
-      `*${String(row.name)}* (${money(Math.abs(Number(row.delta_abs ?? 0)))} ${direction === "increase" ? "a mais" : "a menos"})`;
+      `*${String(row.name)}* (${direction === "increase" ? "aumento de" : "queda de"} ${money(Math.abs(Number(row.delta_abs ?? 0)))})`;
     const detailed = (row: any, direction: "increase" | "decrease") =>
       `*${String(row.name)}*: ${money(Math.abs(Number(row.delta_abs ?? 0)))} ${direction === "increase" ? "a mais" : "a menos"}, de ${money(row.total_a)} para ${money(row.total_b)}.`;
 
