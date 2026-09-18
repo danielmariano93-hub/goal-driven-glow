@@ -18,6 +18,7 @@ function directionWord(delta: number): "acima" | "abaixo" {
 }
 
 function percentText(deltaPct: unknown): string | null {
+  if (deltaPct == null || deltaPct === "") return null;
   const ratio = Number(deltaPct);
   if (!Number.isFinite(ratio)) return null;
   return `${PCT.format(Math.abs(ratio) * 100)}%`;
