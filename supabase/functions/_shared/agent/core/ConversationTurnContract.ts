@@ -26,6 +26,11 @@ export const TURN_DOMAINS = [
 ] as const;
 export type TurnDomain = typeof TURN_DOMAINS[number];
 
+export const ADVISORY_KINDS = [
+  "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
+] as const;
+export type AdvisoryKind = typeof ADVISORY_KINDS[number];
+
 export const RESOLUTION_STATES = [
   "resolved", "ambiguous", "missing", "conflicting", "not_applicable",
 ] as const;
@@ -86,6 +91,8 @@ export type ConversationTurnContract = {
   resolution?: TurnResolution;
   /** Referência conversacional estruturada; grounding resolve para entidades reais. */
   reference?: TurnReference | null;
+  /** Subtipo advisory emitido pela mesma autoridade conversacional. */
+  advisory_kind?: AdvisoryKind | null;
   /**
    * @deprecated Compatibilidade com fixtures/telemetria v1. Nunca usar para
    * roteamento, autorização, execução ou decisão de clarificação.
@@ -98,6 +105,7 @@ export type CanonicalConversationTurnContract = ConversationTurnContract & {
   domain: TurnDomain;
   resolution: TurnResolution;
   reference: TurnReference | null;
+  advisory_kind: AdvisoryKind | null;
 };
 
 export function normalizePeriodExpressions(focus: unknown): string[] {
@@ -211,6 +219,11 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
   const reference = normalizeReference(value.reference);
   const resolution = inferResolution({ raw: value, mode, action, focus, reference });
   const domain = inferDomain(mode, value.domain);
+  const advisoryKind = ADVISORY_KINDS.includes(String(value.advisory_kind) as AdvisoryKind)
+    ? String(value.advisory_kind) as AdvisoryKind
+    : null;
+  if (domain === "advisory" && !advisoryKind) return null;
+  if (domain !== "advisory" && advisoryKind) return null;
 
   // Fail closed on explicit unresolved semantics. Clarify is the only mode that
   // may intentionally carry ambiguous/missing/conflicting intent/reference.
@@ -240,6 +253,7 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
     clarification_question: value.clarification_question == null ? null : String(value.clarification_question).trim(),
     resolution,
     reference,
+    advisory_kind: advisoryKind,
   };
 }
 
