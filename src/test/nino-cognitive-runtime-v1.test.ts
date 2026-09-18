@@ -47,6 +47,16 @@ function financialTurn(over: Partial<CanonicalConversationTurnContract> = {}): C
       action: "not_applicable",
     },
     reference: null,
+    financial_read: {
+      intent: "analyze",
+      queries: [{
+        metric: "expense_amount",
+        operation: "compare",
+        group_by: ["category"],
+        filters: [],
+        limit: 5,
+      }],
+    },
     advisory_kind: null,
     ...over,
   };
@@ -140,12 +150,14 @@ describe("Nino Cognitive Runtime v1 — autoridade única e contratos hierárqui
     expect(normalizeConversationTurnContract({
       ...financialTurn(),
       domain: "advisory",
+      financial_read: null,
       advisory_kind: null,
     })).toBeNull();
 
     expect(normalizeConversationTurnContract({
       ...financialTurn(),
       domain: "advisory",
+      financial_read: null,
       advisory_kind: "next_best_action",
     })?.advisory_kind).toBe("next_best_action");
   });
