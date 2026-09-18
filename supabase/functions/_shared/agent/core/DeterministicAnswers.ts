@@ -281,6 +281,75 @@ export function formatPeriodComparison(result: any): string {
   return `Seus gastos ${verb} *${money(Math.abs(delta))}*: de ${money(totalA)} para ${money(totalB)}.`;
 }
 
+export function formatAverageComparison(result: any): string {
+  const rows: any[] = Array.isArray(result?.by_group) ? result.by_group : [];
+  const direction = ["increase", "decrease", "both", "any"].includes(
+    String(result?.requested_comparison_direction ?? "any"),
+  )
+    ? String(result.requested_comparison_direction)
+    : "any";
+  const rawLimit = Number(result?.requested_limit);
+  const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : null;
+  const months = Math.max(2, Number(result?.baseline_window_months ?? 3));
+  const targetLabel = String(result?.target_label ?? "o período alvo");
+
+  const increases = rows
+    .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+    .sort((a, b) => Number(b.delta_abs ?? 0) - Number(a.delta_abs ?? 0));
+  const decreases = rows
+    .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+    .sort((a, b) => Number(a.delta_abs ?? 0) - Number(b.delta_abs ?? 0));
+  const take = (list: any[]) => limit ? list.slice(0, limit) : list;
+
+  const line = (row: any) => {
+    const delta = Number(row?.delta_abs ?? 0);
+    const sign = delta >= 0 ? "+" : "-";
+    return `• *${String(row.name)}* — ${targetLabel}: ${money(row.total_b)} · média anterior: ${money(row.total_a)} · ${sign}${money(Math.abs(delta))}`;
+  };
+
+  if (direction === "increase") {
+    const selected = take(increases);
+    if (!selected.length) return `Nenhuma categoria de ${targetLabel} ficou acima da média dos ${months} meses completos anteriores.`;
+    return [
+      `Em *${targetLabel}*, ficaram acima da média dos *${months} meses completos anteriores*:`,
+      "",
+      ...selected.map(line),
+    ].join("\n");
+  }
+
+  if (direction === "decrease") {
+    const selected = take(decreases);
+    if (!selected.length) return `Nenhuma categoria de ${targetLabel} ficou abaixo da média dos ${months} meses completos anteriores.`;
+    return [
+      `Em *${targetLabel}*, ficaram abaixo da média dos *${months} meses completos anteriores*:`,
+      "",
+      ...selected.map(line),
+    ].join("\n");
+  }
+
+  if (direction === "both") {
+    const up = take(increases);
+    const down = take(decreases);
+    const out = [`Comparando *${targetLabel}* com a média dos *${months} meses completos anteriores*:`];
+    out.push("", up.length ? "*Acima da média:*" : "*Acima da média:* nenhuma");
+    out.push(...up.map(line));
+    out.push("", down.length ? "*Abaixo da média:*" : "*Abaixo da média:* nenhuma");
+    out.push(...down.map(line));
+    return out.join("\n");
+  }
+
+  const changed = rows
+    .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
+    .sort((a, b) => Math.abs(Number(b.delta_abs ?? 0)) - Math.abs(Number(a.delta_abs ?? 0)));
+  const selected = take(changed);
+  if (!selected.length) return `As categorias de ${targetLabel} ficaram praticamente na média dos ${months} meses completos anteriores.`;
+  return [
+    `Maiores diferenças de *${targetLabel}* contra a média dos *${months} meses completos anteriores*:`,
+    "",
+    ...selected.map(line),
+  ].join("\n");
+}
+
 export function formatForecastMonthClose(result: any): string {
   const point = money(result.point);
   const drivers = result.drivers ?? {};
