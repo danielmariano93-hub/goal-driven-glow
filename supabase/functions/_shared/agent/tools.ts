@@ -734,7 +734,7 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   // Category Truth V2: only a category literally requested by the user may enter the draft as user truth.
   // Any model-inferred category stays null and is resolved by the central queue after confirmation.
   const explicitCategoryHint = isExplicitCategoryMention(ctx.user_text, args.category) ? args.category : undefined;
-  const cat = await resolveCategoryId(ctx, explicitCategoryHint, args.type);
+  const cat = await resolveCategoryId(ctx, explicitCategoryHint, inferredType);
   const categoryName = cat ? await categoryNameById(ctx, cat) : null;
 
   // "gastei 96 em adega" — "adega" é DESCRIÇÃO/estabelecimento, não categoria.
@@ -891,7 +891,7 @@ export async function add_goal_contribution_draft(ctx: ToolContext, args: {
     const { data, error } = await ctx.sb.from("goals").select("id,name").eq("user_id", ctx.user_id).eq("status", "active");
     if (error) return { ok: false, error: `goals_query_failed:${error.message}` };
     const h = hint.toLowerCase();
-    const m = (data ?? []).find(g => (g.name as string).toLowerCase().includes(h));
+    const m = (data ?? []).find((g: any) => (g.name as string).toLowerCase().includes(h));
     if (m) { goalId = m.id as string; goalName = m.name as string; }
   }
   if (!goalId) return { ok: false, error: "goal_not_found" };
