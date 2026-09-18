@@ -86,6 +86,8 @@ export type CompareToMonthlyAverageResult = {
   by_group: Array<{ name: string; total_a: number; total_b: number; delta_abs: number; delta_pct: number | null }>;
   comparable: boolean;
   baseline_statistic: "mean";
+  target_statistic: "monthly_mean";
+  target_window_months: number;
   baseline_window_months: number;
   baseline_periods: Array<{ from: string; to: string }>;
   target_period: { from: string; to: string };
@@ -143,6 +145,18 @@ export function computeCompare(input: CompareInput): CompareResult {
   };
 }
 
+function targetWindowMonths(period: { from: string; to: string }): number {
+  const from = new Date(`${period.from}T12:00:00Z`);
+  const to = new Date(`${period.to}T12:00:00Z`);
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to < from) return 1;
+  const days = Math.floor((to.getTime() - from.getTime()) / 86_400_000) + 1;
+  // A single calendar month remains a single observation. Rolling windows such
+  // as "últimos 3 meses" are normalized to their monthly mean before being
+  // compared with a monthly baseline. This prevents total(3m) vs mean(1m).
+  if (from.getUTCFullYear() === to.getUTCFullYear() && from.getUTCMonth() === to.getUTCMonth()) return 1;
+  return Math.max(1, Math.round(days / 30.4375));
+}
+
 export function computeCompareToMonthlyAverage(
   input: CompareToMonthlyAverageInput,
 ): CompareToMonthlyAverageResult {
@@ -168,14 +182,15 @@ export function computeCompareToMonthlyAverage(
     input.categoryNames, attribution, scope,
   );
 
+  const targetMonths = targetWindowMonths(input.target_period);
   const totalA = baseline.reduce((sum, item) => sum + item.total, 0) / months;
-  const totalB = target.total;
+  const totalB = target.total / targetMonths;
   const names = new Set<string>(target.byCat.keys());
   for (const item of baseline) for (const name of item.byCat.keys()) names.add(name);
 
   const by_group = [...names].map((name) => {
     const baselineMean = baseline.reduce((sum, item) => sum + (item.byCat.get(name) ?? 0), 0) / months;
-    const targetTotal = target.byCat.get(name) ?? 0;
+    const targetTotal = (target.byCat.get(name) ?? 0) / targetMonths;
     const delta = targetTotal - baselineMean;
     const pct = baselineMean > 0 ? delta / baselineMean : (targetTotal > 0 ? null : 0);
     return {
@@ -194,9 +209,12 @@ export function computeCompareToMonthlyAverage(
     from: baselinePeriods[0].from,
     to: input.target_period.to,
     row_count: totalRows,
-    formula_version: "compare.monthly_mean.v1",
+    formula_version: "compare.monthly_mean.v2",
     confidence: confidenceFromSample(totalRows, totalDays),
-    notes: ["Baseline = média de " + months + " meses completos imediatamente anteriores ao período alvo."],
+    notes: [
+      "Baseline = média de " + months + " meses completos imediatamente anteriores ao período alvo.",
+      "Alvo = média mensal do período alvo (" + targetMonths + " mês(es) equivalentes); nunca comparar total multi-mês com média mensal.",
+    ],
   });
 
   return {
@@ -208,6 +226,8 @@ export function computeCompareToMonthlyAverage(
     by_group,
     comparable: true,
     baseline_statistic: "mean",
+    target_statistic: "monthly_mean",
+    target_window_months: targetMonths,
     baseline_window_months: months,
     baseline_periods: baselinePeriods,
     target_period: { ...input.target_period },
