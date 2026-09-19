@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { MetricTile } from "@/components/admin/kit/MetricTile";
 import { TrendChart } from "@/components/admin/kit/TrendChart";
+import { AiOpsCharts, type AiOpsPoint } from "@/components/admin/AiOpsCharts";
 import { callAdminRpc, withPeriod, withDateRange, adminErrorMessage, type Envelope } from "@/lib/admin/adminRpc";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -83,6 +84,7 @@ type AiOpsSnapshot = {
     provider: string | null;
     model: string | null;
   };
+  series: AiOpsPoint[];
   coverage?: { days_with_runs?: number; days_with_ai_usage?: number; perceived_latency_available?: boolean };
 };
 
@@ -304,6 +306,7 @@ export default function Cockpit() {
             Cobertura histórica parcial: há dias com interações registradas sem telemetria de tokens. O painel não preenche esses dias artificialmente.
           </p>
         )}
+        <AiOpsCharts series={aiOps?.series ?? []} coverage={aiOps?.coverage} className="mt-4" />
       </section>
 
       <section aria-labelledby="cockpit-tendencia" className="space-y-4">
