@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Activity, Gauge, Sparkles, Zap } from "lucide-react";
 import {
   Area,
@@ -43,7 +44,7 @@ type Coverage = {
 type ChartRow = AiOpsPoint & { label: string };
 type TooltipMode = "tokens" | "ai" | "run";
 
-type TooltipPayload = Array<{ payload: ChartRow }>;
+type TooltipPayload = Array<{ payload?: ChartRow }>;
 
 const C = {
   primary: "hsl(var(--primary))",
@@ -73,6 +74,7 @@ const pct = (value: number | null | undefined) => value == null ? "—" : `${val
 
 function sum(rows: ChartRow[], key: keyof ChartRow): number {
   return rows.reduce((acc, row) => {
+    if (row[key] == null) return acc;
     const value = Number(row[key]);
     return Number.isFinite(value) ? acc + value : acc;
   }, 0);
@@ -150,7 +152,7 @@ function CardHeader({
   subtitle,
   pills,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   subtitle: string;
   pills: Array<{ label: string; value: string }>;
@@ -173,7 +175,7 @@ function CardHeader({
   );
 }
 
-function PremiumCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function PremiumCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <section className={`min-w-0 overflow-hidden rounded-[28px] border border-border/70 bg-gradient-to-b from-card via-card to-muted/20 shadow-sm ${className}`}>
       {children}
@@ -181,7 +183,7 @@ function PremiumCard({ children, className = "" }: { children: React.ReactNode; 
   );
 }
 
-function ChartShell({ children, height = 250 }: { children: React.ReactNode; height?: number }) {
+function ChartShell({ children, height = 250 }: { children: ReactNode; height?: number }) {
   return <div className="min-w-0 px-1 pb-2 pt-2 sm:px-2" style={{ height }}>{children}</div>;
 }
 
@@ -197,7 +199,18 @@ export function AiOpsCharts({
   coverage?: Coverage;
   className?: string;
 }) {
-  const firstAiDay = String(coverage?.first_ai_usage_at ?? "").slice(0, 10) || null;
+  const observedAi = (series ?? []).find((source) =>
+    Number(source.ai_calls ?? 0) > 0
+    || Number(source.tokens_total ?? 0) > 0
+    || source.ai_p50_latency_ms != null
+    || source.ai_p95_latency_ms != null
+  );
+  // Prefer the first observation of THIS workload. The coverage timestamp is a
+  // fallback because older backend versions exposed the first ledger row across
+  // all workloads, which could make zeroes look like measured days.
+  const firstAiDay = observedAi?.day
+    ?? (String(coverage?.first_ai_usage_at ?? "").slice(0, 10) || null);
+
   const rows: ChartRow[] = (series ?? []).map((source) => {
     const beforeAiCoverage = Boolean(firstAiDay && source.day < firstAiDay);
     return {
@@ -235,7 +248,7 @@ export function AiOpsCharts({
           subtitle="Entrada e saída reais do provider. Dias anteriores ao início da telemetria ficam sem linha, não como consumo zero."
           pills={[
             { label: "Total", value: compact(tokenTotal) },
-            { label: "Entrada", value: pct(inputShare) },
+            { label: "% entrada", value: pct(inputShare) },
             { label: "Por chamada", value: compact(tokenPerCall) },
           ]}
         />
