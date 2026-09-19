@@ -4,7 +4,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -43,8 +42,8 @@ type Coverage = {
 
 type ChartRow = AiOpsPoint & { label: string };
 type TooltipMode = "tokens" | "ai" | "run";
-
 type TooltipPayload = Array<{ payload?: ChartRow }>;
+type MetricKey = keyof ChartRow;
 
 const C = {
   primary: "hsl(var(--primary))",
@@ -72,7 +71,7 @@ const seconds = (value: number | null | undefined) => value == null
   : `${(Number(value) / 1000).toFixed(Number(value) < 1000 ? 2 : 1)}s`;
 const pct = (value: number | null | undefined) => value == null ? "—" : `${value.toFixed(1)}%`;
 
-function sum(rows: ChartRow[], key: keyof ChartRow): number {
+function sum(rows: ChartRow[], key: MetricKey): number {
   return rows.reduce((acc, row) => {
     if (row[key] == null) return acc;
     const value = Number(row[key]);
@@ -80,18 +79,33 @@ function sum(rows: ChartRow[], key: keyof ChartRow): number {
   }, 0);
 }
 
-function lastWith(rows: ChartRow[], keys: Array<keyof ChartRow>): ChartRow | null {
+function lastWith(rows: ChartRow[], keys: MetricKey[]): ChartRow | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     if (keys.some((key) => rows[i][key] != null)) return rows[i];
   }
   return null;
 }
 
-function MetricPill({ label, value }: { label: string; value: string }) {
+function measuredRows(rows: ChartRow[], keys: MetricKey[]): ChartRow[] {
+  return rows.filter((row) => keys.some((key) => {
+    const value = row[key];
+    return value != null && Number.isFinite(Number(value));
+  }));
+}
+
+function MetricStrip({ items }: { items: Array<{ label: string; value: string }> }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-border/60 bg-background/65 px-3 py-2 shadow-sm backdrop-blur-sm">
-      <p className="truncate text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="grid grid-cols-3 divide-x divide-border/50 overflow-hidden rounded-2xl bg-muted/30 ring-1 ring-inset ring-border/40">
+      {items.map((item) => (
+        <div key={item.label} className="min-w-0 px-3 py-2.5 sm:px-4">
+          <p className="truncate text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-[10px]">
+            {item.label}
+          </p>
+          <p className="mt-1 truncate text-[15px] font-semibold tabular-nums tracking-tight text-foreground sm:text-base">
+            {item.value}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -132,8 +146,8 @@ function DayTooltip({ active, payload, mode }: {
   }
 
   return (
-    <div className="min-w-[205px] rounded-2xl border border-border/70 bg-card/95 p-3 shadow-xl backdrop-blur-md">
-      <p className="mb-2 text-sm font-semibold text-foreground">{fullDayLabel(row.day)}</p>
+    <div className="min-w-[210px] rounded-2xl border border-border/70 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
+      <p className="mb-2 text-sm font-semibold tracking-tight text-foreground">{fullDayLabel(row.day)}</p>
       <dl className="space-y-1.5">
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-5 text-xs">
@@ -150,45 +164,72 @@ function CardHeader({
   icon,
   title,
   subtitle,
-  pills,
+  metrics,
 }: {
   icon: ReactNode;
   title: string;
   subtitle: string;
-  pills: Array<{ label: string; value: string }>;
+  metrics: Array<{ label: string; value: string }>;
 }) {
   return (
-    <div className="space-y-3 px-4 pb-1 pt-4 sm:px-5 sm:pt-5">
+    <div className="space-y-3.5 px-4 pb-1 pt-4 sm:px-5 sm:pt-5">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary/15 bg-primary/10 text-primary shadow-sm">
+        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-gradient-to-br from-primary/15 to-primary/5 text-primary shadow-[0_8px_22px_-14px_hsl(var(--primary))]">
           {icon}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h3>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{subtitle}</p>
+          <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground sm:text-base">{title}</h3>
+          <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground sm:text-xs">{subtitle}</p>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        {pills.map((pill) => <MetricPill key={pill.label} {...pill} />)}
-      </div>
+      <MetricStrip items={metrics} />
     </div>
   );
 }
 
 function PremiumCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`min-w-0 overflow-hidden rounded-[28px] border border-border/70 bg-gradient-to-b from-card via-card to-muted/20 shadow-sm ${className}`}>
+    <section className={`min-w-0 overflow-hidden rounded-[24px] border border-border/55 bg-card/95 shadow-[0_18px_55px_-38px_rgba(15,23,42,0.55)] ${className}`}>
       {children}
     </section>
   );
 }
 
-function ChartShell({ children, height = 250 }: { children: ReactNode; height?: number }) {
-  return <div className="min-w-0 px-1 pb-2 pt-2 sm:px-2" style={{ height }}>{children}</div>;
+function SeriesLegend({ items }: { items: Array<{ label: string; color: string }> }) {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 pb-1 pt-1 text-[11px] text-muted-foreground">
+      {items.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: item.color }} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
-const axisTick = { fontSize: 11, fill: C.muted } as const;
-const commonMargin = { top: 8, right: 14, left: 0, bottom: 0 };
+function ChartShell({
+  children,
+  empty,
+  large = false,
+}: {
+  children: ReactNode;
+  empty?: boolean;
+  large?: boolean;
+}) {
+  return (
+    <div className={`mx-2 mt-2 overflow-hidden rounded-2xl bg-gradient-to-b from-muted/20 to-transparent px-1 pt-2 sm:mx-3 sm:px-2 ${large ? "h-[250px] sm:h-[290px]" : "h-[220px] sm:h-[260px]"}`}>
+      {empty ? (
+        <div className="flex h-full items-center justify-center px-6 text-center text-xs text-muted-foreground">
+          Ainda não há telemetria suficiente para desenhar esta série.
+        </div>
+      ) : children}
+    </div>
+  );
+}
+
+const axisTick = { fontSize: 10, fill: C.muted } as const;
+const commonMargin = { top: 10, right: 8, left: 0, bottom: 0 };
 
 export function AiOpsCharts({
   series,
@@ -205,9 +246,6 @@ export function AiOpsCharts({
     || source.ai_p50_latency_ms != null
     || source.ai_p95_latency_ms != null
   );
-  // Prefer the first observation of THIS workload. The coverage timestamp is a
-  // fallback because older backend versions exposed the first ledger row across
-  // all workloads, which could make zeroes look like measured days.
   const firstAiDay = observedAi?.day
     ?? (String(coverage?.first_ai_usage_at ?? "").slice(0, 10) || null);
 
@@ -227,77 +265,93 @@ export function AiOpsCharts({
     };
   });
 
-  const tokenRows = rows;
-  const aiRows = rows;
-  const runRows = rows;
+  // Recharts intentionally breaks a line on nulls. For sparse telemetry that
+  // creates disconnected visual fragments that look like a rendering bug.
+  // Plot only genuinely measured dates instead: missing days are skipped on the
+  // x-axis and are never converted into fake zeroes.
+  const tokenRows = measuredRows(rows, ["tokens_in", "tokens_out", "tokens_total"]);
+  const aiRows = measuredRows(rows, ["ai_p50_latency_ms", "ai_p95_latency_ms", "ai_avg_latency_ms"]);
+  const runRows = measuredRows(rows, ["run_p50_latency_ms", "run_p95_latency_ms", "run_avg_latency_ms"]);
+
   const tokenTotal = sum(rows, "tokens_total");
   const inputTotal = sum(rows, "tokens_in");
   const callTotal = sum(rows, "ai_calls");
   const inputShare = tokenTotal > 0 ? (inputTotal / tokenTotal) * 100 : null;
   const tokenPerCall = callTotal > 0 ? tokenTotal / callTotal : null;
-  const latestAi = lastWith(rows, ["ai_p50_latency_ms", "ai_p95_latency_ms"]);
-  const latestRun = lastWith(rows, ["run_p50_latency_ms", "run_p95_latency_ms"]);
+  const latestAi = lastWith(aiRows, ["ai_p50_latency_ms", "ai_p95_latency_ms"]);
+  const latestRun = lastWith(runRows, ["run_p50_latency_ms", "run_p95_latency_ms"]);
   const partialCoverage = Number(coverage?.days_with_runs ?? 0) > Number(coverage?.days_with_ai_usage ?? 0);
 
+  const aiDots = aiRows.length <= 12 ? { r: 2.2, strokeWidth: 0 } : false;
+  const runDots = runRows.length <= 12 ? { r: 2.2, strokeWidth: 0 } : false;
+  const tokenDots = tokenRows.length <= 12 ? { r: 2.2, strokeWidth: 0 } : false;
+
   return (
-    <div className={`grid min-w-0 gap-4 xl:grid-cols-2 ${className}`}>
+    <div className={`grid min-w-0 gap-4 lg:grid-cols-2 ${className}`}>
       <PremiumCard>
         <CardHeader
           icon={<Zap size={17} />}
           title="Consumo de tokens por dia"
-          subtitle="Entrada e saída reais do provider. Dias anteriores ao início da telemetria ficam sem linha, não como consumo zero."
-          pills={[
+          subtitle="Somente dias com telemetria válida. Lacunas históricas são omitidas — nunca transformadas em consumo zero."
+          metrics={[
             { label: "Total", value: compact(tokenTotal) },
             { label: "% entrada", value: pct(inputShare) },
             { label: "Por chamada", value: compact(tokenPerCall) },
           ]}
         />
-        <ChartShell height={285}>
+        <ChartShell empty={tokenRows.length === 0}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={tokenRows} margin={commonMargin}>
               <defs>
                 <linearGradient id="ai-token-in" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={C.primary} stopOpacity={0.26} />
-                  <stop offset="90%" stopColor={C.primary} stopOpacity={0.01} />
+                  <stop offset="0%" stopColor={C.primary} stopOpacity={0.2} />
+                  <stop offset="88%" stopColor={C.primary} stopOpacity={0.015} />
                 </linearGradient>
                 <linearGradient id="ai-token-out" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={C.danger} stopOpacity={0.12} />
-                  <stop offset="90%" stopColor={C.danger} stopOpacity={0} />
+                  <stop offset="0%" stopColor={C.danger} stopOpacity={0.1} />
+                  <stop offset="88%" stopColor={C.danger} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 7" vertical={false} stroke={C.border} strokeOpacity={0.7} />
-              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} tickMargin={10} />
-              <YAxis width={62} tick={axisTick} tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => compact(Number(v))} />
-              <Tooltip content={<DayTooltip mode="tokens" />} cursor={{ stroke: C.border, strokeDasharray: "3 5" }} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              <CartesianGrid strokeDasharray="2 7" vertical={false} stroke={C.border} strokeOpacity={0.5} />
+              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={34} tickMargin={9} />
+              <YAxis width={54} tick={axisTick} tickLine={false} axisLine={false} tickMargin={6} domain={[0, "auto"]} tickFormatter={(v) => compact(Number(v))} />
+              <Tooltip content={<DayTooltip mode="tokens" />} cursor={{ stroke: C.border, strokeDasharray: "2 5" }} />
               <Area
-                type="monotone"
+                type="linear"
                 dataKey="tokens_in"
                 name="Entrada"
                 stroke={C.primary}
-                strokeWidth={2.4}
+                strokeWidth={2.35}
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 fill="url(#ai-token-in)"
-                connectNulls={false}
-                dot={false}
-                activeDot={{ r: 4.5, strokeWidth: 2, fill: C.card }}
+                dot={tokenDots}
+                activeDot={{ r: 4, strokeWidth: 2, fill: C.card }}
+                isAnimationActive={false}
               />
               <Area
-                type="monotone"
+                type="linear"
                 dataKey="tokens_out"
                 name="Saída"
                 stroke={C.danger}
-                strokeWidth={2}
+                strokeWidth={1.9}
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 fill="url(#ai-token-out)"
-                connectNulls={false}
-                dot={false}
+                dot={tokenDots}
                 activeDot={{ r: 4, strokeWidth: 2, fill: C.card }}
+                isAnimationActive={false}
               />
             </AreaChart>
           </ResponsiveContainer>
         </ChartShell>
-        <p className="px-5 pb-4 text-[11px] leading-relaxed text-muted-foreground">
+        <SeriesLegend items={[
+          { label: "Entrada", color: C.primary },
+          { label: "Saída", color: C.danger },
+        ]} />
+        <p className="px-5 pb-4 pt-1 text-[10px] leading-relaxed text-muted-foreground sm:text-[11px]">
           {partialCoverage
-            ? "Cobertura histórica parcial: o gráfico distingue ausência de telemetria de consumo efetivamente zerado."
+            ? "Cobertura parcial no período: o eixo mostra apenas os dias realmente medidos."
             : "Cobertura de provider consistente no período selecionado."}
         </p>
       </PremiumCard>
@@ -306,56 +360,66 @@ export function AiOpsCharts({
         <CardHeader
           icon={<Gauge size={17} />}
           title="Latência de IA por dia"
-          subtitle="Tempo apenas do modelo/provider, separado do processamento completo do Nino."
-          pills={[
+          subtitle="Tempo do modelo/provider nos dias em que existe medição válida."
+          metrics={[
             { label: "Mediana", value: seconds(latestAi?.ai_p50_latency_ms) },
             { label: "P95", value: seconds(latestAi?.ai_p95_latency_ms) },
             { label: "Média", value: seconds(latestAi?.ai_avg_latency_ms) },
           ]}
         />
-        <ChartShell height={285}>
+        <ChartShell empty={aiRows.length === 0}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={aiRows} margin={commonMargin}>
-              <CartesianGrid strokeDasharray="3 7" vertical={false} stroke={C.border} strokeOpacity={0.7} />
-              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} tickMargin={10} />
-              <YAxis width={62} tick={axisTick} tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => seconds(Number(v))} />
-              <Tooltip content={<DayTooltip mode="ai" />} cursor={{ stroke: C.border, strokeDasharray: "3 5" }} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              <Line type="monotone" dataKey="ai_p50_latency_ms" name="Mediana" stroke={C.primary} strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{ r: 4.5, strokeWidth: 2, fill: C.card }} />
-              <Line type="monotone" dataKey="ai_p95_latency_ms" name="P95" stroke={C.danger} strokeWidth={2.2} dot={false} connectNulls={false} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} />
-              <Line type="monotone" dataKey="ai_avg_latency_ms" name="Média" stroke={C.success} strokeWidth={1.8} strokeOpacity={0.9} dot={false} connectNulls={false} activeDot={{ r: 3.8, strokeWidth: 2, fill: C.card }} />
+              <CartesianGrid strokeDasharray="2 7" vertical={false} stroke={C.border} strokeOpacity={0.5} />
+              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={34} tickMargin={9} />
+              <YAxis width={54} tick={axisTick} tickLine={false} axisLine={false} tickMargin={6} domain={[0, "auto"]} tickFormatter={(v) => seconds(Number(v))} />
+              <Tooltip content={<DayTooltip mode="ai" />} cursor={{ stroke: C.border, strokeDasharray: "2 5" }} />
+              <Line type="linear" dataKey="ai_p50_latency_ms" name="Mediana" stroke={C.primary} strokeWidth={2.35} strokeLinecap="round" strokeLinejoin="round" dot={aiDots} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
+              <Line type="linear" dataKey="ai_p95_latency_ms" name="P95" stroke={C.danger} strokeWidth={2.05} strokeLinecap="round" strokeLinejoin="round" dot={aiDots} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
+              <Line type="linear" dataKey="ai_avg_latency_ms" name="Média" stroke={C.success} strokeWidth={1.75} strokeOpacity={0.9} strokeLinecap="round" strokeLinejoin="round" dot={aiDots} activeDot={{ r: 3.8, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartShell>
-        <p className="px-5 pb-4 text-[11px] leading-relaxed text-muted-foreground">Última leitura com telemetria de IA: {latestAi ? fullDayLabel(latestAi.day) : "—"}.</p>
+        <SeriesLegend items={[
+          { label: "Mediana", color: C.primary },
+          { label: "P95", color: C.danger },
+          { label: "Média", color: C.success },
+        ]} />
+        <p className="px-5 pb-4 pt-1 text-[10px] leading-relaxed text-muted-foreground sm:text-[11px]">
+          Última leitura com telemetria de IA: {latestAi ? fullDayLabel(latestAi.day) : "—"}.
+        </p>
       </PremiumCard>
 
-      <PremiumCard className="xl:col-span-2">
+      <PremiumCard className="lg:col-span-2">
         <CardHeader
           icon={<Activity size={17} />}
           title="Latência ponta a ponta por dia"
           subtitle="Tempo do run completo no backend: interpretação, ferramentas, regras e geração da resposta."
-          pills={[
+          metrics={[
             { label: "Mediana", value: seconds(latestRun?.run_p50_latency_ms) },
             { label: "P95", value: seconds(latestRun?.run_p95_latency_ms) },
             { label: "Média", value: seconds(latestRun?.run_avg_latency_ms) },
           ]}
         />
-        <ChartShell height={310}>
+        <ChartShell empty={runRows.length === 0} large>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={runRows} margin={commonMargin}>
-              <CartesianGrid strokeDasharray="3 7" vertical={false} stroke={C.border} strokeOpacity={0.7} />
-              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} minTickGap={24} tickMargin={10} />
-              <YAxis width={62} tick={axisTick} tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => seconds(Number(v))} />
-              <Tooltip content={<DayTooltip mode="run" />} cursor={{ stroke: C.border, strokeDasharray: "3 5" }} />
-              <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              <Line type="monotone" dataKey="run_p50_latency_ms" name="Mediana" stroke={C.primary} strokeWidth={2.5} dot={false} connectNulls={false} activeDot={{ r: 4.5, strokeWidth: 2, fill: C.card }} />
-              <Line type="monotone" dataKey="run_p95_latency_ms" name="P95" stroke={C.danger} strokeWidth={2.2} dot={false} connectNulls={false} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} />
-              <Line type="monotone" dataKey="run_avg_latency_ms" name="Média" stroke={C.success} strokeWidth={1.8} strokeOpacity={0.9} dot={false} connectNulls={false} activeDot={{ r: 3.8, strokeWidth: 2, fill: C.card }} />
+              <CartesianGrid strokeDasharray="2 7" vertical={false} stroke={C.border} strokeOpacity={0.5} />
+              <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={34} tickMargin={9} />
+              <YAxis width={54} tick={axisTick} tickLine={false} axisLine={false} tickMargin={6} domain={[0, "auto"]} tickFormatter={(v) => seconds(Number(v))} />
+              <Tooltip content={<DayTooltip mode="run" />} cursor={{ stroke: C.border, strokeDasharray: "2 5" }} />
+              <Line type="linear" dataKey="run_p50_latency_ms" name="Mediana" stroke={C.primary} strokeWidth={2.35} strokeLinecap="round" strokeLinejoin="round" dot={runDots} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
+              <Line type="linear" dataKey="run_p95_latency_ms" name="P95" stroke={C.danger} strokeWidth={2.05} strokeLinecap="round" strokeLinejoin="round" dot={runDots} activeDot={{ r: 4, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
+              <Line type="linear" dataKey="run_avg_latency_ms" name="Média" stroke={C.success} strokeWidth={1.75} strokeOpacity={0.9} strokeLinecap="round" strokeLinejoin="round" dot={runDots} activeDot={{ r: 3.8, strokeWidth: 2, fill: C.card }} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartShell>
-        <div className="mx-5 mb-4 flex items-start gap-2 rounded-2xl border border-border/60 bg-background/55 px-3 py-2.5 text-[11px] leading-relaxed text-muted-foreground">
+        <SeriesLegend items={[
+          { label: "Mediana", color: C.primary },
+          { label: "P95", color: C.danger },
+          { label: "Média", color: C.success },
+        ]} />
+        <div className="mx-4 mb-4 mt-2 flex items-start gap-2 rounded-2xl bg-muted/25 px-3 py-2.5 text-[10px] leading-relaxed text-muted-foreground ring-1 ring-inset ring-border/35 sm:mx-5 sm:text-[11px]">
           <Sparkles size={14} className="mt-0.5 shrink-0 text-primary" />
           <p>Esta métrica mede o backend do Nino. Rede móvel, navegador e renderização no aparelho ficam fora dela.</p>
         </div>
