@@ -68,14 +68,14 @@ export function TrendChart({
   };
 
   return (
-    <figure className="surface-card p-4">
-      <div style={{ height }}>
+    <figure className="surface-card min-w-0 overflow-hidden p-4">
+      <div className="min-w-0" style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           {kind === "bar" ? (
-            <BarChart data={data} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>
+            <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} />
-              <YAxis tick={axis} tickLine={false} axisLine={false} width={40} />
+              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} tickMargin={8} />
+              <YAxis tick={axis} tickLine={false} axisLine={false} width={60} tickMargin={6} />
               <Tooltip {...tooltip} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {series.map((s) => (
@@ -90,7 +90,7 @@ export function TrendChart({
               ))}
             </BarChart>
           ) : (
-            <AreaChart data={data} margin={{ top: 8, right: 4, left: -20, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 {series.map((s) => (
                   <linearGradient key={s.key} id={`grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -100,8 +100,8 @@ export function TrendChart({
                 ))}
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} />
-              <YAxis tick={axis} tickLine={false} axisLine={false} width={40} />
+              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} tickMargin={8} />
+              <YAxis tick={axis} tickLine={false} axisLine={false} width={60} tickMargin={6} />
               <Tooltip {...tooltip} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {series.map((s) => (
