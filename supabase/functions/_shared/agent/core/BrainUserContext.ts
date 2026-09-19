@@ -73,7 +73,7 @@ export function serializeBrainUserContext(
       confidence: Number(fact.confidence ?? 0),
     }));
 
-  const payload = {
+  const basePayload = {
     preferences: {
       tone: preferences.tone,
       verbosity: preferences.verbosity,
@@ -82,9 +82,24 @@ export function serializeBrainUserContext(
       suggestion_frequency: preferences.suggestion_frequency,
       technical_level: preferences.technical_level,
     },
-    durable_memory: durable,
   };
-  return JSON.stringify(payload).slice(0, Math.max(500, maxChars));
+
+  // Never cut a serialized JSON string in the middle. The list is already
+  // ordered by signal, so drop the lowest-priority tail until the payload fits.
+  const limit = Math.max(500, maxChars);
+  let selected = durable;
+  let serialized = JSON.stringify({ ...basePayload, durable_memory: selected });
+  while (serialized.length > limit && selected.length > 0) {
+    selected = selected.slice(0, -1);
+    serialized = JSON.stringify({ ...basePayload, durable_memory: selected });
+  }
+
+  // Preferences alone are intentionally tiny; this fallback makes the contract
+  // total even if a future field unexpectedly grows.
+  if (serialized.length > limit) {
+    return JSON.stringify({ ...basePayload, durable_memory: [] });
+  }
+  return serialized;
 }
 
 export async function loadBrainUserContext(
