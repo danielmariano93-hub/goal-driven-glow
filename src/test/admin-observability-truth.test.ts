@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 const migration = readFileSync("supabase/migrations/20260918211500_admin_observability_truth.sql", "utf8");
 const historyMigration = readFileSync("supabase/migrations/20260918211600_admin_ai_history_truth.sql", "utf8");
 const cockpit = readFileSync("src/pages/admin/Cockpit.tsx", "utf8");
+const aiCharts = readFileSync("src/components/admin/AiOpsCharts.tsx", "utf8");
+const truthBoard = readFileSync("src/components/admin/AiEfficiencyTruthBoard.tsx", "utf8");
+const trendChart = readFileSync("src/components/admin/kit/TrendChart.tsx", "utf8");
 const messages = readFileSync("src/lib/admin/messageCenter.ts", "utf8");
 
 describe("admin observability truth", () => {
@@ -40,6 +43,25 @@ describe("admin observability truth", () => {
     expect(cockpit).toContain("Latência IA P50");
     expect(cockpit).toContain("Latência IA P95");
     expect(cockpit).toContain("Tempo total P95");
+    expect(cockpit).toContain("<AiOpsCharts");
+    expect(cockpit).toContain("series={aiOps?.series ?? []}");
+  });
+
+  it("keeps all three historical AI charts and reuses them in overview and detail", () => {
+    expect(aiCharts).toContain("Consumo de tokens por dia");
+    expect(aiCharts).toContain("Latência de IA por dia (tempo do modelo)");
+    expect(aiCharts).toContain("Latência ponta a ponta por dia");
+    expect(aiCharts).toContain("run_p50_latency_ms");
+    expect(aiCharts).toContain("run_p95_latency_ms");
+    expect(aiCharts).toContain("run_avg_latency_ms");
+    expect(truthBoard).toContain("<AiOpsCharts");
+  });
+
+  it("does not clip y-axis labels on narrow admin screens", () => {
+    expect(trendChart).not.toContain("left: -20");
+    expect(trendChart).toContain("left: 0");
+    expect(trendChart).toContain("width={60}");
+    expect(trendChart).toContain("overflow-hidden");
   });
 
   it("keeps interaction counts separate from provider calls in detailed history", () => {
