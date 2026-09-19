@@ -718,8 +718,18 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const currentYM = todayIso.slice(0, 7);
   const monthlyTotalsForDonation = computeMonthlyTotals(input.txs, currentYM);
-  const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots);
-  const netWorthRaw = computeNetWorth(input.accounts, input.txs, input.investments, input.debts, input.snapshots);
+  // Estoques "de hoje" nunca podem incorporar uma postagem bancária futura.
+  // Sem o limite superior, uma transação ocorrida hoje mas postada amanhã era
+  // reaplicada depois da âncora bancária de hoje e reduzia saldo/patrimônio.
+  const availableToday = computeTotalCash(input.accounts, input.txs, input.snapshots, { asOf: todayIso });
+  const netWorthRaw = computeNetWorth(
+    input.accounts,
+    input.txs,
+    input.investments,
+    input.debts,
+    input.snapshots,
+    { asOf: todayIso },
+  );
   const cardExposures = computeCardExposure({
     cardIds: input.cardIds ?? [],
     statements: input.cardStatements ?? [],
@@ -959,6 +969,16 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   });
   const balanceExplanation = explainBalanceChange(cashBridge, periodPerformance);
   const periodStatus: SnapshotPeriodStatus = input.period.end < todayIso ? "closed" : "open";
+  const confidenceRank: Record<ProjectionConfidence, number> = {
+    insufficient: 0,
+    low: 1,
+    medium: 2,
+    high: 3,
+  };
+  const auditConfidence: ProjectionConfidence =
+    confidenceRank[projection.confidence] <= confidenceRank[cashBridge.confidence]
+      ? projection.confidence
+      : cashBridge.confidence;
   const audit: SnapshotAuditMetadata = {
     generatedAt: input.audit?.generatedAt ?? today.toISOString(),
     asOf: todayIso,
@@ -966,7 +986,8 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
     completeness: input.audit?.completeness ?? "complete",
     missingSources: input.audit?.missingSources ?? [],
     sourceFreshness: input.audit?.sourceFreshness ?? {},
-    confidence: projection.confidence,
+    // A confiança global não pode ser maior do que a conciliação de caixa.
+    confidence: auditConfidence,
     formulaVersions: {
       snapshot: FINANCE_CONTRACT_VERSION,
       projection: SPENDING_PROJECTION_VERSION,

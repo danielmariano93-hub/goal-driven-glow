@@ -6,12 +6,14 @@ import {
 } from "@/lib/ledger/statementBalance";
 import {
   computeAccountBalances,
+  computeAvailableUntil,
   cashDateOf,
   hasBankPosting,
   isHardBankAnchor,
   type AccountRow,
   type TransactionRow,
 } from "@/lib/engine/facts";
+import { computeFinancialSnapshot } from "@/lib/engine/metrics";
 
 const acc = (id: string, opening = 0): AccountRow => ({
   id, name: id, type: "checking", opening_balance: opening, active: true,
@@ -53,6 +55,83 @@ describe("bank_cash_truth.v1 — data de caixa", () => {
     expect(hasBankPosting({ posted_at: "2026-08-10", posted_at_source: "statement" })).toBe(true);
     expect(cashDateOf({ posted_at: "2026-08-10", posted_at_source: "inferred", occurred_at: "2026-08-03" })).toBe("2026-08-03");
     expect(cashDateOf({ posted_at: "2026-08-10", posted_at_source: "statement", occurred_at: "2026-08-03" })).toBe("2026-08-10");
+  });
+
+  it("não aplica postagem futura ao saldo, patrimônio ou projeção de hoje", () => {
+    const snapshot = computeFinancialSnapshot({
+      accounts: [acc("a", 0)],
+      txs: [
+        tx({
+          id: "uber",
+          account_id: "a",
+          type: "expense",
+          amount: 81.96,
+          occurred_at: "2026-09-19",
+          posted_at: "2026-09-21",
+          posted_at_source: "statement",
+          payment_method: "account",
+          movement_kind: "transaction",
+        }),
+        tx({
+          id: "ifood",
+          account_id: "a",
+          type: "expense",
+          amount: 23.98,
+          occurred_at: "2026-09-19",
+          posted_at: "2026-09-21",
+          posted_at_source: "statement",
+          payment_method: "account",
+          movement_kind: "transaction",
+        }),
+      ],
+      recurring: [],
+      snapshots: [{
+        account_id: "a",
+        balance_date: "2026-09-19",
+        balance: 1300.16,
+        status: "confirmed",
+        anchor_kind: "bank_confirmed",
+      }],
+      investments: [],
+      debts: [],
+      categoryGoals: [],
+      period: { start: "2026-09-01", end: "2026-09-19" },
+      today: new Date("2026-09-19T15:00:00.000Z"),
+    });
+
+    expect(snapshot.availableToday).toBe(1300.16);
+    expect(snapshot.netWorth.cash).toBe(1300.16);
+    expect(snapshot.projection.currentAvailableBalance).toBe(1300.16);
+    expect(snapshot.cashBridge.confirmedClosingCash).toBe(1300.16);
+    expect(snapshot.audit.confidence).not.toBe("high");
+
+    const available = computeAvailableUntil({
+      accounts: [acc("a", 0)],
+      txs: [
+        tx({
+          id: "future-posting",
+          account_id: "a",
+          type: "expense",
+          amount: 105.94,
+          occurred_at: "2026-09-19",
+          posted_at: "2026-09-21",
+          posted_at_source: "statement",
+          payment_method: "account",
+          movement_kind: "transaction",
+        }),
+      ],
+      recurring: [],
+      snapshots: [{
+        account_id: "a",
+        balance_date: "2026-09-19",
+        balance: 1300.16,
+        status: "confirmed",
+        anchor_kind: "bank_confirmed",
+      }],
+      endDate: "2026-09-30",
+      today: new Date("2026-09-19T15:00:00.000Z"),
+    });
+    expect(available.currentCash).toBe(1300.16);
   });
 });
 

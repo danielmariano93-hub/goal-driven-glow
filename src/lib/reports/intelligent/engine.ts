@@ -448,7 +448,14 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
       essentialTotal: round2(Math.max(0, essential)),
       flexibleTotal: round2(Math.max(0, flexible)),
       cardOutstanding: resolveCardOutstanding(input, all, period),
-      cashTotal: round2(computeTotalCash(input.accounts ?? [], all, input.balanceSnapshots ?? [])),
+      // O saldo do relatório é posição no fim do período, não após lançamentos
+      // bancários futuros já presentes no ledger.
+      cashTotal: round2(computeTotalCash(
+        input.accounts ?? [],
+        all,
+        input.balanceSnapshots ?? [],
+        { asOf: period.end },
+      )),
     },
     categories,
     series,
