@@ -6,6 +6,14 @@ const migration = readFileSync(
   "supabase/migrations/20260918214500_restore_background_communications.sql",
   "utf8",
 );
+const deliveryRepair = readFileSync(
+  "supabase/migrations/20260919233000_repair_proactive_delivery_contract.sql",
+  "utf8",
+);
+const schemaContract = readFileSync(
+  "supabase/functions/_shared/intelligence/schemaContract.ts",
+  "utf8",
+);
 
 describe("Nino background communication contract", () => {
   it("lets internal cron reach handlers that authenticate x-cron-secret themselves", () => {
@@ -16,6 +24,20 @@ describe("Nino background communication contract", () => {
   it("restores the proactive preference columns required by production dispatch", () => {
     expect(migration).toContain("max_proactive_per_day smallint not null default 1");
     expect(migration).toContain("muted_proactive_kinds text[] not null default '{}'::text[]");
+  });
+
+  it("restores the proactive delivery fields used by dispatch, learning and timing", () => {
+    for (const column of [
+      "interacted_at",
+      "action_taken",
+      "block_context",
+      "false_positive",
+      "user_feedback",
+    ]) {
+      expect(deliveryRepair).toContain(`add column if not exists ${column}`);
+      expect(schemaContract).toContain(`\"${column}\"`);
+    }
+    expect(deliveryRepair).toContain("notify pgrst, 'reload schema'");
   });
 
   it("does not build an invalid Bearer header in the insights cron wrapper", () => {
