@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
 
     // Buscar dados em paralelo.
     const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
-      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
+      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
@@ -108,11 +108,11 @@ Deno.serve(async (req) => {
     const last30 = confirmed.filter((t) => t.occurred_at >= iso(cutoff30));
     const distinctDays14 = new Set(last14.map((t) => t.occurred_at)).size;
 
-    // Caixa: fonte única do core (respeita snapshots conciliados e exclusões).
-    const totalCash = computeTotalCash(accounts, txs, balanceSnapshots ?? []);
+    const todayIsoSP = todaySP(today);
+    // Caixa: fonte única do core, limitado à posição bancária de hoje.
+    const totalCash = computeTotalCash(accounts, txs, balanceSnapshots ?? [], { asOf: todayIsoSP });
 
     // Dívida de cartão: exposição oficial (card_exposure.v2) — nunca soma de transações.
-    const todayIsoSP = todaySP(today);
     const exposures = computeCardExposure({
       cardIds: cards.map((c) => c.id),
       statements,

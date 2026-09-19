@@ -658,9 +658,10 @@ export function computeNetWorth(
   txs: TransactionRow[],
   investments: InvestmentRow[],
   debts: DebtRow[],
-  snapshots: AccountBalanceSnapshotRow[] = []
+  snapshots: AccountBalanceSnapshotRow[] = [],
+  opts?: { asOf?: string },
 ) {
-  const cash = computeTotalCash(accounts, txs, snapshots);
+  const cash = computeTotalCash(accounts, txs, snapshots, opts);
   const invested = sumBy(investments, (i) => Number(i.current_value));
   const cardsOwed = computeCreditCardOutstanding(txs);
   const cashAsset = round2(Math.max(0, cash));
@@ -747,7 +748,12 @@ export interface AvailableUntilOutput {
 
 export function computeAvailableUntil(input: AvailableUntilInput): AvailableUntilOutput {
   const today = input.today ?? new Date();
-  const currentCash = computeTotalCash(input.accounts, input.txs, input.snapshots ?? []);
+  const currentCash = computeTotalCash(
+    input.accounts,
+    input.txs,
+    input.snapshots ?? [],
+    { asOf: todayISO(today) },
+  );
   const end = new Date(input.endDate + "T23:59:59");
   const horizonDays = Math.max(0, Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
   let plannedIncome = 0;
