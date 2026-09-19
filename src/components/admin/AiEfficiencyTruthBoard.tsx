@@ -1,25 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Gauge, Loader2, Zap } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
-import { TrendChart } from "@/components/admin/kit/TrendChart";
+import { AiOpsCharts, type AiOpsPoint } from "@/components/admin/AiOpsCharts";
 import { Button } from "@/components/ui/button";
 import { todaySP } from "@/lib/admin/periodPresets";
-
-type Point = {
-  day: string;
-  interactions: number;
-  ai_calls: number;
-  tokens_in: number;
-  tokens_out: number;
-  tokens_total: number;
-  tokens_per_interaction: number | null;
-  ai_p50_latency_ms: number | null;
-  ai_p95_latency_ms: number | null;
-  run_p50_latency_ms: number | null;
-  run_p95_latency_ms: number | null;
-};
 
 type Snapshot = {
   period: { from: string; to: string; timezone: string };
@@ -27,12 +13,12 @@ type Snapshot = {
     interactions: number; unique_users: number; conversation_threads: number; ai_calls: number;
     tokens_in: number; tokens_out: number; tokens_total: number;
     tokens_per_interaction: number | null; tokens_per_ai_call: number | null;
-    ai_p50_latency_ms: number | null; ai_p95_latency_ms: number | null;
-    run_p50_latency_ms: number | null; run_p95_latency_ms: number | null;
+    ai_avg_latency_ms: number | null; ai_p50_latency_ms: number | null; ai_p95_latency_ms: number | null;
+    run_avg_latency_ms: number | null; run_p50_latency_ms: number | null; run_p95_latency_ms: number | null;
     perceived_p50_latency_ms: number | null; perceived_p95_latency_ms: number | null;
     provider: string | null; model: string | null;
   };
-  series: Point[];
+  series: AiOpsPoint[];
   coverage: {
     first_run_at?: string | null; first_ai_usage_at?: string | null;
     days_with_runs?: number; days_with_ai_usage?: number; perceived_latency_available?: boolean;
@@ -47,7 +33,6 @@ function addDays(ymd: string, delta: number) {
 
 const int = (v: number | null | undefined) => v == null ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 const sec = (v: number | null | undefined) => v == null ? "—" : `${(Number(v) / 1000).toFixed(1)}s`;
-const dayLabel = (day: string) => `${day.slice(8, 10)}/${day.slice(5, 7)}`;
 
 export function AiEfficiencyTruthBoard() {
   const [days, setDays] = useState(30);
@@ -76,7 +61,6 @@ export function AiEfficiencyTruthBoard() {
 
   const s = query.data;
   const t = s.totals;
-  const series = (s.series ?? []).map((p) => ({ ...p, label: dayLabel(p.day) }));
   const partialCoverage = Number(s.coverage?.days_with_runs ?? 0) > Number(s.coverage?.days_with_ai_usage ?? 0);
 
   return (
@@ -100,41 +84,13 @@ export function AiEfficiencyTruthBoard() {
         <AdminMetricCard label="Tempo total do run (P95)" value={sec(t.run_p95_latency_ms)} detail="Backend completo; não é latência percebida de rede" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-2">
-          <p className="flex items-center gap-2 text-sm font-semibold"><Zap size={14} /> Consumo de tokens por dia</p>
-          <TrendChart
-            data={series}
-            xKey="label"
-            series={[
-              { key: "tokens_in", label: "Entrada", tone: "primary" },
-              { key: "tokens_out", label: "Saída", tone: "danger" },
-            ]}
-            caption={partialCoverage ? "Cobertura histórica parcial: dias sem telemetria de provider não são preenchidos artificialmente." : "Tokens efetivamente registrados pelo provider."}
-          />
-        </div>
-        <div className="space-y-2">
-          <p className="flex items-center gap-2 text-sm font-semibold"><Gauge size={14} /> Latência de IA por dia</p>
-          <TrendChart
-            data={series}
-            xKey="label"
-            series={[
-              { key: "ai_p50_latency_ms", label: "P50", tone: "primary" },
-              { key: "ai_p95_latency_ms", label: "P95", tone: "danger" },
-            ]}
-            formatValue={(v) => `${(v / 1000).toFixed(1)}s`}
-            caption="Somente tempo do modelo/provider. O tempo total do run é medido separadamente."
-          />
-        </div>
-      </div>
+      <AiOpsCharts series={s.series ?? []} coverage={s.coverage} />
 
       <div className="rounded-2xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
-        <div className="flex items-start gap-2"><Activity size={14} className="mt-0.5 shrink-0" />
-          <p>
-            {t.provider ? `Provider predominante: ${t.provider}${t.model ? ` · ${t.model}` : ""}. ` : ""}
-            “Interações” não significa threads únicas: houve {int(t.conversation_threads)} threads no recorte. {partialCoverage ? "Há lacunas históricas de token, então picos devem ser comparados apenas com dias que também têm cobertura de provider." : "A cobertura do recorte está consistente."}
-          </p>
-        </div>
+        <p>
+          {t.provider ? `Provider predominante: ${t.provider}${t.model ? ` · ${t.model}` : ""}. ` : ""}
+          “Interações” não significa threads únicas: houve {int(t.conversation_threads)} threads no recorte. {partialCoverage ? "Há lacunas históricas de token, então picos devem ser comparados apenas com dias que também têm cobertura de provider." : "A cobertura do recorte está consistente."}
+        </p>
       </div>
     </section>
   );
