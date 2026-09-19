@@ -55,24 +55,32 @@ describe("admin observability truth", () => {
     expect(aiCharts).toContain("run_p50_latency_ms");
     expect(aiCharts).toContain("run_p95_latency_ms");
     expect(aiCharts).toContain("run_avg_latency_ms");
-    expect(aiCharts).toContain("rounded-[28px]");
+    expect(aiCharts).toContain("rounded-[24px]");
+    expect(aiCharts).toContain("MetricStrip");
+    expect(aiCharts).toContain("SeriesLegend");
     expect(truthBoard).toContain("<AiOpsCharts");
   });
 
-  it("does not present missing provider history as measured zero", () => {
+  it("does not present missing provider history as measured zero or broken fragments", () => {
     expect(aiCharts).toContain("observedAi");
     expect(aiCharts).toContain("beforeAiCoverage");
     expect(aiCharts).toContain("ai_calls: beforeAiCoverage ? null");
     expect(aiCharts).toContain("tokens_total: beforeAiCoverage ? null");
-    expect(aiCharts).toContain("connectNulls={false}");
+    expect(aiCharts).toContain("function measuredRows");
+    expect(aiCharts).toContain("const aiRows = measuredRows");
+    expect(aiCharts).toContain("const runRows = measuredRows");
+    expect(aiCharts).toContain('type="linear"');
+    expect(aiCharts).not.toContain("connectNulls={false}");
   });
 
-  it("does not clip y-axis labels on narrow admin screens", () => {
+  it("keeps charts compact and readable on narrow admin screens", () => {
     expect(trendChart).not.toContain("left: -20");
     expect(trendChart).toContain("left: 0");
     expect(trendChart).toContain("width={60}");
     expect(trendChart).toContain("overflow-hidden");
-    expect(aiCharts).toContain("width={62}");
+    expect(aiCharts).toContain("width={54}");
+    expect(aiCharts).toContain('h-[220px] sm:h-[260px]');
+    expect(aiCharts).toContain('interval="preserveStartEnd"');
   });
 
   it("keeps interaction counts separate from provider calls in detailed history", () => {
