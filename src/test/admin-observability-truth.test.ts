@@ -47,14 +47,24 @@ describe("admin observability truth", () => {
     expect(cockpit).toContain("series={aiOps?.series ?? []}");
   });
 
-  it("keeps all three historical AI charts and reuses them in overview and detail", () => {
+  it("keeps all three premium AI charts and reuses them in overview and detail", () => {
     expect(aiCharts).toContain("Consumo de tokens por dia");
-    expect(aiCharts).toContain("Latência de IA por dia (tempo do modelo)");
+    expect(aiCharts).toContain("Latência de IA por dia");
     expect(aiCharts).toContain("Latência ponta a ponta por dia");
+    expect(aiCharts).toContain("Tokens / chamada");
     expect(aiCharts).toContain("run_p50_latency_ms");
     expect(aiCharts).toContain("run_p95_latency_ms");
     expect(aiCharts).toContain("run_avg_latency_ms");
+    expect(aiCharts).toContain("rounded-[28px]");
     expect(truthBoard).toContain("<AiOpsCharts");
+  });
+
+  it("does not present missing provider history as measured zero", () => {
+    expect(aiCharts).toContain("observedAi");
+    expect(aiCharts).toContain("beforeAiCoverage");
+    expect(aiCharts).toContain("ai_calls: beforeAiCoverage ? null");
+    expect(aiCharts).toContain("tokens_total: beforeAiCoverage ? null");
+    expect(aiCharts).toContain("connectNulls={false}");
   });
 
   it("does not clip y-axis labels on narrow admin screens", () => {
@@ -62,6 +72,7 @@ describe("admin observability truth", () => {
     expect(trendChart).toContain("left: 0");
     expect(trendChart).toContain("width={60}");
     expect(trendChart).toContain("overflow-hidden");
+    expect(aiCharts).toContain("width={62}");
   });
 
   it("keeps interaction counts separate from provider calls in detailed history", () => {
