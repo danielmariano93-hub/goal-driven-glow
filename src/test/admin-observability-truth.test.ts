@@ -71,12 +71,13 @@ describe("admin observability truth", () => {
     expect(aiCharts).toContain("const runRows = measuredRows");
   });
 
-  it("renders sparse telemetry as smooth measured-only curves on a real time axis", () => {
-    expect(aiCharts).toContain('type="monotone"');
-    expect(aiCharts).toContain('dataKey="ts"');
-    expect(aiCharts).toContain('scale="time"');
-    expect(aiCharts).toContain("xDomain");
-    expect(aiCharts).not.toContain('type="linear"');
+  it("renders sparse telemetry on a categorical observation axis so smoothing stays local", () => {
+    expect(aiCharts).toContain('type="monotoneX"');
+    expect(aiCharts).toContain('dataKey="day"');
+    expect(aiCharts).toContain('interval="preserveStartEnd"');
+    expect(aiCharts).not.toContain('dataKey="ts"');
+    expect(aiCharts).not.toContain('scale="time"');
+    expect(aiCharts).not.toContain("xDomain");
   });
 
   it("uses the Nino design-system colors for the AI series", () => {
@@ -85,14 +86,14 @@ describe("admin observability truth", () => {
     expect(aiCharts).toContain('success: "hsl(var(--success))"');
   });
 
-  it("keeps charts readable on narrow admin screens", () => {
+  it("keeps charts compact and readable on narrow admin screens", () => {
     expect(trendChart).not.toContain("left: -20");
     expect(trendChart).toContain("left: 0");
     expect(trendChart).toContain("width={60}");
     expect(trendChart).toContain("overflow-hidden");
     expect(aiCharts).toContain("width={56}");
-    expect(aiCharts).toContain('h-[278px] sm:h-[310px]');
-    expect(aiCharts).toContain("tickCount={5}");
+    expect(aiCharts).toContain('h-[246px] sm:h-[274px]');
+    expect(aiCharts).toContain("minTickGap={44}");
   });
 
   it("keeps interaction counts separate from provider calls in detailed history", () => {
