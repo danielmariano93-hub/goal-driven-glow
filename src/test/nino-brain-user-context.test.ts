@@ -57,8 +57,29 @@ describe("Conversation Brain durable user context", () => {
       [...inferred, explicit] as any,
     );
     const durable = JSON.parse(json).durable_memory;
-    expect(durable).toHaveLength(20);
+    expect(durable).toHaveLength(12);
     expect(durable.some((m: any) => m.key === "explicit-user-fact")).toBe(true);
+    expect(json.length).toBeLessThanOrEqual(3_500);
+  });
+
+  it("bounds verbose relationship memory without touching preferences", () => {
+    const json = serializeBrainUserContext(
+      {
+        tone: "friendly", verbosity: "concise", explanation_style: "plain",
+        example_style: "concrete", suggestion_frequency: "low", technical_level: "intermediate",
+      },
+      Array.from({ length: 20 }, (_, i) => ({
+        id: String(i), user_id: "u", kind: "context", key: `context-${i}`,
+        value: { note: `fato ${i} ${"texto longo ".repeat(80)}` }, confidence: 1, source: "user",
+        use_count: 0, last_used_at: null, created_at: "", updated_at: "",
+      })) as any,
+    );
+    const value = JSON.parse(json);
+    expect(json.length).toBeLessThanOrEqual(3_500);
+    expect(value.preferences.verbosity).toBe("concise");
+    expect(value.preferences.suggestion_frequency).toBe("low");
+    expect(value.durable_memory.length).toBeLessThanOrEqual(12);
+    expect(value.durable_memory[0].value.note.length).toBeLessThanOrEqual(320);
   });
 
   it("drops low-confidence inferred relationship memory", () => {
