@@ -47,40 +47,52 @@ describe("admin observability truth", () => {
     expect(cockpit).toContain("series={aiOps?.series ?? []}");
   });
 
-  it("keeps all three premium AI charts and reuses them in overview and detail", () => {
+  it("keeps all three reference-style AI charts and reuses them in overview and detail", () => {
     expect(aiCharts).toContain("Consumo de tokens por dia");
-    expect(aiCharts).toContain("Latência de IA por dia");
+    expect(aiCharts).toContain("Latência de IA por dia (tempo do modelo)");
     expect(aiCharts).toContain("Latência ponta a ponta por dia");
-    expect(aiCharts).toContain("Tokens / chamada");
     expect(aiCharts).toContain("run_p50_latency_ms");
     expect(aiCharts).toContain("run_p95_latency_ms");
     expect(aiCharts).toContain("run_avg_latency_ms");
-    expect(aiCharts).toContain("rounded-[24px]");
-    expect(aiCharts).toContain("MetricStrip");
+    expect(aiCharts).toContain("rounded-[28px]");
     expect(aiCharts).toContain("SeriesLegend");
+    expect(aiCharts).not.toContain("MetricStrip");
     expect(truthBoard).toContain("<AiOpsCharts");
   });
 
-  it("does not present missing provider history as measured zero or broken fragments", () => {
+  it("does not present missing provider history as measured zero", () => {
     expect(aiCharts).toContain("observedAi");
     expect(aiCharts).toContain("beforeAiCoverage");
     expect(aiCharts).toContain("ai_calls: beforeAiCoverage ? null");
     expect(aiCharts).toContain("tokens_total: beforeAiCoverage ? null");
     expect(aiCharts).toContain("function measuredRows");
+    expect(aiCharts).toContain("const tokenRows = measuredRows");
     expect(aiCharts).toContain("const aiRows = measuredRows");
     expect(aiCharts).toContain("const runRows = measuredRows");
-    expect(aiCharts).toContain('type="linear"');
-    expect(aiCharts).not.toContain("connectNulls={false}");
   });
 
-  it("keeps charts compact and readable on narrow admin screens", () => {
+  it("renders sparse telemetry as smooth measured-only curves on a real time axis", () => {
+    expect(aiCharts).toContain('type="monotone"');
+    expect(aiCharts).toContain('dataKey="ts"');
+    expect(aiCharts).toContain('scale="time"');
+    expect(aiCharts).toContain("xDomain");
+    expect(aiCharts).not.toContain('type="linear"');
+  });
+
+  it("uses the Nino design-system colors for the AI series", () => {
+    expect(aiCharts).toContain('primary: "hsl(var(--primary))"');
+    expect(aiCharts).toContain('danger: "hsl(var(--destructive))"');
+    expect(aiCharts).toContain('success: "hsl(var(--success))"');
+  });
+
+  it("keeps charts readable on narrow admin screens", () => {
     expect(trendChart).not.toContain("left: -20");
     expect(trendChart).toContain("left: 0");
     expect(trendChart).toContain("width={60}");
     expect(trendChart).toContain("overflow-hidden");
-    expect(aiCharts).toContain("width={54}");
-    expect(aiCharts).toContain('h-[220px] sm:h-[260px]');
-    expect(aiCharts).toContain('interval="preserveStartEnd"');
+    expect(aiCharts).toContain("width={56}");
+    expect(aiCharts).toContain('h-[278px] sm:h-[310px]');
+    expect(aiCharts).toContain("tickCount={5}");
   });
 
   it("keeps interaction counts separate from provider calls in detailed history", () => {
