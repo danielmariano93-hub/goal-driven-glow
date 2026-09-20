@@ -37,7 +37,7 @@ export const qk = {
   ledgerVersion: ["ledger-version"] as const,
   homeSnapshot: ["home-snapshot"] as const,
   performanceDetail: ["performance-detail"] as const,
-  ninoNextStep: ["nino", "next-step"] as const,
+  ninoHomeIntelligence: ["nino", "home-intelligence"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -47,15 +47,15 @@ const DERIVED_KEYS: readonly (readonly string[])[] = [
   qk.dashboard, qk.home, qk.pulse, qk.assistantTip, qk.insights,
   qk.financialSnapshot, qk.advisorPerformance,
   // A versão do ledger é a chave-mestra das leituras derivadas: invalidá-la
-  // derruba snapshot, acompanhamento e orientação da Home sem varredura manual.
-  qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail, qk.ninoNextStep,
+  // derruba snapshot, acompanhamento e inteligência editorial sem varredura manual.
+  qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail, qk.ninoHomeIntelligence,
 ];
 
 /**
  * Escopos de invalidação (`invalidation_scope.v1`). Uma escrita de lançamento
  * não precisa recarregar metas conjuntas, documentos e recorrências: cada
  * escopo lista apenas as chaves que dependem daquele domínio, mais os
- * derivados (Home, pulso, snapshot, acompanhamento e próximo passo).
+ * derivados (Home, pulso, snapshot, acompanhamento e orientação editorial).
  */
 export const INVALIDATION_SCOPES = {
   transactions: [
@@ -113,5 +113,5 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.ledgerVersion,
   qk.homeSnapshot,
   qk.performanceDetail,
-  qk.ninoNextStep,
+  qk.ninoHomeIntelligence,
 ];
