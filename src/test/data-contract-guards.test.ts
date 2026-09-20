@@ -1,5 +1,5 @@
 // Contratos de read model e invariantes de campo obrigatório.
-// CASO G do plano: snapshot v2 NUNCA pode ser servido como v3.
+// CASO G do plano: snapshot v2 NUNCA pode ser servido como v4.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertRequiredFields, assertSnapshotContract, READ_MODEL_CONTRACTS } from "@/lib/db/snapshotContract";
 import {
@@ -14,12 +14,28 @@ beforeEach(() => {
 });
 
 describe("contrato de snapshot", () => {
-  it("aceita o contrato esperado", () => {
+  it("aceita o contrato canônico esperado", () => {
     const res = assertSnapshotContract({ contract_version: "home_snapshot.v4" }, READ_MODEL_CONTRACTS.homeSnapshot, "home");
     expect(res.ok).toBe(true);
   });
 
-  it("rejeita v2 quando o consumidor espera v3 e registra violação", () => {
+  it("aceita formula_version v4 como alias legado de transporte", () => {
+    const res = assertSnapshotContract({ formula_version: "home_snapshot.v4" }, READ_MODEL_CONTRACTS.homeSnapshot, "home");
+    expect(res.ok).toBe(true);
+    expect(dataContractViolations().snapshot_contract_mismatch).toBeUndefined();
+  });
+
+  it("prioriza contract_version quando ambos os campos existem", () => {
+    const res = assertSnapshotContract(
+      { contract_version: "home_snapshot.v2", formula_version: "home_snapshot.v4" },
+      READ_MODEL_CONTRACTS.homeSnapshot,
+      "home",
+    );
+    expect(res.ok).toBe(false);
+    expect(res.ok === false && res.reason).toBe("contract_mismatch");
+  });
+
+  it("rejeita v2 quando o consumidor espera v4 e registra violação", () => {
     const res = assertSnapshotContract({ contract_version: "home_snapshot.v2" }, READ_MODEL_CONTRACTS.homeSnapshot, "home");
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.reason).toBe("contract_mismatch");
