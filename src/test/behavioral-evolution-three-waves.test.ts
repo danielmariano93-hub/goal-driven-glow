@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const migration = readFileSync("supabase/migrations/20260920034444_behavioral_evolution_three_waves.sql", "utf8");
 const hardening = readFileSync("supabase/migrations/20260920034512_behavioral_evolution_runtime_hardening.sql", "utf8");
 const integrity = readFileSync("supabase/migrations/20260920034523_behavioral_evolution_write_integrity.sql", "utf8");
+const triggerPrivileges = readFileSync("supabase/migrations/20260920035043_behavioral_trigger_function_privileges.sql", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const checkin = readFileSync("src/components/home/EmotionalCheckinCard.tsx", "utf8");
 const client = readFileSync("src/lib/behavioral/client.ts", "utf8");
@@ -69,6 +70,11 @@ describe("behavioral evolution — three waves", () => {
     expect(integrity).toContain("drop policy if exists behavior_experiment_events_insert_own");
     expect(integrity).toContain("revoke execute on function public.behavior_experiment_start(text) from public, anon");
     expect(integrity).toContain("grant execute on function public.behavior_experiment_refresh(uuid) to authenticated, service_role");
+  });
+
+  it("keeps trigger-only SECURITY DEFINER functions off the RPC surface", () => {
+    expect(triggerPrivileges).toContain("revoke execute on function public.queue_declared_money_mood_highlight() from public, anon, authenticated");
+    expect(triggerPrivileges).toContain("revoke execute on function public.queue_behavior_experiment_completion() from public, anon, authenticated");
   });
 
   it("uses the existing Nino design language rather than the benchmark's literal styling", () => {
