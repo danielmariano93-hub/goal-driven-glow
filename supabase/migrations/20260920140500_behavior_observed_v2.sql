@@ -28,7 +28,7 @@ drop policy if exists behavioral_app_activity_select_own on public.behavioral_ap
 create policy behavioral_app_activity_select_own
   on public.behavioral_app_activity_daily
   for select to authenticated
-  using (auth.uid() = user_id);
+  using ((select auth.uid()) = user_id);
 
 revoke insert, update, delete on public.behavioral_app_activity_daily from public, anon, authenticated;
 grant select on public.behavioral_app_activity_daily to authenticated;
