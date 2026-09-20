@@ -38,6 +38,7 @@ export const qk = {
   homeSnapshot: ["home-snapshot"] as const,
   performanceDetail: ["performance-detail"] as const,
   ninoHomeIntelligence: ["nino", "home-intelligence"] as const,
+  categoryWeekdayHeatmap: ["category-weekday-heatmap"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -47,8 +48,9 @@ const DERIVED_KEYS: readonly (readonly string[])[] = [
   qk.dashboard, qk.home, qk.pulse, qk.assistantTip, qk.insights,
   qk.financialSnapshot, qk.advisorPerformance,
   // A versão do ledger é a chave-mestra das leituras derivadas: invalidá-la
-  // derruba snapshot, acompanhamento e inteligência editorial sem varredura manual.
-  qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail, qk.ninoHomeIntelligence,
+  // derruba snapshot, acompanhamento, inteligência editorial e heatmap.
+  qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail,
+  qk.ninoHomeIntelligence, qk.categoryWeekdayHeatmap,
 ];
 
 /**
@@ -114,4 +116,5 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.homeSnapshot,
   qk.performanceDetail,
   qk.ninoHomeIntelligence,
+  qk.categoryWeekdayHeatmap,
 ];
