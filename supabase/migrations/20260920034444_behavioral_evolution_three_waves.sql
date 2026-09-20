@@ -368,7 +368,7 @@ insert into public.communication_catalog(
 ) values (
   'behavior_coach_highlight','Highlight de comportamento','behavior',
   'Leitura acionável baseada em check-in declarado ou progresso real de um experimento.',
-  true,48,array['app','whatsapp']::text[],72,7,30,1,false,'advisor',
+  true,48,array['app','whatsapp']::text[],72,7,30,1,false,'deterministic',
   'Nunca diagnosticar; usar somente sinais declarados ou resultados observados.',
   array['app']::text[],'behavior','deterministic','attention',72,45,5
 )
