@@ -40,8 +40,6 @@ type SnapshotQueryResult = {
 
 function normalizePayload(payload: ServedSnapshotPayload | null): SnapshotQueryResult | null {
   if (!payload?.ok || !payload.snapshot) return null;
-  // Contrato versionado: snapshot de contrato antigo NUNCA é servido como novo.
-  // Divergência vira violação observável e cai na recomputação canônica.
   if (!assertSnapshotContract(payload, READ_MODEL_CONTRACTS.homeSnapshot, "home_snapshot").ok) return null;
   return {
     snapshot: payload.snapshot,
@@ -52,9 +50,13 @@ function normalizePayload(payload: ServedSnapshotPayload | null): SnapshotQueryR
   };
 }
 
-async function invokeHomeSnapshot(period: DateRange, today: string): Promise<SnapshotQueryResult> {
+async function invokeHomeSnapshot(
+  period: DateRange,
+  today: string,
+  forceRefresh = false,
+): Promise<SnapshotQueryResult> {
   const { data, error } = await supabase.functions.invoke("home-snapshot", {
-    body: { start: period.start, end: period.end, today },
+    body: { start: period.start, end: period.end, today, force_refresh: forceRefresh },
   });
   if (error) throw error;
   const normalized = normalizePayload(data as ServedSnapshotPayload | null);
@@ -65,9 +67,11 @@ async function invokeHomeSnapshot(period: DateRange, today: string): Promise<Sna
 async function fetchServedSnapshot(period: DateRange): Promise<SnapshotQueryResult> {
   const today = todayISO();
 
-  // Hot path SQL: MTD vem do read model materializado; D3/D7/custom quente vem
-  // do cache derivado versionado. Só um cache miss/stale sem read model cai na
-  // Edge Function canônica para recomputação.
+  // Hot path: serve o read model materializado se ele estiver na MESMA versão
+  // do ledger. Quando o Realtime avisa que o ledger mudou, não devolvemos um
+  // número antigo só porque o worker de 1 minuto ainda não rodou: aguardamos o
+  // recomputo canônico forçado. O React Query mantém o snapshot anterior na tela
+  // durante o refetch, então não há skeleton nem salto intermediário.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase.rpc as any).call(supabase, "my_financial_home_snapshot", {
     _start: period.start,
@@ -78,28 +82,22 @@ async function fetchServedSnapshot(period: DateRange): Promise<SnapshotQueryResu
     const normalized = normalizePayload(data as ServedSnapshotPayload | null);
     if (normalized) {
       if (normalized.freshness === "stale_recomputing") {
-        // Não bloqueia a renderização: serve o último snapshot e acelera a
-        // recomputação que já é protegida por fila/anti-stampede no backend.
-        void supabase.functions.invoke("home-snapshot", {
-          body: { start: period.start, end: period.end, today },
-        }).catch(() => undefined);
+        return invokeHomeSnapshot(period, today, true);
       }
       return normalized;
     }
   }
 
-  return invokeHomeSnapshot(period, today);
+  return invokeHomeSnapshot(period, today, true);
 }
 
 /**
- * Fonte única de verdade para a Home / Metas / Assessor — SERVIDA.
+ * Fonte única de verdade para Home, Metas e Assessor.
  *
- * O dispositivo não baixa mais o ledger para calcular nada: a Edge Function
- * `home-snapshot` roda o motor canônico (`finance-core`, espelho de
- * `src/lib/engine`) perto do banco, memoiza por versão do ledger e devolve o
- * snapshot pronto. Se o servidor falhar, a Home mostra erro honesto com
- * "tentar de novo" — nunca um recálculo local que puxa o histórico inteiro
- * para o celular.
+ * Qualquer escrita financeira incrementa `financial_ledger_versions`; o canal
+ * Realtime invalida esta query e o próximo read é read-after-write: se o read
+ * model estiver numa versão antiga, a Edge Function recompõe todos os
+ * indicadores do mesmo snapshot antes de publicar a nova versão na UI.
  */
 export function useFinancialSnapshot(period: DateRange): {
   data: FinancialSnapshot | null;
@@ -122,15 +120,12 @@ export function useFinancialSnapshot(period: DateRange): {
   const { user } = useAuth();
 
   const serverQuery = useQuery({
-    // A própria resposta traz a versão do ledger. A invalidação explícita + realtime
-    // derruba esta query quando existe escrita; não precisamos pagar um RTT antes dela.
     queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO()],
     enabled: !!user,
-
     staleTime: 60 * 1000,
     gcTime: 30 * 60 * 1000,
     retry: 1,
-    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 5000 : false,
+    refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 2000 : false,
     queryFn: () => fetchServedSnapshot(period),
   });
 
