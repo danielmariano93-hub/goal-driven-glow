@@ -33,10 +33,12 @@ export const qk = {
   assessorDocuments: ["assessor_documents"] as const,
   notifications: ["notifications"] as const,
   advisorPerformance: ["advisor-performance"] as const,
-  // Leitura derivada servida (`perf_derived.v1`).
+  // Leituras derivadas: sempre dependem da verdade financeira vigente.
   ledgerVersion: ["ledger-version"] as const,
   homeSnapshot: ["home-snapshot"] as const,
   performanceDetail: ["performance-detail"] as const,
+  ninoHomeIntelligence: ["nino", "home-intelligence"] as const,
+  categoryWeekdayHeatmap: ["category-weekday-heatmap"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -46,15 +48,16 @@ const DERIVED_KEYS: readonly (readonly string[])[] = [
   qk.dashboard, qk.home, qk.pulse, qk.assistantTip, qk.insights,
   qk.financialSnapshot, qk.advisorPerformance,
   // A versão do ledger é a chave-mestra das leituras derivadas: invalidá-la
-  // derruba snapshot da Home e acompanhamento sem varredura manual.
+  // derruba snapshot, acompanhamento, inteligência editorial e heatmap.
   qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail,
+  qk.ninoHomeIntelligence, qk.categoryWeekdayHeatmap,
 ];
 
 /**
  * Escopos de invalidação (`invalidation_scope.v1`). Uma escrita de lançamento
  * não precisa recarregar metas conjuntas, documentos e recorrências: cada
  * escopo lista apenas as chaves que dependem daquele domínio, mais os
- * derivados (Home, pulso, snapshot, acompanhamento).
+ * derivados (Home, pulso, snapshot, acompanhamento e orientação editorial).
  */
 export const INVALIDATION_SCOPES = {
   transactions: [
@@ -78,7 +81,6 @@ export type InvalidationScope = keyof typeof INVALIDATION_SCOPES | "all";
 
 /** Chaves que TODA mutação financeira precisa invalidar (fonte única). */
 export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
-
   qk.transactions,
   qk.accounts,
   qk.accountBalanceSnapshots,
@@ -113,4 +115,6 @@ export const FINANCIAL_QUERY_KEYS: readonly (readonly string[])[] = [
   qk.ledgerVersion,
   qk.homeSnapshot,
   qk.performanceDetail,
+  qk.ninoHomeIntelligence,
+  qk.categoryWeekdayHeatmap,
 ];

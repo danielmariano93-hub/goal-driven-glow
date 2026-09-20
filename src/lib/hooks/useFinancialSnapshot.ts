@@ -50,54 +50,30 @@ function normalizePayload(payload: ServedSnapshotPayload | null): SnapshotQueryR
   };
 }
 
-async function invokeHomeSnapshot(
-  period: DateRange,
-  today: string,
-  forceRefresh = false,
-): Promise<SnapshotQueryResult> {
-  const { data, error } = await supabase.functions.invoke("home-snapshot", {
-    body: { start: period.start, end: period.end, today, force_refresh: forceRefresh },
-  });
-  if (error) throw error;
-  const normalized = normalizePayload(data as ServedSnapshotPayload | null);
-  if (!normalized) throw new Error("snapshot_unavailable");
-  return normalized;
-}
-
 async function fetchServedSnapshot(period: DateRange): Promise<SnapshotQueryResult> {
   const today = todayISO();
 
-  // Hot path: serve o read model materializado se ele estiver na MESMA versão
-  // do ledger. Quando o Realtime avisa que o ledger mudou, não devolvemos um
-  // número antigo só porque o worker de 1 minuto ainda não rodou: aguardamos o
-  // recomputo canônico forçado. O React Query mantém o snapshot anterior na tela
-  // durante o refetch, então não há skeleton nem salto intermediário.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.rpc as any).call(supabase, "my_financial_home_snapshot", {
-    _start: period.start,
-    _end: period.end,
-    _today: today,
+  // ÚNICA porta de leitura da Home: a Edge Function canônica. O cliente não lê
+  // mais o mesmo snapshot por um RPC SQL paralelo; isso elimina competição entre
+  // dois caches/read models com regras de frescor diferentes.
+  // `force_refresh` impede a Edge de devolver um materializado antigo; o cache
+  // derivado da própria Edge continua O(1) quando ledger + deployment não mudam.
+  const { data, error } = await supabase.functions.invoke("home-snapshot", {
+    body: { start: period.start, end: period.end, today, force_refresh: true },
   });
-  if (!error) {
-    const normalized = normalizePayload(data as ServedSnapshotPayload | null);
-    if (normalized) {
-      if (normalized.freshness === "stale_recomputing") {
-        return invokeHomeSnapshot(period, today, true);
-      }
-      return normalized;
-    }
-  }
+  if (error) throw error;
 
-  return invokeHomeSnapshot(period, today, true);
+  const normalized = normalizePayload(data as ServedSnapshotPayload | null);
+  if (!normalized) throw new Error("snapshot_unavailable");
+  return normalized;
 }
 
 /**
  * Fonte única de verdade para Home, Metas e Assessor.
  *
  * Qualquer escrita financeira incrementa `financial_ledger_versions`; o canal
- * Realtime invalida esta query e o próximo read é read-after-write: se o read
- * model estiver numa versão antiga, a Edge Function recompõe todos os
- * indicadores do mesmo snapshot antes de publicar a nova versão na UI.
+ * Realtime invalida esta query. O próximo read passa exclusivamente pela Edge
+ * canônica, que só reaproveita cache da MESMA versão do ledger e do MESMO deploy.
  */
 export function useFinancialSnapshot(period: DateRange): {
   data: FinancialSnapshot | null;
@@ -122,11 +98,15 @@ export function useFinancialSnapshot(period: DateRange): {
   const serverQuery = useQuery({
     queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO()],
     enabled: !!user,
-    staleTime: 60 * 1000,
+    queryFn: () => fetchServedSnapshot(period),
+    // Mobile Safari pode suspender WebSocket em background. Ao voltar para o app
+    // ou recuperar a rede, sempre confirma o snapshot vigente no servidor.
+    staleTime: 0,
     gcTime: 30 * 60 * 1000,
     retry: 1,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     refetchInterval: (query) => query.state.data?.freshness === "stale_recomputing" ? 2000 : false,
-    queryFn: () => fetchServedSnapshot(period),
   });
 
   const snapshot = serverQuery.data?.snapshot ?? null;

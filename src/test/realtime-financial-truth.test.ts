@@ -80,23 +80,54 @@ describe("bank_cash_truth.v2 — same-day live writes", () => {
 
 describe("realtime financial indicators — propagation contract", () => {
   const hook = fs.readFileSync("src/lib/hooks/useFinancialSnapshot.ts", "utf8");
+  const diagnosis = fs.readFileSync("src/lib/nino/diagnosis.ts", "utf8");
+  const guidance = fs.readFileSync("src/components/home/NinoGuidanceSection.tsx", "utf8");
+  const nextStep = fs.readFileSync("supabase/functions/nino-next-step/index.ts", "utf8");
+  const heatmap = fs.readFileSync("src/lib/hooks/useCategoryWeekdayHeatmap.ts", "utf8");
   const sync = fs.readFileSync("src/components/finance/FinancialRealtimeSync.tsx", "utf8");
   const keys = fs.readFileSync("src/lib/db/queryKeys.ts", "utf8");
   const home = fs.readFileSync("supabase/functions/home-snapshot/index.ts", "utf8");
   const pulse = fs.readFileSync("supabase/functions/pulse-compute/index.ts", "utf8");
+  const cache = fs.readFileSync("supabase/functions/_shared/derived/cache.ts", "utf8");
+  const cleanupMigration = fs.readFileSync("supabase/migrations/20260920013000_home_realtime_single_read_path.sql", "utf8");
 
-  it("não serve snapshot antigo após mudança do ledger", () => {
-    expect(hook).toContain('normalized.freshness === "stale_recomputing"');
-    expect(hook).toContain("invokeHomeSnapshot(period, today, true)");
-    expect(hook).toContain("force_refresh: forceRefresh");
+  it("usa uma única porta canônica para os números da Home", () => {
+    expect(hook).toContain('functions.invoke("home-snapshot"');
+    expect(hook).toContain("force_refresh: true");
+    expect(hook).not.toContain("my_financial_home_snapshot");
+    expect(cleanupMigration).toContain("drop function if exists public.my_financial_home_snapshot");
   });
 
-  it("propaga a versão do ledger rapidamente para todas as superfícies derivadas", () => {
+  it("nunca reaproveita cache de deploy anterior", () => {
+    expect(cache).toContain('Deno.env.get("DENO_DEPLOYMENT_ID")');
+    expect(cache).toContain("deploymentScopedCacheKey");
+    expect(cache).toContain('perf_derived.v2');
+  });
+
+  it("revalida ao voltar do background mobile", () => {
+    expect(hook).toContain('refetchOnWindowFocus: "always"');
+    expect(hook).toContain('refetchOnReconnect: "always"');
+    expect(hook).toContain("staleTime: 0");
+    expect(diagnosis).toContain('refetchOnWindowFocus: "always"');
+    expect(diagnosis).toContain('refetchOnReconnect: "always"');
+    expect(heatmap).toContain('refetchOnWindowFocus: "always"');
+    expect(heatmap).toContain("staleTime: 0");
+  });
+
+  it("propaga a versão do ledger para todas as superfícies derivadas da Home", () => {
     expect(sync).toContain('table: "financial_ledger_versions"');
     expect(sync).toContain("}, 400)");
-    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail"]) {
+    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail", "qk.ninoHomeIntelligence", "qk.categoryWeekdayHeatmap"]) {
       expect(keys).toContain(key);
     }
+  });
+
+  it("atualiza diagnóstico e próximo passo no mesmo request da Home", () => {
+    expect(diagnosis).toContain('functions.invoke("nino-next-step"');
+    expect(nextStep).toContain('sb.rpc("nino_refresh_diagnosis"');
+    expect(nextStep).toContain("computeNextBestAction");
+    expect(nextStep).toContain('sb.rpc("nino_home_context_for_user"');
+    expect(guidance).not.toContain("useNinoNextStep()");
   });
 
   it("usa a mesma correção intraday na Home e no Pulso", () => {
@@ -104,5 +135,10 @@ describe("realtime financial indicators — propagation contract", () => {
     expect(home).toContain("anchor_observed_at");
     expect(pulse).toContain("applyIntradayBankAnchorAdjustments");
     expect(pulse).toContain("anchor_observed_at");
+  });
+
+  it("não aceita horário de observação de outro dia para a âncora", () => {
+    expect(cleanupMigration).toContain("at time zone 'America/Sao_Paulo')::date = new.balance_date");
+    expect(cleanupMigration).toContain("anchor_observed_at = null");
   });
 });

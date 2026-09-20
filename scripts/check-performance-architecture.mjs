@@ -11,7 +11,7 @@ function assert(condition, message) {
 
 const home = read("src/pages/Index.tsx");
 assert(!home.includes("processCategoryQueue"), "Home não pode processar fila de categorização na abertura.");
-assert(home.includes("useNinoHomeContext"), "Home deve usar o contrato enxuto do Nino.");
+assert(home.includes("useNinoHomeContext"), "Home deve usar o bundle enxuto do Nino.");
 assert(!home.includes("useNinoDiagnosisContext"), "Home não pode baixar o diagnóstico completo com histórico.");
 
 const realtime = read("src/components/finance/FinancialRealtimeSync.tsx");
@@ -20,14 +20,20 @@ assert(!realtime.includes('table: "transactions"'), "Realtime não deve invalida
 
 const snapshotHook = read("src/lib/hooks/useFinancialSnapshot.ts");
 assert(!snapshotHook.includes("!ledgerVersion.isLoading"), "Snapshot não pode esperar RPC de ledger-version antes do request principal.");
-assert(snapshotHook.includes("stale_recomputing"), "Snapshot deve suportar stale-while-revalidate.");
-assert(snapshotHook.includes("my_financial_home_snapshot"), "MTD corrente deve ler o snapshot materializado por RPC SQL.");
+assert(snapshotHook.includes('functions.invoke("home-snapshot"'), "Home deve ler exclusivamente a Edge canônica home-snapshot.");
+assert(!snapshotHook.includes("my_financial_home_snapshot"), "Home não pode manter um segundo read path financeiro por RPC SQL.");
+assert(snapshotHook.includes("force_refresh: true"), "Home deve impedir retorno de materializado antigo no read-after-write.");
+assert(snapshotHook.includes('refetchOnWindowFocus: "always"'), "Home deve validar frescor ao voltar do background mobile.");
+
+const derivedCache = read("supabase/functions/_shared/derived/cache.ts");
+assert(derivedCache.includes('Deno.env.get("DENO_DEPLOYMENT_ID")'), "Cache derivado deve ser isolado por versão real do deploy.");
+assert(derivedCache.includes('contract_version: CACHE_CONTRACT'), "Cache derivado deve validar contrato próprio.");
+assert(derivedCache.includes('perf_derived.v2'), "Cache derivado precisa usar o contrato v2 deployment-scoped.");
 
 const homeSnapshot = read("supabase/functions/home-snapshot/index.ts");
 assert(homeSnapshot.includes("aheadMonths: 3"), "Home não pode reabrir a janela de 24 meses futuros do ledger.");
 assert(fs.existsSync(path.join(root, "supabase/functions/finance-current-snapshot-worker/index.ts")), "Worker proativo do snapshot precisa existir.");
 assert(read("supabase/functions/finance-facts-worker/index.ts").includes("finance_facts_claim_v2"), "Worker de fatos precisa usar claim versionado contra corrida de escrita.");
-assert(homeSnapshot.includes("financial_current_snapshots"), "Home deve usar a visão materializada corrente.");
 
 const pages = [
   "src/pages/Metas.tsx",
@@ -50,17 +56,21 @@ assert(migration.includes("financial_snapshot_refresh_queue"), "Migration precis
 assert(migration.includes("TG_TABLE_NAME = 'transactions' AND TG_OP = 'UPDATE'"), "Invalidação deve ignorar updates puramente técnicos de transactions.");
 
 const diagnosis = read("src/lib/nino/diagnosis.ts");
-assert(diagnosis.includes("my_nino_home_context"), "A Home precisa de RPC próprio sem timeline pesada.");
-assert(diagnosis.includes('queryKey: ["nino-diagnosis", "home"'), "Cache do contexto da Home deve ser isolado do diagnóstico completo.");
+assert(diagnosis.includes('functions.invoke("nino-next-step"'), "Home deve atualizar diagnóstico e próximo passo pelo bundle canônico.");
+assert(diagnosis.includes("qk.ninoHomeIntelligence"), "Inteligência da Home deve ter uma query key única e invalidável.");
+assert(diagnosis.includes('refetchOnWindowFocus: "always"'), "Inteligência da Home deve revalidar ao voltar do background.");
+const nextStepEdge = read("supabase/functions/nino-next-step/index.ts");
+assert(nextStepEdge.includes('sb.rpc("nino_refresh_diagnosis"'), "Bundle da Home deve atualizar diagnóstico antes de responder.");
+assert(nextStepEdge.includes("computeNextBestAction"), "Bundle da Home deve recalcular o próximo passo na mesma chamada.");
+assert(nextStepEdge.includes('sb.rpc("nino_home_context_for_user"'), "Bundle da Home deve devolver o contexto enxuto recém-materializado.");
 
 const hotpathMigration = read("supabase/migrations/20260821205200_nino_home_hotpath_v3.sql");
 assert(hotpathMigration.includes("nino_home_context_for_user"), "Migration V3 deve criar o contexto enxuto da Home.");
 assert(hotpathMigration.includes("e.user_id = _user_id"), "Timeline completa deve filtrar eventos por usuário para usar o índice existente.");
 assert(hotpathMigration.includes("LIMIT 1"), "Timeline deve limitar eventos por situação ao que a UI realmente consome.");
-assert(hotpathMigration.includes("my_financial_home_snapshot"), "Migration V3 deve expor o read model financeiro O(1).");
 
 if (failures.length) {
-  console.error("\\nPerformance architecture guard falhou:\\n");
+  console.error("\nPerformance architecture guard falhou:\n");
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }

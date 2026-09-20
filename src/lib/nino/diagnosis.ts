@@ -3,6 +3,8 @@ import { z } from "zod";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { NinoRpcError } from "@/lib/nino/intelligence";
+import { qk } from "@/lib/db/queryKeys";
+import type { NinoNextStep } from "@/lib/nino/nextStep";
 
 const finiteNumber = z.coerce.number().finite();
 const confidenceNumber = finiteNumber.min(0).max(1);
@@ -122,6 +124,11 @@ export type FinancialSituationEvent = z.infer<typeof financialSituationEventSche
 export type NinoTimelineEntry = z.infer<typeof timelineEntrySchema>;
 export type NinoDiagnosisContext = z.infer<typeof ninoDiagnosisContextSchema>;
 
+export type NinoHomeState = {
+  context: NinoDiagnosisContext;
+  nextStep: NinoNextStep | null;
+};
+
 export type HomeDiagnosisView = {
   snapshotId: string | null;
   asOf: string;
@@ -192,6 +199,49 @@ function diagnosisRpcError(error: unknown, fn = "my_nino_diagnosis_context"): Ni
   return new NinoRpcError(message, kind, fn, value?.code);
 }
 
+function hydrateHomeContext(value: unknown): NinoDiagnosisContext {
+  const parsed = ninoHomeContextWireSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new NinoRpcError("O contexto enxuto da Home retornou um contrato inválido.", "contract", "nino-next-step");
+  }
+  return {
+    ...parsed.data,
+    timeline: [],
+    closings: [],
+    narrative: {},
+    forecast: {},
+    snapshot_payload: {},
+  };
+}
+
+function safeRoute(route: unknown): string | null {
+  const value = typeof route === "string" ? route.trim() : "";
+  if (!value.startsWith("/app/") || value.startsWith("//")) return null;
+  return value;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseNextStep(value: unknown): NinoNextStep | null {
+  const row = value as Record<string, unknown> | null;
+  if (!row || typeof row.title !== "string" || !row.title.trim()) return null;
+  return {
+    id: typeof row.id === "string" ? row.id : "current",
+    stage: typeof row.stage === "string" ? row.stage : null,
+    title: row.title.trim(),
+    detail: typeof row.detail === "string" && row.detail.trim() ? row.detail.trim() : null,
+    route: safeRoute(row.route),
+    amount: numberOrNull(row.amount),
+    amountRole: typeof row.amount_role === "string" ? row.amount_role : null,
+    requiredAmount: numberOrNull(row.required_amount),
+    goalId: typeof row.goal_id === "string" ? row.goal_id : null,
+    goalName: typeof row.goal_name === "string" && row.goal_name.trim() ? row.goal_name.trim() : null,
+  };
+}
+
 async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
   try {
     // supabase.rpc depende da instância do cliente; preservar o bind evita o bug
@@ -210,44 +260,40 @@ async function fetchDiagnosis(): Promise<NinoDiagnosisContext> {
   }
 }
 
-async function fetchHomeDiagnosis(): Promise<NinoDiagnosisContext> {
-  const fn = "my_nino_home_context";
+/**
+ * Única leitura editorial da Home: o servidor atualiza diagnóstico e próximo
+ * passo contra a verdade financeira vigente e devolve os dois juntos.
+ */
+async function fetchHomeState(): Promise<NinoHomeState> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any).call(supabase, fn, {});
+    const { data, error } = await supabase.functions.invoke("nino-next-step", {
+      body: { action: "refresh" },
+    });
     if (error) throw error;
-    const parsed = ninoHomeContextWireSchema.safeParse(data);
-    if (!parsed.success) {
-      throw new NinoRpcError("O contexto enxuto da Home retornou um contrato inválido.", "contract", fn);
-    }
-
-    // Mantemos a mesma forma consumida pelos componentes da Home, preenchendo
-    // apenas os blocos deliberadamente ausentes do wire contract.
+    const payload = data as { ok?: boolean; error?: string; context?: unknown; recommendation?: unknown } | null;
+    if (!payload?.ok) throw new Error(payload?.error ?? "home_intelligence_unavailable");
     return {
-      ...parsed.data,
-      timeline: [],
-      closings: [],
-      narrative: {},
-      forecast: {},
-      snapshot_payload: {},
+      context: hydrateHomeContext(payload.context),
+      nextStep: parseNextStep(payload.recommendation),
     };
   } catch (error) {
     if (error instanceof NinoRpcError) throw error;
-    throw diagnosisRpcError(error, fn);
+    throw diagnosisRpcError(error, "nino-next-step");
   }
 }
 
-/** Hot path da Home: somente os campos realmente renderizados. */
+/** Hot path da Home: diagnóstico + próximo passo, atualizados como um bundle. */
 export function useNinoHomeContext() {
   const { user } = useAuth();
-  return useQuery<NinoDiagnosisContext>({
-    queryKey: ["nino-diagnosis", "home", user?.id],
+  return useQuery<NinoHomeState>({
+    queryKey: [...qk.ninoHomeIntelligence, user?.id],
     enabled: !!user,
-    staleTime: 2 * 60_000,
+    staleTime: 0,
     gcTime: 30 * 60_000,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     retry: (count, error) => error instanceof NinoRpcError && error.kind === "network" && count < 2,
-    queryFn: fetchHomeDiagnosis,
+    queryFn: fetchHomeState,
   });
 }
 
@@ -279,6 +325,9 @@ export function useNinoSituationFeedback() {
       if (!data?.ok) throw new Error("Não foi possível registrar seu feedback.");
       return data as { ok: true };
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["nino-diagnosis"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: qk.ninoHomeIntelligence });
+      void queryClient.invalidateQueries({ queryKey: ["nino-diagnosis"] });
+    },
   });
 }

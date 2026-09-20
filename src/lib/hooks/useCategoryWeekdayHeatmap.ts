@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useAllCategories } from "@/lib/db/finance";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
 import { TRANSACTION_FACT_SELECT } from "@/lib/engine/canonicalFacts";
+import { qk } from "@/lib/db/queryKeys";
 import {
   computeCategoryWeekdayHeatmap,
   type CategoryWeekdayHeatmap,
@@ -46,10 +47,14 @@ export function useCategoryWeekdayHeatmap(
   const categoriesQuery = useAllCategories();
 
   const txQuery = useQuery({
-    queryKey: ["category-weekday-heatmap", user?.id, range.start, range.end],
+    queryKey: [...qk.categoryWeekdayHeatmap, user?.id, range.start, range.end],
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+    // O ledger-version invalida esta query em ~400ms. `staleTime: 0` também
+    // cobre retorno do iOS após suspensão do canal Realtime.
+    staleTime: 0,
     gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
     queryFn: async () =>
       (await fetchAllPages<HeatmapTransactionRow>(
         (from, to) =>
