@@ -1,106 +1,156 @@
-import { Flame, Lightbulb, Smile, Sparkles, Target } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { BrainCircuit, Flame, Loader2, Sparkles, Target } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { useQuery } from "@tanstack/react-query";
-import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
-import { computeEmotionalSummary } from "@/lib/emotions/summary";
-import { EMOTION_CATALOG, emotionLabel } from "@/lib/emotions/catalog";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
-import { EmotionFinancePatterns } from "@/components/emotions/EmotionFinancePatterns";
-
-const MOODS = EMOTION_CATALOG.map((e) => ({ v: e.mood, label: e.label, emoji: e.emoji }));
+import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
+import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
+import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
+import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
+import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
+import {
+  BEHAVIOR_DIMENSIONS,
+  loadBehavioralEvolution,
+  logBehaviorExperiment,
+  saveBehavioralAssessment,
+  startBehaviorExperiment,
+  type BehaviorDimensionKey,
+  type BehaviorExperiment,
+  type BehaviorExperimentTemplate,
+} from "@/lib/behavioral/client";
 
 export default function Emocoes() {
   const { user } = useAuth();
+  const qc = useQueryClient();
+  const [assessmentSaving, setAssessmentSaving] = useState(false);
+  const [experimentBusy, setExperimentBusy] = useState<string | null>(null);
 
-  const { data: history } = useQuery({
-    queryKey: ["emotional_checkins", user?.id],
+  const query = useQuery({
+    queryKey: ["behavioral-evolution", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("emotional_checkins")
-        .select("*")
-        .order("occurred_at", { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => loadBehavioralEvolution(user!.id),
+    staleTime: 15_000,
+    refetchOnReconnect: true,
+    refetchOnWindowFocus: true,
   });
 
-  const summary = computeEmotionalSummary(history ?? []);
+  const refresh = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["behavioral-evolution"] }),
+      qc.invalidateQueries({ queryKey: ["emotional_checkins"] }),
+      qc.invalidateQueries({ queryKey: ["emotional-today"] }),
+      qc.invalidateQueries({ queryKey: ["nino-context"] }),
+    ]);
+  };
 
-  const moodLabel = summary.averageMood30Days == null
-    ? "Sem base"
-    : MOODS.reduce((best, item) => Math.abs(item.v - summary.averageMood30Days!) < Math.abs(best.v - summary.averageMood30Days!) ? item : best).label;
+  async function saveWheel(scores: Record<BehaviorDimensionKey, number>) {
+    setAssessmentSaving(true);
+    try {
+      await saveBehavioralAssessment(scores);
+      toast.success("Seu mapa foi atualizado.", { description: "As recomendações agora usam essa nova percepção." });
+      await refresh();
+    } catch (error) {
+      console.error("[behavior:assessment]", error);
+      toast.error("Não deu para salvar seu mapa agora.");
+      throw error;
+    } finally { setAssessmentSaving(false); }
+  }
+
+  async function startExperiment(template: BehaviorExperimentTemplate) {
+    setExperimentBusy(template.slug);
+    try {
+      await startBehaviorExperiment(template.slug);
+      toast.success("Experimento iniciado.", { description: "O Nino vai acompanhar o que for mensurável automaticamente." });
+      await refresh();
+    } catch (error) {
+      console.error("[behavior:experiment:start]", error);
+      toast.error("Não deu para iniciar esse experimento agora.");
+    } finally { setExperimentBusy(null); }
+  }
+
+  async function logExperiment(experiment: BehaviorExperiment) {
+    setExperimentBusy(experiment.id);
+    try {
+      const updated = await logBehaviorExperiment(experiment.id);
+      toast.success(Number(updated.progress) >= 100 ? "Experimento concluído!" : "Ação registrada.");
+      await refresh();
+    } catch (error) {
+      console.error("[behavior:experiment:log]", error);
+      toast.error("Não deu para registrar essa ação agora.");
+    } finally { setExperimentBusy(null); }
+  }
+
+  if (query.isLoading) {
+    return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
+  if (query.error || !query.data) {
+    return (
+      <div className="rounded-[24px] border border-border bg-card p-6 text-center">
+        <BrainCircuit className="mx-auto h-7 w-7 text-muted-foreground" />
+        <p className="mt-2 text-sm font-semibold">Não conseguimos carregar sua evolução agora.</p>
+        <button type="button" onClick={() => query.refetch()} className="mt-3 text-xs font-semibold text-primary">Tentar novamente</button>
+      </div>
+    );
+  }
+
+  const snapshot = query.data;
+  const latest = snapshot.latestAssessment;
+  const weakest = snapshot.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.lowestDimension) : null;
+  const strongest = snapshot.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.strongestDimension) : null;
+  const checkins30 = snapshot.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
 
   return (
-    <div>
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Seu dinheiro também tem contexto</h1>
-        <p className="text-sm text-muted-foreground">Check-ins curtos ajudam a perceber padrões sem culpa e escolher uma próxima ação.</p>
+    <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
+      <header>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Evolução</p>
+        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">Seu dinheiro, seus hábitos.</h1>
+        <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-muted-foreground">
+          O Nino junta como você se sente, o que realmente acontece nas finanças e pequenos experimentos para ajudar você a mudar sem julgamento.
+        </p>
       </header>
 
-      <section className="mb-4 grid grid-cols-3 gap-2">
-        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
-          <Flame className="h-4 w-4 text-orange-500" />
-          <p className="mt-2 text-lg font-bold">{summary.streakDays}</p>
-          <p className="text-[10px] text-muted-foreground">dias de sequência</p>
+      <section className="grid grid-cols-3 gap-2">
+        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <p className="mt-2 font-display text-xl font-bold">{latest ? Number(latest.overall_score).toFixed(1) : "—"}</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Mapa atual</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
-          <Target className="h-4 w-4 text-primary" />
-          <p className="mt-2 text-lg font-bold">{summary.checkinsLast7Days}/{summary.weeklyGoal}</p>
-          <p className="text-[10px] text-muted-foreground">meta semanal</p>
+        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
+          <Flame className="h-4 w-4 text-brand-coral" />
+          <p className="mt-2 font-display text-xl font-bold">{checkins30}</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Check-ins 30d</p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-3 shadow-card">
-          <Sparkles className="h-4 w-4 text-success" />
-          <p className="mt-2 truncate text-sm font-bold">{moodLabel}</p>
-          <p className="text-[10px] text-muted-foreground">humor em 30 dias</p>
-        </div>
-        <div className="col-span-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${summary.weeklyProgress * 100}%` }} />
+        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
+          <Target className="h-4 w-4 text-success" />
+          <p className="mt-2 font-display text-xl font-bold">{snapshot.activeExperiments.length}</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Experimentos</p>
         </div>
       </section>
+
+      {latest && (weakest || strongest) ? (
+        <section className="rounded-[22px] border border-primary/15 bg-gradient-to-br from-primary/10 to-card p-4">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {strongest ? <>Hoje você percebe <strong className="text-foreground">{strongest.label}</strong> como um ponto forte. </> : null}
+            {weakest ? <>O Nino vai priorizar experiências pequenas em <strong className="text-foreground">{weakest.label}</strong>, sem transformar isso em cobrança.</> : null}
+          </p>
+        </section>
+      ) : null}
 
       <EmotionalCheckinCard />
+      <MoneyMoodTimeline snapshot={snapshot} />
+      <BehaviorWheel latest={snapshot.latestAssessment} previous={snapshot.previousAssessment} onSave={saveWheel} saving={assessmentSaving} />
+      <CoachHighlights snapshot={snapshot} />
 
-      <section className="mt-4 rounded-2xl border border-primary/20 bg-primary/5 p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Lightbulb size={15} className="text-primary" /> Próxima ação sugerida</h2>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {summary.dominantTrigger
-            ? `“${summary.dominantTrigger}” foi o gatilho mais registrado nos últimos 30 dias. Na próxima ocorrência, faça uma pausa de 10 minutos antes de decidir e anote se a vontade mudou.`
-            : "Registre o gatilho junto do humor. Com alguns dias de histórico, o Nino transforma repetição em uma ação curta e verificável."}
-        </p>
-        <p className="mt-2 text-[10px] text-muted-foreground">Isso é um padrão descritivo, não um diagnóstico psicológico nem uma relação de causa.</p>
-      </section>
+      <div id="experimentos" className="scroll-mt-24">
+        <ExperimentsBoard snapshot={snapshot} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
+      </div>
 
-      <section className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold">Histórico recente</h2>
-        {!history || history.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center text-xs text-muted-foreground">
-            <Smile className="mx-auto mb-2 h-6 w-6" />
-            Ainda não há check-ins registrados.
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {history.map((h) => (
-              <li key={h.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
-                <div className="min-w-0">
-                  <p className="text-sm">
-                    {emotionLabel(h.declared_emotion_key ?? h.emotion_key ?? h.trigger_label, Number(h.mood))}
-                  </p>
-                  {h.notes && <p className="mt-0.5 truncate text-xs text-muted-foreground">{h.notes}</p>}
-                </div>
-                <span className="whitespace-nowrap text-xs text-muted-foreground">
-                  {new Date(h.occurred_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <EmotionFinancePatterns />
       <BehavioralInsightsCard />
+
+      <section className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Como o Nino usa isso:</strong> suas notas são autopercepção; lançamentos são fatos; padrões são hipóteses com amostra mínima. O produto não faz diagnóstico psicológico e não trata correlação como causa.
+      </section>
     </div>
   );
 }
