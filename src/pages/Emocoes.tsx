@@ -129,7 +129,7 @@ export default function Emocoes() {
       </section>
 
       {latest && (weakest || strongest) ? (
-        <section className="rounded-[22px] border border-primary/15 bg-gradient-to-br from-primary/7 to-card p-4">
+        <section className="rounded-[22px] border border-primary/15 bg-gradient-to-br from-primary/10 to-card p-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
             {strongest ? <>Hoje você percebe <strong className="text-foreground">{strongest.label}</strong> como um ponto forte. </> : null}
             {weakest ? <>O Nino vai priorizar experiências pequenas em <strong className="text-foreground">{weakest.label}</strong>, sem transformar isso em cobrança.</> : null}
