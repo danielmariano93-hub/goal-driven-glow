@@ -39,6 +39,44 @@ function normalizeChannels(value: any): Array<"app" | "whatsapp"> {
   return out.length > 0 ? out : ["app"];
 }
 
+// Experimentos automáticos precisam avançar mesmo quando o usuário não abre a
+// tela de Evolução. O tick usa a service role e chama o RPC canônico; assim a
+// mesma regra de medição vale no app e no background, e uma conclusão pode
+// entrar no dispatcher proativo na própria rodada.
+// deno-lint-ignore no-explicit-any
+async function refreshActiveBehaviorExperiments(sb: any, userId: string): Promise<{ refreshed: number; errors: string[] }> {
+  const { data, error } = await sb.from("behavior_experiments")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("started_at", { ascending: true })
+    .limit(25);
+  if (error) throw error;
+
+  const rows = Array.isArray(data) ? data : [];
+  if (rows.length === 0) return { refreshed: 0, errors: [] };
+
+  const settled = await Promise.allSettled(rows.map((row: { id: string }) =>
+    sb.rpc("behavior_experiment_refresh", { p_experiment_id: row.id })
+  ));
+
+  let refreshed = 0;
+  const errors: string[] = [];
+  settled.forEach((result, index) => {
+    if (result.status === "rejected") {
+      errors.push(stageError("behavior_experiment", result.reason));
+      return;
+    }
+    const value = result.value as { error?: unknown };
+    if (value?.error) {
+      errors.push(stageError(`behavior_experiment:${rows[index]?.id ?? "unknown"}`, value.error));
+      return;
+    }
+    refreshed += 1;
+  });
+  return { refreshed, errors };
+}
+
 Deno.serve(async (req) => {
   const h = httpContext("agent-proactive-tick", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -124,6 +162,7 @@ Deno.serve(async (req) => {
     suggestions: number;
     deliveries: number;
     behavior_hypotheses: number;
+    behavior_experiments_refreshed: number;
     advisor_reviews: number;
     advisor_skipped?: unknown;
     multi_finance?: MultiFinanceRunResult | null;
@@ -140,7 +179,7 @@ Deno.serve(async (req) => {
 
   for (const uid of userIds) {
     const errors: string[] = [];
-    let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, advisorReviews = 0;
+    let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, behaviorExperimentsRefreshed = 0, advisorReviews = 0;
     let advisorSkipped: unknown = undefined;
     let preview: Array<{ kind: string; channel_ready: string; title: string; body: string; dedup_key: string; evidence: Record<string, unknown> }> = [];
     let multiFinance: MultiFinanceRunResult | null = null;
@@ -165,6 +204,14 @@ Deno.serve(async (req) => {
         behaviorHypotheses = (behaviorResult.value as { persisted: number }).persisted;
       } else if (behaviorResult) {
         errors.push(stageError("behavior", behaviorResult.reason));
+      }
+
+      try {
+        const experimentResult = await refreshActiveBehaviorExperiments(sb, uid);
+        behaviorExperimentsRefreshed = experimentResult.refreshed;
+        errors.push(...experimentResult.errors);
+      } catch (error) {
+        errors.push(stageError("behavior_experiments", error));
       }
     }
 
@@ -225,6 +272,7 @@ Deno.serve(async (req) => {
       suggestions,
       deliveries,
       behavior_hypotheses: behaviorHypotheses,
+      behavior_experiments_refreshed: behaviorExperimentsRefreshed,
       advisor_reviews: advisorReviews,
       advisor_skipped: advisorSkipped,
       multi_finance: multiFinance,
@@ -242,8 +290,6 @@ Deno.serve(async (req) => {
       await markProactiveScan(sb, userIds);
     } catch (_error) { /* telemetria de rotação não deve derrubar o tick */ }
   }
-
-
 
   // Telemetria só para execuções do motor (não para o botão do usuário final).
   if (!selfMode && !dryRun && isAdmin) {
