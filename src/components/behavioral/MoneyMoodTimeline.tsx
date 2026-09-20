@@ -40,7 +40,7 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
                 </linearGradient>
               </defs>
               <ReferenceArea y1={0} y2={3} fill="hsl(var(--destructive))" fillOpacity={0.035} />
-              <ReferenceArea y1={3} y2={6} fill="hsl(var(--brand-coral))" fillOpacity={0.03} />
+              <ReferenceArea y1={3} y2={6} fill="hsl(var(--destructive))" fillOpacity={0.018} />
               <ReferenceArea y1={6} y2={8} fill="hsl(var(--primary))" fillOpacity={0.02} />
               <ReferenceArea y1={8} y2={10} fill="hsl(var(--success))" fillOpacity={0.035} />
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 6" />
@@ -97,7 +97,7 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
       </div>
 
       {trend != null && Math.abs(trend) >= 0.3 ? (
-        <div className={`mt-3 flex items-start gap-2 rounded-2xl p-3 ${trend > 0 ? "bg-success/7" : "bg-brand-coral/8"}`}>
+        <div className={`mt-3 flex items-start gap-2 rounded-2xl p-3 ${trend > 0 ? "bg-success/10" : "bg-brand-coral/10"}`}>
           {trend > 0 ? <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <TrendingDown className="mt-0.5 h-4 w-4 shrink-0 text-brand-coral" />}
           <p className="text-xs leading-relaxed text-muted-foreground">
             Sua média dos últimos 14 dias está <strong className="text-foreground">{Math.abs(trend).toFixed(1)} ponto{Math.abs(trend) >= 2 ? "s" : ""} {trend > 0 ? "acima" : "abaixo"}</strong> das duas semanas anteriores.
