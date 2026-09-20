@@ -22,7 +22,7 @@ describe("behavioral map cycle v2", () => {
     expect(dashboard).toContain("buildObservedProfileV2");
     expect(observedV2).toContain("coverage: scored.length");
     expect(observedV2).toContain("confidenceWeight(row.confidence)");
-    expect(wheel).toContain("Sua nota");
+    expect(wheel).toContain("Sua percepção");
     expect(wheel).toContain("Nino observa");
     expect(wheel).toContain('dataKey="self"');
     expect(wheel).toContain('dataKey="nino"');
