@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { BrainCircuit, Flame, Loader2, Sparkles, Target } from "lucide-react";
+import { Flame, Loader2, Sparkles, Target } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
@@ -9,7 +9,10 @@ import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
-import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
+import {
+  loadBehavioralEvolutionResilient,
+  type ResilientBehavioralEvolutionSnapshot,
+} from "@/lib/behavioral/resilientClient";
 import {
   BEHAVIOR_DIMENSIONS,
   logBehaviorExperiment,
@@ -20,6 +23,105 @@ import {
   type BehaviorExperimentTemplate,
 } from "@/lib/behavioral/client";
 
+const FALLBACK_TEMPLATES: BehaviorExperimentTemplate[] = [
+  {
+    slug: "checkin-consistency-14d",
+    title: "Entender antes de mudar",
+    description: "Faça 10 check-ins curtos em 14 dias. O objetivo é criar contexto suficiente para o Nino encontrar padrões reais.",
+    dimension: "awareness",
+    tracking_kind: "checkin_count",
+    target_value: 10,
+    duration_days: 14,
+    xp_reward: 80,
+    config: { cta: "Registrar como me sinto" },
+  },
+  {
+    slug: "three-no-spend-days",
+    title: "Três dias de respiro",
+    description: "Tenha 3 dias completos sem despesas de consumo durante as próximas duas semanas. Contas e transferências não entram.",
+    dimension: "control",
+    tracking_kind: "no_spend_days",
+    target_value: 3,
+    duration_days: 14,
+    xp_reward: 100,
+    config: { cta: "Começar experimento" },
+  },
+  {
+    slug: "reduce-spend-10pct",
+    title: "Reduzir sem radicalizar",
+    description: "Teste por 14 dias um ritmo de gastos de consumo pelo menos 10% menor que a sua média anterior.",
+    dimension: "control",
+    tracking_kind: "spend_reduction_pct",
+    target_value: 10,
+    duration_days: 14,
+    xp_reward: 120,
+    config: { cta: "Testar por 14 dias" },
+  },
+  {
+    slug: "pause-before-buying",
+    title: "Pausa antes da compra",
+    description: "Em 7 compras que despertarem vontade imediata, faça uma pausa e registre se ainda quer comprar depois.",
+    dimension: "calm",
+    tracking_kind: "manual",
+    target_value: 7,
+    duration_days: 14,
+    xp_reward: 90,
+    config: { cta: "Aceitar experimento", event_label: "Fiz a pausa" },
+  },
+  {
+    slug: "weekly-money-review",
+    title: "Revisão de 5 minutos",
+    description: "Uma vez por semana, olhe saldo, próximos compromissos e uma decisão que você pode simplificar.",
+    dimension: "planning",
+    tracking_kind: "manual",
+    target_value: 4,
+    duration_days: 28,
+    xp_reward: 100,
+    config: { cta: "Criar rotina", event_label: "Fiz minha revisão" },
+  },
+  {
+    slug: "small-wealth-moves",
+    title: "Pequenas ações de patrimônio",
+    description: "Faça quatro pequenas ações intencionais de construção de patrimônio durante o mês.",
+    dimension: "wealth",
+    tracking_kind: "manual",
+    target_value: 4,
+    duration_days: 30,
+    xp_reward: 120,
+    config: { cta: "Começar", event_label: "Fiz uma ação" },
+  },
+];
+
+const EMPTY_SNAPSHOT: ResilientBehavioralEvolutionSnapshot = {
+  assessments: [],
+  latestAssessment: null,
+  previousAssessment: null,
+  overallDelta: null,
+  checkins: [],
+  moodHistory: [],
+  moodAverage30: null,
+  moodTrend14: null,
+  emotionSpend: {
+    sufficient: false,
+    pairedDays: 0,
+    vulnerableDays: 0,
+    comparisonDays: 0,
+    vulnerableAverage: null,
+    comparisonAverage: null,
+    upliftPct: null,
+  },
+  experiments: [],
+  activeExperiments: [],
+  templates: FALLBACK_TEMPLATES,
+  recommendedTemplates: [FALLBACK_TEMPLATES[0], FALLBACK_TEMPLATES[4]],
+  hypotheses: [],
+  highlights: [],
+  lowestDimension: null,
+  strongestDimension: null,
+  momentSignal: null,
+  degradedSources: ["safe-shell"],
+};
+
 export default function Emocoes() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -29,10 +131,18 @@ export default function Emocoes() {
   const query = useQuery({
     queryKey: ["behavioral-evolution", user?.id],
     enabled: !!user,
-    queryFn: () => loadBehavioralEvolutionResilient(user!.id),
+    queryFn: async () => {
+      try {
+        return await loadBehavioralEvolutionResilient(user!.id);
+      } catch (error) {
+        console.error("[behavior:evolution:safe-shell]", error);
+        return EMPTY_SNAPSHOT;
+      }
+    },
     staleTime: 15_000,
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,
+    retry: 1,
   });
 
   const refresh = async () => {
@@ -81,25 +191,16 @@ export default function Emocoes() {
     } finally { setExperimentBusy(null); }
   }
 
-  if (query.isLoading) {
+  if (!user || query.isLoading) {
     return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
-  if (query.error || !query.data) {
-    return (
-      <div className="rounded-[24px] border border-border bg-card p-6 text-center">
-        <BrainCircuit className="mx-auto h-7 w-7 text-muted-foreground" />
-        <p className="mt-2 text-sm font-semibold">Não conseguimos carregar sua evolução agora.</p>
-        <button type="button" onClick={() => query.refetch()} className="mt-3 text-xs font-semibold text-primary">Tentar novamente</button>
-      </div>
-    );
-  }
 
-  const snapshot = query.data;
+  const snapshot = query.data ?? EMPTY_SNAPSHOT;
   const latest = snapshot.latestAssessment;
   const weakest = snapshot.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.lowestDimension) : null;
   const strongest = snapshot.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.strongestDimension) : null;
   const checkins30 = snapshot.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
-  const degraded = snapshot.degradedSources.length > 0;
+  const degraded = query.isError || snapshot.degradedSources.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
@@ -117,7 +218,7 @@ export default function Emocoes() {
             <div>
               <p className="text-xs font-semibold text-foreground">Sua evolução está disponível em modo seguro.</p>
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                Mantivemos mapa, check-ins e experimentos acessíveis enquanto uma análise complementar termina de sincronizar.
+                Mantivemos a experiência acessível enquanto uma parte dos dados termina de sincronizar. Nenhuma métrica ausente é inventada.
               </p>
             </div>
             <button type="button" onClick={() => query.refetch()} className="shrink-0 text-[11px] font-semibold text-primary">
