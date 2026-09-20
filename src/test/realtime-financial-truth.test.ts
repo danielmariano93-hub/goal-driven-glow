@@ -80,6 +80,9 @@ describe("bank_cash_truth.v2 — same-day live writes", () => {
 
 describe("realtime financial indicators — propagation contract", () => {
   const hook = fs.readFileSync("src/lib/hooks/useFinancialSnapshot.ts", "utf8");
+  const diagnosis = fs.readFileSync("src/lib/nino/diagnosis.ts", "utf8");
+  const guidance = fs.readFileSync("src/components/home/NinoGuidanceSection.tsx", "utf8");
+  const nextStep = fs.readFileSync("supabase/functions/nino-next-step/index.ts", "utf8");
   const sync = fs.readFileSync("src/components/finance/FinancialRealtimeSync.tsx", "utf8");
   const keys = fs.readFileSync("src/lib/db/queryKeys.ts", "utf8");
   const home = fs.readFileSync("supabase/functions/home-snapshot/index.ts", "utf8");
@@ -87,7 +90,7 @@ describe("realtime financial indicators — propagation contract", () => {
   const cache = fs.readFileSync("supabase/functions/_shared/derived/cache.ts", "utf8");
   const cleanupMigration = fs.readFileSync("supabase/migrations/20260920013000_home_realtime_single_read_path.sql", "utf8");
 
-  it("usa uma única porta canônica para a Home", () => {
+  it("usa uma única porta canônica para os números da Home", () => {
     expect(hook).toContain('functions.invoke("home-snapshot"');
     expect(hook).toContain("force_refresh: true");
     expect(hook).not.toContain("my_financial_home_snapshot");
@@ -104,14 +107,24 @@ describe("realtime financial indicators — propagation contract", () => {
     expect(hook).toContain('refetchOnWindowFocus: "always"');
     expect(hook).toContain('refetchOnReconnect: "always"');
     expect(hook).toContain("staleTime: 0");
+    expect(diagnosis).toContain('refetchOnWindowFocus: "always"');
+    expect(diagnosis).toContain('refetchOnReconnect: "always"');
   });
 
-  it("propaga a versão do ledger rapidamente para todas as superfícies derivadas", () => {
+  it("propaga a versão do ledger para todas as superfícies derivadas, inclusive orientação", () => {
     expect(sync).toContain('table: "financial_ledger_versions"');
     expect(sync).toContain("}, 400)");
-    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail"]) {
+    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail", "qk.ninoHomeIntelligence"]) {
       expect(keys).toContain(key);
     }
+  });
+
+  it("atualiza diagnóstico e próximo passo no mesmo request da Home", () => {
+    expect(diagnosis).toContain('functions.invoke("nino-next-step"');
+    expect(nextStep).toContain('sb.rpc("nino_refresh_diagnosis"');
+    expect(nextStep).toContain("computeNextBestAction");
+    expect(nextStep).toContain('sb.rpc("nino_home_context_for_user"');
+    expect(guidance).not.toContain("useNinoNextStep()");
   });
 
   it("usa a mesma correção intraday na Home e no Pulso", () => {
