@@ -8,12 +8,18 @@ function shortDate(day: string) {
 }
 
 export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionSnapshot }) {
-  const data = snapshot.moodHistory.slice(-30).map((row) => ({ ...row, label: shortDate(row.day) }));
+  const data = snapshot.moodHistory.slice(-30).map((row) => ({
+    ...row,
+    label: shortDate(row.day),
+    direct: row.control != null || row.urge != null,
+  }));
   const controlValues = data.map((row) => row.control).filter((value): value is number => value != null);
   const urgeValues = data.map((row) => row.urge).filter((value): value is number => value != null);
   const controlAvg = controlValues.length ? controlValues.reduce((sum, value) => sum + value, 0) / controlValues.length : null;
   const urgeAvg = urgeValues.length ? urgeValues.reduce((sum, value) => sum + value, 0) / urgeValues.length : null;
   const trend = snapshot.moodTrend14;
+  const directCount = data.filter((row) => row.direct).length;
+  const estimatedCount = data.length - directCount;
 
   return (
     <section className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5">
@@ -21,13 +27,21 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Money mood</p>
           <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Como sua relação com dinheiro está evoluindo</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Tranquilidade financeira declarada por você, de 0 a 10.</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Novos check-ins medem tranquilidade diretamente. Registros do formato anterior aparecem como estimativa histórica para preservar continuidade.
+          </p>
         </div>
         <div className="rounded-2xl bg-secondary/70 px-3 py-2 text-right">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">30 dias</p>
           <p className="font-display text-2xl font-bold">{snapshot.moodAverage30 == null ? "—" : snapshot.moodAverage30.toFixed(1)}</p>
         </div>
       </div>
+
+      {estimatedCount > 0 ? (
+        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+          Nesta janela: {directCount} medição{directCount === 1 ? "" : "ões"} direta{directCount === 1 ? "" : "s"} e {estimatedCount} ponto{estimatedCount === 1 ? "" : "s"} histórico{estimatedCount === 1 ? "" : "s"} estimado{estimatedCount === 1 ? "" : "s"}.
+        </p>
+      ) : null}
 
       {data.length >= 2 ? (
         <div className="mt-4 h-[260px] sm:h-[290px]">
@@ -52,8 +66,9 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
                   const row = payload?.[0]?.payload as (typeof data)[number] | undefined;
                   if (!active || !row) return null;
                   return (
-                    <div className="min-w-[150px] rounded-2xl border border-border bg-card/95 p-3 shadow-xl backdrop-blur">
+                    <div className="min-w-[160px] rounded-2xl border border-border bg-card/95 p-3 shadow-xl backdrop-blur">
                       <p className="text-xs font-semibold">{row.label}</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">{row.direct ? "Medição direta" : "Estimativa do check-in antigo"}</p>
                       <p className="mt-2 text-xs text-muted-foreground">Tranquilidade <strong className="text-foreground">{row.score.toFixed(1)}</strong></p>
                       {row.control != null ? <p className="text-xs text-muted-foreground">Controle <strong className="text-foreground">{row.control}</strong></p> : null}
                       {row.urge != null ? <p className="text-xs text-muted-foreground">Vontade de gastar <strong className="text-foreground">{row.urge}</strong></p> : null}
@@ -100,7 +115,7 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
         <div className={`mt-3 flex items-start gap-2 rounded-2xl p-3 ${trend > 0 ? "bg-success/10" : "bg-brand-coral/10"}`}>
           {trend > 0 ? <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-success" /> : <TrendingDown className="mt-0.5 h-4 w-4 shrink-0 text-brand-coral" />}
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Sua média dos últimos 14 dias está <strong className="text-foreground">{Math.abs(trend).toFixed(1)} ponto{Math.abs(trend) >= 2 ? "s" : ""} {trend > 0 ? "acima" : "abaixo"}</strong> das duas semanas anteriores.
+            Sua média dos últimos 14 dias está <strong className="text-foreground">{Math.abs(trend).toFixed(1)} ponto{Math.abs(trend) >= 2 ? "s" : ""} {trend > 0 ? "acima" : "abaixo"}</strong> das duas semanas anteriores. {directCount < 3 ? "Como a maior parte da janela ainda vem do formato antigo, leia esta tendência como indicativa." : ""}
           </p>
         </div>
       ) : null}
