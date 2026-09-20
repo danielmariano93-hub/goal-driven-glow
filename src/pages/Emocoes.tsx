@@ -90,6 +90,11 @@ export default function Emocoes() {
 
   const dashboard = dashboardQuery.data;
   const observed = dashboard?.observed ?? EMPTY_OBSERVED;
+  const observedMeta = observed as ObservedBehaviorProfile & {
+    methodologyVersion?: string;
+    overallConfidence?: "low" | "medium" | "high";
+    historyDays?: number;
+  };
   const cycle = dashboard?.cycle ?? EMPTY_CYCLE;
 
   async function saveWheel(scores: Record<BehaviorDimensionKey, number>) {
@@ -147,8 +152,12 @@ export default function Emocoes() {
   const latest = dashboard.latestAssessment;
   const weakest = dashboard.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.lowestDimension) : null;
   const strongest = dashboard.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.strongestDimension) : null;
+  const strongestScore = strongest && latest ? Number(latest.scores?.[strongest.key] ?? 0) : null;
   const checkins30 = dashboard.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
   const degraded = dashboard.degradedSources.length > 0;
+  const confidence = observedMeta.overallConfidence ?? "low";
+  const confidenceLabel = confidence === "high" ? "alta" : confidence === "medium" ? "média" : "baixa";
+  const maturing = observed.coverage > 0 && confidence !== "high";
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
@@ -170,18 +179,25 @@ export default function Emocoes() {
             <button type="button" onClick={() => dashboardQuery.refetch()} className="shrink-0 text-[11px] font-semibold text-primary">Atualizar</button>
           </div>
         </section>
+      ) : maturing ? (
+        <section className="rounded-[20px] border border-primary/15 bg-primary/5 p-4">
+          <p className="text-xs font-semibold text-foreground">O Nino ainda está amadurecendo esta leitura.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            A confiança geral é {confidenceLabel}{observedMeta.historyDays ? ` com ${observedMeta.historyDays} dias de histórico financeiro observado` : ""}. As notas já são úteis como sinal, mas podem mudar conforme novos ciclos, acessos e check-ins entram na base.
+          </p>
+        </section>
       ) : null}
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
           <Sparkles className="h-4 w-4 text-primary" />
           <p className="mt-2 font-display text-xl font-bold">{latest ? Number(latest.overall_score).toFixed(1) : "—"}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Sua nota</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Sua percepção</p>
         </div>
         <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
           <Eye className="h-4 w-4 text-success" />
           <p className="mt-2 font-display text-xl font-bold">{observed.overallScore == null ? "—" : observed.overallScore.toFixed(1)}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Nino observa · {observed.coverage}/8</p>
+          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Nino observa · {confidenceLabel}</p>
         </div>
         <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
           <Flame className="h-4 w-4 text-brand-coral" />
@@ -198,7 +214,11 @@ export default function Emocoes() {
       {latest && (weakest || strongest) ? (
         <section className="rounded-[22px] border border-primary/15 bg-gradient-to-br from-primary/10 to-card p-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {strongest ? <>Hoje você percebe <strong className="text-foreground">{strongest.label}</strong> como um ponto forte. </> : null}
+            {strongest && strongestScore != null ? (
+              strongestScore >= 7
+                ? <>Hoje você percebe <strong className="text-foreground">{strongest.label}</strong> como um ponto forte ({strongestScore.toFixed(1)}/10). </>
+                : <>Sua maior nota hoje é <strong className="text-foreground">{strongest.label}</strong> ({strongestScore.toFixed(1)}/10), mas isso ainda não significa um ponto forte consolidado. </>
+            ) : null}
             {weakest ? <>O Nino vai priorizar experiências pequenas em <strong className="text-foreground">{weakest.label}</strong>, sem transformar isso em cobrança.</> : null}
           </p>
         </section>
@@ -229,10 +249,10 @@ export default function Emocoes() {
         </div>
       ) : null}
 
-      <BehavioralInsightsCard />
+      <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
 
       <section className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Como o Nino usa isso:</strong> sua nota é autopercepção; a leitura do Nino usa apenas evidências financeiras e histórico de check-ins com cobertura explícita. A comparação serve para orientar experimentos — não é diagnóstico psicológico e não trata correlação como causa.
+        <strong className="text-foreground">Como o Nino usa isso:</strong> sua percepção vem das respostas que você deu. A leitura observada usa comportamento financeiro, uso das superfícies do app, metas, reserva, histórico de check-ins e outros fatos disponíveis, sempre com confiança explícita. Qualidade do modelo ou categorização automática não valem como comportamento por si só. A comparação orienta experimentos — não é diagnóstico psicológico e não trata correlação como causa.
       </section>
     </div>
   );

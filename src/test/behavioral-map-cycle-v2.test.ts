@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const mapCycle = readFileSync("src/lib/behavioral/mapCycle.ts", "utf8");
 const dashboard = readFileSync("src/lib/behavioral/dashboardSnapshot.ts", "utf8");
+const observedV2 = readFileSync("src/lib/behavioral/observedProfileV2.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const migration = readFileSync("supabase/migrations/20260920124200_behavioral_map_cycle_v2.sql", "utf8");
@@ -18,9 +19,10 @@ describe("behavioral map cycle v2", () => {
 
   it("keeps self-perception separate from Nino observed evidence", () => {
     expect(dashboard).toContain("ObservedBehaviorProfile");
-    expect(dashboard).toContain("buildObserved");
-    expect(dashboard).toContain("coverage: scored.length");
-    expect(wheel).toContain("Sua nota");
+    expect(dashboard).toContain("buildObservedProfileV2");
+    expect(observedV2).toContain("coverage: scored.length");
+    expect(observedV2).toContain("confidenceWeight(row.confidence)");
+    expect(wheel).toContain("Sua percepção");
     expect(wheel).toContain("Nino observa");
     expect(wheel).toContain('dataKey="self"');
     expect(wheel).toContain('dataKey="nino"');
@@ -48,8 +50,8 @@ describe("behavioral map cycle v2", () => {
   });
 
   it("does not pretend every behavioral dimension has enough evidence", () => {
-    expect(dashboard).toContain("Ainda não há evidência suficiente");
-    expect(dashboard).toContain("score: null");
-    expect(dashboard).toContain("insufficient_data");
+    expect(observedV2).toContain("Ainda não há evidência suficiente");
+    expect(observedV2).toContain("score: null");
+    expect(observedV2).toContain("insufficient_data");
   });
 });

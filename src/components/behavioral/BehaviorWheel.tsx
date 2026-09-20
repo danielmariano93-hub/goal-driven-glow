@@ -23,6 +23,10 @@ function dateLabel(value?: string | null) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Sao_Paulo" }).format(new Date(value));
 }
 
+function confidenceLabel(value: "low" | "medium" | "high") {
+  return value === "high" ? "confiança alta" : value === "medium" ? "confiança média" : "confiança baixa";
+}
+
 export function BehaviorWheel({
   latest,
   previous,
@@ -58,6 +62,7 @@ export function BehaviorWheel({
     ? [...BEHAVIOR_DIMENSIONS].sort((a, b) => Number(latest.scores?.[a.key] ?? 0) - Number(latest.scores?.[b.key] ?? 0))[0]
     : null;
   const delta = latest && previous ? Number(latest.overall_score) - Number(previous.overall_score) : null;
+  const strongestScore = strongest && latest ? Number(latest.scores?.[strongest.key] ?? 0) : null;
 
   const comparable = latest
     ? BEHAVIOR_DIMENSIONS
@@ -100,7 +105,7 @@ export function BehaviorWheel({
           {latest ? (
             <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
               <div className="rounded-[18px] border border-primary/15 bg-primary/5 p-3">
-                <div className="flex items-center gap-1.5 text-primary"><UserRound size={14} /><span className="text-[10px] font-semibold uppercase tracking-wider">Sua nota</span></div>
+                <div className="flex items-center gap-1.5 text-primary"><UserRound size={14} /><span className="text-[10px] font-semibold uppercase tracking-wider">Sua percepção</span></div>
                 <p className="mt-1 font-display text-2xl font-bold">{Number(latest.overall_score).toFixed(1)}</p>
                 <p className="text-[10px] text-muted-foreground">preenchido em {dateLabel(latest.created_at)}</p>
                 {delta != null && Math.abs(delta) >= 0.1 ? (
@@ -171,16 +176,20 @@ export function BehaviorWheel({
             <div className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
               {strongest ? (
                 <div className="rounded-2xl bg-primary/7 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Ponto forte percebido</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">
+                    {strongestScore != null && strongestScore >= 7 ? "Ponto forte percebido" : "Sua maior nota hoje"}
+                  </p>
                   <p className="mt-1 text-sm font-semibold">{strongest.label}</p>
-                  <p className="text-xs text-muted-foreground">Você se deu {Number(latest.scores[strongest.key]).toFixed(1)} de 10</p>
+                  <p className="text-xs text-muted-foreground">
+                    Você se deu {Number(latest.scores[strongest.key]).toFixed(1)} de 10{strongestScore != null && strongestScore < 7 ? "; é o maior valor relativo, não um ponto forte consolidado" : ""}.
+                  </p>
                 </div>
               ) : null}
               {largestGap ? (
                 <div className="rounded-2xl bg-success/7 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-success">Onde as leituras mais diferem</p>
                   <p className="mt-1 text-sm font-semibold">{largestGap.dimension.label}</p>
-                  <p className="text-xs text-muted-foreground">Você {largestGap.self.toFixed(1)} · Nino {Number(largestGap.observed.score).toFixed(1)}</p>
+                  <p className="text-xs text-muted-foreground">Você {largestGap.self.toFixed(1)} · Nino {Number(largestGap.observed.score).toFixed(1)} · {confidenceLabel(largestGap.observed.confidence)}</p>
                   <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{largestGap.observed.evidence}</p>
                 </div>
               ) : focus ? (

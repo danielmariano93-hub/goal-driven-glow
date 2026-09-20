@@ -5,6 +5,7 @@ import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
 import { SessionInactivityGuard } from '@/components/auth/SessionInactivityGuard';
+import { BehavioralUsageTracker } from '@/components/behavioral/BehavioralUsageTracker';
 
 /**
  * Painel único e global do Assessor. Fica montado condicionalmente aqui
@@ -23,6 +24,7 @@ export function AppLayout() {
   return (
     <SessionInactivityGuard>
       <AssessorProvider>
+        <BehavioralUsageTracker />
         <div className="min-h-screen flex overflow-x-hidden" style={{ background: "var(--home-bg)" }}>
           <DesktopSidebar />
           <main className="flex-1 min-w-0 overflow-x-hidden">

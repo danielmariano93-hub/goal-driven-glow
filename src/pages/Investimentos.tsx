@@ -1,23 +1,46 @@
 import { useState } from "react";
-import { Plus, Trash2, Loader2, Pencil, TrendingUp } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, TrendingUp, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { useInvestments, useSaveInvestment, useDeleteInvestment, useGoals, type InvestmentRow } from "@/lib/db/finance";
 import { investmentSchema } from "@/lib/validation/finance";
 import { computeInvestedPrincipal, computeInvestmentsTotal, formatBRL, todayISO } from "@/lib/engine/facts";
+import { supabase } from "@/integrations/supabase/client";
 
 const CATEGORIES = ["Renda Fixa", "Tesouro Direto", "Ações", "FIIs", "ETF", "Cripto", "Fundos", "Outros"];
+type InvestmentWithReserve = InvestmentRow & { reserve_role?: "unspecified" | "emergency_reserve" | "long_term" | null };
 
 export default function Investimentos() {
   const { data: items, isLoading } = useInvestments();
   const { data: goals } = useGoals();
   const save = useSaveInvestment();
   const del = useDeleteInvestment();
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InvestmentRow | null>(null);
+  const [reserveBusy, setReserveBusy] = useState<string | null>(null);
 
   // Fonte única (finance_contract.v2): helpers puros do core.
   const total = computeInvestmentsTotal(items ?? []);
   const invested = computeInvestedPrincipal(items ?? []);
+
+  async function toggleReserve(item: InvestmentWithReserve) {
+    setReserveBusy(item.id);
+    try {
+      const next = item.reserve_role === "emergency_reserve" ? "unspecified" : "emergency_reserve";
+      const { error } = await (supabase.from("investments") as any).update({ reserve_role: next }).eq("id", item.id);
+      if (error) throw error;
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["investments"] }),
+        qc.invalidateQueries({ queryKey: ["behavioral-dashboard"] }),
+      ]);
+      toast.success(next === "emergency_reserve" ? "Incluído na reserva de emergência." : "Removido da reserva de emergência.");
+    } catch (error) {
+      toast.error("Não foi possível atualizar a reserva.", { description: String((error as Error).message ?? error) });
+    } finally {
+      setReserveBusy(null);
+    }
+  }
 
   return (
     <div>
@@ -59,42 +82,60 @@ export default function Investimentos() {
               <p className="mt-1 text-xl font-semibold tabular-nums">{formatBRL(invested)}</p>
             </div>
           </div>
+          <div className="mb-4 rounded-2xl border border-border bg-secondary/25 p-3 text-xs leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Reserva de emergência:</strong> marque apenas investimentos que você realmente considera líquidos e disponíveis para imprevistos. O Nino usa essa marcação na leitura de Segurança Financeira.
+          </div>
           <ul className="space-y-2">
-            {items.map((i) => {
+            {items.map((raw) => {
+              const i = raw as InvestmentWithReserve;
               const goal = goals?.find((g) => g.id === i.goal_id);
+              const isReserve = i.reserve_role === "emergency_reserve";
               return (
-                <li key={i.id} className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 shadow-card">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{i.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {i.category}
-                      {i.institution ? ` · ${i.institution}` : ""}
-                      {goal ? ` · meta: ${goal.name}` : ""}
-                    </p>
-                    <p className="mt-1 text-xs">
-                      Investido {formatBRL(Number(i.invested_amount))} · Atual{" "}
-                      <span className="font-semibold">{formatBRL(Number(i.current_value))}</span>
-                    </p>
+                <li key={i.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{i.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {i.category}
+                        {i.institution ? ` · ${i.institution}` : ""}
+                        {goal ? ` · meta: ${goal.name}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs">
+                        Investido {formatBRL(Number(i.invested_amount))} · Atual{" "}
+                        <span className="font-semibold">{formatBRL(Number(i.current_value))}</span>
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setEditing(i);
+                          setOpen(true);
+                        }}
+                        className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
+                        aria-label={`Editar ${i.name}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm("Excluir este investimento?")) del.mutate(i.id, { onSuccess: () => toast.success("Excluído") });
+                        }}
+                        className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
+                        aria-label={`Excluir ${i.name}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setEditing(i);
-                        setOpen(true);
-                      }}
-                      className="rounded-full border border-border p-2 text-muted-foreground hover:text-foreground"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm("Excluir este investimento?")) del.mutate(i.id, { onSuccess: () => toast.success("Excluído") });
-                      }}
-                      className="rounded-full border border-border p-2 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    disabled={reserveBusy === i.id}
+                    onClick={() => toggleReserve(i)}
+                    className={`mt-3 inline-flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold ${isReserve ? "border-success/25 bg-success/10 text-success" : "border-border text-muted-foreground"}`}
+                  >
+                    {reserveBusy === i.id ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                    {isReserve ? "Conta como reserva de emergência" : "Marcar como reserva de emergência"}
+                  </button>
                 </li>
               );
             })}

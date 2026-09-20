@@ -23,7 +23,8 @@ describe("behavioral evolution — three waves", () => {
     expect(migration).toContain("behavioral_assessment_save");
     expect(wheel).toContain("Roda financeira comportamental");
     expect(wheel).toContain("sem transformar comportamento em diagnóstico");
-    expect(mood).toContain("Tranquilidade financeira declarada por você");
+    expect(mood).toContain("Novos check-ins medem tranquilidade diretamente");
+    expect(mood).toContain("estimativa histórica");
   });
 
   it("wave 2 turns weak dimensions into measurable experiments", () => {
@@ -47,7 +48,7 @@ describe("behavioral evolution — three waves", () => {
     expect(client).toContain("paired.length >= 8");
     expect(client).toContain("não uma relação de causa");
     expect(highlights).toContain("Correlação emocional nunca é apresentada como diagnóstico ou causa");
-    expect(page).toContain("cobertura explícita");
+    expect(page).toContain("confiança explícita");
     expect(page).toContain("não trata correlação como causa");
   });
 
