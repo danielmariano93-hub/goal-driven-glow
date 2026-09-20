@@ -10,7 +10,7 @@ export const TX_COLUMNS = [
   "shared_expense_id", "split_transaction_role", "category_confidence",
   "category_source", "category_reason", "posted_at", "posted_at_source",
   "source_document_id", "behavioral_day", "investment_id", "superseded_by",
-  "supersede_reason", "refund_of_transaction_id", "merchant_name",
+  "supersede_reason", "refund_of_transaction_id", "merchant_name", "local_occurred_at",
 ].join(",");
 
 // deno-lint-ignore no-explicit-any
