@@ -103,6 +103,7 @@ describe("behavior_observed.v2", () => {
   it("tracks only coarse app surfaces and never content or query strings", () => {
     expect(migration).toContain("behavioral_app_activity_daily");
     expect(migration).toContain("behavioral_record_app_activity");
+    expect(migration).toContain("using ((select auth.uid()) = user_id)");
     expect(usage).toContain("surfaceForPath");
     expect(usage).not.toContain("location.search");
     expect(usage).not.toContain("document.title");
