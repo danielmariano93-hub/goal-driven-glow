@@ -17,6 +17,7 @@ import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
+import { applyIntradayBankAnchorAdjustments } from "../_shared/finance-core/intradayCash.ts";
 import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
@@ -27,7 +28,6 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const CONTRACT = "home_snapshot.v4";
-
 
 // deno-lint-ignore no-explicit-any
 type Any = any;
@@ -105,8 +105,6 @@ Deno.serve(async (req) => {
   const missing: string[] = [];
 
   try {
-    // Memoização por versão do ledger: enquanto nada financeiro é escrito,
-    // reabrir a Home não recalcula o snapshot (perf_derived.v1).
     const ledgerVersion = await getLedgerVersion(sb, userId);
     const cacheKey = `home_snapshot_v4|${start}|${end}|${today}`;
     const cached = await readDerivedCache<Any>(sb, userId, cacheKey, ledgerVersion);
@@ -125,10 +123,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // `stale-while-revalidate`: para o MTD atual existe uma representação
-    // persistida por usuário. Se o ledger mudou, devolvemos o último snapshot
-    // imediatamente e recalculamos em background. Assim uma escrita financeira
-    // não transforma a próxima abertura da Home em 5s de skeleton.
     if (!body.force_refresh && isCurrentMtd(start, end, today)) {
       const { data: materialized } = await sb
         .from("financial_current_snapshots")
@@ -150,8 +144,6 @@ Deno.serve(async (req) => {
             .select("user_id", { count: "exact", head: true })
             .eq("user_id", userId)
             .is("processed_at", null);
-          // Se existe mês sujo, o worker de fatos precisa terminar antes. Para
-          // mudanças sem fatos (metas, conta, settings etc.), revalida já.
           if (canSchedule && Number(dirtyCount ?? 0) === 0) {
             const refreshRequestedAt = new Date().toISOString();
             await sb.from("financial_current_snapshots").update({
@@ -193,18 +185,13 @@ Deno.serve(async (req) => {
       goals, contributions, recurring, settings, statements, installments, cards, invMovements,
     ] = await Promise.all([
       q(sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId), "accounts", true),
-      // Mesmo contrato do app (`bank_cash_truth.v1`): só snapshot CONFIRMADO
-      // ancora, e `balance_date` é a data de corte.
       q(sb.from("account_balance_snapshots")
-        .select("account_id,balance_date,balance,status,anchor_kind,source_document_id,reconciliation_delta")
+        .select("account_id,balance_date,balance,status,anchor_kind,anchor_observed_at,source_document_id,reconciliation_delta")
         .eq("user_id", userId).eq("status", "confirmed")
         .order("balance_date", { ascending: true }), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
       q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day,installments_total,installments_paid,start_date").eq("user_id", userId), "debts", false),
-      // Pagamentos registrados: sem eles a agenda cobra parcela já paga.
       q(sb.from("debt_payments").select("id,debt_id,amount,amount_applied,installments_covered,paid_at").eq("user_id", userId), "debtPayments", false),
-      // Categorias globais (`user_id IS NULL`) + do usuário — mesmo contrato do app.
-      // Filtrar só por user_id deixava metas de categoria padrão sem nome.
       q(sb.from("categories").select("id,name,type").or(`user_id.eq.${userId},user_id.is.null`), "categories", false),
       q(sb.from("category_spending_goals").select("*").eq("user_id", userId), "categoryGoals", false),
       q(sb.from("goals").select("*").eq("user_id", userId), "goals", false),
@@ -217,14 +204,7 @@ Deno.serve(async (req) => {
       q(sb.from("investment_movements").select("kind,amount,occurred_at").eq("user_id", userId), "investmentMovements", false),
     ]);
 
-    // CAMINHO NORMAL (`perf_facts.v1`): a Home lê a JANELA do período + os
-    // fatos mensais consolidados. O ledger inteiro só entra em bootstrap ou
-    // rebuild administrativo — nunca na abertura normal.
     const bootstrap = body.bootstrap === true;
-    // A Home precisa de baseline recente + compromissos próximos. Parcelas
-    // futuras já vivem em `credit_card_installments` e recorrências em
-    // `recurring_rules`; ler 24 meses futuros do ledger bruto era redundante.
-    // Mantemos 6 meses de lookback (paridade dos baselines) e só 3 à frente.
     const window = resolveWindow(
       { start, end },
       today,
@@ -242,11 +222,13 @@ Deno.serve(async (req) => {
           .map((s) => ({ account_id: String(s.account_id), balance_date: String(s.balance_date) })),
       });
       txs = compact.txs;
-      // Materialização pendente: a superfície degrada honestamente em vez de
-      // servir número velho ou baixar a vida inteira.
       if (!compact.carryApplied) missing.push("monthlyFactsPending");
     }
     const derivedFactReadMs = Date.now() - factsReadStarted;
+
+    const normalizedTxs = ((txs ?? []) as Any[]).map((t) => ({ ...t, amount: num(t.amount) }));
+    const bankSnapshots = ((snapshots ?? []) as Any[]).map((s) => ({ ...s, balance: num(s.balance) }));
+    const realtimeBankSnapshots = applyIntradayBankAnchorAdjustments(bankSnapshots, normalizedTxs);
 
     const categoryNameById: Record<string, string> = {};
     for (const c of (categories ?? []) as Any[]) categoryNameById[c.id] = c.name;
@@ -255,12 +237,9 @@ Deno.serve(async (req) => {
       accounts: ((accounts ?? []) as Any[]).map((a) => ({
         id: a.id, name: a.name, type: a.type, opening_balance: num(a.opening_balance), active: a.active,
       })),
-      txs: ((txs ?? []) as Any[]).map((t) => ({ ...t, amount: num(t.amount) })) as Any,
-      // Âncora de caixa sintética (`perf_facts.v1`): substitui o histórico
-      // anterior à janela por um saldo consolidado por conta, sem mudar
-      // fórmula nenhuma — o motor já sabe ancorar.
+      txs: normalizedTxs as Any,
       snapshots: [
-        ...((snapshots ?? []) as Any[]).map((s) => ({ ...s, balance: num(s.balance) })),
+        ...realtimeBankSnapshots,
         ...(compact?.syntheticAnchors ?? []),
       ] as Any,
       recurring: ((recurring ?? []) as Any[])
@@ -341,9 +320,7 @@ Deno.serve(async (req) => {
           income_day: (settings as Any).income_day == null ? null : num((settings as Any).income_day),
         }
         : null,
-      // O motor exige `Date` aqui (ele mesmo converte para a âncora America/Sao_Paulo).
       today: new Date(`${today}T12:00:00-03:00`),
-
     } as Any);
 
     const payload = {
@@ -354,8 +331,6 @@ Deno.serve(async (req) => {
     const computeMs = Date.now() - startedAt;
     const computedAt = new Date().toISOString();
 
-    // Materialização da visão corrente. Não é segunda verdade: payload guarda
-    // exatamente a saída do motor canônico + a versão do ledger que a produziu.
     if (isCurrentMtd(start, end, today)) {
       const dirtyMonthsPending = [...(compact?.missingMonths ?? []), ...(compact?.staleMonths ?? [])];
       const materializedFreshness = dirtyMonthsPending.length > 0 ? "stale_recomputing" : "fresh";
@@ -375,7 +350,7 @@ Deno.serve(async (req) => {
         card_consumption: num((snapshot as Any)?.currentCardSpend),
         available_balance: num((snapshot as Any)?.availableToday),
         confidence: missing.length === 0 ? "computed" : "partial",
-        formula_versions: { home_snapshot: CONTRACT },
+        formula_versions: { home_snapshot: CONTRACT, bank_cash_truth: "v2_intraday" },
         computed_at: computedAt,
         period_status: "open",
         contract_version: CONTRACT,
@@ -399,8 +374,6 @@ Deno.serve(async (req) => {
         console.warn("[home-snapshot] materialized snapshot write", materializedError.message);
       }
     }
-    // Só memoiza snapshot completo: parcial não vira verdade guardada.
-    // Nem parcial nem desatualizado viram verdade guardada.
     if (missing.length === 0 && (compact?.staleMonths?.length ?? 0) === 0) {
       await writeDerivedCache(sb, userId, cacheKey, ledgerVersion, payload, computeMs).catch(() => undefined);
     }
@@ -410,14 +383,12 @@ Deno.serve(async (req) => {
       formula_version: CONTRACT,
       period: { start, end },
       today,
-      // A Home usa isto para degradar a superfície certa, e nunca para inventar.
       missing_sources: missing,
       transactions_considered: payload.transactions_considered,
       ledger_version: ledgerVersion,
       computed_at: computedAt,
       cache_hit: false,
       compute_ms: computeMs,
-      // Observabilidade do caminho de rebuild (`perf_facts.v1`).
       read_path: bootstrap ? "full_ledger_bootstrap" : "monthly_facts_window",
       window: compact ? { start: compact.windowStart, end: compact.windowEnd } : null,
       months_materialized: compact?.monthsMaterialized ?? null,
@@ -431,7 +402,6 @@ Deno.serve(async (req) => {
     const message = error instanceof Error ? error.message : String(error);
     const source = (error as Any)?.source ?? null;
     console.error("[home-snapshot] falha", message, error instanceof Error ? error.stack : null);
-    // Fonte crítica indisponível: a Home mostra erro e oferece "tentar de novo".
     return json({ ok: false, error: "snapshot_unavailable", source, message }, 502);
   }
 });

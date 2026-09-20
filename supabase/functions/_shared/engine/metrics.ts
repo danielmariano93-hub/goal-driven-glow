@@ -6,6 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 type SupabaseClient = any;
 
+import { applyIntradayBankAnchorAdjustments } from "../finance-core/intradayCash.ts";
 import {
   computeFinancialSnapshot,
   round2,
@@ -63,7 +64,6 @@ export interface CategoryGoalEvaluation {
   days_remaining: number;
   calculation_reference_date: string;
   included_transaction_count: number;
-  /** `category_projection.v1`: natureza da categoria decide o método. */
   projection_method: "linear" | "weekday_weighted" | "flow" | "commitment" | "hybrid" | "insufficient_data";
   projection_confidence: "high" | "medium" | "low";
   supports_daily_budget: boolean;
@@ -115,13 +115,9 @@ export interface AgentFinancialSnapshot {
   month_start: string;
   month_end: string;
   available_today: number;
-  /** Dívida de cartão hoje — faturas não liquidadas (nunca compras do período). */
   cards_owed: number;
-  /** true quando algum valor de cartão veio de estimativa (sem fatura oficial). */
   cards_owed_estimated: boolean;
-  /** Compromisso futuro de parcelas — NÃO é dívida atual. */
   card_future_installments: number;
-  /** Obrigação do cartão que vence na competência atual. */
   card_due_this_month: number;
   card_due_estimated: boolean;
   current_month_income: number;
@@ -129,7 +125,6 @@ export interface AgentFinancialSnapshot {
   days_elapsed: number;
   days_remaining: number;
   daily_pace: number;
-  /** Ritmo típico (mediana robusta) do núcleo spending_rhythm.v3. */
   typical_daily_pace: number;
   projected_remaining_consumption: number;
   confirmed_future_income: number;
@@ -138,7 +133,6 @@ export interface AgentFinancialSnapshot {
   known_future_commitments: number;
   projected_month_end_available: number;
   net_worth: number;
-  /** Composição do patrimônio (mesma fonte do número acima, nunca recalculada fora). */
   net_worth_composition: {
     cash: number;
     invested: number;
@@ -150,12 +144,10 @@ export interface AgentFinancialSnapshot {
     net: number;
   };
   active_debts: Array<{ id: string; name: string; outstanding_balance: number; installment_amount: number | null; due_day: number | null }>;
-  /** Quantidade integral de transações lidas após paginação; usada na proveniência. */
   source_transaction_count: number;
   reconciliation_id: string;
   active_category_goals: CategoryGoalEvaluation[];
   top_category_goal: CategoryGoalEvaluation | null;
-  /** Ponte de caixa do mês (finance_contract.v4) — como o saldo se formou. */
   cash_bridge: {
     opening_cash: number;
     closing_cash: number;
@@ -173,7 +165,6 @@ export interface AgentFinancialSnapshot {
     reconciliation_difference: number;
     confidence: string;
   };
-  /** Resultado comportamental do período (nunca exibir isolado como saldo). */
   period_performance: {
     operational_income: number;
     operational_expense: number;
@@ -181,21 +172,13 @@ export interface AgentFinancialSnapshot {
     operational_gap: number;
     savings_rate: number | null;
   };
-  /** Ponte patrimonial do mês. */
   net_worth_bridge: {
     opening_net_worth: number;
     closing_net_worth: number;
     reconciliation_difference: number;
     confidence: string;
   };
-  /** Explicação determinística (sem LLM) de como o saldo se formou. */
   balance_explanation: { headline: string; body: string; steps: string[] };
-  /**
-   * Agenda canônica de compromissos (commitment_agenda.v3).
-   * `items` inclui o que JÁ FOI PAGO (histórico do período); `pending_items` é
-   * o único conjunto que representa saída futura. O Nino nunca deve dizer que
-   * uma parcela "vence" a partir de `items` sem olhar `payment_status`.
-   */
   commitment_agenda: {
     horizon_start: string;
     horizon_end: string;
@@ -215,7 +198,6 @@ export interface CommitmentAgendaItemFact {
   date: string;
   source: string;
   estimated: boolean;
-  /** Estado real da obrigação (`debt_obligation.v1`): pending/paid/partial/overdue. */
   payment_status: string;
   paid_at: string | null;
   next_due_date: string | null;
@@ -252,10 +234,8 @@ function daysInclusive(a: string, b: string): number {
   return Math.max(1, Math.round((e - s) / 86_400_000) + 1);
 }
 
-const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,origin,installments_total,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date";
+const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,origin,installments_total,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date,created_at,local_occurred_at";
 
-/** PostgREST limita respostas por padrão; saldo e projeção não podem usar
- * silenciosamente apenas as primeiras 1.000 transações. */
 async function fetchAllAgentTransactions(sb: SupabaseClient, user_id: string) {
   const pageSize = 1_000;
   const rows: any[] = [];
@@ -315,8 +295,6 @@ export async function computeAgentSnapshot(
     snapshotsRes, investmentsRes, debtsRes, cardsRes, statementsRes, installmentsRes,
     investmentMovementsRes, settingsRes, occurrencesRes, goalsRes, contributionsRes,
   ] = await Promise.all([
-    // Posição financeira inclui as mesmas contas que a Home. `active` limita
-    // novas operações, mas não pode fazer um saldo histórico sumir só no agente.
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", user_id),
     fetchAllAgentTransactions(sb, user_id),
     sb.from("recurring_rules")
@@ -324,11 +302,9 @@ export async function computeAgentSnapshot(
       .eq("user_id", user_id).eq("status", "active"),
     sb.from("category_spending_goals").select("*").eq("user_id", user_id).eq("status", "active"),
     sb.from("categories").select("id,name,type").or(`user_id.eq.${user_id},user_id.is.null`).is("archived_at", null),
-    sb.from("account_balance_snapshots").select("account_id,balance_date,balance,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", user_id),
+    sb.from("account_balance_snapshots").select("account_id,balance_date,balance,status,anchor_kind,anchor_observed_at,source_document_id,reconciliation_delta").eq("user_id", user_id),
     sb.from("investments").select("*").eq("user_id", user_id),
     sb.from("debts").select("*").eq("user_id", user_id),
-    // Cartão inativo ainda pode ter fatura/parcelas em aberto. A flag `active`
-    // controla novas compras, não apaga obrigações já contratadas.
     sb.from("credit_cards").select("id,name,total_limit,closing_day,due_day,active").eq("user_id", user_id),
     sb.from("credit_card_statements")
       .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
@@ -357,6 +333,11 @@ export async function computeAgentSnapshot(
 
   const accounts = (accountsRes.data ?? []) as AccountRow[];
   const txs = ((txsRes.data ?? []) as any[]).map((t) => ({ ...t, amount: Number(t.amount) })) as TransactionRow[];
+  const realtimeSnapshots = applyIntradayBankAnchorAdjustments(
+    (snapshotsRes.data ?? []) as never[],
+    (txsRes.data ?? []) as never[],
+  ) as unknown as AccountBalanceSnapshotRow[];
+
   const nextDueByRule = new Map<string, string>();
   for (const occurrence of ((occurrencesRes.data ?? []) as any[])) {
     const id = String(occurrence.recurring_rule_id);
@@ -367,13 +348,13 @@ export async function computeAgentSnapshot(
     const nextDue = nextDueByRule.get(String(r.id)) ?? nextDueForRule(r, todayIso, recurringHorizon);
     if (!nextDue) return [];
     return [{
-    id: r.id,
-    name: r.name,
-    type: r.kind === "income" ? "income" : "expense",
-    amount: Number(r.amount || 0),
-    frequency: (["daily", "weekly", "monthly", "yearly"].includes(r.frequency) ? r.frequency : "monthly") as RecurringRow["frequency"],
-    next_due_date: nextDue,
-    active: true,
+      id: r.id,
+      name: r.name,
+      type: r.kind === "income" ? "income" : "expense",
+      amount: Number(r.amount || 0),
+      frequency: (["daily", "weekly", "monthly", "yearly"].includes(r.frequency) ? r.frequency : "monthly") as RecurringRow["frequency"],
+      next_due_date: nextDue,
+      active: true,
     }];
   });
   const catNames: Record<string, string> = {};
@@ -383,7 +364,7 @@ export async function computeAgentSnapshot(
     accounts,
     txs,
     recurring,
-    snapshots: (snapshotsRes.data ?? []) as AccountBalanceSnapshotRow[],
+    snapshots: realtimeSnapshots,
     investments: (investmentsRes.data ?? []) as InvestmentRow[],
     debts: (debtsRes.data ?? []) as DebtRow[],
     categoryGoals: (catGoalsRes.data ?? []) as CategorySpendingGoalRow[],
@@ -403,7 +384,6 @@ export async function computeAgentSnapshot(
     cards: ((cardsRes.data ?? []) as any[]).map((card) => ({
       id: card.id, name: card.name, closing_day: card.closing_day, due_day: card.due_day,
     })),
-    // A coluna canônica é `kind`; o contrato da ponte usa `type`.
     investmentMovements: ((investmentMovementsRes.data ?? []) as any[]).map((m) => ({
       type: String(m.kind), amount: Number(m.amount || 0), occurred_at: m.occurred_at,
     })),

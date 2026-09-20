@@ -10,6 +10,7 @@ import { fail } from "../_shared/http.ts";
 const FN = "pulse-compute";
 import { computePulse, type PulseInput } from "../_shared/pulse/rules.ts";
 import { computeDebtStatus, type DebtScheduleRow } from "../_shared/finance-core/debtStatus.ts";
+import { applyIntradayBankAnchorAdjustments } from "../_shared/finance-core/intradayCash.ts";
 // Verdade financeira única (finance_contract.v2): nunca reimplementar fórmulas aqui.
 import {
   computeActiveDebtsTotal,
@@ -54,9 +55,8 @@ Deno.serve(async (req) => {
     const cutoff30 = new Date(today); cutoff30.setDate(cutoff30.getDate() - 30);
     const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
 
-    // Buscar dados em paralelo.
     const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
-      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
+      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description,created_at,origin,local_occurred_at").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
       sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
       sb.from("investments").select("goal_id,current_value").eq("user_id", userId),
-      sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),
+      sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,anchor_observed_at,source_document_id,reconciliation_delta").eq("user_id", userId),
       sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,stated_total,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
       sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,status,absorbed_by_statement_id,legacy_transaction_id").eq("user_id", userId),
       sb.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered").eq("user_id", userId).gte("paid_at", iso(cutoff90)),
@@ -99,6 +99,10 @@ Deno.serve(async (req) => {
     const recurring = (recR.data ?? []) as Array<{ id: string; status: string; amount: number | string }>;
     const investments = (invR.data ?? []) as Array<{ goal_id: string | null; current_value: number | string }>;
     const balanceSnapshots = (snapR.data ?? []) as unknown as Parameters<typeof computeTotalCash>[2];
+    const realtimeBalanceSnapshots = applyIntradayBankAnchorAdjustments(
+      (snapR.data ?? []) as never[],
+      (txsR.data ?? []) as never[],
+    ) as unknown as Parameters<typeof computeTotalCash>[2];
     const statements = (stmtR.data ?? []) as unknown as CardStatementRow[];
     const installments = (instR.data ?? []) as unknown as CardInstallmentRow[];
     const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
@@ -109,10 +113,8 @@ Deno.serve(async (req) => {
     const distinctDays14 = new Set(last14.map((t) => t.occurred_at)).size;
 
     const todayIsoSP = todaySP(today);
-    // Caixa: fonte única do core, limitado à posição bancária de hoje.
-    const totalCash = computeTotalCash(accounts, txs, balanceSnapshots ?? [], { asOf: todayIsoSP });
+    const totalCash = computeTotalCash(accounts, txs, realtimeBalanceSnapshots ?? balanceSnapshots ?? [], { asOf: todayIsoSP });
 
-    // Dívida de cartão: exposição oficial (card_exposure.v2) — nunca soma de transações.
     const exposures = computeCardExposure({
       cardIds: cards.map((c) => c.id),
       statements,
@@ -125,10 +127,7 @@ Deno.serve(async (req) => {
     const cardOutstanding = Math.max(0, totalCardDebtOf(exposures));
     const cardTotalLimit = cards.reduce((a, c) => a + Number(c.total_limit || 0), 0);
 
-    // Consumo comportamental dos últimos 30 dias (mesma regra da Home/Relatórios).
     const monthlyExpense30 = computeBehavioralExpense(last30, { start: iso(cutoff30), end: iso(today) });
-
-    // Metas — helper canônico (contribuições + investimentos vinculados).
     const goalsPct = goals.map(
       (g) => computeGoalProgressFacts(g.target_amount, g.id, contribs, investments).pct,
     );
@@ -151,7 +150,6 @@ Deno.serve(async (req) => {
     const emoTxIds = new Set(emos.filter((e) => e.transaction_id).map((e) => e.transaction_id as string));
     const expensesWithEmotion30 = last30.filter((t) => t.type === "expense" && emoTxIds.has(t.id)).length;
 
-    // Buscar snapshot ~7 dias atrás para week_delta.
     const cutoff7start = new Date(today); cutoff7start.setDate(cutoff7start.getDate() - 8);
     const cutoff7end = new Date(today); cutoff7end.setDate(cutoff7end.getDate() - 6);
     const { data: prevSnap } = await sb
@@ -170,17 +168,13 @@ Deno.serve(async (req) => {
       txDaysLast14: distinctDays14,
       txLast30: last30.length,
       txLast30WithCategory: last30.filter((t) => !!t.category_id).length,
-      // Pendências reais do assessor: abertas e paradas há mais de 3 dias.
       pendingOpen: pendingRows.length,
       pendingStale: pendingRows.filter((p) => String(p.created_at ?? "").slice(0, 10) < iso(cutoff3)).length,
-      // Planejamento real: soma dos limites mensais das metas por categoria ativas.
-      plannedMonth: plannedMonth,
+      plannedMonth,
       actualMonth: monthlyExpense30,
       hasPlan: plannedMonth > 0,
       cardOutstanding,
       cardTotalLimit,
-      // Contas em dia: pagamentos de dívidas dos últimos 90 dias vs. atrasos
-      // apurados pelo motor canônico de dívidas (debt_status.v1).
       paymentsOnTime90d: debtPayments.length > 0
         ? Math.max(0, debtPayments.length - debtStatus.facts.overdue_count)
         : 0,
@@ -189,8 +183,6 @@ Deno.serve(async (req) => {
       avgMonthlyExpense: monthlyExpense30,
       goalsProgressPct: goalsPct,
       outstandingToday,
-      // Dívida de 30 dias atrás reconstruída pelo principal amortizado no período
-      // (nunca igualar ao saldo de hoje, o que zerava o fator injustamente).
       outstanding30dAgo: Number((outstandingToday + principalPaid30d).toFixed(2)),
       recurringActive: recurring.length,
       recurringWithDefinedAmount: recurring.filter((r) => Number(r.amount || 0) > 0).length,
@@ -202,7 +194,6 @@ Deno.serve(async (req) => {
     const pulse = computePulse(input);
     const weekDelta = score7dAgo == null ? 0 : pulse.score - score7dAgo;
 
-    // Upsert idempotente diário (um snapshot por dia, atualiza se já existe).
     const nowIso = new Date().toISOString();
     let todayLocal: string;
     try {

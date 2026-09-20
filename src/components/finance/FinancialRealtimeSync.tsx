@@ -17,14 +17,13 @@ export function FinancialRealtimeSync() {
     if (!user?.id) return;
     let invalidation: ReturnType<typeof setTimeout> | null = null;
     // A UI reage à VERSÃO SEMÂNTICA da verdade financeira, e não a todo
-    // UPDATE técnico de `transactions` (confiança, reason, review status etc.).
-    // O banco já decide o que realmente muda os números e incrementa esta versão.
+    // UPDATE técnico de `transactions`. Rajadas (importação/categorização) são
+    // colapsadas, mas o atraso é curto o bastante para read-after-write humano.
     const refresh = () => {
       if (invalidation) clearTimeout(invalidation);
       invalidation = setTimeout(() => {
         void invalidateFinancialQueries(queryClient, "all", { serverAlreadyDirty: true });
-        // Escritas em rajada colapsam em UMA invalidação do cliente.
-      }, 1200);
+      }, 400);
     };
     const channel = supabase
       .channel(`financial-sync:${user.id}`)
@@ -35,7 +34,6 @@ export function FinancialRealtimeSync() {
         filter: `user_id=eq.${user.id}`,
       }, refresh)
       .subscribe();
-
 
     return () => {
       if (invalidation) clearTimeout(invalidation);
