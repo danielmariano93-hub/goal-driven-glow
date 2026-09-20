@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildObservedProfileV2, OBSERVED_METHODOLOGY_VERSION } from "@/lib/behavioral/observedProfileV2";
 import type { EmotionalCheckinRow } from "@/lib/behavioral/client";
 
-const migration = readFileSync("supabase/migrations/20260920140500_behavior_observed_v2.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260920145622_behavior_observed_v2.sql", "utf8");
 const dashboard = readFileSync("src/lib/behavioral/dashboardSnapshot.ts", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
