@@ -114,6 +114,11 @@ describe("behavior_observed.v2", () => {
     expect(migration).toContain("where user_id=v_uid and reserve_role='emergency_reserve'");
   });
 
+  it("excludes accounting-only movements from observed spending statistics", () => {
+    const transactionStatsSection = migration.split("'transaction_stats'")[1]?.split("'expense_days'")[0] ?? "";
+    expect(transactionStatsSection).toContain("coalesce(movement_kind::text,'transaction') = 'transaction'");
+  });
+
   it("restores real emotion-spend pairing in the canonical dashboard", () => {
     expect(migration).toContain("'expense_days'");
     expect(dashboard).toContain("computeEmotionSpend");
