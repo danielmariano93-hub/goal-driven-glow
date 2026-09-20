@@ -13,7 +13,6 @@ import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 import { HeatmapSemanalCard } from "@/components/home/HeatmapSemanalCard";
 import { useCategoryWeekdayHeatmap } from "@/lib/hooks/useCategoryWeekdayHeatmap";
 
-
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { toHomeDiagnosisView, useNinoHomeContext } from "@/lib/nino/diagnosis";
@@ -36,13 +35,15 @@ export default function Index() {
 
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
-  const diagnosis = useNinoHomeContext();
-  const homeDiagnosis = useMemo(() => diagnosis.data ? toHomeDiagnosisView(diagnosis.data) : null, [diagnosis.data]);
+  const homeIntelligence = useNinoHomeContext();
+  const diagnosisContext = homeIntelligence.data?.context ?? null;
+  const homeDiagnosis = useMemo(
+    () => diagnosisContext ? toHomeDiagnosisView(diagnosisContext) : null,
+    [diagnosisContext],
+  );
   const heatmap = useCategoryWeekdayHeatmap();
 
-
   const hasAccount = (accounts ?? []).length > 0;
-
   const heroLabel = "Disponível hoje";
 
   return (
@@ -85,15 +86,13 @@ export default function Index() {
 
       <NinoGuidanceSection
         diagnosis={homeDiagnosis}
-        context={diagnosis.data ?? null}
-        loading={diagnosis.isLoading}
-        error={diagnosis.error}
-        retrying={diagnosis.isFetching}
-        onRetry={() => void diagnosis.refetch()}
+        context={diagnosisContext}
+        nextStep={homeIntelligence.data?.nextStep ?? null}
+        loading={homeIntelligence.isLoading}
+        error={homeIntelligence.error}
+        retrying={homeIntelligence.isFetching}
+        onRetry={() => void homeIntelligence.refetch()}
       />
-
-
-
 
       <ResumoPeriodoCard
         performance={snap?.periodPerformance ?? null}
@@ -103,26 +102,25 @@ export default function Index() {
       />
 
       <RitmoUnificadoCard
-          periodLabel={formatPeriodLabel(periodRange.start, periodRange.end)}
-          rhythm={snap?.rhythm ?? null}
-          projection={snap?.projection ?? null}
-          loading={loading}
-          partial={completeness === "partial"}
-          error={availability.rhythm === "unavailable" ? snapshotError : null}
-          onRetry={() => void snapshot.refetchCritical()}
+        periodLabel={formatPeriodLabel(periodRange.start, periodRange.end)}
+        rhythm={snap?.rhythm ?? null}
+        projection={snap?.projection ?? null}
+        loading={loading}
+        partial={completeness === "partial"}
+        error={availability.rhythm === "unavailable" ? snapshotError : null}
+        onRetry={() => void snapshot.refetchCritical()}
       />
+
       <HeatmapSemanalCard data={heatmap.data} loading={heatmap.isLoading} />
 
       <PrevisaoFechamentoCard
-          projection={snap?.projection ?? null}
-          availability={availability.projection}
-          loading={loading}
+        projection={snap?.projection ?? null}
+        availability={availability.projection}
+        loading={loading}
       />
-
 
       <ProximosCompromissosCard
         commitments={snap?.commitmentAgenda.items ?? []}
-
         availability={availability.projection}
         loading={loading}
       />
