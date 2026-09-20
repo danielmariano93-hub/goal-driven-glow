@@ -9,10 +9,7 @@ import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
-import {
-  loadBehavioralEvolutionResilient,
-  type ResilientBehavioralEvolutionSnapshot,
-} from "@/lib/behavioral/resilientClient";
+import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
 import {
   BEHAVIOR_DIMENSIONS,
   logBehaviorExperiment,
@@ -22,30 +19,14 @@ import {
   type BehaviorExperimentTemplate,
 } from "@/lib/behavioral/client";
 import {
-  BEHAVIOR_MAP_CADENCE_DAYS,
-  loadBehavioralMapState,
   saveBehavioralAssessmentV2,
   type AssessmentCycle,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
-
-const FALLBACK_TEMPLATES: BehaviorExperimentTemplate[] = [
-  { slug: "checkin-consistency-14d", title: "Entender antes de mudar", description: "Faça 10 check-ins curtos em 14 dias. O objetivo é criar contexto suficiente para o Nino encontrar padrões reais.", dimension: "awareness", tracking_kind: "checkin_count", target_value: 10, duration_days: 14, xp_reward: 80, config: { cta: "Registrar como me sinto" } },
-  { slug: "three-no-spend-days", title: "Três dias de respiro", description: "Tenha 3 dias completos sem despesas de consumo durante as próximas duas semanas. Contas e transferências não entram.", dimension: "control", tracking_kind: "no_spend_days", target_value: 3, duration_days: 14, xp_reward: 100, config: { cta: "Começar experimento" } },
-  { slug: "reduce-spend-10pct", title: "Reduzir sem radicalizar", description: "Teste por 14 dias um ritmo de gastos de consumo pelo menos 10% menor que a sua média anterior.", dimension: "control", tracking_kind: "spend_reduction_pct", target_value: 10, duration_days: 14, xp_reward: 120, config: { cta: "Testar por 14 dias" } },
-  { slug: "pause-before-buying", title: "Pausa antes da compra", description: "Em 7 compras que despertarem vontade imediata, faça uma pausa e registre se ainda quer comprar depois.", dimension: "calm", tracking_kind: "manual", target_value: 7, duration_days: 14, xp_reward: 90, config: { cta: "Aceitar experimento", event_label: "Fiz a pausa" } },
-  { slug: "weekly-money-review", title: "Revisão de 5 minutos", description: "Uma vez por semana, olhe saldo, próximos compromissos e uma decisão que você pode simplificar.", dimension: "planning", tracking_kind: "manual", target_value: 4, duration_days: 28, xp_reward: 100, config: { cta: "Criar rotina", event_label: "Fiz minha revisão" } },
-  { slug: "small-wealth-moves", title: "Pequenas ações de patrimônio", description: "Faça quatro pequenas ações intencionais de construção de patrimônio durante o mês.", dimension: "wealth", tracking_kind: "manual", target_value: 4, duration_days: 30, xp_reward: 120, config: { cta: "Começar", event_label: "Fiz uma ação" } },
-];
-
-const EMPTY_SNAPSHOT: ResilientBehavioralEvolutionSnapshot = {
-  assessments: [], latestAssessment: null, previousAssessment: null, overallDelta: null,
-  checkins: [], moodHistory: [], moodAverage30: null, moodTrend14: null,
-  emotionSpend: { sufficient: false, pairedDays: 0, vulnerableDays: 0, comparisonDays: 0, vulnerableAverage: null, comparisonAverage: null, upliftPct: null },
-  experiments: [], activeExperiments: [], templates: FALLBACK_TEMPLATES,
-  recommendedTemplates: [FALLBACK_TEMPLATES[0], FALLBACK_TEMPLATES[4]], hypotheses: [], highlights: [],
-  lowestDimension: null, strongestDimension: null, momentSignal: null, degradedSources: ["safe-shell"],
-};
+import {
+  loadBehavioralDashboardSnapshot,
+  type BehavioralDashboardState,
+} from "@/lib/behavioral/dashboardSnapshot";
 
 const EMPTY_OBSERVED: ObservedBehaviorProfile = {
   overallScore: null,
@@ -57,7 +38,7 @@ const EMPTY_OBSERVED: ObservedBehaviorProfile = {
 };
 
 const EMPTY_CYCLE: AssessmentCycle = {
-  cadenceDays: BEHAVIOR_MAP_CADENCE_DAYS,
+  cadenceDays: 30,
   due: true,
   nextDueAt: null,
   daysRemaining: null,
@@ -65,30 +46,32 @@ const EMPTY_CYCLE: AssessmentCycle = {
   questionSet: "wheel_set_a",
 };
 
+async function loadDashboardWithFallback(userId: string): Promise<BehavioralDashboardState> {
+  try {
+    return await loadBehavioralDashboardSnapshot();
+  } catch (error) {
+    console.error("[behavior:dashboard:canonical]", error);
+    const fallback = await loadBehavioralEvolutionResilient(userId);
+    return {
+      ...fallback,
+      observed: EMPTY_OBSERVED,
+      cycle: EMPTY_CYCLE,
+      degradedSources: [...new Set([...(fallback.degradedSources ?? []), "canonical_snapshot"])],
+    };
+  }
+}
+
 export default function Emocoes() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [assessmentSaving, setAssessmentSaving] = useState(false);
   const [experimentBusy, setExperimentBusy] = useState<string | null>(null);
 
-  const query = useQuery({
-    queryKey: ["behavioral-evolution", user?.id],
+  const dashboardQuery = useQuery({
+    queryKey: ["behavioral-dashboard", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      try { return await loadBehavioralEvolutionResilient(user!.id); }
-      catch (error) { console.error("[behavior:evolution:safe-shell]", error); return EMPTY_SNAPSHOT; }
-    },
-    staleTime: 15_000,
-    refetchOnReconnect: true,
-    refetchOnWindowFocus: true,
-    retry: 1,
-  });
-
-  const mapQuery = useQuery({
-    queryKey: ["behavioral-map-state", user?.id],
-    enabled: !!user,
-    queryFn: () => loadBehavioralMapState(user!.id),
-    staleTime: 15_000,
+    queryFn: () => loadDashboardWithFallback(user!.id),
+    staleTime: 10_000,
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,
     retry: 1,
@@ -96,6 +79,7 @@ export default function Emocoes() {
 
   const refresh = async () => {
     await Promise.all([
+      qc.invalidateQueries({ queryKey: ["behavioral-dashboard"] }),
       qc.invalidateQueries({ queryKey: ["behavioral-evolution"] }),
       qc.invalidateQueries({ queryKey: ["behavioral-map-state"] }),
       qc.invalidateQueries({ queryKey: ["emotional_checkins"] }),
@@ -104,9 +88,9 @@ export default function Emocoes() {
     ]);
   };
 
-  const mapState = mapQuery.data;
-  const observed = mapState?.observed ?? EMPTY_OBSERVED;
-  const cycle = mapState?.cycle ?? EMPTY_CYCLE;
+  const dashboard = dashboardQuery.data;
+  const observed = dashboard?.observed ?? EMPTY_OBSERVED;
+  const cycle = dashboard?.cycle ?? EMPTY_CYCLE;
 
   async function saveWheel(scores: Record<BehaviorDimensionKey, number>) {
     setAssessmentSaving(true);
@@ -145,28 +129,26 @@ export default function Emocoes() {
     } finally { setExperimentBusy(null); }
   }
 
-  if (!user || query.isLoading || mapQuery.isLoading) {
+  if (!user || dashboardQuery.isLoading) {
     return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
 
-  const snapshot = query.data ?? EMPTY_SNAPSHOT;
-  const viewSnapshot: ResilientBehavioralEvolutionSnapshot = {
-    ...snapshot,
-    assessments: mapState?.assessments.length ? mapState.assessments : snapshot.assessments,
-    latestAssessment: mapState?.latestAssessment ?? snapshot.latestAssessment,
-    previousAssessment: mapState?.previousAssessment ?? snapshot.previousAssessment,
-    overallDelta: mapState?.overallDelta ?? snapshot.overallDelta,
-    checkins: mapState?.checkins.length ? mapState.checkins : snapshot.checkins,
-    moodHistory: mapState?.moodHistory.length ? mapState.moodHistory : snapshot.moodHistory,
-    moodAverage30: mapState?.moodAverage30 ?? snapshot.moodAverage30,
-    moodTrend14: mapState?.moodTrend14 ?? snapshot.moodTrend14,
-    degradedSources: [...new Set([...(snapshot.degradedSources ?? []), ...(mapState?.degradedSources ?? [])])],
-  };
-  const latest = viewSnapshot.latestAssessment;
-  const weakest = viewSnapshot.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === viewSnapshot.lowestDimension) : null;
-  const strongest = viewSnapshot.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === viewSnapshot.strongestDimension) : null;
-  const checkins30 = viewSnapshot.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
-  const degraded = query.isError || mapQuery.isError || viewSnapshot.degradedSources.length > 0;
+  if (!dashboard) {
+    return (
+      <div className="mx-auto w-full max-w-[820px] pb-24 pt-1">
+        <section className="rounded-[24px] border border-border bg-card p-6 text-center shadow-card">
+          <p className="text-sm font-semibold">Não foi possível carregar sua evolução agora.</p>
+          <button type="button" onClick={() => dashboardQuery.refetch()} className="mt-3 text-sm font-semibold text-primary">Tentar novamente</button>
+        </section>
+      </div>
+    );
+  }
+
+  const latest = dashboard.latestAssessment;
+  const weakest = dashboard.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.lowestDimension) : null;
+  const strongest = dashboard.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.strongestDimension) : null;
+  const checkins30 = dashboard.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
+  const degraded = dashboard.degradedSources.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
@@ -182,10 +164,10 @@ export default function Emocoes() {
         <section className="rounded-[20px] border border-primary/15 bg-primary/5 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold text-foreground">Sua evolução está disponível em modo seguro.</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Mantivemos a experiência acessível enquanto uma parte dos dados termina de sincronizar. Nenhuma métrica ausente é inventada.</p>
+              <p className="text-xs font-semibold text-foreground">Uma parte da análise está em modo seguro.</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Seus registros principais continuam visíveis; apenas fontes auxiliares indisponíveis ficam sem estimativa.</p>
             </div>
-            <button type="button" onClick={() => { query.refetch(); mapQuery.refetch(); }} className="shrink-0 text-[11px] font-semibold text-primary">Atualizar</button>
+            <button type="button" onClick={() => dashboardQuery.refetch()} className="shrink-0 text-[11px] font-semibold text-primary">Atualizar</button>
           </div>
         </section>
       ) : null}
@@ -208,7 +190,7 @@ export default function Emocoes() {
         </div>
         <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
           <Target className="h-4 w-4 text-primary" />
-          <p className="mt-2 font-display text-xl font-bold">{viewSnapshot.activeExperiments.length}</p>
+          <p className="mt-2 font-display text-xl font-bold">{dashboard.activeExperiments.length}</p>
           <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Experimentos</p>
         </div>
       </section>
@@ -222,22 +204,30 @@ export default function Emocoes() {
         </section>
       ) : null}
 
+      {dashboard.activeExperiments.length > 0 ? (
+        <div id="experimentos" className="scroll-mt-24">
+          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
+        </div>
+      ) : null}
+
       <EmotionalCheckinCard />
-      <MoneyMoodTimeline snapshot={viewSnapshot} />
+      <MoneyMoodTimeline snapshot={dashboard} />
       <BehaviorWheel
-        latest={mapState?.latestAssessment ?? null}
-        previous={mapState?.previousAssessment ?? null}
-        assessments={mapState?.assessments ?? []}
+        latest={dashboard.latestAssessment}
+        previous={dashboard.previousAssessment}
+        assessments={dashboard.assessments}
         observed={observed}
         cycle={cycle}
         onSave={saveWheel}
         saving={assessmentSaving}
       />
-      <CoachHighlights snapshot={viewSnapshot} />
+      <CoachHighlights snapshot={dashboard} />
 
-      <div id="experimentos" className="scroll-mt-24">
-        <ExperimentsBoard snapshot={viewSnapshot} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
-      </div>
+      {dashboard.activeExperiments.length === 0 ? (
+        <div id="experimentos" className="scroll-mt-24">
+          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
+        </div>
+      ) : null}
 
       <BehavioralInsightsCard />
 
