@@ -34,7 +34,8 @@ describe("behavioral evolution — three waves", () => {
       expect(migration).toContain(kind);
     }
     expect(client).toContain("recommendedForDimension");
-    expect(experiments).toContain("acompanhamento automático");
+    expect(experiments).toContain('experiment.tracking_kind === "manual"');
+    expect(experiments).toContain("Você não precisa marcar tarefa manualmente");
     expect(page).toContain('id="experimentos"');
   });
 
@@ -42,7 +43,8 @@ describe("behavioral evolution — three waves", () => {
     expect(client).toContain("vulnerable.length >= 3");
     expect(client).toContain("comparison.length >= 3");
     expect(client).toContain("paired.length >= 8");
-    expect(highlights).toContain("não uma relação de causa");
+    expect(client).toContain("não uma relação de causa");
+    expect(highlights).toContain("Correlação emocional nunca é apresentada como diagnóstico ou causa");
     expect(page).toContain("padrões são hipóteses com amostra mínima");
     expect(page).toContain("não trata correlação como causa");
   });
