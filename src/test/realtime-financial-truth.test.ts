@@ -83,6 +83,7 @@ describe("realtime financial indicators — propagation contract", () => {
   const diagnosis = fs.readFileSync("src/lib/nino/diagnosis.ts", "utf8");
   const guidance = fs.readFileSync("src/components/home/NinoGuidanceSection.tsx", "utf8");
   const nextStep = fs.readFileSync("supabase/functions/nino-next-step/index.ts", "utf8");
+  const heatmap = fs.readFileSync("src/lib/hooks/useCategoryWeekdayHeatmap.ts", "utf8");
   const sync = fs.readFileSync("src/components/finance/FinancialRealtimeSync.tsx", "utf8");
   const keys = fs.readFileSync("src/lib/db/queryKeys.ts", "utf8");
   const home = fs.readFileSync("supabase/functions/home-snapshot/index.ts", "utf8");
@@ -109,12 +110,14 @@ describe("realtime financial indicators — propagation contract", () => {
     expect(hook).toContain("staleTime: 0");
     expect(diagnosis).toContain('refetchOnWindowFocus: "always"');
     expect(diagnosis).toContain('refetchOnReconnect: "always"');
+    expect(heatmap).toContain('refetchOnWindowFocus: "always"');
+    expect(heatmap).toContain("staleTime: 0");
   });
 
-  it("propaga a versão do ledger para todas as superfícies derivadas, inclusive orientação", () => {
+  it("propaga a versão do ledger para todas as superfícies derivadas da Home", () => {
     expect(sync).toContain('table: "financial_ledger_versions"');
     expect(sync).toContain("}, 400)");
-    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail", "qk.ninoHomeIntelligence"]) {
+    for (const key of ["qk.home", "qk.pulse", "qk.assistantTip", "qk.insights", "qk.financialSnapshot", "qk.advisorPerformance", "qk.homeSnapshot", "qk.performanceDetail", "qk.ninoHomeIntelligence", "qk.categoryWeekdayHeatmap"]) {
       expect(keys).toContain(key);
     }
   });
