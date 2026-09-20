@@ -14,11 +14,15 @@ function normalize(text: string): string {
     .trim();
 }
 
+function isOperationalIncomeRead(text: string): boolean {
+  return /\b(renda|receita|salario|salarios|ganhei|faturamento)\b/.test(normalize(text));
+}
+
 function isCashFlowRead(text: string): boolean {
   const t = normalize(text);
   if (!t) return false;
   // Se o usuário explicitou renda/receita/salário, preservamos a leitura operacional.
-  if (/\b(renda|receita|salario|salarios|ganhei|faturamento)\b/.test(t)) return false;
+  if (isOperationalIncomeRead(t)) return false;
 
   const explicitCash = /\b(fluxo de caixa|entrada(?:s)? de caixa|saida(?:s)? de caixa)\b/.test(t)
     || /\b(?:entrou|saiu|recebi)\b.{0,35}\b(?:conta|caixa|banco|pix|transferencia)\b/.test(t)
@@ -39,5 +43,11 @@ export function resolveReadIntent(text: string): ReturnType<typeof legacy.resolv
       matched: "fluxo de caixa bancario",
     };
   }
-  return legacy.resolveReadIntent(text);
+
+  const resolved = legacy.resolveReadIntent(text);
+  // O resolvedor por similaridade pode aproximar "receita/renda" de um exemplar
+  // de snapshot. Quando a semântica operacional foi explícita, falhamos aberto
+  // para o FinancialQueryIR, que possui a métrica `income_amount` correta.
+  if (isOperationalIncomeRead(text) && resolved?.name === "financial_snapshot") return null;
+  return resolved;
 }
