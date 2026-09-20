@@ -9,9 +9,9 @@ import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
+import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
 import {
   BEHAVIOR_DIMENSIONS,
-  loadBehavioralEvolution,
   logBehaviorExperiment,
   saveBehavioralAssessment,
   startBehaviorExperiment,
@@ -29,7 +29,7 @@ export default function Emocoes() {
   const query = useQuery({
     queryKey: ["behavioral-evolution", user?.id],
     enabled: !!user,
-    queryFn: () => loadBehavioralEvolution(user!.id),
+    queryFn: () => loadBehavioralEvolutionResilient(user!.id),
     staleTime: 15_000,
     refetchOnReconnect: true,
     refetchOnWindowFocus: true,
@@ -99,6 +99,7 @@ export default function Emocoes() {
   const weakest = snapshot.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.lowestDimension) : null;
   const strongest = snapshot.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === snapshot.strongestDimension) : null;
   const checkins30 = snapshot.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
+  const degraded = snapshot.degradedSources.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
@@ -109,6 +110,22 @@ export default function Emocoes() {
           O Nino junta como você se sente, o que realmente acontece nas finanças e pequenos experimentos para ajudar você a mudar sem julgamento.
         </p>
       </header>
+
+      {degraded ? (
+        <section className="rounded-[20px] border border-primary/15 bg-primary/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Sua evolução está disponível em modo seguro.</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Mantivemos mapa, check-ins e experimentos acessíveis enquanto uma análise complementar termina de sincronizar.
+              </p>
+            </div>
+            <button type="button" onClick={() => query.refetch()} className="shrink-0 text-[11px] font-semibold text-primary">
+              Atualizar
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-3 gap-2">
         <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
