@@ -84,11 +84,26 @@ describe("realtime financial indicators — propagation contract", () => {
   const keys = fs.readFileSync("src/lib/db/queryKeys.ts", "utf8");
   const home = fs.readFileSync("supabase/functions/home-snapshot/index.ts", "utf8");
   const pulse = fs.readFileSync("supabase/functions/pulse-compute/index.ts", "utf8");
+  const cache = fs.readFileSync("supabase/functions/_shared/derived/cache.ts", "utf8");
+  const cleanupMigration = fs.readFileSync("supabase/migrations/20260920013000_home_realtime_single_read_path.sql", "utf8");
 
-  it("não serve snapshot antigo após mudança do ledger", () => {
-    expect(hook).toContain('normalized.freshness === "stale_recomputing"');
-    expect(hook).toContain("invokeHomeSnapshot(period, today, true)");
-    expect(hook).toContain("force_refresh: forceRefresh");
+  it("usa uma única porta canônica para a Home", () => {
+    expect(hook).toContain('functions.invoke("home-snapshot"');
+    expect(hook).toContain("force_refresh: true");
+    expect(hook).not.toContain("my_financial_home_snapshot");
+    expect(cleanupMigration).toContain("drop function if exists public.my_financial_home_snapshot");
+  });
+
+  it("nunca reaproveita cache de deploy anterior", () => {
+    expect(cache).toContain('Deno.env.get("DENO_DEPLOYMENT_ID")');
+    expect(cache).toContain("deploymentScopedCacheKey");
+    expect(cache).toContain('perf_derived.v2');
+  });
+
+  it("revalida ao voltar do background mobile", () => {
+    expect(hook).toContain('refetchOnWindowFocus: "always"');
+    expect(hook).toContain('refetchOnReconnect: "always"');
+    expect(hook).toContain("staleTime: 0");
   });
 
   it("propaga a versão do ledger rapidamente para todas as superfícies derivadas", () => {
@@ -104,5 +119,10 @@ describe("realtime financial indicators — propagation contract", () => {
     expect(home).toContain("anchor_observed_at");
     expect(pulse).toContain("applyIntradayBankAnchorAdjustments");
     expect(pulse).toContain("anchor_observed_at");
+  });
+
+  it("não aceita horário de observação de outro dia para a âncora", () => {
+    expect(cleanupMigration).toContain("at time zone 'America/Sao_Paulo')::date = new.balance_date");
+    expect(cleanupMigration).toContain("anchor_observed_at = null");
   });
 });
