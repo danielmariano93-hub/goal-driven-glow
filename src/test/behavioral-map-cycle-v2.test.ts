@@ -2,23 +2,24 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const mapCycle = readFileSync("src/lib/behavioral/mapCycle.ts", "utf8");
+const dashboard = readFileSync("src/lib/behavioral/dashboardSnapshot.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const migration = readFileSync("supabase/migrations/20260920124200_behavioral_map_cycle_v2.sql", "utf8");
 
 describe("behavioral map cycle v2", () => {
   it("reuses legacy emotional check-ins instead of resetting history", () => {
-    expect(mapCycle).toContain('from("emotional_checkins")');
-    expect(mapCycle).toContain("emotionalScore(row)");
-    expect(mapCycle).toContain("180 * 86_400_000");
-    expect(page).toContain("moodHistory: mapState?.moodHistory.length ? mapState.moodHistory : snapshot.moodHistory");
-    expect(page).toContain("checkins: mapState?.checkins.length ? mapState.checkins : snapshot.checkins");
+    expect(dashboard).toContain("payload.checkins ?? []");
+    expect(dashboard).toContain("emotionalScore(row)");
+    expect(dashboard).toContain("moodHistory");
+    expect(page).toContain("<MoneyMoodTimeline snapshot={dashboard}");
+    expect(page).toContain("const checkins30 = dashboard.checkins.filter");
   });
 
   it("keeps self-perception separate from Nino observed evidence", () => {
-    expect(mapCycle).toContain("ObservedBehaviorProfile");
-    expect(mapCycle).toContain("financial_current_snapshots");
-    expect(mapCycle).toContain("coverage: scored.length");
+    expect(dashboard).toContain("ObservedBehaviorProfile");
+    expect(dashboard).toContain("buildObserved");
+    expect(dashboard).toContain("coverage: scored.length");
     expect(wheel).toContain("Sua nota");
     expect(wheel).toContain("Nino observa");
     expect(wheel).toContain('dataKey="self"');
@@ -47,8 +48,8 @@ describe("behavioral map cycle v2", () => {
   });
 
   it("does not pretend every behavioral dimension has enough evidence", () => {
-    expect(mapCycle).toContain("Ainda não há evidência suficiente");
-    expect(mapCycle).toContain("score: null");
-    expect(mapCycle).toContain("insufficient_data");
+    expect(dashboard).toContain("Ainda não há evidência suficiente");
+    expect(dashboard).toContain("score: null");
+    expect(dashboard).toContain("insufficient_data");
   });
 });
