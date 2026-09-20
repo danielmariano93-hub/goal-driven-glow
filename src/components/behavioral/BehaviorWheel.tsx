@@ -1,25 +1,42 @@
 import { useMemo, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
-import { Check, ChevronLeft, ChevronRight, Sparkles, X } from "lucide-react";
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Eye, Sparkles, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   BEHAVIOR_DIMENSIONS,
   type BehavioralAssessment,
   type BehaviorDimensionKey,
 } from "@/lib/behavioral/client";
+import {
+  behaviorQuestionForDimension,
+  type AssessmentCycle,
+  type ExtendedBehavioralAssessment,
+  type ObservedBehaviorProfile,
+} from "@/lib/behavioral/mapCycle";
 
 function defaultScores(assessment: BehavioralAssessment | null): Record<BehaviorDimensionKey, number> {
   return Object.fromEntries(BEHAVIOR_DIMENSIONS.map((dimension) => [dimension.key, Number(assessment?.scores?.[dimension.key] ?? 5)])) as Record<BehaviorDimensionKey, number>;
 }
 
+function dateLabel(value?: string | null) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Sao_Paulo" }).format(new Date(value));
+}
+
 export function BehaviorWheel({
   latest,
   previous,
+  assessments,
+  observed,
+  cycle,
   onSave,
   saving = false,
 }: {
-  latest: BehavioralAssessment | null;
-  previous: BehavioralAssessment | null;
+  latest: ExtendedBehavioralAssessment | null;
+  previous: ExtendedBehavioralAssessment | null;
+  assessments: ExtendedBehavioralAssessment[];
+  observed: ObservedBehaviorProfile;
+  cycle: AssessmentCycle;
   onSave: (scores: Record<BehaviorDimensionKey, number>) => Promise<void>;
   saving?: boolean;
 }) {
@@ -29,9 +46,10 @@ export function BehaviorWheel({
 
   const chart = useMemo(() => BEHAVIOR_DIMENSIONS.map((dimension) => ({
     subject: dimension.short,
-    score: Number(latest?.scores?.[dimension.key] ?? 0),
+    self: Number(latest?.scores?.[dimension.key] ?? 0),
+    nino: observed.dimensions[dimension.key]?.score ?? null,
     fullMark: 10,
-  })), [latest]);
+  })), [latest, observed]);
 
   const strongest = latest
     ? [...BEHAVIOR_DIMENSIONS].sort((a, b) => Number(latest.scores?.[b.key] ?? 0) - Number(latest.scores?.[a.key] ?? 0))[0]
@@ -40,6 +58,19 @@ export function BehaviorWheel({
     ? [...BEHAVIOR_DIMENSIONS].sort((a, b) => Number(latest.scores?.[a.key] ?? 0) - Number(latest.scores?.[b.key] ?? 0))[0]
     : null;
   const delta = latest && previous ? Number(latest.overall_score) - Number(previous.overall_score) : null;
+
+  const comparable = latest
+    ? BEHAVIOR_DIMENSIONS
+        .map((dimension) => ({
+          dimension,
+          self: Number(latest.scores?.[dimension.key] ?? 0),
+          observed: observed.dimensions[dimension.key],
+        }))
+        .filter((row) => row.observed?.score != null)
+        .map((row) => ({ ...row, gap: Number(row.observed.score) - row.self }))
+        .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))
+    : [];
+  const largestGap = comparable[0] ?? null;
 
   const begin = () => {
     setScores(defaultScores(latest));
@@ -55,32 +86,50 @@ export function BehaviorWheel({
   return (
     <>
       <section className="overflow-hidden rounded-[26px] border border-border bg-card shadow-card">
-        <div className="p-5 pb-2">
+        <div className="p-5 pb-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Seu mapa</p>
               <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Roda financeira comportamental</h2>
-              <p className="mt-1 max-w-[520px] text-xs leading-relaxed text-muted-foreground">
-                Sua percepção em 8 dimensões. O Nino usa esse mapa para sugerir experiências — não como diagnóstico ou nota de valor pessoal.
+              <p className="mt-1 max-w-[560px] text-xs leading-relaxed text-muted-foreground">
+                Sua percepção de um lado; evidências financeiras do outro. As duas leituras ficam separadas para mostrar evolução sem transformar comportamento em diagnóstico.
               </p>
             </div>
-            {latest ? (
-              <div className="min-w-[70px] rounded-2xl bg-primary/10 px-3 py-2 text-right">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Hoje</p>
-                <p className="font-display text-2xl font-bold text-primary">{Number(latest.overall_score).toFixed(1)}</p>
+          </div>
+
+          {latest ? (
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="rounded-[18px] border border-primary/15 bg-primary/5 p-3">
+                <div className="flex items-center gap-1.5 text-primary"><UserRound size={14} /><span className="text-[10px] font-semibold uppercase tracking-wider">Sua nota</span></div>
+                <p className="mt-1 font-display text-2xl font-bold">{Number(latest.overall_score).toFixed(1)}</p>
+                <p className="text-[10px] text-muted-foreground">preenchido em {dateLabel(latest.created_at)}</p>
                 {delta != null && Math.abs(delta) >= 0.1 ? (
-                  <p className={`text-[10px] font-semibold ${delta > 0 ? "text-success" : "text-brand-coral"}`}>
-                    {delta > 0 ? "+" : ""}{delta.toFixed(1)} vs. anterior
+                  <p className={`mt-1 text-[10px] font-semibold ${delta > 0 ? "text-success" : "text-brand-coral"}`}>
+                    {delta > 0 ? "+" : ""}{delta.toFixed(1)} vs. avaliação anterior
                   </p>
                 ) : null}
               </div>
-            ) : null}
-          </div>
+
+              <div className="rounded-[18px] border border-success/20 bg-success/5 p-3">
+                <div className="flex items-center gap-1.5 text-success"><Eye size={14} /><span className="text-[10px] font-semibold uppercase tracking-wider">Nino observa</span></div>
+                <p className="mt-1 font-display text-2xl font-bold">{observed.overallScore == null ? "—" : observed.overallScore.toFixed(1)}</p>
+                <p className="text-[10px] text-muted-foreground">cobertura {observed.coverage}/8 dimensões</p>
+              </div>
+
+              <div className="col-span-2 rounded-[18px] border border-border bg-secondary/35 p-3 sm:col-span-1">
+                <div className="flex items-center gap-1.5 text-muted-foreground"><CalendarClock size={14} /><span className="text-[10px] font-semibold uppercase tracking-wider">Próxima revisão</span></div>
+                <p className="mt-1 text-sm font-semibold">
+                  {cycle.due ? "Já está disponível" : cycle.daysRemaining === 1 ? "Amanhã" : `Em ${cycle.daysRemaining ?? cycle.cadenceDays} dias`}
+                </p>
+                <p className="text-[10px] text-muted-foreground">ciclo de {cycle.cadenceDays} dias · perguntas rotativas</p>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {latest ? (
           <>
-            <div className="h-[292px] px-1 sm:h-[320px]">
+            <div className="h-[310px] px-1 sm:h-[340px]">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={chart} outerRadius="72%">
                   <PolarGrid stroke="hsl(var(--border))" gridType="polygon" />
@@ -90,32 +139,78 @@ export function BehaviorWheel({
                     tickLine={false}
                   />
                   <Radar
-                    dataKey="score"
+                    name="Você"
+                    dataKey="self"
                     stroke="hsl(var(--primary))"
                     fill="hsl(var(--primary))"
-                    fillOpacity={0.16}
+                    fillOpacity={0.15}
                     strokeWidth={2.5}
                     dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }}
                   />
+                  {observed.coverage > 0 ? (
+                    <Radar
+                      name="Nino"
+                      dataKey="nino"
+                      stroke="hsl(var(--success))"
+                      fill="hsl(var(--success))"
+                      fillOpacity={0.07}
+                      strokeWidth={2}
+                      strokeDasharray="5 4"
+                      dot={{ r: 2.5, fill: "hsl(var(--success))", strokeWidth: 0 }}
+                    />
+                  ) : null}
                 </RadarChart>
               </ResponsiveContainer>
             </div>
+
+            <div className="flex items-center justify-center gap-5 px-4 pb-3 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" /> Você</span>
+              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" /> Nino observa</span>
+            </div>
+
             <div className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
               {strongest ? (
-                <div className="rounded-2xl bg-success/10 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-success">Ponto forte percebido</p>
+                <div className="rounded-2xl bg-primary/7 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Ponto forte percebido</p>
                   <p className="mt-1 text-sm font-semibold">{strongest.label}</p>
-                  <p className="text-xs text-muted-foreground">{Number(latest.scores[strongest.key]).toFixed(1)} de 10</p>
+                  <p className="text-xs text-muted-foreground">Você se deu {Number(latest.scores[strongest.key]).toFixed(1)} de 10</p>
                 </div>
               ) : null}
-              {focus ? (
-                <div className="rounded-2xl bg-primary/10 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Onde testar uma mudança</p>
+              {largestGap ? (
+                <div className="rounded-2xl bg-success/7 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-success">Onde as leituras mais diferem</p>
+                  <p className="mt-1 text-sm font-semibold">{largestGap.dimension.label}</p>
+                  <p className="text-xs text-muted-foreground">Você {largestGap.self.toFixed(1)} · Nino {Number(largestGap.observed.score).toFixed(1)}</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{largestGap.observed.evidence}</p>
+                </div>
+              ) : focus ? (
+                <div className="rounded-2xl bg-secondary/60 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Onde testar uma mudança</p>
                   <p className="mt-1 text-sm font-semibold">{focus.label}</p>
                   <p className="text-xs text-muted-foreground">{Number(latest.scores[focus.key]).toFixed(1)} de 10</p>
                 </div>
               ) : null}
             </div>
+
+            {assessments.length > 0 ? (
+              <div className="border-t border-border px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Linha de evolução</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {assessments.length === 1 ? "Esta é sua primeira leitura. A próxima cria a primeira comparação real." : `${assessments.length} avaliações salvas para acompanhar sua evolução.`}
+                    </p>
+                  </div>
+                  <div className="flex max-w-[45%] gap-1 overflow-hidden">
+                    {[...assessments].slice(0, 6).reverse().map((assessment) => (
+                      <span key={assessment.id} className="grid h-8 min-w-8 place-items-center rounded-full bg-secondary text-[10px] font-bold text-foreground">
+                        {Number(assessment.overall_score).toFixed(1)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="px-5 pb-5 pt-4">
@@ -130,9 +225,12 @@ export function BehaviorWheel({
         )}
 
         <div className="px-4 pb-4">
-          <Button type="button" onClick={begin} className="min-h-11 w-full rounded-full font-semibold" variant={latest ? "outline" : "default"}>
-            {latest ? "Atualizar meu mapa" : "Mapear meu momento"}
+          <Button type="button" onClick={begin} className="min-h-11 w-full rounded-full font-semibold" variant={latest && !cycle.due ? "outline" : "default"}>
+            {latest ? (cycle.due ? "Fazer revisão do mapa" : "Revisar meu mapa") : "Mapear meu momento"}
           </Button>
+          {latest && !cycle.due ? (
+            <p className="mt-2 text-center text-[10px] text-muted-foreground">Você pode revisar antes, mas o Nino vai te lembrar novamente quando completar o ciclo.</p>
+          ) : null}
         </div>
       </section>
 
@@ -149,7 +247,9 @@ export function BehaviorWheel({
               </button>
             </div>
 
-            <p className="mt-5 min-h-[54px] text-sm leading-relaxed text-muted-foreground">{BEHAVIOR_DIMENSIONS[step].question}</p>
+            <p className="mt-5 min-h-[54px] text-sm leading-relaxed text-muted-foreground">
+              {behaviorQuestionForDimension(BEHAVIOR_DIMENSIONS[step].key, cycle.questionSetIndex)}
+            </p>
 
             <div className="mt-6 rounded-[22px] border border-border bg-card p-5">
               <div className="flex items-end justify-between">
