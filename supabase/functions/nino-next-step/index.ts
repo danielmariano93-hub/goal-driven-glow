@@ -1,16 +1,19 @@
 // Edge Function: nino-next-step
-// Ponte fina entre o app e o motor de mudança (nino_change_agent.v1).
-// NÃO recalcula nada e NÃO cria recomendação: apenas aceita ou dispensa a
-// recomendação canônica vigente, reaproveitando o changeLoop (revalidação
-// material, compromisso único e ledger de aprendizado seguem no motor).
+// Ponte fina entre a Home e o motor determinístico de mudança.
+// - refresh: recalcula a orientação contra a verdade financeira AGORA e persiste
+//   a recomendação canônica vigente;
+// - accept/dismiss: fecham o loop de compromisso/aprendizado já existente.
+// Nenhuma ação movimenta dinheiro.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import {
   commitLatestRecommendation,
   getActiveCommitmentStatus,
+  persistNextActionRecommendation,
   registerChangeDismissal,
 } from "../_shared/agent/changeLoop.ts";
+import { computeNextBestAction } from "../_shared/agent/behaviorWealth.ts";
 import { NINO_COMMITMENT_COPY } from "../_shared/copy/decisionNarrative.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -35,11 +38,38 @@ Deno.serve(async (req) => {
   let body: { action?: unknown } = {};
   try { body = await req.json(); } catch { /* corpo vazio cai na validação */ }
   const action = typeof body.action === "string" ? body.action : "";
-  if (action !== "accept" && action !== "dismiss") return h.fail("invalid_action", 400);
+  if (action !== "refresh" && action !== "accept" && action !== "dismiss") {
+    return h.fail("invalid_action", 400);
+  }
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
   try {
+    if (action === "refresh") {
+      // Read-after-write editorial: não exibe uma recomendação persistida de um
+      // cenário financeiro anterior. O motor é determinístico e reusa a mesma
+      // verdade financeira do Nino/WhatsApp.
+      const current = await computeNextBestAction(sb, user_id, { months: 12 });
+      const recommendationId = await persistNextActionRecommendation(sb, user_id, current, "app");
+      return h.ok({
+        action,
+        recommendation: {
+          id: recommendationId,
+          stage: current.stage,
+          title: current.action.title,
+          detail: current.action.detail,
+          route: current.action.route,
+          amount: current.action.amount,
+          amount_role: current.action.amount_role,
+          required_amount: current.action.required_amount,
+          goal_id: current.action.goal_id,
+          goal_name: current.action.goal_name,
+          as_of: current.as_of,
+          version: current.version,
+        },
+      });
+    }
+
     if (action === "accept") {
       const result = await commitLatestRecommendation(sb, user_id);
       const status = String((result as { status?: string })?.status ?? "");
