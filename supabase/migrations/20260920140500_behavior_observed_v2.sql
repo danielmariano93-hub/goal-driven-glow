@@ -175,6 +175,7 @@ begin
        where user_id = v_uid
          and status = 'confirmed'
          and type::text = 'expense'
+         and coalesce(movement_kind::text,'transaction') = 'transaction'
          and occurred_at >= now() - interval '90 days'
     ), jsonb_build_object('count',0,'categorized',0,'active_days',0)),
     'expense_days', coalesce((
