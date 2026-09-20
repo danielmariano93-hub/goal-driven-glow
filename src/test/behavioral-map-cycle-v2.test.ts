@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 const mapCycle = readFileSync("src/lib/behavioral/mapCycle.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
-const migration = readFileSync("supabase/migrations/20260920124500_behavioral_map_cycle_v2.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260920124200_behavioral_map_cycle_v2.sql", "utf8");
 
 describe("behavioral map cycle v2", () => {
   it("reuses legacy emotional check-ins instead of resetting history", () => {
