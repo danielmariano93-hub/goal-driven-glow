@@ -93,14 +93,19 @@ describe("roteamento de capacidades e confiabilidade do Nino", () => {
     expect(reply).not.toContain("NaN");
   });
 
-  it("explica saldo, ritmo e compromissos sem matemática do modelo", () => {
+  it("separa renda da rotina de fluxo de caixa no resumo financeiro", () => {
     const reply = formatFinancialSnapshot({
-      available_today: 550, current_month_income: 1000, current_month_expense: 300,
+      available_today: 1512.18, current_month_income: 0, current_month_expense: 1297.53,
       daily_pace: 100, typical_daily_pace: 90, known_future_commitments: 250,
       projected_month_end_available: 200, cards_owed_estimated: false,
+      cash_bridge: { opening_cash: 629.52, closing_cash: 1512.18 },
     });
     expect(reply).toContain("R$ 10,00/dia acima");
     expect(reply).toContain("250,00 de compromissos");
+    expect(reply).toContain("Receitas da rotina: R$ 0,00");
+    expect(reply).toContain("Gastos da rotina: R$ 1.297,53");
+    expect(reply).toContain("Caixa no período: R$ 629,52 → R$ 1.512,18 (+R$ 882,66)");
+    expect(reply).not.toContain("Entrou este mês");
   });
 
   it("inclui metas pessoais, de categoria e conjuntas no mesmo overview", () => {
