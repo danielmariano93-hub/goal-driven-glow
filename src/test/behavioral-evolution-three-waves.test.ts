@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync("supabase/migrations/20260920033000_behavioral_evolution_three_waves.sql", "utf8");
-const hardening = readFileSync("supabase/migrations/20260920033100_behavioral_evolution_runtime_hardening.sql", "utf8");
-const integrity = readFileSync("supabase/migrations/20260920033200_behavioral_evolution_write_integrity.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260920034444_behavioral_evolution_three_waves.sql", "utf8");
+const hardening = readFileSync("supabase/migrations/20260920034512_behavioral_evolution_runtime_hardening.sql", "utf8");
+const integrity = readFileSync("supabase/migrations/20260920034523_behavioral_evolution_write_integrity.sql", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const checkin = readFileSync("src/components/home/EmotionalCheckinCard.tsx", "utf8");
 const client = readFileSync("src/lib/behavioral/client.ts", "utf8");
