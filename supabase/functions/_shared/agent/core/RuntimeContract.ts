@@ -10,9 +10,10 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .6 binds financial evidence to topic/reference continuity,
-// aligns comparison windows and makes displayed money arithmetically exact.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-18.6";
+// Deployment stamp .1 fecha o contrato semântico entre fluxo de caixa real e
+// renda/consumo operacional em Home, Nino e assessor, sem alterar o contrato
+// analítico de cálculo (`nino_analytical.v5`).
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-20.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
