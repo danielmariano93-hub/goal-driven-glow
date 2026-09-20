@@ -11,7 +11,7 @@ function assert(condition, message) {
 
 const home = read("src/pages/Index.tsx");
 assert(!home.includes("processCategoryQueue"), "Home não pode processar fila de categorização na abertura.");
-assert(home.includes("useNinoHomeContext"), "Home deve usar o contrato enxuto do Nino.");
+assert(home.includes("useNinoHomeContext"), "Home deve usar o bundle enxuto do Nino.");
 assert(!home.includes("useNinoDiagnosisContext"), "Home não pode baixar o diagnóstico completo com histórico.");
 
 const realtime = read("src/components/finance/FinancialRealtimeSync.tsx");
@@ -56,8 +56,13 @@ assert(migration.includes("financial_snapshot_refresh_queue"), "Migration precis
 assert(migration.includes("TG_TABLE_NAME = 'transactions' AND TG_OP = 'UPDATE'"), "Invalidação deve ignorar updates puramente técnicos de transactions.");
 
 const diagnosis = read("src/lib/nino/diagnosis.ts");
-assert(diagnosis.includes("my_nino_home_context"), "A Home precisa de RPC próprio sem timeline pesada.");
-assert(diagnosis.includes('queryKey: ["nino-diagnosis", "home"'), "Cache do contexto da Home deve ser isolado do diagnóstico completo.");
+assert(diagnosis.includes('functions.invoke("nino-next-step"'), "Home deve atualizar diagnóstico e próximo passo pelo bundle canônico.");
+assert(diagnosis.includes("qk.ninoHomeIntelligence"), "Inteligência da Home deve ter uma query key única e invalidável.");
+assert(diagnosis.includes('refetchOnWindowFocus: "always"'), "Inteligência da Home deve revalidar ao voltar do background.");
+const nextStepEdge = read("supabase/functions/nino-next-step/index.ts");
+assert(nextStepEdge.includes('sb.rpc("nino_refresh_diagnosis"'), "Bundle da Home deve atualizar diagnóstico antes de responder.");
+assert(nextStepEdge.includes("computeNextBestAction"), "Bundle da Home deve recalcular o próximo passo na mesma chamada.");
+assert(nextStepEdge.includes('sb.rpc("nino_home_context_for_user"'), "Bundle da Home deve devolver o contexto enxuto recém-materializado.");
 
 const hotpathMigration = read("supabase/migrations/20260821205200_nino_home_hotpath_v3.sql");
 assert(hotpathMigration.includes("nino_home_context_for_user"), "Migration V3 deve criar o contexto enxuto da Home.");
