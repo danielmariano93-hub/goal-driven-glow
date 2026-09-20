@@ -12,7 +12,7 @@ describe("behavioral dashboard runtime", () => {
     expect(migration).toContain("v_uid uuid := auth.uid()");
     expect(migration).toContain("revoke all on function public.behavioral_dashboard_snapshot() from public");
     expect(migration).toContain("grant execute on function public.behavioral_dashboard_snapshot() to authenticated");
-    expect(dashboard).toContain('supabase.rpc as any)("behavioral_dashboard_snapshot")');
+    expect(dashboard).toContain('(supabase.rpc as any)("behavioral_dashboard_snapshot")');
     expect(page).toContain('["behavioral-dashboard", user?.id]');
   });
 
