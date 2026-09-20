@@ -100,10 +100,10 @@ describe("Home — fluxo de caixa real", () => {
     expect(cash.reconciliationDifference).toBe(25);
   });
 
-  it("impede a Home de voltar a alimentar 'Entrou/Saiu' com PeriodPerformance", () => {
+  it("impede a Home de voltar a alimentar 'Entrou/Saiu' com performance operacional", () => {
     expect(summaryCard).toContain("summarizeCashFlow");
     expect(summaryCard).toContain("cashBridge: CashBridge | null");
-    expect(summaryCard).not.toContain("PeriodPerformance");
+    expect(summaryCard).not.toContain("performance: PeriodPerformance");
     expect(summaryCard).not.toContain("operationalIncome");
     expect(summaryCard).not.toContain("operationalExpense");
     expect(summaryCard).not.toContain("operationalResult");
