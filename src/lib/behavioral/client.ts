@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllPages } from "@/lib/db/pagedSelect";
 
 export type BehaviorDimensionKey =
   | "awareness"
@@ -131,6 +132,14 @@ export type BehavioralEvolutionSnapshot = {
   momentSignal: BehaviorHighlight | null;
 };
 
+type TxForBehavior = {
+  id: string;
+  amount: number;
+  occurred_at: string;
+  behavioral_day?: string | null;
+  movement_kind?: string | null;
+};
+
 function spDay(value: string | Date): string {
   const d = value instanceof Date ? value : new Date(value);
   return new Intl.DateTimeFormat("en-CA", {
@@ -161,6 +170,18 @@ export function emotionalScore(row: EmotionalCheckinRow): number {
   return Math.max(0, Math.min(10, Number(row.mood || 0) * 2));
 }
 
+function normalizeExperiment(row: BehaviorExperiment): BehaviorExperiment {
+  return {
+    ...row,
+    target_value: Number(row.target_value),
+    current_value: Number(row.current_value),
+    progress: Number(row.progress),
+    baseline_value: row.baseline_value == null ? null : Number(row.baseline_value),
+    result_value: row.result_value == null ? null : Number(row.result_value),
+    result_delta_pct: row.result_delta_pct == null ? null : Number(row.result_delta_pct),
+  };
+}
+
 function dimensionExtremes(assessment: BehavioralAssessment | null) {
   if (!assessment) return { lowest: null as BehaviorDimensionKey | null, strongest: null as BehaviorDimensionKey | null };
   const ordered = BEHAVIOR_DIMENSIONS
@@ -187,40 +208,45 @@ function recommendedForDimension(templates: BehaviorExperimentTemplate[], key: B
 export async function loadBehavioralEvolution(userId: string): Promise<BehavioralEvolutionSnapshot> {
   const from90 = daysAgo(90);
   const from90Day = from90.slice(0, 10);
-  const assessmentsTable = supabase.from("behavioral_assessments" as never) as any;
-  const experimentsTable = supabase.from("behavior_experiments" as never) as any;
-  const templatesTable = supabase.from("behavior_experiment_templates" as never) as any;
+  const fromUntyped = supabase.from as unknown as (table: string) => any;
+  const assessmentsTable = fromUntyped("behavioral_assessments");
+  const experimentsTable = fromUntyped("behavior_experiments");
+  const templatesTable = fromUntyped("behavior_experiment_templates");
 
-  const [checkinResp, assessmentResp, experimentResp, templateResp, txResp, hypothesisResp] = await Promise.all([
+  const transactionsPromise = fetchAllPages<TxForBehavior>((from, to) => supabase.from("transactions")
+    .select("id,amount,occurred_at,behavioral_day,status,type,movement_kind")
+    .eq("user_id", userId)
+    .eq("status", "confirmed")
+    .eq("type", "expense")
+    .gte("occurred_at", from90Day)
+    .order("occurred_at", { ascending: true })
+    .order("id", { ascending: true })
+    .range(from, to) as any, { source: "behavioral_evolution_transactions" });
+
+  const [checkinResp, assessmentResp, experimentResp, templateResp, txRows, hypothesisResp] = await Promise.all([
     (supabase.from("emotional_checkins") as any)
       .select("id,occurred_at,mood,emotion_key,declared_emotion_key,trigger_label,notes,transaction_id,financial_calm_score,financial_control_score,spending_urge_score,context_key")
       .eq("user_id", userId).gte("occurred_at", from90).order("occurred_at", { ascending: false }).limit(120),
     assessmentsTable.select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(12),
     experimentsTable.select("*").eq("user_id", userId).order("started_at", { ascending: false }).limit(30),
     templatesTable.select("*").eq("active", true).order("created_at", { ascending: true }),
-    supabase.from("transactions")
-      .select("amount,occurred_at,behavioral_day,status,type,movement_kind")
-      .eq("user_id", userId).eq("status", "confirmed").eq("type", "expense")
-      .gte("occurred_at", from90Day).limit(3000),
+    transactionsPromise,
     supabase.from("behavior_hypotheses")
       .select("id,kind,title,explanation,confidence,evidence,status,user_feedback,created_at")
       .eq("user_id", userId).in("status", ["pending", "confirmed", "partial"])
       .order("updated_at", { ascending: false }).limit(12),
   ]);
 
-  for (const response of [checkinResp, assessmentResp, experimentResp, templateResp, txResp, hypothesisResp]) {
+  for (const response of [checkinResp, assessmentResp, experimentResp, templateResp, hypothesisResp]) {
     if (response.error) throw response.error;
   }
 
-  let experiments = ((experimentResp.data ?? []) as BehaviorExperiment[]).map((row) => ({
-    ...row,
-    target_value: Number(row.target_value), current_value: Number(row.current_value), progress: Number(row.progress),
-  }));
+  let experiments = ((experimentResp.data ?? []) as BehaviorExperiment[]).map(normalizeExperiment);
   const activeBeforeRefresh = experiments.filter((row) => row.status === "active");
   if (activeBeforeRefresh.length) {
     const refreshed = await Promise.all(activeBeforeRefresh.map(async (experiment) => {
       const { data, error } = await (supabase.rpc as any)("behavior_experiment_refresh", { p_experiment_id: experiment.id });
-      return error ? experiment : data as BehaviorExperiment;
+      return error ? experiment : normalizeExperiment(data as BehaviorExperiment);
     }));
     const byId = new Map(refreshed.map((row) => [row.id, row]));
     experiments = experiments.map((row) => byId.get(row.id) ?? row);
@@ -266,14 +292,12 @@ export async function loadBehavioralEvolution(userId: string): Promise<Behaviora
   const checkinByDay = new Map<string, EmotionalCheckinRow>();
   for (const row of checkins) if (!checkinByDay.has(spDay(row.occurred_at))) checkinByDay.set(spDay(row.occurred_at), row);
   const spendByDay = new Map<string, number>();
-  for (const row of (txResp.data ?? []) as Array<{ amount: number; occurred_at: string; behavioral_day?: string | null; movement_kind?: string | null }>) {
+  for (const row of txRows) {
     if ((row.movement_kind ?? "transaction") !== "transaction") continue;
     const day = String(row.behavioral_day ?? row.occurred_at).slice(0, 10);
     spendByDay.set(day, (spendByDay.get(day) ?? 0) + Number(row.amount || 0));
   }
-  const paired = [...checkinByDay.entries()].map(([day, checkin]) => ({
-    day, checkin, spend: spendByDay.get(day) ?? 0,
-  }));
+  const paired = [...checkinByDay.entries()].map(([day, checkin]) => ({ day, checkin, spend: spendByDay.get(day) ?? 0 }));
   const vulnerable = paired.filter(({ checkin }) => emotionalScore(checkin) <= 4 || Number(checkin.spending_urge_score ?? 0) >= 7);
   const comparison = paired.filter(({ checkin }) => emotionalScore(checkin) >= 6 && Number(checkin.spending_urge_score ?? 0) < 7);
   const vulnerableAverage = avg(vulnerable.map((row) => row.spend));
@@ -304,7 +328,7 @@ export async function loadBehavioralEvolution(userId: string): Promise<Behaviora
     });
   }
   const activeExperiments = experiments.filter((row) => row.status === "active");
-  const leadingExperiment = activeExperiments.sort((a, b) => b.progress - a.progress)[0];
+  const leadingExperiment = [...activeExperiments].sort((a, b) => b.progress - a.progress)[0];
   if (leadingExperiment && leadingExperiment.progress >= 35) {
     highlights.push({
       id: `experiment-${leadingExperiment.id}`,
@@ -375,7 +399,7 @@ export async function saveBehavioralAssessment(scores: Record<BehaviorDimensionK
 export async function startBehaviorExperiment(slug: string) {
   const { data, error } = await (supabase.rpc as any)("behavior_experiment_start", { p_template_slug: slug });
   if (error) throw error;
-  return data as BehaviorExperiment;
+  return normalizeExperiment(data as BehaviorExperiment);
 }
 
 export async function logBehaviorExperiment(experimentId: string, note?: string) {
@@ -385,5 +409,5 @@ export async function logBehaviorExperiment(experimentId: string, note?: string)
     p_note: note ?? null,
   });
   if (error) throw error;
-  return data as BehaviorExperiment;
+  return normalizeExperiment(data as BehaviorExperiment);
 }
