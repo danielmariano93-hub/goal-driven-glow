@@ -65,7 +65,7 @@ export function BehaviorWheel({
               </p>
             </div>
             {latest ? (
-              <div className="min-w-[70px] rounded-2xl bg-primary/8 px-3 py-2 text-right">
+              <div className="min-w-[70px] rounded-2xl bg-primary/10 px-3 py-2 text-right">
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Hoje</p>
                 <p className="font-display text-2xl font-bold text-primary">{Number(latest.overall_score).toFixed(1)}</p>
                 {delta != null && Math.abs(delta) >= 0.1 ? (
@@ -102,14 +102,14 @@ export function BehaviorWheel({
             </div>
             <div className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
               {strongest ? (
-                <div className="rounded-2xl bg-success/7 p-3">
+                <div className="rounded-2xl bg-success/10 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-success">Ponto forte percebido</p>
                   <p className="mt-1 text-sm font-semibold">{strongest.label}</p>
                   <p className="text-xs text-muted-foreground">{Number(latest.scores[strongest.key]).toFixed(1)} de 10</p>
                 </div>
               ) : null}
               {focus ? (
-                <div className="rounded-2xl bg-primary/7 p-3">
+                <div className="rounded-2xl bg-primary/10 p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-primary">Onde testar uma mudança</p>
                   <p className="mt-1 text-sm font-semibold">{focus.label}</p>
                   <p className="text-xs text-muted-foreground">{Number(latest.scores[focus.key]).toFixed(1)} de 10</p>
