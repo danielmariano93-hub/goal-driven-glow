@@ -1,8 +1,8 @@
 // Edge Function: nino-next-step
-// Ponte fina entre a Home e o motor determinístico de mudança.
-// - refresh: recalcula a orientação contra a verdade financeira AGORA e persiste
-//   a recomendação canônica vigente;
-// - accept/dismiss: fecham o loop de compromisso/aprendizado já existente.
+// Estado editorial em tempo real da Home + decisões do change agent.
+// - refresh: atualiza diagnóstico determinístico, recalcula o próximo passo e
+//   devolve ambos no MESMO request;
+// - accept/dismiss: fecham o loop de compromisso/aprendizado existente.
 // Nenhuma ação movimenta dinheiro.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -18,6 +18,17 @@ import { NINO_COMMITMENT_COPY } from "../_shared/copy/decisionNarrative.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+function todaySP(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
 Deno.serve(async (req) => {
   const h = httpContext("nino-next-step", req);
@@ -46,13 +57,29 @@ Deno.serve(async (req) => {
 
   try {
     if (action === "refresh") {
-      // Read-after-write editorial: não exibe uma recomendação persistida de um
-      // cenário financeiro anterior. O motor é determinístico e reusa a mesma
-      // verdade financeira do Nino/WhatsApp.
+      // Uma única barreira de frescor editorial. Primeiro materializa o
+      // diagnóstico com os fatos atuais; depois calcula a ação contra a mesma
+      // base e só então entrega o bundle para a Home.
+      const { data: diagnosisRefresh, error: diagnosisError } = await sb.rpc("nino_refresh_diagnosis", {
+        _user_id: user_id,
+        _as_of: todaySP(),
+        _run_mode: "live",
+        _source: "home_realtime",
+      });
+      if (diagnosisError) throw new Error(`diagnosis_refresh:${diagnosisError.message}`);
+
       const current = await computeNextBestAction(sb, user_id, { months: 12 });
       const recommendationId = await persistNextActionRecommendation(sb, user_id, current, "app");
+
+      const { data: context, error: contextError } = await sb.rpc("nino_home_context_for_user", {
+        _user_id: user_id,
+      });
+      if (contextError) throw new Error(`home_context:${contextError.message}`);
+
       return h.ok({
         action,
+        diagnosis_refresh: diagnosisRefresh,
+        context,
         recommendation: {
           id: recommendationId,
           stage: current.stage,
