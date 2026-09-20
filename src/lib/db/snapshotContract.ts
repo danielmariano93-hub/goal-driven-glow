@@ -17,17 +17,29 @@ export type SnapshotContractResult<T> =
   | { ok: true; fresh: T }
   | { ok: false; reason: "contract_mismatch" | "missing_contract" | "empty"; stale: true };
 
+type VersionedSnapshot = {
+  contract_version?: string | null;
+  /**
+   * Alias legado emitido pela Edge `home-snapshot` em algumas versões.
+   * A validação continua estrita pelo VALOR do contrato; este fallback só evita
+   * indisponibilidade durante a transição do nome do campo no transporte HTTP.
+   */
+  formula_version?: string | null;
+};
+
 /**
  * Só devolve `ok` quando o contrato declarado no payload é exatamente o
- * esperado. Qualquer divergência vira `stale` + violação observável.
+ * esperado. `contract_version` é canônico; `formula_version` é aceito apenas
+ * como alias legado de transporte. Qualquer divergência vira `stale` +
+ * violação observável.
  */
-export function assertSnapshotContract<T extends { contract_version?: string | null }>(
+export function assertSnapshotContract<T extends VersionedSnapshot>(
   snapshot: T | null | undefined,
   expectedContract: string,
   surface: string,
 ): SnapshotContractResult<T> {
   if (!snapshot) return { ok: false, reason: "empty", stale: true };
-  const found = snapshot.contract_version;
+  const found = snapshot.contract_version ?? snapshot.formula_version;
   if (!found) {
     recordDataContractViolation({ kind: "snapshot_contract_mismatch", surface, ref: `missing!=${expectedContract}` });
     return { ok: false, reason: "missing_contract", stale: true };
