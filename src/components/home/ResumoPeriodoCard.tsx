@@ -1,27 +1,31 @@
 import { ArrowDownRight, ArrowUpRight, Scales } from "@phosphor-icons/react";
 import { formatBRL } from "@/lib/engine/facts";
 import { formatPeriodLabel } from "@/lib/ui/periodStore";
-import type { PeriodPerformance } from "@/lib/engine/bridges";
+import type { CashBridge } from "@/lib/engine/bridges";
+import { summarizeCashFlow } from "@/lib/finance/cashFlowSummary";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  performance: PeriodPerformance | null;
+  cashBridge: CashBridge | null;
   periodStart: string;
   periodEnd: string;
   loading?: boolean;
 };
 
 /**
- * Resumo do PERÍODO SELECIONADO (entradas, saídas e resultado). É o bloco que
- * responde ao filtro de período — os cartões de posição de hoje não respondem
- * por definição. Números vindos de `periodPerformance` do motor único.
+ * Resumo do PERÍODO SELECIONADO em regime de CAIXA.
+ * "Entrou" e "Saiu" significam dinheiro que efetivamente movimentou a conta,
+ * incluindo transferências e movimentos patrimoniais quando houver impacto no caixa.
+ * Receita/gasto da rotina é outro conceito e permanece em `PeriodPerformance`.
  */
-export function ResumoPeriodoCard({ performance, periodStart, periodEnd, loading }: Props) {
+export function ResumoPeriodoCard({ cashBridge, periodStart, periodEnd, loading }: Props) {
   const label = formatPeriodLabel(periodStart, periodEnd);
-  const income = performance?.operationalIncome ?? 0;
-  const expense = performance?.operationalExpense ?? 0;
-  const result = performance?.operationalResult ?? 0;
-  const empty = !loading && performance != null && income === 0 && expense === 0;
+  const cash = summarizeCashFlow(cashBridge);
+  const empty = !loading
+    && cashBridge != null
+    && cash.inflow === 0
+    && cash.outflow === 0
+    && cash.reconciled;
 
   return (
     <section aria-label="Resumo do período" className="rounded-[18px] border border-border bg-card p-3.5 shadow-sm animate-fade-in">
@@ -38,7 +42,7 @@ export function ResumoPeriodoCard({ performance, periodStart, periodEnd, loading
         <div className="mt-3 h-16 animate-pulse rounded-xl bg-secondary" aria-hidden />
       ) : empty ? (
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Não encontrei lançamentos nesse intervalo. Escolha outro período ou registre o que aconteceu ali.
+          Não encontrei movimentações de caixa nesse intervalo. Escolha outro período ou registre o que aconteceu ali.
         </p>
       ) : (
         <>
@@ -46,26 +50,37 @@ export function ResumoPeriodoCard({ performance, periodStart, periodEnd, loading
             <div>
               <p className="text-[10px] font-medium text-muted-foreground">Entrou</p>
               <p className="mt-0.5 inline-flex items-center gap-1 text-[13px] font-bold tabular-nums text-success">
-                <ArrowUpRight weight="bold" size={13} />{formatBRL(income)}
+                <ArrowUpRight weight="bold" size={13} />{formatBRL(cash.inflow)}
               </p>
             </div>
             <div className="border-l border-border pl-2.5">
               <p className="text-[10px] font-medium text-muted-foreground">Saiu</p>
               <p className="mt-0.5 inline-flex items-center gap-1 text-[13px] font-bold tabular-nums text-destructive">
-                <ArrowDownRight weight="bold" size={13} />{formatBRL(expense)}
+                <ArrowDownRight weight="bold" size={13} />{formatBRL(cash.outflow)}
               </p>
             </div>
             <div className="border-l border-border pl-2.5">
               <p className="text-[10px] font-medium text-muted-foreground">Resultado</p>
-              <p className={cn("mt-0.5 text-[13px] font-bold tabular-nums", result < 0 ? "text-destructive" : "text-success")}>
-                {formatBRL(result)}
+              <p className={cn("mt-0.5 text-[13px] font-bold tabular-nums", cash.netFlow < 0 ? "text-destructive" : "text-success")}>
+                {formatBRL(cash.netFlow)}
               </p>
             </div>
           </div>
+
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            {result < 0
-              ? `Nesse período você gastou ${formatBRL(Math.abs(result))} além do que entrou.`
-              : `Nesse período sobraram ${formatBRL(result)} depois dos gastos da rotina.`}
+            {cash.netFlow < 0
+              ? `Nesse período saíram ${formatBRL(Math.abs(cash.netFlow))} a mais do que entraram na conta.`
+              : `Nesse período entraram ${formatBRL(cash.netFlow)} a mais do que saíram da conta.`}
+          </p>
+
+          {!cash.reconciled ? (
+            <p className="mt-1.5 rounded-lg bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
+              Há {formatBRL(Math.abs(cash.reconciliationDifference))} ainda não conciliados entre os movimentos identificados e o saldo confirmado. Esse valor não foi inventado como entrada ou saída.
+            </p>
+          ) : null}
+
+          <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
+            Fluxo de caixa mostra o que realmente movimentou a conta. Transferências, estornos, aplicações, resgates, empréstimos e pagamentos de fatura podem aparecer aqui sem virar receita ou gasto da rotina.
           </p>
         </>
       )}

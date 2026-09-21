@@ -95,7 +95,7 @@ export default function Index() {
       />
 
       <ResumoPeriodoCard
-        performance={snap?.periodPerformance ?? null}
+        cashBridge={snap?.cashBridge ?? null}
         periodStart={periodRange.start}
         periodEnd={periodRange.end}
         loading={loading}

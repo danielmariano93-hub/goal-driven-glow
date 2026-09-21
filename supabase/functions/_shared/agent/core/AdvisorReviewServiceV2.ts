@@ -286,19 +286,19 @@ function buildHeadline(facts: PeriodFacts): { headline: string; explanation: str
   const label = facts.kind === "weekly" ? "semana" : "mês";
   if (facts.transactionCount === 0) {
     return {
-      headline: `Ainda não há movimentações nesta ${label}`,
-      explanation: `A revisão considera apenas lançamentos confirmados entre ${facts.window.start} e ${facts.window.end}.`,
+      headline: `Ainda não há receitas ou gastos da rotina nesta ${label}`,
+      explanation: `A revisão considera apenas receitas e gastos da rotina confirmados entre ${facts.window.start} e ${facts.window.end}; transferências e movimentos patrimoniais ficam fora desta leitura.`,
     };
   }
   if (facts.net < 0) {
     return {
       headline: `O consumo superou a renda em ${formatBRL(Math.abs(facts.net))} nesta ${label}`,
-      explanation: `Entraram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. Isso é o resultado do período, não o saldo atual das suas contas; os próximos passos focam apenas alavancas ajustáveis.`,
+      explanation: `As receitas da rotina somaram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. Isso é o resultado operacional do período, não o fluxo de caixa nem o saldo atual das suas contas; os próximos passos focam apenas alavancas ajustáveis.`,
     };
   }
   return {
     headline: `A renda superou o consumo em ${formatBRL(facts.net)} nesta ${label}`,
-    explanation: `Entraram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. A revisão transforma esse resultado em comparações e próximos passos concretos.`,
+    explanation: `As receitas da rotina somaram ${formatBRL(facts.income)} e o consumo somou ${formatBRL(facts.expense)}. A revisão trata esse resultado operacional separadamente do fluxo de caixa e o transforma em comparações e próximos passos concretos.`,
   };
 }
 
@@ -307,8 +307,8 @@ function buildHighlights(facts: PeriodFacts): string[] {
   if (facts.income > 0 && facts.savingsRate != null) {
     const retained = Math.round(facts.savingsRate * 100);
     highlights.push(retained >= 0
-      ? `A cada R$ 100 de renda, ${formatBRL(retained)} permaneceram livres neste período.`
-      : `A cada R$ 100 de renda, o consumo passou ${formatBRL(Math.abs(retained))} do que entrou.`
+      ? `A cada R$ 100 de renda, ${formatBRL(retained)} não foram consumidos pela rotina neste período.`
+      : `A cada R$ 100 de renda, o consumo passou ${formatBRL(Math.abs(retained))} da renda registrada.`
     );
   }
   // Comparação percentual só é honesta quando o período anterior tem base
@@ -318,9 +318,9 @@ function buildHighlights(facts: PeriodFacts): string[] {
     const direction = facts.expenseChangePct >= 0 ? "aumentaram" : "diminuíram";
     highlights.push(`As despesas ${direction} ${Math.abs(Math.round(facts.expenseChangePct))}% em relação ao período anterior (${formatBRL(facts.previousExpense)}).`);
   } else if (facts.previousExpense > 0) {
-    highlights.push(`O período anterior teve pouca movimentação (${formatBRL(facts.previousExpense)}), então a comparação percentual ainda não é confiável. Agora foram ${formatBRL(facts.expense)}.`);
+    highlights.push(`O período anterior teve pouca movimentação de consumo (${formatBRL(facts.previousExpense)}), então a comparação percentual ainda não é confiável. Agora foram ${formatBRL(facts.expense)}.`);
   } else {
-    highlights.push("Ainda não há um período anterior comparável com despesas registradas.");
+    highlights.push("Ainda não há um período anterior comparável com despesas da rotina registradas.");
   }
 
   const top = facts.categories[0];
@@ -420,8 +420,8 @@ function buildActions(
         ? `Separar ${formatBRL(periodContribution)} para “${goal.row.name}”`
         : `Recalibrar o ritmo da meta “${goal.row.name}”`,
       detail: feasibleNow
-        ? `Para o prazo atual, a referência é ${formatBRL(monthlyNeeded)} por mês. Neste ${facts.kind === "weekly" ? "ciclo semanal" : "mês"}, o saldo registrado comporta ${formatBRL(periodContribution)}.`
-        : `A meta pede cerca de ${formatBRL(monthlyNeeded)} por mês, mas o saldo deste período foi ${formatBRL(facts.net)}. Revise prazo ou valor antes de assumir um aporte inviável.`,
+        ? `Para o prazo atual, a referência é ${formatBRL(monthlyNeeded)} por mês. Neste ${facts.kind === "weekly" ? "ciclo semanal" : "mês"}, a folga entre renda e consumo foi suficiente para ${formatBRL(periodContribution)}; confirme o caixa disponível antes de efetivar o aporte.`
+        : `A meta pede cerca de ${formatBRL(monthlyNeeded)} por mês, mas a folga entre renda e consumo neste período foi ${formatBRL(facts.net)}. Revise prazo ou valor e confirme o caixa disponível antes de assumir um aporte.`,
       status: "pending",
       priority: 220,
       route: "/app/metas",
@@ -475,7 +475,7 @@ function buildReview(
       },
       limitations: [
         "A revisão usa apenas lançamentos confirmados no Meu Nino e exclui transferências, pagamento de fatura e movimentos técnicos.",
-        "Resultado do período significa renda menos consumo; não representa o saldo bancário disponível hoje.",
+        "Resultado do período significa renda menos consumo; não representa fluxo de caixa nem saldo bancário disponível hoje.",
         "A classificação entre gasto fixo e ajustável é uma aproximação; confirme os lançamentos antes de tomar decisões.",
         "Estimativas de economia não são garantia de resultado.",
       ],
