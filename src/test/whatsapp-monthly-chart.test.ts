@@ -108,8 +108,9 @@ describe("monthly WhatsApp spending chart", () => {
   it("keeps the caption concise and grounded in report highlights", () => {
     const caption = monthlyChartCaption(reportFixture(), "https://meunino.com.br/r/teste");
 
-    expect(caption).toContain("R$ 360,00");
-    expect(caption).toContain("R$ 200,00 em 03/09");
+    const readableCaption = caption.replace(/\u00a0/g, " ");
+    expect(readableCaption).toContain("R$ 360,00");
+    expect(readableCaption).toContain("R$ 200,00 em 03/09");
     expect(caption).toContain("Terça concentrou os gastos");
     expect(caption).toContain("Mercado merece atenção");
     expect(caption.length).toBeLessThanOrEqual(950);
