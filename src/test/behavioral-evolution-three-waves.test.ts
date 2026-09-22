@@ -23,8 +23,8 @@ describe("behavioral evolution — three waves", () => {
     expect(migration).toContain("behavioral_assessment_save");
     expect(wheel).toContain("Roda financeira comportamental");
     expect(wheel).toContain("sem transformar comportamento em diagnóstico");
-    expect(mood).toContain("Novos check-ins medem tranquilidade diretamente");
-    expect(mood).toContain("estimativa histórica");
+    expect(mood).toContain("medem tranquilidade diretamente");
+    expect(mood).toContain("referência estimada");
   });
 
   it("wave 2 turns weak dimensions into measurable experiments", () => {
@@ -82,7 +82,8 @@ describe("behavioral evolution — three waves", () => {
     expect(page).toContain("shadow-card");
     expect(wheel).toContain("hsl(var(--primary))");
     expect(mood).toContain("hsl(var(--primary))");
-    expect(mood).toContain('type="monotoneX"');
+    expect(mood).toContain('type="natural"');
+    expect(mood).toContain('strokeLinecap="round"');
     expect(page).not.toContain("Mental Fitness");
   });
 });
