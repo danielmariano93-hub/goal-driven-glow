@@ -28,6 +28,12 @@ type ArtifactPayload = {
 Deno.serve(async (req) => {
   const h = httpContext("artifact-render", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // Endpoint interno: a função usa service role para ler artefatos de qualquer
+  // usuário. Um JWT autenticado comum não pode atravessar esta fronteira.
+  const auth = req.headers.get("Authorization") ?? "";
+  if (auth !== `Bearer ${SERVICE_ROLE}`) return h.fail("unauthorized", 401);
+
   try {
     const { artifact_id } = await req.json().catch(() => ({}));
     if (!artifact_id) return h.fail("missing_artifact_id", 400);
