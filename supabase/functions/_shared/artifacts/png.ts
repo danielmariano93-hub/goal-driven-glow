@@ -11,10 +11,32 @@ type ArtifactPayload = {
   [k: string]: any;
 };
 
-const W = 900, H = 520;
+const W = 1200, H = 680;
 const RGBA = 4;
 const PURPLE = [109, 59, 255, 255];
 const ORANGE = [255, 159, 28, 255];
+const REFUND_GREEN = [35, 176, 126, 255];
+const LABEL = [72, 65, 91, 255];
+const MUTED_LABEL = [115, 106, 136, 255];
+
+// Fonte bitmap mínima para manter o renderer independente de Canvas/fontes
+// nativas no Supabase Edge. O gráfico só precisa de números e separadores.
+const GLYPHS: Record<string, string[]> = {
+  "0": ["111", "101", "101", "101", "111"],
+  "1": ["010", "110", "010", "010", "111"],
+  "2": ["111", "001", "111", "100", "111"],
+  "3": ["111", "001", "111", "001", "111"],
+  "4": ["101", "101", "111", "001", "001"],
+  "5": ["111", "100", "111", "001", "111"],
+  "6": ["111", "100", "111", "101", "111"],
+  "7": ["111", "001", "010", "010", "010"],
+  "8": ["111", "101", "111", "101", "111"],
+  "9": ["111", "101", "111", "001", "111"],
+  "-": ["000", "000", "111", "000", "000"],
+  ",": ["000", "000", "000", "010", "100"],
+  ".": ["000", "000", "000", "000", "010"],
+  "k": ["100", "101", "110", "101", "101"],
+};
 
 function crc32(bytes: Uint8Array): number {
   let c = 0xffffffff;
@@ -55,6 +77,56 @@ function fillRect(buf: Uint8Array, x: number, y: number, w: number, h: number, c
       pixel(buf, xx, yy, color);
     }
   }
+}
+function textWidth(value: string, scale = 2): number {
+  if (!value) return 0;
+  return value.length * 3 * scale + (value.length - 1) * scale;
+}
+function drawText(
+  buf: Uint8Array,
+  value: string,
+  x: number,
+  y: number,
+  color: number[],
+  scale = 2,
+) {
+  let cursor = Math.round(x);
+  for (const character of value) {
+    const glyph = GLYPHS[character];
+    if (glyph) {
+      glyph.forEach((row, rowIndex) => {
+        for (let column = 0; column < row.length; column++) {
+          if (row[column] === "1") {
+            fillRect(buf, cursor + column * scale, y + rowIndex * scale, scale, scale, color);
+          }
+        }
+      });
+    }
+    cursor += 4 * scale;
+  }
+}
+function drawTextCentered(
+  buf: Uint8Array,
+  value: string,
+  centerX: number,
+  y: number,
+  color: number[],
+  scale = 2,
+) {
+  drawText(buf, value, centerX - textWidth(value, scale) / 2, y, color, scale);
+}
+export function barAmountLabel(value: number, includeCents = true): string {
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  if (absolute >= 1000) {
+    return `${sign}${(absolute / 1000).toFixed(1).replace(".", ",")}k`;
+  }
+  return includeCents
+    ? `${sign}${absolute.toFixed(2).replace(".", ",")}`
+    : `${sign}${Math.round(absolute)}`;
+}
+export function chartDayLabel(label: string): string {
+  return String(label).split("/")[0].padStart(2, "0").slice(0, 2);
 }
 function line(buf: Uint8Array, x0: number, y0: number, x1: number, y1: number, color: number[], thickness = 3) {
   x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
@@ -140,7 +212,7 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
   const count = Math.max(0, ...series.map((item) => item.values.length));
   const allValues = series.flatMap((item) => item.values).filter(Number.isFinite);
 
-  const chart = { x: 74, y: 72, w: W - 126, h: H - 132 };
+  const chart = { x: 82, y: 76, w: W - 144, h: H - 190 };
   for (let grid = 0; grid <= 4; grid++) {
     const y = chart.y + (chart.h * grid) / 4;
     line(buf, chart.x, y, chart.x + chart.w, y, [232, 228, 242, 255], grid === 4 ? 2 : 1);
@@ -153,11 +225,12 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
     const slot = chart.w / count;
     const xAt = (index: number) => chart.x + slot * (index + 0.5);
     const yAt = (value: number) =>
-      chart.y + chart.h - ((value - min) / span) * (chart.h - 18);
+      chart.y + chart.h - ((value - min) / span) * (chart.h - 34);
 
     const barSeries = series.filter((item) => item.renderAs === "bar");
-    const groupWidth = Math.max(4, Math.min(26, slot * 0.68));
+    const groupWidth = Math.max(4, Math.min(34, slot * 0.68));
     const singleBarWidth = Math.max(3, groupWidth / Math.max(1, barSeries.length));
+    const barAnnotations: Array<{ value: number; x: number; y: number }> = [];
 
     barSeries.forEach((item, seriesIndex) => {
       const color = parseColor(item.color, PURPLE);
@@ -166,7 +239,15 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
         const valueY = yAt(value);
         const height = Math.max(2, Math.abs(zeroY - valueY));
         const x = xAt(index) - groupWidth / 2 + seriesIndex * singleBarWidth;
-        fillRect(buf, x, Math.min(zeroY, valueY), singleBarWidth - 1, height, color);
+        fillRect(
+          buf,
+          x,
+          Math.min(zeroY, valueY),
+          singleBarWidth - 1,
+          height,
+          value < 0 ? REFUND_GREEN : color,
+        );
+        barAnnotations.push({ value, x: xAt(index), y: valueY });
       });
     });
 
@@ -182,6 +263,23 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
           fillRect(buf, point.x - 3, point.y - 3, 7, 7, color);
         }
       }
+    });
+
+    // Valores são desenhados por último para que a linha móvel não os cubra.
+    for (const annotation of barAnnotations) {
+      // Até 24 dias cabem centavos. Em meses completos, arredonda apenas o
+      // rótulo visual para impedir sobreposição; o dado do artefato não muda.
+      const label = barAmountLabel(annotation.value, count <= 24);
+      const y = annotation.value < 0
+        ? Math.min(chart.y + chart.h - 13, annotation.y + 6)
+        : Math.max(chart.y + 2, annotation.y - 16);
+      drawTextCentered(buf, label, annotation.x, y, LABEL, 2);
+    }
+
+    // O eixo usa apenas o dia do mês, evitando a repetição visual de "/09".
+    norm.labels.slice(0, count).forEach((label, index) => {
+      const day = chartDayLabel(label);
+      drawTextCentered(buf, day, xAt(index), chart.y + chart.h + 16, MUTED_LABEL, 2);
     });
   }
 
