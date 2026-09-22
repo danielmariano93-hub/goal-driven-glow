@@ -117,9 +117,8 @@ describe("monthly WhatsApp spending chart", () => {
 
   it("renders a valid PNG for WhatsApp", async () => {
     const png = await renderArtifactPng(buildMonthlyDailyChart(reportFixture(), "Resumo determinístico"));
-    const bytes = new Uint8Array(await png.arrayBuffer());
 
-    expect(Array.from(bytes.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(bytes.length).toBeGreaterThan(1000);
+    expect(Array.from(png.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(png.length).toBeGreaterThan(1000);
   });
 });
