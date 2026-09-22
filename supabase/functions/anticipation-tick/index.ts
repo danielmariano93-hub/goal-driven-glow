@@ -9,7 +9,6 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { runAnticipationForUser, dispatchAnticipations } from "../_shared/anticipation/runner.ts";
 import { evaluateAnticipationOutcomes } from "../_shared/anticipation/outcomes.ts";
-import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 
@@ -86,7 +85,7 @@ Deno.serve(async (req) => {
   }
 
   let dispatch = { evaluated: 0, queued: 0, expired: 0, converted: 0, simulated: 0, errors: [] as string[] };
-  let delivered = 0;
+  const delivered = 0;
   if (stages.includes("dispatch") && !selfMode) {
     try {
       dispatch = await dispatchAnticipations(sb, {
@@ -94,13 +93,9 @@ Deno.serve(async (req) => {
         limit: Number(body?.dispatch_limit) || 50,
         dryRun,
       });
-      // Entrega real reusa o pipeline de comunicação já auditado.
-      if (!dryRun && dispatch.queued > 0) {
-        for (const uid of userIds) {
-          const outcomes = await dispatchSuggestions(sb, uid, { max: 2, channels: ["app", "whatsapp"] });
-          delivered += outcomes.filter((o) => o.status === "delivered" || o.status === "queued").length;
-        }
-      }
+      // Este motor apenas converte oportunidades maduras em sugestões pendentes.
+      // A entrega real é exclusiva do agent-proactive-tick, que aplica a
+      // cadência global e evita múltiplas mensagens sequenciais no WhatsApp.
     } catch (error) {
       errors.push(`dispatch:${error instanceof Error ? error.message : String(error)}`.slice(0, 200));
     }
