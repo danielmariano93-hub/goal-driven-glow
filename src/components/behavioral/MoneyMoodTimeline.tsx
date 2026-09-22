@@ -28,7 +28,7 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Money mood</p>
           <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Como sua relação com dinheiro está evoluindo</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Novos check-ins medem tranquilidade diretamente. Registros do formato anterior aparecem como estimativa histórica para preservar continuidade.
+            Seus check-ins mais recentes medem tranquilidade diretamente. Registros do formato anterior seguem no histórico como referência estimada para preservar continuidade.
           </p>
         </div>
         <div className="rounded-2xl bg-secondary/70 px-3 py-2 text-right">
@@ -39,29 +39,30 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
 
       {estimatedCount > 0 ? (
         <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-          Nesta janela: {directCount} medição{directCount === 1 ? "" : "ões"} direta{directCount === 1 ? "" : "s"} e {estimatedCount} ponto{estimatedCount === 1 ? "" : "s"} histórico{estimatedCount === 1 ? "" : "s"} estimado{estimatedCount === 1 ? "" : "s"}.
+          Nesta janela, há {directCount} medição{directCount === 1 ? "" : "ões"} direta{directCount === 1 ? "" : "s"} e {estimatedCount} ponto{estimatedCount === 1 ? "" : "s"} histórico{estimatedCount === 1 ? "" : "s"} estimado{estimatedCount === 1 ? "" : "s"}.
         </p>
       ) : null}
 
       {data.length >= 2 ? (
         <div className="mt-4 h-[260px] sm:h-[290px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 10, right: 8, left: -12, bottom: 0 }}>
               <defs>
                 <linearGradient id="moneyMoodFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.18} />
+                  <stop offset="58%" stopColor="hsl(var(--primary))" stopOpacity={0.07} />
+                  <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <ReferenceArea y1={0} y2={3} fill="hsl(var(--destructive))" fillOpacity={0.035} />
-              <ReferenceArea y1={3} y2={6} fill="hsl(var(--destructive))" fillOpacity={0.018} />
-              <ReferenceArea y1={6} y2={8} fill="hsl(var(--primary))" fillOpacity={0.02} />
-              <ReferenceArea y1={8} y2={10} fill="hsl(var(--success))" fillOpacity={0.035} />
-              <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="3 6" />
-              <XAxis dataKey="label" axisLine={false} tickLine={false} minTickGap={26} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+              <ReferenceArea y1={0} y2={3} fill="hsl(var(--destructive))" fillOpacity={0.025} />
+              <ReferenceArea y1={3} y2={6} fill="hsl(var(--destructive))" fillOpacity={0.012} />
+              <ReferenceArea y1={6} y2={8} fill="hsl(var(--primary))" fillOpacity={0.015} />
+              <ReferenceArea y1={8} y2={10} fill="hsl(var(--success))" fillOpacity={0.025} />
+              <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="2 8" strokeOpacity={0.58} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} minTickGap={30} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
               <YAxis domain={[0, 10]} ticks={[0, 2, 4, 6, 8, 10]} axisLine={false} tickLine={false} width={30} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
               <Tooltip
-                cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.18 }}
+                cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.14, strokeDasharray: "3 6" }}
                 content={({ active, payload }) => {
                   const row = payload?.[0]?.payload as (typeof data)[number] | undefined;
                   if (!active || !row) return null;
@@ -77,13 +78,17 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
                 }}
               />
               <Area
-                type="monotoneX"
+                type="natural"
                 dataKey="score"
                 stroke="hsl(var(--primary))"
-                strokeWidth={3}
+                strokeWidth={3.25}
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 fill="url(#moneyMoodFill)"
-                dot={{ r: 2.5, fill: "hsl(var(--card))", stroke: "hsl(var(--primary))", strokeWidth: 2 }}
-                activeDot={{ r: 5, fill: "hsl(var(--primary))", stroke: "hsl(var(--card))", strokeWidth: 2 }}
+                dot={{ r: 2.15, fill: "hsl(var(--card))", stroke: "hsl(var(--primary))", strokeWidth: 1.8 }}
+                activeDot={{ r: 4.75, fill: "hsl(var(--primary))", stroke: "hsl(var(--card))", strokeWidth: 2.25 }}
+                animationDuration={650}
+                animationEasing="ease-out"
               />
             </AreaChart>
           </ResponsiveContainer>

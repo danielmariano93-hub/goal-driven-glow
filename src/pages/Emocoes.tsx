@@ -19,6 +19,7 @@ import {
   type BehaviorExperimentTemplate,
 } from "@/lib/behavioral/client";
 import {
+  BEHAVIOR_MAP_CADENCE_DAYS,
   saveBehavioralAssessmentV2,
   type AssessmentCycle,
   type ObservedBehaviorProfile,
@@ -38,7 +39,7 @@ const EMPTY_OBSERVED: ObservedBehaviorProfile = {
 };
 
 const EMPTY_CYCLE: AssessmentCycle = {
-  cadenceDays: 30,
+  cadenceDays: BEHAVIOR_MAP_CADENCE_DAYS,
   due: true,
   nextDueAt: null,
   daysRemaining: null,

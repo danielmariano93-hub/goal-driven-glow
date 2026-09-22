@@ -7,7 +7,7 @@ import {
   type EmotionalCheckinRow,
 } from "@/lib/behavioral/client";
 
-export const BEHAVIOR_MAP_CADENCE_DAYS = 30;
+export const BEHAVIOR_MAP_CADENCE_DAYS = 15;
 
 export type ExtendedBehavioralAssessment = BehavioralAssessment & {
   observed_scores?: Partial<Record<BehaviorDimensionKey, number>> | null;
