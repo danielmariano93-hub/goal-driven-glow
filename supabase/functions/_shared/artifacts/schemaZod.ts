@@ -13,6 +13,7 @@ export const SeriesZ = z.object({
   name: z.string(),
   data: z.array(z.number().finite()),
   color: z.string().optional(),
+  render_as: z.enum(["bar", "line"]).optional(),
 });
 
 export const ProvenanceZ = z.object({

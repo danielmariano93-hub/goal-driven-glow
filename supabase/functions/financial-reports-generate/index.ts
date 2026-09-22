@@ -25,6 +25,11 @@ import {
 } from "../_shared/reports-core/narrative.ts";
 import { REPORT_TEMPLATE_VERSION } from "../_shared/reports-core/types.ts";
 import type { IntelligentReport, ReportType } from "../_shared/reports-core/types.ts";
+import {
+  buildMonthlyDailyChart,
+  monthlyChartCaption,
+  REPORT_DAILY_CHART_VERSION,
+} from "../_shared/reports-core/whatsappChart.ts";
 import { FINANCE_CONTRACT_VERSION } from "../_shared/finance-core/index.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
 import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
@@ -40,7 +45,6 @@ const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_S
 const APP_PUBLIC_URL = Deno.env.get("APP_PUBLIC_URL") ?? "";
 const MODEL = "openai/gpt-5.6-sol";
 const AI_TIMEOUT_MS = 12000;
-
 function logEvent(event: Record<string, unknown>) {
   try { console.log(JSON.stringify({ fn: FN, ...event })); } catch { /* noop */ }
 }
@@ -523,7 +527,42 @@ async function generateForUser(
         kind: "financial_report",
         ttl_days: 90,
       });
-      const body = whatsappMessage(report, short.shortened ? short.url : longLink);
+      const reportUrl = short.shortened ? short.url : longLink;
+      const attachDailyChart =
+        (reportType === "monthly" || reportType === "monthly_partial") &&
+        report.payload.series.length > 0;
+      const body = attachDailyChart
+        ? monthlyChartCaption(report, reportUrl)
+        : whatsappMessage(report, reportUrl);
+
+      let artifactId: string | null = null;
+      if (attachDailyChart) {
+        const artifactPayload = buildMonthlyDailyChart(report, body);
+        const { data: artifact, error: artifactError } = await sb.from("agent_artifacts").insert({
+          user_id: userId,
+          kind: "chart",
+          payload: artifactPayload,
+          summary_text: body,
+          fallback_text: body,
+          formula_version: REPORT_DAILY_CHART_VERSION,
+        }).select("id").maybeSingle();
+        artifactId = artifact?.id ?? null;
+        if (artifactError) {
+          logEvent({
+            event: "report_chart_artifact_error",
+            user_id: userId,
+            report_id: reportId,
+            error_code: artifactError.code ?? "artifact_insert_failed",
+          });
+        }
+      }
+
+      // O relatório parcial é regenerado conforme o mês avança. A data final e
+      // a versão visual evitam colisão com a mensagem textual antiga sem permitir
+      // reenvios duplicados do mesmo retrato diário.
+      const outboundKey = attachDailyChart
+        ? `financial_report:${reportId}:${period.end}:${REPORT_DAILY_CHART_VERSION}`
+        : `financial_report:${reportId}`;
       const { data: msg, error } = await sb.from("outbound_messages").insert({
         channel: "whatsapp",
         user_id: userId,
@@ -531,11 +570,19 @@ async function generateForUser(
         body,
         status: "queued",
         kind: reportType === "weekly" ? "weekly_report" : "monthly_report",
-        idempotency_key: `financial_report:${reportId}`,
+        idempotency_key: outboundKey,
         context_type: "financial_report",
         context_id: reportId,
+        artifact_id: artifactId,
+        media_status: artifactId ? "pending" : null,
         next_attempt_at: new Date().toISOString(),
-        metadata: { origin: FN, report_type: reportType, period_start: period.start },
+        metadata: {
+          origin: FN,
+          report_type: reportType,
+          period_start: period.start,
+          period_end: period.end,
+          artifact_version: artifactId ? REPORT_DAILY_CHART_VERSION : null,
+        },
       }).select("id").maybeSingle();
       await sb.from("financial_report_deliveries").upsert({
         report_id: reportId,

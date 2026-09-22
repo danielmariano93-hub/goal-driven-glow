@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
       // Nota: schema atual restringe media_status a
       // ('pending','sent','failed','fallback_text'). Não adicionamos
       // 'failed_fallback_text' aqui — distinguimos via last_error + heartbeat.
-      let mediaStatus: "none" | "delivered" | "failed" | "fallback_text" = "none";
+      let mediaStatus: "none" | "sent" | "failed" | "fallback_text" = "none";
       let mediaError: string | null = null;
 
       if (extra?.artifact_id) {
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
         try {
           const r = await provider.sendImage(m.to_phone, mediaUrl, textBody);
           providerId = r.provider_message_id;
-          mediaStatus = "delivered";
+          mediaStatus = "sent";
         } catch (e) {
           mediaError = mediaError ?? `send_image_failed:${String((e as Error).message).slice(0, 80)}`;
           console.error("[whatsapp-send] media_send_failed", { id: m.id, artifact_id: extra?.artifact_id, err: mediaError });
@@ -157,12 +157,12 @@ Deno.serve(async (req) => {
           last_error: mediaStatus === "fallback_text" ? (mediaError ?? "media_fallback") : null,
         }).eq("id", m.id);
         await sb.from("agent_artifacts").update({
-          delivered_at: mediaStatus === "delivered" ? new Date().toISOString() : null,
-          delivery_status: mediaStatus,
+          delivered_at: mediaStatus === "sent" ? new Date().toISOString() : null,
+          delivery_status: mediaStatus === "sent" ? "delivered" : mediaStatus,
         }).eq("id", extra.artifact_id).then(() => {}, () => {});
         // Fecha o loop de observabilidade: agent_turn_events sai de
         // 'generated' → 'delivered'|'failed' conforme a entrega real.
-        const turnStatus = mediaStatus === "delivered" ? "delivered"
+        const turnStatus = mediaStatus === "sent" ? "delivered"
           : mediaStatus === "fallback_text" ? "failed" : null;
         if (turnStatus) {
           await sb.from("agent_turn_events")
