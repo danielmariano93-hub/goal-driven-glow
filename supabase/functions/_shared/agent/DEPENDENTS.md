@@ -18,7 +18,6 @@ de TODAS as funções abaixo, no mesmo lote:
 - `agent-run`
 - `agent-chat`
 - `agent-proactive-tick`
-- `anticipation-tick`
 - `financial-reports-generate`
 - `shared-goal-notify-invite`
 - `split-reminders-dispatch-v2`

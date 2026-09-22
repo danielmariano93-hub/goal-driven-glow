@@ -14,6 +14,7 @@ import { syncDiagnosisSuggestions } from "../_shared/intelligence/diagnosisToCom
 import { recomputeProfile } from "../_shared/agent/core/UserProfile.ts";
 import { dispatchSuggestions } from "../_shared/agent/core/NotificationDispatcher.ts";
 import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligence/proactiveAudience.ts";
+import { loadProactiveWhatsappCadence } from "../_shared/intelligence/proactiveWhatsappCadence.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
 import { runMultiFinanceProactive, type MultiFinanceRunResult } from "../_shared/proactive/pipeline.ts";
@@ -165,6 +166,7 @@ Deno.serve(async (req) => {
     behavior_experiments_refreshed: number;
     advisor_reviews: number;
     advisor_skipped?: unknown;
+    cadence_deferred_until?: string | null;
     multi_finance?: MultiFinanceRunResult | null;
     preview?: Array<{
       kind: string;
@@ -181,6 +183,7 @@ Deno.serve(async (req) => {
     const errors: string[] = [];
     let suggestions = 0, deliveries = 0, behaviorHypotheses = 0, behaviorExperimentsRefreshed = 0, advisorReviews = 0;
     let advisorSkipped: unknown = undefined;
+    let cadenceDeferredUntil: string | null = null;
     let preview: Array<{ kind: string; channel_ready: string; title: string; body: string; dedup_key: string; evidence: Record<string, unknown> }> = [];
     let multiFinance: MultiFinanceRunResult | null = null;
 
@@ -253,14 +256,23 @@ Deno.serve(async (req) => {
             evidence: item.evidence,
           }));
         } else {
-          const dispatched = await dispatchSuggestions(sb, uid, {
-            max: 3,
-            channels: effectiveChannels,
-          });
-          deliveries = dispatched.filter((d) => d.status === "delivered" || d.status === "queued").length;
-          errors.push(...dispatched
-            .filter((d) => d.status === "failed")
-            .map((d) => stageError("dispatch", d.reason ?? "dispatch_failed")));
+          const cadence = effectiveChannels.includes("whatsapp")
+            ? await loadProactiveWhatsappCadence(sb, uid)
+            : { allowed: true, retryAt: null };
+          if (!cadence.allowed) {
+            cadenceDeferredUntil = cadence.retryAt;
+          } else {
+            // Uma rodada libera no máximo uma comunicação lógica por usuário.
+            // O restante permanece na fila e será reavaliado no próximo tick.
+            const dispatched = await dispatchSuggestions(sb, uid, {
+              max: 1,
+              channels: effectiveChannels,
+            });
+            deliveries = dispatched.filter((d) => d.status === "delivered" || d.status === "queued").length;
+            errors.push(...dispatched
+              .filter((d) => d.status === "failed")
+              .map((d) => stageError("dispatch", d.reason ?? "dispatch_failed")));
+          }
         }
       } catch (error) {
         errors.push(stageError("proactive", error));
@@ -275,6 +287,7 @@ Deno.serve(async (req) => {
       behavior_experiments_refreshed: behaviorExperimentsRefreshed,
       advisor_reviews: advisorReviews,
       advisor_skipped: advisorSkipped,
+      cadence_deferred_until: cadenceDeferredUntil,
       multi_finance: multiFinance,
       preview,
       errors,
