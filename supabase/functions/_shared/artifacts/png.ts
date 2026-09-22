@@ -117,10 +117,14 @@ function smoothLine(
 }
 async function deflate(data: Uint8Array): Promise<Uint8Array> {
   const compression = new CompressionStream("deflate");
+  // Start consuming before writing. Edge runtimes apply backpressure to the
+  // CompressionStream; waiting for write() before attaching a reader can
+  // deadlock large PNG buffers until the caller's timeout fires.
+  const output = new Response(compression.readable).arrayBuffer();
   const writer = compression.writable.getWriter();
   await writer.write(data as unknown as BufferSource);
   await writer.close();
-  return new Uint8Array(await new Response(compression.readable).arrayBuffer());
+  return new Uint8Array(await output);
 }
 
 export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8Array> {
