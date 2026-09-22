@@ -60,7 +60,7 @@ export function ResumoPeriodoCard({ cashBridge, periodStart, periodEnd, loading 
               </p>
             </div>
             <div className="border-l border-border pl-2.5">
-              <p className="text-[10px] font-medium text-muted-foreground">Resultado</p>
+              <p className="text-[10px] font-medium text-muted-foreground">Fluxo líquido</p>
               <p className={cn("mt-0.5 text-[13px] font-bold tabular-nums", cash.netFlow < 0 ? "text-destructive" : "text-success")}>
                 {formatBRL(cash.netFlow)}
               </p>

@@ -110,4 +110,9 @@ describe("Home — fluxo de caixa real", () => {
     expect(homePage).toContain("cashBridge={snap?.cashBridge ?? null}");
     expect(homePage).not.toContain("performance={snap?.periodPerformance ?? null}");
   });
+
+  it("nomeia o saldo entre entradas e saídas como fluxo líquido, sem sugerir resultado econômico", () => {
+    expect(summaryCard).toContain("Fluxo líquido");
+    expect(summaryCard).not.toContain(">Resultado</p>");
+  });
 });

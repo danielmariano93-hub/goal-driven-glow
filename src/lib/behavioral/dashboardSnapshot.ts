@@ -11,10 +11,11 @@ import {
   type BehaviorHypothesis,
   type EmotionalCheckinRow,
 } from "@/lib/behavioral/client";
-import type {
-  AssessmentCycle,
-  ExtendedBehavioralAssessment,
-  ObservedBehaviorProfile,
+import {
+  BEHAVIOR_MAP_CADENCE_DAYS,
+  type AssessmentCycle,
+  type ExtendedBehavioralAssessment,
+  type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
 import {
   buildObservedProfileV2,
@@ -25,7 +26,6 @@ import {
   type BehavioralTransactionStats,
 } from "@/lib/behavioral/observedProfileV2";
 
-const CADENCE_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 type FinancialRow = {
@@ -120,13 +120,13 @@ function recommendedForDimension(templates: BehaviorExperimentTemplate[], key: B
 function assessmentCycle(assessments: ExtendedBehavioralAssessment[]): AssessmentCycle {
   const latest = assessments[0] ?? null;
   const nextDueAt = latest?.next_due_at
-    ?? (latest ? new Date(new Date(latest.created_at).getTime() + CADENCE_DAYS * DAY_MS).toISOString() : null);
+    ?? (latest ? new Date(new Date(latest.created_at).getTime() + BEHAVIOR_MAP_CADENCE_DAYS * DAY_MS).toISOString() : null);
   const msRemaining = nextDueAt ? new Date(nextDueAt).getTime() - Date.now() : null;
   const daysRemaining = msRemaining == null ? null : Math.max(0, Math.ceil(msRemaining / DAY_MS));
   const questionSetIndex = assessments.length % 3;
   const questionSet = (["wheel_set_a", "wheel_set_b", "wheel_set_c"] as const)[questionSetIndex];
   return {
-    cadenceDays: CADENCE_DAYS,
+    cadenceDays: BEHAVIOR_MAP_CADENCE_DAYS,
     due: !latest || (msRemaining != null && msRemaining <= 0),
     nextDueAt,
     daysRemaining,
