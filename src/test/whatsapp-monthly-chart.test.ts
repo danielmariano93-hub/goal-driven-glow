@@ -7,7 +7,11 @@ import {
 } from "@/lib/reports/intelligent/whatsappChart";
 import type { IntelligentReport } from "@/lib/reports/intelligent/types";
 import { toRenderableSeries } from "../../supabase/functions/_shared/artifacts/normalize";
-import { renderArtifactPng } from "../../supabase/functions/_shared/artifacts/png";
+import {
+  barAmountLabel,
+  chartDayLabel,
+  renderArtifactPng,
+} from "../../supabase/functions/_shared/artifacts/png";
 
 function reportFixture(): IntelligentReport {
   const period = { start: "2026-09-01", end: "2026-09-03", label: "setembro de 2026" };
@@ -121,5 +125,13 @@ describe("monthly WhatsApp spending chart", () => {
 
     expect(Array.from(png.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
     expect(png.length).toBeGreaterThan(1000);
+  });
+
+  it("formats discreet bar totals and day-of-month labels", () => {
+    expect(barAmountLabel(928.84)).toBe("928,84");
+    expect(barAmountLabel(-527.08)).toBe("-527,08");
+    expect(barAmountLabel(1234.56)).toBe("1,2k");
+    expect(barAmountLabel(342.45, false)).toBe("342");
+    expect(chartDayLabel("09/09")).toBe("09");
   });
 });
