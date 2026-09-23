@@ -9,11 +9,12 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { handleTurnV2 as handleTurnV2Core } from "./AgentCoreV2.ts";
-import type { HandleTurnInput, HandleTurnResult } from "./AgentCore.ts";
+import { handleTurn as handleLegacyTurn, type HandleTurnInput, type HandleTurnResult } from "./AgentCore.ts";
 import { service } from "./service.ts";
 import { getState, patchState } from "./StateManager.ts";
 import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
 import type { ComparisonEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
+import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
 
 function evidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
@@ -190,6 +191,14 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
 }
 
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
+  // Explicit human-domain events with a dedicated deterministic tool should
+  // never depend on the Conversation Brain contract. This is intentionally
+  // narrow: the allowlist lives in V2DeterministicHumanGate and currently
+  // restores only emotional check-ins already handled safely by the legacy core.
+  if (resolveV2DeterministicHumanCapability(input.text)) {
+    return await handleLegacyTurn(input);
+  }
+
   const turn = await handleTurnV2Core(input);
   await bindEvidence(input, turn).catch((error) => {
     console.error("[AgentCoreV2Entry] evidence binding failed", String((error as Error)?.message ?? error).slice(0, 240));
