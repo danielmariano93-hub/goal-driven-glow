@@ -18,7 +18,7 @@ export default function Recorrencias() {
   const [form, setForm] = useState({
     name: "", amount: "", kind: "expense" as "expense" | "income",
     account_id: "", category_id: "", frequency: "monthly" as any,
-    day_of_month: 1, weekday: 1, start_date: new Date().toISOString().slice(0, 10),
+    day_of_month: 1, weekday: 1, start_date: todayISO(),
     end_date: "",
   });
 

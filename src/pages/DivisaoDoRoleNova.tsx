@@ -31,7 +31,7 @@ export default function DivisaoDoRoleNova() {
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const [total, setTotal] = useState("");
-  const [occurredAt, setOccurredAt] = useState(new Date().toISOString().slice(0, 10));
+  const [occurredAt, setOccurredAt] = useState(todayCivilSaoPaulo());
   const [dueDate, setDueDate] = useState("");
   const [mode, setMode] = useState<"equal" | "custom">("equal");
   const [includeOwner, setIncludeOwner] = useState(true);

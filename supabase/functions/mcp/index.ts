@@ -3,10 +3,10 @@
 // supabase function: mcp
 // Bundled from src/lib/mcp/index.ts by @lovable.dev/mcp-js.
 // src/lib/mcp/index.ts
-import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { auth, defineMcp } from "npm:@lovable.dev/mcp-js@0.26.3";
 
 // src/lib/mcp/tools/list-transactions.ts
-import { defineTool } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool } from "npm:@lovable.dev/mcp-js@0.26.3";
 import { z } from "npm:zod@^3.25.76";
 
 // src/lib/mcp/supabase.ts
@@ -856,7 +856,7 @@ function estimatedFigure(txs, installments, cardId, ym, index) {
 function computeCardExposure(input) {
   const { cardIds, statements, installments, txs, currentYM } = input;
   const nextYM = nextCompetence(currentYM);
-  const today = input.todayISO ?? `${currentYM}-01`;
+  const today2 = input.todayISO ?? `${currentYM}-01`;
   const cycleConfig = /* @__PURE__ */ new Map();
   for (const c of input.cards ?? []) if (c.id) cycleConfig.set(c.id, c);
   const result = {};
@@ -903,7 +903,7 @@ function computeCardExposure(input) {
     }, 0);
     const totalCardDebt = round2(openStatementsDebt + (currentRow ? 0 : current.amount));
     const cfg = cycleConfig.get(cardId);
-    const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today) : null;
+    const openCycle = cfg && Number(cfg.closing_day ?? 0) >= 1 ? openCycleOf(cfg, today2) : null;
     const cycleSum = openCycle ? estimateFromCycle(txs, cardId, openCycle, exclusion) : null;
     const forming = cycleSum ? {
       ...emptyFigure(),
@@ -953,6 +953,31 @@ function totalFutureInstallmentsOf(exposures) {
 
 // src/lib/engine/metrics.ts
 var FINANCE_CONTRACT_VERSION = "financial_snapshot_contract.v9";
+
+// src/lib/engine/ninoClock.ts
+var DEFAULT_TIMEZONE = "America/Sao_Paulo";
+function partsIn(timezone, now) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const out = {};
+  for (const p of fmt.formatToParts(now)) if (p.type !== "literal") out[p.type] = p.value;
+  return out;
+}
+function localDate(timezone = DEFAULT_TIMEZONE, now = /* @__PURE__ */ new Date()) {
+  const p = partsIn(timezone, now);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function today(user, now) {
+  return localDate(user?.timezone ?? DEFAULT_TIMEZONE, now ?? /* @__PURE__ */ new Date());
+}
 
 // src/lib/mcp/shared.ts
 var ERROR_CONTRACT_VERSION = "edge_error.v1";
@@ -1004,7 +1029,7 @@ function brl(value) {
   return `R$ ${Number(value ?? 0).toFixed(2).replace(".", ",")}`;
 }
 function currentMonth() {
-  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
+  return today().slice(0, 7);
 }
 
 // src/lib/mcp/tools/list-transactions.ts
@@ -1046,7 +1071,7 @@ var list_transactions_default = defineTool({
 });
 
 // src/lib/mcp/tools/monthly-summary.ts
-import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool2 } from "npm:@lovable.dev/mcp-js@0.26.3";
 import { z as z2 } from "npm:zod@^3.25.76";
 
 // src/lib/db/pagedSelect.ts
@@ -1183,7 +1208,7 @@ var monthly_summary_default = defineTool2({
 });
 
 // src/lib/mcp/tools/list-accounts-and-categories.ts
-import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool3 } from "npm:@lovable.dev/mcp-js@0.26.3";
 var list_accounts_and_categories_default = defineTool3({
   name: "list_accounts_and_categories",
   title: "Listar contas e categorias",
@@ -1218,7 +1243,7 @@ var list_accounts_and_categories_default = defineTool3({
 });
 
 // src/lib/mcp/tools/create-transaction.ts
-import { defineTool as defineTool4, ToolError } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool4, ToolError } from "npm:@lovable.dev/mcp-js@0.26.3";
 import { z as z3 } from "npm:zod@^3.25.76";
 var create_transaction_default = defineTool4({
   name: "create_transaction",
@@ -1237,7 +1262,7 @@ var create_transaction_default = defineTool4({
     const userId = requireUser(ctx);
     if (!userId) return errorResult("N\xE3o autenticado.");
     if (!(amount > 0)) throw new ToolError("O valor precisa ser maior que zero.");
-    const date = occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(occurred_at) ? occurred_at : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date = occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(occurred_at) ? occurred_at : today();
     const supabase = supabaseForUser(ctx);
     const { data: accounts, error: accErr } = await supabase.from("accounts").select("id, name").eq("active", true);
     if (accErr) return errorResult(accErr.message);
@@ -1282,7 +1307,7 @@ var create_transaction_default = defineTool4({
 });
 
 // src/lib/mcp/tools/financial-position.ts
-import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool5 } from "npm:@lovable.dev/mcp-js@0.26.3";
 var CARD_TX_PAGE_SIZE = 1e3;
 var financial_position_default = defineTool5({
   name: "financial_position",
@@ -1389,7 +1414,7 @@ var financial_position_default = defineTool5({
 });
 
 // src/lib/mcp/tools/list-card-statements.ts
-import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool6 } from "npm:@lovable.dev/mcp-js@0.26.3";
 import { z as z4 } from "npm:zod@^3.25.76";
 var list_card_statements_default = defineTool6({
   name: "list_card_statements",
@@ -1426,7 +1451,7 @@ var list_card_statements_default = defineTool6({
 });
 
 // src/lib/mcp/tools/settle-card-statement.ts
-import { defineTool as defineTool7, ToolError as ToolError2 } from "npm:@lovable.dev/mcp-js@0.26.1";
+import { defineTool as defineTool7, ToolError as ToolError2 } from "npm:@lovable.dev/mcp-js@0.26.3";
 import { z as z5 } from "npm:zod@^3.25.76";
 var settle_card_statement_default = defineTool7({
   name: "settle_card_statement",
@@ -1449,7 +1474,7 @@ var settle_card_statement_default = defineTool7({
       p_statement_id: statement_id,
       p_account_id: account_id,
       p_amount: amount ?? null,
-      p_paid_at: paid_at ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      p_paid_at: paid_at ?? today(),
       p_idempotency_key: idempotency_key
     });
     if (error) return errorResult(error.message);
@@ -1459,7 +1484,7 @@ var settle_card_statement_default = defineTool7({
 });
 
 // src/lib/mcp/index.ts
-var projectRef = "wesjjdjmlnfjihkkgzfp";
+var projectRef = "amjanjlvsatubxdreyep";
 var mcp_default = defineMcp({
   name: "meu-nino",
   title: "Meu Nino",
@@ -1481,5 +1506,5 @@ var mcp_default = defineMcp({
 });
 
 // lovable-mcp-supabase-entry.ts
-import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.26.1/stacks/supabase";
+import { createSupabaseHandler } from "npm:@lovable.dev/mcp-js@0.26.3/stacks/supabase";
 Deno.serve(createSupabaseHandler(mcp_default, { functionName: "mcp" }));

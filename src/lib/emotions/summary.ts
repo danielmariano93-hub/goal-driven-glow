@@ -1,3 +1,5 @@
+import { today as localToday } from "@/lib/engine/ninoClock";
+
 export type EmotionalCheckin = {
   mood: number | string;
   occurred_at: string;
@@ -25,7 +27,7 @@ function addDays(iso: string, delta: number): string {
 
 export function computeEmotionalSummary(
   checkins: EmotionalCheckin[],
-  today = new Date().toISOString().slice(0, 10),
+  today = localToday(),
   weeklyGoal = 5,
 ): EmotionalSummary {
   const lastByDay = new Map<string, EmotionalCheckin>();

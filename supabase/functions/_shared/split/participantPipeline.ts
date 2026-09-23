@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { downloadInboundMedia, type MediaHint } from "../messaging/wahaMedia.ts";
+import { today } from "../finance-core/ninoClock.ts";
 import {
   activeReceivables,
   buildInstallmentSchedule,
@@ -129,7 +130,7 @@ async function notifyOwner(
   body: string,
 ): Promise<boolean> {
   const remaining = Math.max(0, Number(participant.amount_due) - Number(participant.amount_paid));
-  const dedup = `split_receipt:${participant.id}:${new Date().toISOString().slice(0, 10)}`;
+  const dedup = `split_receipt:${participant.id}:${today()}`;
   const { error } = await sb.from("notifications").insert({
     user_id: expense.user_id,
     type: "split_reminder",

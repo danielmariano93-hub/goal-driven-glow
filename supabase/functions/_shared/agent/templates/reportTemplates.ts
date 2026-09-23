@@ -5,6 +5,7 @@
 // Nota: mantemos tipos puros de TS para permitir import direto pelo vitest
 // (sem resolver especifiers HTTPS estilo Deno). A validação estrita fica
 // nos parameters JSON Schema da tool.
+import { shift, today } from "../../finance-core/ninoClock.ts";
 
 export const TEMPLATE_KEYS = ["spending_trend", "monthly_comparison", "weekly_one_page"] as const;
 export type TemplateKey = typeof TEMPLATE_KEYS[number];
@@ -85,15 +86,11 @@ export function templateToArtifactArgs(m: {
       return { kind: "timeseries", args: { metric: "expense", days: 7 } };
     }
     // Semana N atrás: janela de 7 dias terminando (weeksBack*7) dias antes de hoje.
-    const today = new Date();
-    const to = new Date(today);
-    to.setUTCDate(to.getUTCDate() - weeksBack * 7);
-    const from = new Date(to);
-    from.setUTCDate(from.getUTCDate() - 6);
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const to = shift(today(), -weeksBack * 7);
+    const from = shift(to, -6);
     return {
       kind: "timeseries",
-      args: { metric: "expense", from: iso(from), to: iso(to) },
+      args: { metric: "expense", from, to },
     };
   }
   // spending_trend: passa from/to quando informado.

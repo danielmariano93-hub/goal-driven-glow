@@ -2,6 +2,7 @@ import { defineTool, ToolError } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { supabaseForUser } from "../supabase";
 import { brl, errorResult, ok, requireUser } from "../shared";
+import { today } from "../../engine/ninoClock";
 
 export default defineTool({
   name: "settle_card_statement",
@@ -22,7 +23,7 @@ export default defineTool({
     const supabase = supabaseForUser(ctx);
     const { data, error } = await supabase.rpc("settle_credit_card_statement", {
       p_statement_id: statement_id, p_account_id: account_id, p_amount: amount ?? null,
-      p_paid_at: paid_at ?? new Date().toISOString().slice(0, 10), p_idempotency_key: idempotency_key,
+      p_paid_at: paid_at ?? today(), p_idempotency_key: idempotency_key,
     });
     if (error) return errorResult(error.message);
     const result = data as Record<string, any>;

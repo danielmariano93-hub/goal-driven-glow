@@ -6,7 +6,7 @@ import {
 } from "@/lib/engine/facts";
 import type { IntelligentReport } from "./types";
 
-export const REPORT_DAILY_CHART_VERSION = "financial_report.daily_gross.v2";
+export const REPORT_DAILY_CHART_VERSION = "financial_report.daily_gross.v3";
 
 export function trailingAverage(values: number[], window = 7): number[] {
   return values.map((_, index) => {

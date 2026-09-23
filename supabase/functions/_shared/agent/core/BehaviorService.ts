@@ -5,6 +5,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { decay, forget } from "./MemoryStore.ts";
 import { writeDurableMemory } from "./MemoryWriter.ts";
 import { fetchAllPages } from "../../derived/pagedSelect.ts";
+import { shift, today } from "../../finance-core/ninoClock.ts";
 import {
   runBehaviorDetectors,
   type BehaviorHypothesisCandidate,
@@ -47,7 +48,7 @@ export async function refreshBehaviorHypotheses(
   await decay(sb, user_id).catch(() => 0);
 
   const from = new Date(Date.now() - 120 * 86_400_000).toISOString();
-  const recurringFrom = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const recurringFrom = shift(today(), -90);
 
   const [txResp, checkinResp, recurringResp] = await Promise.all([
     // Paginado: `.limit(5000)` voltava com 1.000 linhas sem avisar.

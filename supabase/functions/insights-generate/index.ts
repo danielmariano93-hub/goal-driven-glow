@@ -22,6 +22,9 @@ import {
   computeCardExposure,
   computeCommitmentAgenda,
   currentMonthYM,
+  monthPeriod,
+  previousMonth,
+  shift,
   todaySP,
   totalCardDebtOf,
   totalFutureInstallmentsOf,
@@ -150,7 +153,7 @@ Deno.serve(async (req) => {
 /** Usuários com atividade recente (base do lote do cron). */
 async function activeUserIds(supa: SupabaseClient, only: string | null): Promise<string[]> {
   if (only) return [only];
-  const since = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const since = shift(todaySP(), -30);
   const { data } = await supa
     .from("transactions")
     .select("user_id")
@@ -226,8 +229,9 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
 
   // ------- fatos -------
   const now0 = new Date();
-  const ym = now0.toISOString().slice(0, 7);
-  const prevYm = new Date(now0.getFullYear(), now0.getMonth() - 1, 1).toISOString().slice(0, 7);
+  const todayIsoSP = todaySP(now0);
+  const ym = todayIsoSP.slice(0, 7);
+  const prevYm = previousMonth(ym);
   const [
     { count: txCount },
     { data: goals },
@@ -270,7 +274,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
       .eq("status", "confirmed")
       .in("type", ["income", "expense"] as never)
       .is("category_id", null)
-      .gte("occurred_at", new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10))
+      .gte("occurred_at", shift(todayIsoSP, -30))
       .order("occurred_at", { ascending: false })
       .limit(20),
     supa.from("categories").select("id,name").or(`user_id.eq.${uid},user_id.is.null`),
@@ -281,7 +285,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     supa.from("recurring_rules").select("id,status,amount,frequency,day_of_month,weekday,start_date,end_date,kind,category_id,account_id,name").eq("user_id", uid).eq("status", "active"),
   ]);
 
-  const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const monthEnd = monthPeriod(ym).to;
   const allTx = [...((recentTx ?? []) as unknown[]), ...((prevMonthTx ?? []) as unknown[])] as TransactionRow[];
   const behavioral = computeMonthlyTotals((recentTx ?? []) as unknown as TransactionRow[], ym);
   const gross = computeAccountStatementTotals(
@@ -289,11 +293,11 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     { start: `${ym}-01`, end: monthEnd },
   );
 
-  const in7 = Date.now() + 7 * 86400_000;
+  const in7Iso = shift(todayIsoSP, 7);
   const upcoming7 = ((recurring ?? []) as Array<{ next_due_date?: string }>).filter((r) => {
     if (!r?.next_due_date) return false;
-    const d = new Date(r.next_due_date + "T00:00:00").getTime();
-    return d >= Date.now() - 86400_000 && d <= in7;
+    const due = String(r.next_due_date).slice(0, 10);
+    return due >= todayIsoSP && due <= in7Iso;
   }).length;
 
   // Apenas movimentos comuns podem virar dica de categorização.
@@ -350,8 +354,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     cards: cards.map((c) => ({ id: c.id, closing_day: c.closing_day ?? null, due_day: c.due_day ?? null })),
     todayISO: todaySP(now0),
   });
-  const todayIsoSP = todaySP(now0);
-  const in7Iso = new Date(now0.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
   const statementsDueIn7d = ((statementRows ?? []) as unknown as CardStatementRow[])
     .filter((st) => {
       const dueDate = (st as unknown as { due_date?: string | null }).due_date ?? "";

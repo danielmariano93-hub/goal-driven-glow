@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { normalizeDescription, merchantCanonical } from "../categorization/normalize.ts";
 import { classifyBatch, fetchExistingCandidates, linkRefunds, type DupeVerdict } from "./dedupe.ts";
 import type { ImportItem } from "./schema.ts";
+import { today as localToday } from "../finance-core/ninoClock.ts";
 
 export type BatchTarget = {
   kind: "account" | "credit_card";
@@ -43,7 +44,7 @@ function fold(value: string): string {
 }
 
 function today(): string {
-  return new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+  return localToday();
 }
 
 async function fingerprint(user_id: string, item: ImportItem, date: string): Promise<string> {

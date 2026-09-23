@@ -7,6 +7,7 @@
 // Fail-closed: só evento CONCLUÍDO e inequívoco gera rascunho. Agendado, em
 // processamento, recusado, cancelado, devolvido, estornado, pagamento de fatura
 // e transferência entre contas próprias caem no pipeline normal.
+import { today } from "../../finance-core/ninoClock.ts";
 
 export type BankEventClass =
   | "completed_outflow"
@@ -64,7 +65,7 @@ function parseDate(raw: string, now: Date): string | null {
   }
   const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso) return iso[1];
-  if (/\bhoje\b/.test(norm(raw))) return now.toISOString().slice(0, 10);
+  if (/\bhoje\b/.test(norm(raw))) return today(null, now);
   return null;
 }
 

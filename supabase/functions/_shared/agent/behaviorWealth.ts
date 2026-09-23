@@ -17,6 +17,7 @@ type SupabaseClient = any;
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { analyze_wealth_opportunity } from "./engineTools.ts";
+import { today } from "../finance-core/ninoClock.ts";
 
 export const NINO_BEHAVIOR_WEALTH_VERSION = "nino_behavior_wealth.v1";
 
@@ -369,7 +370,7 @@ export async function computeNextBestAction(
 
   return {
     version: NINO_BEHAVIOR_WEALTH_VERSION,
-    as_of: String((snapshot as any)?.today ?? new Date().toISOString().slice(0, 10)),
+    as_of: String((snapshot as any)?.today ?? today()),
     stage: stage.stage,
     stage_reason: stage.reason,
     confidence,

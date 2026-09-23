@@ -17,6 +17,7 @@ import {
 } from "../engine/facts.ts";
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { shift, today } from "../finance-core/ninoClock.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import { computeNextBestAction } from "./behaviorWealth.ts";
@@ -1023,7 +1024,7 @@ export async function search_transactions(ctx: ToolContext, args: {
 }): Promise<ToolResult> {
   const days = Math.max(1, Math.min(180, Number(args?.days ?? 60)));
   const limit = Math.max(1, Math.min(20, Number(args?.limit ?? 10)));
-  const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
+  const since = shift(today(), -days);
   const term = (args?.query ?? "").trim();
   let q = ctx.sb.from("transactions")
     .select("id,type,amount,occurred_at,description,category_id,account_id,credit_card_id,payment_method,installment_number,installments_total,purchase_group_id,version")

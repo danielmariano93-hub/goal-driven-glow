@@ -2,6 +2,7 @@ import { defineTool, ToolError } from "@lovable.dev/mcp-js";
 import { z } from "zod";
 import { supabaseForUser } from "../supabase";
 import { brl, errorResult, ok, requireUser } from "../shared";
+import { today } from "../../engine/ninoClock";
 
 export default defineTool({
   name: "create_transaction",
@@ -23,7 +24,7 @@ export default defineTool({
     if (!(amount > 0)) throw new ToolError("O valor precisa ser maior que zero.");
     const date = occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(occurred_at)
       ? occurred_at
-      : new Date().toISOString().slice(0, 10);
+      : today();
 
     const supabase = supabaseForUser(ctx);
 

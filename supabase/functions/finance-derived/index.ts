@@ -16,6 +16,7 @@ import { computeFinancialPerformance } from "../_shared/finance-core/financialPe
 import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
+import { today } from "../_shared/finance-core/ninoClock.ts";
 
 const FN = "finance-derived";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -50,7 +51,7 @@ Deno.serve(async (req) => {
   if (view !== "performance") {
     return json({ ok: false, error: "unknown_view", view }, 400);
   }
-  const asOf = ISO.test(String(body.as_of ?? "")) ? String(body.as_of) : new Date().toISOString().slice(0, 10);
+  const asOf = ISO.test(String(body.as_of ?? "")) ? String(body.as_of) : today();
   const mode = MODES.includes(String(body.mode)) ? String(body.mode) : "MTD_EQUIVALENT";
   const floor = Number.isFinite(Number(body.materiality_floor)) ? Number(body.materiality_floor) : 50;
 

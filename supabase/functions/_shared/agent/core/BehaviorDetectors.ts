@@ -1,5 +1,6 @@
 // Explainable, non-diagnostic behavioral hypotheses.
 // All detectors require minimum samples and return evidence for user confirmation.
+import { today } from "../../finance-core/ninoClock.ts";
 
 export type BehaviorTransaction = {
   id: string;
@@ -116,7 +117,7 @@ export function detectEmotionalSpending(input: BehaviorDetectorInput): BehaviorH
       difference_pct: Number((delta * 100).toFixed(1)),
       minimum_sample: 8,
     },
-    dedup_key: `emotional_spending:${now.toISOString().slice(0, 7)}`,
+    dedup_key: `emotional_spending:${today(null, now).slice(0, 7)}`,
     expires_at: expiry(now),
   }];
 }
@@ -163,7 +164,7 @@ export function detectImpulsiveSpending(input: BehaviorDetectorInput): BehaviorH
       })),
       minimum_transactions: 20,
     },
-    dedup_key: `impulsive_spending:${now.toISOString().slice(0, 7)}`,
+    dedup_key: `impulsive_spending:${today(null, now).slice(0, 7)}`,
     expires_at: expiry(now),
   }];
 }
@@ -190,7 +191,7 @@ export function detectFinancialProcrastination(input: BehaviorDetectorInput): Be
       })),
       minimum_overdue_count: 2,
     },
-    dedup_key: `financial_procrastination:${now.toISOString().slice(0, 7)}`,
+    dedup_key: `financial_procrastination:${today(null, now).slice(0, 7)}`,
     expires_at: expiry(now, 45),
   }];
 }
@@ -231,7 +232,7 @@ export function detectFinancialDiscipline(input: BehaviorDetectorInput): Behavio
       transaction_sample: rows.length,
       minimum_weeks: 8,
     },
-    dedup_key: `financial_discipline:${now.toISOString().slice(0, 7)}`,
+    dedup_key: `financial_discipline:${today(null, now).slice(0, 7)}`,
     expires_at: expiry(now, 75),
   }];
 }
@@ -271,7 +272,7 @@ export function detectRelapseRisk(input: BehaviorDetectorInput): BehaviorHypothe
       recent_window_days: 14,
       comparison_window_days: 42,
     },
-    dedup_key: `relapse_risk:${now.toISOString().slice(0, 10)}`,
+    dedup_key: `relapse_risk:${today(null, now)}`,
     expires_at: expiry(now, 45),
   }];
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Plus, Send, Trash2, UserPlus, Users, LogOut, XCircle, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { today } from "@/lib/engine/ninoClock";
 import {
   useSharedGoal,
   useSharedGoalMembers,
@@ -346,7 +347,7 @@ function ContribModal({
   onSubmit: (v: { amount: number; occurred_at: string; note: string }) => void;
 }) {
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(today());
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 

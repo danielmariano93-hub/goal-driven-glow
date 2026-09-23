@@ -8,6 +8,7 @@ import { loadProfile } from "./UserProfile.ts";
 import { writeDurableMemory } from "./MemoryWriter.ts";
 import { periodReviewKey } from "../../intelligence/logicalDedup.ts";
 import { fetchAllPages } from "../../derived/pagedSelect.ts";
+import { shift, today } from "../../finance-core/ninoClock.ts";
 
 
 export type AdvisorAction = {
@@ -523,7 +524,7 @@ export async function generateAdvisorReviews(
   userId: string,
 ): Promise<{ weekly: number; monthly: number; skipped?: ReviewReadiness }> {
   const profile = await loadProfile(sb, userId);
-  const ninetyDaysAgo = new Date(Date.now() - 90 * DAY).toISOString().slice(0, 10);
+  const ninetyDaysAgo = shift(today(), -90);
   const [{ count: txCount, error: countError }, { data: monthRows, error: monthError }] = await Promise.all([
     sb.from("transactions").select("id", { count: "exact", head: true })
       .eq("user_id", userId).eq("status", "confirmed").gte("occurred_at", ninetyDaysAgo),

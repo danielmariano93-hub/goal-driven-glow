@@ -26,6 +26,7 @@ import { orchestrateAttention } from "./orchestrator.ts";
 import { decideStale } from "./staleness.ts";
 import { detectCashPressure, type Commitment, type ExpectedIncome } from "./cashPressure.ts";
 import { computeFutureIncomeProjection, type RecurringRow, type TransactionRow } from "../finance-core/index.ts";
+import { localDate, shift, today } from "../finance-core/ninoClock.ts";
 import { fetchAllPages } from "../derived/pagedSelect.ts";
 
 /**
@@ -35,10 +36,10 @@ import { fetchAllPages } from "../derived/pagedSelect.ts";
 async function detectCashPressureForUser(
   sb: SupabaseClient,
   userId: string,
-  opts: { now: Date; coverage: number; config: DetectorConfig },
+  opts: { now: Date; coverage: number; config: DetectorConfig; timezone: string },
 ): Promise<BehavioralPattern | null> {
-  const todayIso = opts.now.toISOString().slice(0, 10);
-  const horizonIso = new Date(opts.now.getTime() + 45 * 86_400_000).toISOString().slice(0, 10);
+  const todayIso = localDate(opts.timezone, opts.now);
+  const horizonIso = shift(todayIso, 45);
 
   const [snapshot, statements, occurrences, planned, rules, incomeTxs, settings] = await Promise.all([
     sb.from("financial_current_snapshots").select("available_balance,as_of_date").eq("user_id", userId).maybeSingle(),
@@ -59,7 +60,7 @@ async function detectCashPressureForUser(
     sb.from("transactions")
       .select("id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id")
       .eq("user_id", userId).eq("type", "income")
-      .gte("occurred_at", new Date(opts.now.getTime() - 150 * 86_400_000).toISOString().slice(0, 10))
+      .gte("occurred_at", shift(todayIso, -150))
       .lte("occurred_at", horizonIso).limit(500),
     sb.from("user_financial_settings")
       .select("approximate_monthly_income,income_frequency,income_day")
@@ -146,8 +147,8 @@ async function detectCashPressureForUser(
 const TX_FIELDS = "id,account_id,category_id,type,status,amount,occurred_at,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,competence_date,occurred_at_time,occurred_at_timezone,occurred_at_precision,category_source,category_confidence";
 const WINDOW_DAYS = 210;
 
-function isoDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+function isoDaysAgo(days: number, timezone: string): string {
+  return shift(today({ timezone }), -days);
 }
 
 async function chunkUpsert(
@@ -306,7 +307,7 @@ export async function runAnticipationForUser(
   const [txResp, categoriesResp, cardsResp, statementsResp] = await Promise.all([
     // Paginado: `.limit(8000)` era cortado em 1.000 linhas em silêncio.
     fetchAllPages<any>((from, to) => sb.from("transactions").select(TX_FIELDS)
-      .eq("user_id", userId).gte("occurred_at", isoDaysAgo(WINDOW_DAYS))
+      .eq("user_id", userId).gte("occurred_at", isoDaysAgo(WINDOW_DAYS, context.timezone))
       .order("occurred_at", { ascending: true }).order("id", { ascending: true })
       .range(from, to), { source: "transactions" }).then((data) => ({ data, error: null })),
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
@@ -370,6 +371,7 @@ export async function runAnticipationForUser(
         now,
         coverage: quality.coverage,
         config: cashConfig,
+        timezone: context.timezone,
       });
       if (cashPattern) eligible.set("upcoming_cash_pressure", cashConfig);
     } catch (error) {
@@ -494,7 +496,7 @@ export async function runAnticipationForUser(
   })();
 
   const { fatigue, receptivity } = await loadFatigue(sb, userId);
-  const todayIso = now.toISOString().slice(0, 10);
+  const todayIso = localDate(context.timezone, now);
   const candidates: AnticipationOpportunity[] = [];
 
   for (const pattern of fresh) {

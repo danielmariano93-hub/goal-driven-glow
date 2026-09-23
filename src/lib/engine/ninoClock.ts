@@ -161,3 +161,14 @@ export function today(user?: { timezone?: string | null } | null, now?: Date): s
   return localDate(user?.timezone ?? DEFAULT_TIMEZONE, now ?? new Date());
 }
 
+/**
+ * Representa a data civil local como meio-dia UTC para motores legados que
+ * ainda recebem `Date`. O instante não representa "agora": ele é apenas um
+ * contêiner estável para ano/mês/dia, sem risco de atravessar a fronteira UTC.
+ */
+export function civilReferenceDate(
+  user?: { timezone?: string | null } | null,
+  now?: Date,
+): Date {
+  return new Date(`${today(user, now)}T12:00:00Z`);
+}
