@@ -15,27 +15,32 @@ const W = 1200, H = 680;
 const RGBA = 4;
 const PURPLE = [109, 59, 255, 255];
 const ORANGE = [255, 159, 28, 255];
-const REFUND_GREEN = [35, 176, 126, 255];
 const LABEL = [72, 65, 91, 255];
 const MUTED_LABEL = [115, 106, 136, 255];
 
-// Fonte bitmap mínima para manter o renderer independente de Canvas/fontes
-// nativas no Supabase Edge. O gráfico só precisa de números e separadores.
-const GLYPHS: Record<string, string[]> = {
-  "0": ["111", "101", "101", "101", "111"],
-  "1": ["010", "110", "010", "010", "111"],
-  "2": ["111", "001", "111", "100", "111"],
-  "3": ["111", "001", "111", "001", "111"],
-  "4": ["101", "101", "111", "001", "001"],
-  "5": ["111", "100", "111", "001", "111"],
-  "6": ["111", "100", "111", "101", "111"],
-  "7": ["111", "001", "010", "010", "010"],
-  "8": ["111", "101", "111", "101", "111"],
-  "9": ["111", "101", "111", "001", "111"],
-  "-": ["000", "000", "111", "000", "000"],
-  ",": ["000", "000", "000", "010", "100"],
-  ".": ["000", "000", "000", "000", "010"],
-  "k": ["100", "101", "110", "101", "101"],
+type VectorPoint = [number, number];
+type VectorGlyph = VectorPoint[][];
+
+// Dígitos monolineares desenhados como vetores, com antialiasing por cobertura.
+// Evita tanto a fonte bitmap "de máquina" quanto dependências nativas de Canvas.
+const VECTOR_GLYPHS: Record<string, VectorGlyph> = {
+  "0": [[[0.25, 0], [0.72, 0], [0.92, 0.2], [0.92, 0.78], [0.72, 1], [0.25, 1], [0.08, 0.78], [0.08, 0.2], [0.25, 0]]],
+  "1": [[[0.2, 0.2], [0.48, 0], [0.48, 1]], [[0.16, 1], [0.8, 1]]],
+  "2": [[[0.08, 0.2], [0.25, 0.03], [0.7, 0], [0.9, 0.18], [0.85, 0.36], [0.1, 1], [0.92, 1]]],
+  "3": [[[0.08, 0.08], [0.68, 0], [0.9, 0.18], [0.65, 0.48], [0.9, 0.66], [0.84, 0.9], [0.65, 1], [0.08, 0.92]]],
+  "4": [[[0.76, 1], [0.76, 0]], [[0.76, 0.62], [0.06, 0.62], [0.55, 0]]],
+  "5": [[[0.9, 0], [0.16, 0], [0.1, 0.46], [0.68, 0.46], [0.9, 0.62], [0.86, 0.88], [0.68, 1], [0.08, 0.92]]],
+  "6": [[[0.82, 0.05], [0.58, 0], [0.22, 0.18], [0.08, 0.56], [0.13, 0.86], [0.35, 1], [0.72, 0.97], [0.9, 0.74], [0.78, 0.5], [0.18, 0.5]]],
+  "7": [[[0.06, 0], [0.94, 0], [0.36, 1]]],
+  "8": [
+    [[0.28, 0], [0.7, 0], [0.88, 0.2], [0.72, 0.48], [0.28, 0.48], [0.1, 0.2], [0.28, 0]],
+    [[0.28, 0.48], [0.72, 0.48], [0.92, 0.76], [0.72, 1], [0.28, 1], [0.08, 0.76], [0.28, 0.48]],
+  ],
+  "9": [[[0.82, 0.5], [0.22, 0.5], [0.08, 0.26], [0.25, 0.03], [0.68, 0], [0.88, 0.18], [0.86, 0.7], [0.62, 1], [0.28, 1]]],
+  "-": [[[0.12, 0.52], [0.88, 0.52]]],
+  ",": [[[0.55, 0.86], [0.48, 1.08], [0.3, 1.22]]],
+  ".": [[[0.5, 0.96], [0.51, 0.97]]],
+  "k": [[[0.16, 0], [0.16, 1]], [[0.85, 0.18], [0.18, 0.6], [0.86, 1]]],
 };
 
 function crc32(bytes: Uint8Array): number {
@@ -78,42 +83,88 @@ function fillRect(buf: Uint8Array, x: number, y: number, w: number, h: number, c
     }
   }
 }
-function textWidth(value: string, scale = 2): number {
-  if (!value) return 0;
-  return value.length * 3 * scale + (value.length - 1) * scale;
+function blendPixel(buf: Uint8Array, x: number, y: number, color: number[], alpha: number) {
+  if (x < 0 || y < 0 || x >= W || y >= H || alpha <= 0) return;
+  const i = (y * W + x) * RGBA;
+  const a = Math.min(1, alpha);
+  buf[i] = Math.round(buf[i] * (1 - a) + color[0] * a);
+  buf[i + 1] = Math.round(buf[i + 1] * (1 - a) + color[1] * a);
+  buf[i + 2] = Math.round(buf[i + 2] * (1 - a) + color[2] * a);
+  buf[i + 3] = 255;
 }
-function drawText(
+function smoothSegment(
+  buf: Uint8Array,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  color: number[],
+  thickness: number,
+) {
+  const radius = thickness / 2;
+  const minX = Math.floor(Math.min(x0, x1) - radius - 1);
+  const maxX = Math.ceil(Math.max(x0, x1) + radius + 1);
+  const minY = Math.floor(Math.min(y0, y1) - radius - 1);
+  const maxY = Math.ceil(Math.max(y0, y1) + radius + 1);
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const lengthSquared = dx * dx + dy * dy || 1;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      const projection = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / lengthSquared));
+      const nearestX = x0 + projection * dx;
+      const nearestY = y0 + projection * dy;
+      const distance = Math.hypot(px - nearestX, py - nearestY);
+      blendPixel(buf, x, y, color, Math.max(0, Math.min(1, radius + 0.75 - distance)));
+    }
+  }
+}
+function vectorTextWidth(value: string, size: number): number {
+  if (!value) return 0;
+  return value.length * size * 0.58 + (value.length - 1) * size * 0.12;
+}
+function drawVectorText(
   buf: Uint8Array,
   value: string,
   x: number,
   y: number,
   color: number[],
-  scale = 2,
+  size: number,
 ) {
-  let cursor = Math.round(x);
+  let cursor = x;
   for (const character of value) {
-    const glyph = GLYPHS[character];
+    const glyph = VECTOR_GLYPHS[character];
     if (glyph) {
-      glyph.forEach((row, rowIndex) => {
-        for (let column = 0; column < row.length; column++) {
-          if (row[column] === "1") {
-            fillRect(buf, cursor + column * scale, y + rowIndex * scale, scale, scale, color);
-          }
+      for (const path of glyph) {
+        for (let point = 0; point < path.length - 1; point++) {
+          const [fromX, fromY] = path[point];
+          const [toX, toY] = path[point + 1];
+          smoothSegment(
+            buf,
+            cursor + fromX * size * 0.58,
+            y + fromY * size,
+            cursor + toX * size * 0.58,
+            y + toY * size,
+            color,
+            Math.max(1.1, size * 0.105),
+          );
         }
-      });
+      }
     }
-    cursor += 4 * scale;
+    cursor += size * 0.7;
   }
 }
-function drawTextCentered(
+function drawVectorTextCentered(
   buf: Uint8Array,
   value: string,
   centerX: number,
   y: number,
   color: number[],
-  scale = 2,
+  size: number,
 ) {
-  drawText(buf, value, centerX - textWidth(value, scale) / 2, y, color, scale);
+  drawVectorText(buf, value, centerX - vectorTextWidth(value, size) / 2, y, color, size);
 }
 export function barAmountLabel(value: number, includeCents = true): string {
   const sign = value < 0 ? "-" : "";
@@ -245,7 +296,7 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
           Math.min(zeroY, valueY),
           singleBarWidth - 1,
           height,
-          value < 0 ? REFUND_GREEN : color,
+          color,
         );
         barAnnotations.push({ value, x: xAt(index), y: valueY });
       });
@@ -273,13 +324,13 @@ export async function renderArtifactPng(payload: ArtifactPayload): Promise<Uint8
       const y = annotation.value < 0
         ? Math.min(chart.y + chart.h - 13, annotation.y + 6)
         : Math.max(chart.y + 2, annotation.y - 16);
-      drawTextCentered(buf, label, annotation.x, y, LABEL, 2);
+      drawVectorTextCentered(buf, label, annotation.x, y, LABEL, 10.5);
     }
 
     // O eixo usa apenas o dia do mês, evitando a repetição visual de "/09".
     norm.labels.slice(0, count).forEach((label, index) => {
       const day = chartDayLabel(label);
-      drawTextCentered(buf, day, xAt(index), chart.y + chart.h + 16, MUTED_LABEL, 2);
+      drawVectorTextCentered(buf, day, xAt(index), chart.y + chart.h + 16, MUTED_LABEL, 11.5);
     });
   }
 

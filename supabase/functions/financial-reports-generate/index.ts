@@ -532,12 +532,12 @@ async function generateForUser(
         (reportType === "monthly" || reportType === "monthly_partial") &&
         report.payload.series.length > 0;
       const body = attachDailyChart
-        ? monthlyChartCaption(report, reportUrl)
+        ? monthlyChartCaption(report, reportUrl, transactions)
         : whatsappMessage(report, reportUrl);
 
       let artifactId: string | null = null;
       if (attachDailyChart) {
-        const artifactPayload = buildMonthlyDailyChart(report, body);
+        const artifactPayload = buildMonthlyDailyChart(report, body, transactions);
         const { data: artifact, error: artifactError } = await sb.from("agent_artifacts").insert({
           user_id: userId,
           kind: "chart",

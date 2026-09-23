@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMonthlyDailyChart,
+  grossDailySpend,
   monthlyChartCaption,
   REPORT_DAILY_CHART_VERSION,
   trailingAverage,
 } from "@/lib/reports/intelligent/whatsappChart";
 import type { IntelligentReport } from "@/lib/reports/intelligent/types";
+import type { TransactionRow } from "@/lib/engine/facts";
 import { toRenderableSeries } from "../../supabase/functions/_shared/artifacts/normalize";
 import {
   barAmountLabel,
@@ -91,6 +93,30 @@ function reportFixture(): IntelligentReport {
   };
 }
 
+function transactionsFixture(): TransactionRow[] {
+  const base = {
+    account_id: "account-1",
+    category_id: null,
+    status: "confirmed" as const,
+    description: "Teste",
+    transfer_group_id: null,
+    payment_method: "account",
+    credit_card_id: null,
+    competence_date: null,
+    settles_card_id: null,
+  };
+  return [
+    { ...base, id: "expense-1", type: "expense", amount: 100, occurred_at: "2026-09-01", movement_kind: "transaction" },
+    { ...base, id: "expense-2", type: "expense", amount: 60, occurred_at: "2026-09-02", movement_kind: "transaction" },
+    { ...base, id: "expense-3", type: "expense", amount: 200, occurred_at: "2026-09-03", movement_kind: "transaction" },
+    // Entradas não podem reduzir uma barra de gasto bruto.
+    { ...base, id: "refund-1", type: "income", amount: 400, occurred_at: "2026-09-02", movement_kind: "refund" },
+    { ...base, id: "income-1", type: "income", amount: 900, occurred_at: "2026-09-03", movement_kind: "transaction" },
+    // Pagamento de fatura não é novo consumo e seria dupla contagem.
+    { ...base, id: "card-payment-1", type: "expense", amount: 800, occurred_at: "2026-09-03", movement_kind: "card_payment" },
+  ];
+}
+
 describe("monthly WhatsApp spending chart", () => {
   it("calculates a trailing seven-day average without inventing future days", () => {
     expect(trailingAverage([10, 20, 30, 40, 50, 60, 70, 80], 7))
@@ -99,7 +125,7 @@ describe("monthly WhatsApp spending chart", () => {
 
   it("builds bars plus a smooth-line series from the canonical report payload", () => {
     const report = reportFixture();
-    const artifact = buildMonthlyDailyChart(report, "Resumo determinístico");
+    const artifact = buildMonthlyDailyChart(report, "Resumo determinístico", transactionsFixture());
     const normalized = toRenderableSeries(artifact);
 
     expect(artifact.provenance.formula_version).toBe(REPORT_DAILY_CHART_VERSION);
@@ -109,8 +135,12 @@ describe("monthly WhatsApp spending chart", () => {
     expect(normalized.series[1]).toMatchObject({ name: "Média de 7 dias", renderAs: "line", values: [100, 80, 120] });
   });
 
+  it("uses only eligible outgoing expenses and never subtracts incoming money", () => {
+    expect(grossDailySpend(reportFixture(), transactionsFixture())).toEqual([100, 60, 200]);
+  });
+
   it("keeps the caption concise and grounded in report highlights", () => {
-    const caption = monthlyChartCaption(reportFixture(), "https://meunino.com.br/r/teste");
+    const caption = monthlyChartCaption(reportFixture(), "https://meunino.com.br/r/teste", transactionsFixture());
 
     const readableCaption = caption.replace(/\u00a0/g, " ");
     expect(readableCaption).toContain("R$ 360,00");
@@ -121,7 +151,9 @@ describe("monthly WhatsApp spending chart", () => {
   });
 
   it("renders a valid PNG for WhatsApp", async () => {
-    const png = await renderArtifactPng(buildMonthlyDailyChart(reportFixture(), "Resumo determinístico"));
+    const png = await renderArtifactPng(
+      buildMonthlyDailyChart(reportFixture(), "Resumo determinístico", transactionsFixture()),
+    );
 
     expect(Array.from(png.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
     expect(png.length).toBeGreaterThan(1000);
