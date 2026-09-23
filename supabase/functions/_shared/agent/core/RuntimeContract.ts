@@ -12,7 +12,8 @@
 
 // Deployment stamp .1 marca a correção do fast path humano na V2: check-ins
 // emocionais explícitos são roteados deterministicamente antes do Conversation
-// Brain, sem relaxar o contrato analítico (`nino_analytical.v5`).
+// Brain, sem relaxar o contrato analítico (`nino_analytical.v5`). A expectativa
+// de teste correspondente foi alinhada antes deste deploy atômico de produção.
 export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-23.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
