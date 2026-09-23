@@ -10,10 +10,10 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .1 fecha o contrato semântico entre fluxo de caixa real e
-// renda/consumo operacional em Home, Nino e assessor, sem alterar o contrato
-// analítico de cálculo (`nino_analytical.v5`).
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-20.1";
+// Deployment stamp .1 marca a correção do fast path humano na V2: check-ins
+// emocionais explícitos são roteados deterministicamente antes do Conversation
+// Brain, sem relaxar o contrato analítico (`nino_analytical.v5`).
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-23.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
