@@ -28,6 +28,7 @@ import { checkCompleteness, type CompletenessResult } from "./CompletenessGate.t
 import { groundReply, type GroundingResult } from "./GroundingGateV3.ts";
 import { buildClarification, normalizeSlot } from "./ClarificationResponse.ts";
 import { semanticBlockText } from "./SemanticAnswerFormatter.ts";
+import { today as localToday } from "../../finance-core/ninoClock.ts";
 import { executeSemanticPlan, type SemanticEngineRunner, type SemanticExecutionResult } from "./SemanticQueryExecutor.ts";
 import { MAX_REPLANS, runSemanticInvestigation } from "./SemanticInvestigationLoop.ts";
 import {
@@ -343,7 +344,7 @@ export async function runSemanticTurn(
   // query; o aspecto (hábito, meses fechados, projeção, tendência) sai do
   // resolver pt-BR, nunca da LLM.
   const now = input.now ?? new Date();
-  const today = now.toISOString().slice(0, 10);
+  const today = localToday(null, now);
   let irV3: FinancialQueryIRv3 | null = null;
   let irV3Errors: string[] = [];
   let aspectApplied = false;

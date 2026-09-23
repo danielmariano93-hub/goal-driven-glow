@@ -31,6 +31,7 @@ import {
   REPORT_DAILY_CHART_VERSION,
 } from "../_shared/reports-core/whatsappChart.ts";
 import { FINANCE_CONTRACT_VERSION } from "../_shared/finance-core/index.ts";
+import { civilReferenceDate } from "../_shared/finance-core/ninoClock.ts";
 import { buildCatalogHighlights } from "./catalogHighlights.ts";
 import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
@@ -328,7 +329,9 @@ async function generateForUser(
     if (reportType === "monthly" && !prefs.monthly_report_enabled) return { report_id: null, status: "skipped", skipped: "monthly_disabled" };
   }
 
-  const reference = new Date();
+  // Relatórios são períodos civis do usuário. Às 22h em São Paulo já é o dia
+  // seguinte em UTC; usar o instante bruto antecipava o fim do relatório.
+  const reference = civilReferenceDate({ timezone: prefs.report_timezone });
   const { period, previous } = resolvePeriods(reportType, reference, opts.customPeriod);
   // Guarda de contrato: se o motor de períodos ignorar o intervalo pedido
   // (espelho fora de sincronia), falhamos alto em vez de gravar outro período.
@@ -385,7 +388,14 @@ async function generateForUser(
   // 1ª passada: números do período. 2ª passada: destaques do período mesclados
   // com o catálogo determinístico de insights (insights_catalog.v1).
   const base = buildIntelligentReport(baseInput);
-  const extraHighlights = await buildCatalogHighlights(sb, userId, base.payload, transactions, reference);
+  const extraHighlights = await buildCatalogHighlights(
+    sb,
+    userId,
+    base.payload,
+    transactions,
+    reference,
+    prefs.report_timezone,
+  );
   const report = extraHighlights.length > 0
     ? buildIntelligentReport({ ...baseInput, extraHighlights })
     : base;

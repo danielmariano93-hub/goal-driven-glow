@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { customPeriodOf, daysInPeriod, previousOf, resolvePeriods } from "@/lib/reports/intelligent/periods";
+import { civilReferenceDate, today } from "@/lib/engine/ninoClock";
 
 describe("relatório de período livre", () => {
   it("preserva exatamente o intervalo pedido", () => {
@@ -36,5 +37,15 @@ describe("relatório de período livre", () => {
     const monthly = resolvePeriods("monthly", new Date("2026-08-21T12:00:00Z"));
     expect(monthly.period.start).toBe("2026-07-01");
     expect(previousOf(monthly.period, "monthly").start).toBe("2026-06-01");
+  });
+
+  it("não vira o relatório para o dia seguinte antes da meia-noite local", () => {
+    const instant = new Date("2026-09-23T01:34:00Z");
+    expect(today({ timezone: "America/Sao_Paulo" }, instant)).toBe("2026-09-22");
+
+    const reference = civilReferenceDate({ timezone: "America/Sao_Paulo" }, instant);
+    const { period } = resolvePeriods("monthly_partial", reference);
+    expect(period.end).toBe("2026-09-22");
+    expect(period.label).toBe("setembro até 22/09");
   });
 });

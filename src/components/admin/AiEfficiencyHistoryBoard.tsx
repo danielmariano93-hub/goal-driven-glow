@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { shift, today } from "@/lib/engine/ninoClock";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -93,9 +94,7 @@ const PRESETS = [
 ] as const;
 
 function isoDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return shift(today(), -days);
 }
 
 const ANY = "__any__";
@@ -160,7 +159,7 @@ function DayTooltip({ active, payload, mode }: { active?: boolean; payload?: Arr
 export function AiEfficiencyHistoryBoard() {
   const [preset, setPreset] = useState<string>("30");
   const [from, setFrom] = useState<string>(isoDaysAgo(29));
-  const [to, setTo] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState<string>(today());
   const [channel, setChannel] = useState<string>(ANY);
   const [path, setPath] = useState<string>(ANY);
   const [capability, setCapability] = useState<string>(ANY);
@@ -174,9 +173,9 @@ export function AiEfficiencyHistoryBoard() {
 
   const range = useMemo(() => {
     if (preset === "custom") return { from, to };
-    if (preset === "all") return { from: "2026-01-01", to: new Date().toISOString().slice(0, 10) };
+    if (preset === "all") return { from: "2026-01-01", to: today() };
     const days = Number(preset);
-    return { from: isoDaysAgo(days - 1), to: new Date().toISOString().slice(0, 10) };
+    return { from: isoDaysAgo(days - 1), to: today() };
   }, [preset, from, to]);
 
   const clean = (v: string) => (v === ANY ? null : v);

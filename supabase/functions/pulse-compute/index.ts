@@ -18,8 +18,8 @@ import {
   computeCardExposure,
   computeGoalProgressFacts,
   computeTotalCash,
-  currentMonthYM,
-  todaySP,
+  localDate,
+  shift,
   totalCardDebtOf,
   type AccountRow,
   type CardInstallmentRow,
@@ -50,31 +50,32 @@ Deno.serve(async (req) => {
 
   try {
     const today = new Date();
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const cutoff14 = new Date(today); cutoff14.setDate(cutoff14.getDate() - 14);
-    const cutoff30 = new Date(today); cutoff30.setDate(cutoff30.getDate() - 30);
-    const cutoff90 = new Date(today); cutoff90.setDate(cutoff90.getDate() - 90);
+    const { data: profile } = await sb.from("profiles").select("timezone").eq("id", userId).maybeSingle();
+    const timezone = String(profile?.timezone || "America/Sao_Paulo");
+    const todayIso = localDate(timezone, today);
+    const cutoff14 = shift(todayIso, -14);
+    const cutoff30 = shift(todayIso, -30);
+    const cutoff90 = shift(todayIso, -90);
 
-    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, profileR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
-      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description,created_at,origin,local_occurred_at").eq("user_id", userId).gte("occurred_at", iso(cutoff90)),
+    const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
+      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description,created_at,origin,local_occurred_at").eq("user_id", userId).gte("occurred_at", cutoff90),
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
       sb.from("debts").select("id,name,creditor,outstanding_balance,status,installment_amount,due_day,first_due_date,start_date,installments_total,installments_paid,accounting_method").eq("user_id", userId).eq("status", "active"),
       sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
-      sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", iso(cutoff30)),
+      sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", cutoff30),
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),
-      sb.from("profiles").select("timezone").eq("id", userId).maybeSingle(),
       sb.from("investments").select("goal_id,current_value").eq("user_id", userId),
       sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,anchor_observed_at,source_document_id,reconciliation_delta").eq("user_id", userId),
       sb.from("credit_card_statements").select("id,credit_card_id,competence_month,status,stated_total,outstanding_amount,paid_amount,due_date").eq("user_id", userId),
       sb.from("credit_card_installments").select("id,credit_card_id,competence_month,amount,status,absorbed_by_statement_id,legacy_transaction_id").eq("user_id", userId),
-      sb.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered").eq("user_id", userId).gte("paid_at", iso(cutoff90)),
+      sb.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered").eq("user_id", userId).gte("paid_at", cutoff90),
       sb.from("pending_confirmations").select("id,status,created_at").eq("user_id", userId).eq("status", "pending"),
       sb.from("category_spending_goals").select("id,computed_limit,fixed_limit,active").eq("user_id", userId).eq("active", true),
     ]);
 
-    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,profileR,invR,snapR,stmtR,instR,debtPayR,pendingR,catGoalsR]
+    const failedRead = [txsR,accountsR,cardsR,goalsR,debtsR,contribR,emoR,recR,invR,snapR,stmtR,instR,debtPayR,pendingR,catGoalsR]
       .map((r, index) => ({ index, error: r.error }))
       .find((r) => r.error);
     if (failedRead?.error) throw new Error(`pulse_read_${failedRead.index}: ${failedRead.error.message}`);
@@ -105,14 +106,12 @@ Deno.serve(async (req) => {
     ) as unknown as Parameters<typeof computeTotalCash>[2];
     const statements = (stmtR.data ?? []) as unknown as CardStatementRow[];
     const installments = (instR.data ?? []) as unknown as CardInstallmentRow[];
-    const timezone = String(profileR.data?.timezone || "America/Sao_Paulo");
-
     const confirmed = txs.filter((t) => t.status === "confirmed" && t.type !== "transfer");
-    const last14 = confirmed.filter((t) => t.occurred_at >= iso(cutoff14));
-    const last30 = confirmed.filter((t) => t.occurred_at >= iso(cutoff30));
+    const last14 = confirmed.filter((t) => t.occurred_at >= cutoff14);
+    const last30 = confirmed.filter((t) => t.occurred_at >= cutoff30);
     const distinctDays14 = new Set(last14.map((t) => t.occurred_at)).size;
 
-    const todayIsoSP = todaySP(today);
+    const todayIsoSP = todayIso;
     const totalCash = computeTotalCash(accounts, txs, realtimeBalanceSnapshots ?? balanceSnapshots ?? [], { asOf: todayIsoSP });
 
     const exposures = computeCardExposure({
@@ -120,33 +119,33 @@ Deno.serve(async (req) => {
       statements,
       installments,
       txs,
-      currentYM: currentMonthYM(today),
+      currentYM: todayIsoSP.slice(0, 7),
       cards: cards.map((c) => ({ id: c.id, closing_day: c.closing_day ?? null, due_day: c.due_day ?? null })),
       todayISO: todayIsoSP,
     });
     const cardOutstanding = Math.max(0, totalCardDebtOf(exposures));
     const cardTotalLimit = cards.reduce((a, c) => a + Number(c.total_limit || 0), 0);
 
-    const monthlyExpense30 = computeBehavioralExpense(last30, { start: iso(cutoff30), end: iso(today) });
+    const monthlyExpense30 = computeBehavioralExpense(last30, { start: cutoff30, end: todayIsoSP });
     const goalsPct = goals.map(
       (g) => computeGoalProgressFacts(g.target_amount, g.id, contribs, investments).pct,
     );
 
     const outstandingToday = computeActiveDebtsTotal(debts);
-    const cutoff3 = new Date(today); cutoff3.setDate(cutoff3.getDate() - 3);
+    const cutoff3 = shift(todayIsoSP, -3);
     const debtStatus = computeDebtStatus({
       debts: debtSchedule,
       payments: debtPayments,
       today: todayIsoSP,
     });
     const principalPaid30d = debtPayments
-      .filter((p) => p.paid_at >= iso(cutoff30))
+      .filter((p) => p.paid_at >= cutoff30)
       .reduce((acc, p) => acc + Math.abs(Number(p.amount_applied ?? p.amount ?? 0)), 0);
     const plannedMonth = Number(
       categoryGoals.reduce((acc, g) => acc + Math.abs(Number(g.fixed_limit ?? g.computed_limit ?? 0)), 0).toFixed(2),
     );
 
-    const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= iso(cutoff14)).map((e) => e.occurred_at.slice(0, 10))).size;
+    const emoDays14 = new Set(emos.filter((e) => e.occurred_at.slice(0, 10) >= cutoff14).map((e) => e.occurred_at.slice(0, 10))).size;
     const emoTxIds = new Set(emos.filter((e) => e.transaction_id).map((e) => e.transaction_id as string));
     const expensesWithEmotion30 = last30.filter((t) => t.type === "expense" && emoTxIds.has(t.id)).length;
 
@@ -164,12 +163,12 @@ Deno.serve(async (req) => {
     const score7dAgo = prevSnap ? Number(prevSnap.score) : null;
 
     const input: PulseInput = {
-      today: iso(today),
+      today: todayIsoSP,
       txDaysLast14: distinctDays14,
       txLast30: last30.length,
       txLast30WithCategory: last30.filter((t) => !!t.category_id).length,
       pendingOpen: pendingRows.length,
-      pendingStale: pendingRows.filter((p) => String(p.created_at ?? "").slice(0, 10) < iso(cutoff3)).length,
+      pendingStale: pendingRows.filter((p) => String(p.created_at ?? "").slice(0, 10) < cutoff3).length,
       plannedMonth,
       actualMonth: monthlyExpense30,
       hasPlan: plannedMonth > 0,

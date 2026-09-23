@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { formatBRL } from "@/lib/split/math";
+import { today } from "@/lib/engine/ninoClock";
 
 type ParticipantSlim = {
   amount_due: number | string;
@@ -235,7 +236,7 @@ function OwnedList({ items }: { items: OwnedItem[] }) {
         const received = ext.reduce((a, p) => a + Number(p.amount_paid), 0);
         const pending = ext.reduce((a, p) => a + Math.max(0, Number(p.amount_due) - Number(p.amount_paid)), 0);
         const count = ext.filter((p) => Number(p.amount_paid) < Number(p.amount_due)).length;
-        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < new Date().toISOString().slice(0, 10));
+        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < today());
         const pct = received + pending ? Math.round((received / (received + pending)) * 100) : 100;
         const deleted = Boolean(s.deleted_at);
         return (
@@ -288,13 +289,13 @@ const participantStatusLabels: Record<string, string> = {
 };
 
 function JoinedList({ items }: { items: JoinedItem[] }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayIso = today();
   return (
     <div className="space-y-3">
       {items.map((s) => {
         const remaining = Math.max(0, s.my_due - s.my_paid);
         const pct = s.my_due > 0 ? Math.round((s.my_paid / s.my_due) * 100) : 100;
-        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < today);
+        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < todayIso);
         return (
           <Link key={s.id} to={`/app/divisao-do-role/${s.id}`} className="surface-card block p-4">
             <div className="flex justify-between gap-3">

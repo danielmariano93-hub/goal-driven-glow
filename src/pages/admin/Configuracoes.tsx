@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Copy, Shield, Sliders, Key, Info } from "lucide-react";
+import { today } from "@/lib/engine/ninoClock";
 
 const DENSE_KEY = "admin.density.dense";
 const COLLAPSED_KEY = "admin.sidebar.collapsed";
@@ -46,7 +47,7 @@ export default function Configuracoes() {
     }
   };
 
-  const buildInfo = `${import.meta.env.MODE ?? "production"} · ${new Date().toISOString().slice(0, 10)}`;
+  const buildInfo = `${import.meta.env.MODE ?? "production"} · ${today()}`;
 
   return (
     <div className="space-y-6">

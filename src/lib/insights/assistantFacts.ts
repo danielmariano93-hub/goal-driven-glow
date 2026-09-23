@@ -2,11 +2,12 @@
 // O texto exibido vem sempre da inteligência unificada do Nino (backend).
 import type { InsightFacts } from "@/lib/insights/fallbacks";
 import { computeMonthlyTotals, type TransactionRow } from "@/lib/engine/facts";
+import { today } from "@/lib/engine/ninoClock";
 
 export function buildAssistantFacts(
   txs: TransactionRow[],
   goals: Array<{ name?: string | null }>,
-  ym = new Date().toISOString().slice(0, 7),
+  ym = today().slice(0, 7),
 ): InsightFacts {
   const arr = txs ?? [];
   const totals = computeMonthlyTotals(arr, ym);

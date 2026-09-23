@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { today } from "@/lib/engine/ninoClock";
 import {
   deleteNinoMemory,
   loadNinoContext,
@@ -96,7 +97,7 @@ function downloadContext(data: unknown) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `meu-nino-contexto-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.download = `meu-nino-contexto-${today()}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

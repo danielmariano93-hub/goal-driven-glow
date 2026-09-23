@@ -7,6 +7,7 @@ import { loadProfile } from "./UserProfile.ts";
 import { runAllDetectors, rank, type Insight, type DetectorCtx } from "./InsightsEngine.ts";
 import { emotionalReminderDue, EMOTIONAL_REMINDER_KIND } from "../../intelligence/emotionalReminder.ts";
 import { DIAGNOSIS_OWNED_KINDS } from "../../intelligence/insightValue.ts";
+import { shift, today } from "../../finance-core/ninoClock.ts";
 
 export type ProactiveSuggestion = {
   id?: string;
@@ -67,20 +68,21 @@ export async function scanUser(
 ): Promise<ProactiveSuggestion[]> {
   const persist = options.persist !== false;
   const profile = await loadProfile(sb, userId);
+  const localToday = today();
 
   const [txResp, goalsResp, recResp, runsResp, emotionalResp, surfaceResp] = await Promise.all([
     sb.from("transactions")
       .select("id,amount,description,category_id,occurred_at,type,movement_kind")
       .eq("user_id", userId)
       .eq("status", "confirmed")
-      .gte("occurred_at", new Date(Date.now() - 75 * 86400000).toISOString().slice(0, 10))
+      .gte("occurred_at", shift(localToday, -75))
       .limit(1000),
     sb.from("goals").select("id,name,target_amount,target_date,status").eq("user_id", userId).eq("status", "active"),
     sb.from("recurring_occurrences")
       .select("id,due_date,status,recurring_rules(name,amount)")
       .eq("user_id", userId)
-      .gte("due_date", new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10))
-      .lte("due_date", new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10))
+      .gte("due_date", shift(localToday, -3))
+      .lte("due_date", shift(localToday, 10))
       .limit(50),
     sb.from("agent_runs")
       // `agent_runs` não tem created_at: a coluna canônica é started_at.
@@ -118,8 +120,8 @@ export async function scanUser(
     ...((runsResp.data as any[] | null) ?? []).map((row) => String(row.started_at)),
   ].filter(Boolean);
   const uniqueDays = new Set(activityDates.map((value) => value.slice(0, 10)));
-  const currentStart = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const previousStart = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+  const currentStart = shift(localToday, -30);
+  const previousStart = shift(localToday, -60);
   const lastActivityAt = activityDates.sort().at(-1) ?? null;
 
   const ctx: DetectorCtx = {

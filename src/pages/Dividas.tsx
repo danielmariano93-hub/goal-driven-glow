@@ -15,6 +15,7 @@ import { debtSchema } from "@/lib/validation/finance";
 import { computeActiveDebtsTotal, formatBRL } from "@/lib/engine/facts";
 import { resolveDebtPlan } from "@/lib/finance/accounting";
 import { computeDebtStatus, buildDebtSchedule, type DebtScheduleRow, type DebtStatusItem } from "@/lib/engine/debtStatus";
+import { today } from "@/lib/engine/ninoClock";
 
 export default function Dividas() {
   const { data: items, isLoading } = useDebts();
@@ -519,7 +520,7 @@ function DebtPaymentModal({
   }) => void;
 }) {
   const [accountId, setAccountId] = useState(accounts.find((account) => account.active)?.id ?? "");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(today());
   const [amount, setAmount] = useState(debt.installment_amount ? String(debt.installment_amount) : "");
   const [interest, setInterest] = useState("0");
   const [fees, setFees] = useState("0");

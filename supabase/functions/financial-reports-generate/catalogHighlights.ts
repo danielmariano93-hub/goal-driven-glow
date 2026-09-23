@@ -11,6 +11,7 @@ import {
   type TransactionRow,
 } from "../_shared/finance-core/facts.ts";
 import { BANK_ANCHOR_SELECT } from "../_shared/finance-core/canonicalFacts.ts";
+import { localDate, shift } from "../_shared/finance-core/ninoClock.ts";
 
 import { computeCommitmentAgenda } from "../_shared/finance-core/commitmentAgenda.ts";
 import {
@@ -72,8 +73,6 @@ function toHighlight(c: DeterministicCandidate, prefix: string): ReportHighlight
   };
 }
 
-const ymOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-
 /**
  * Roda o catálogo determinístico com os dados de hoje e devolve destaques
  * prontos para o merge do relatório. Nunca lança: falha volta lista vazia.
@@ -84,11 +83,12 @@ export async function buildCatalogHighlights(
   payload: ReportPayload,
   transactions: TransactionRow[],
   now: Date = new Date(),
+  timezone = "America/Sao_Paulo",
 ): Promise<ReportHighlight[]> {
   try {
-    const todayISO = now.toISOString().slice(0, 10);
-    const in7 = new Date(now.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
-    const currentYM = ymOf(now);
+    const todayISO = localDate(timezone, now);
+    const in7 = shift(todayISO, 7);
+    const currentYM = todayISO.slice(0, 7);
 
     const [cards, statements, installments, debts, rules, accounts, bankAnchors] = await Promise.all([
       sb.from("credit_cards").select("id,closing_day,due_day").eq("user_id", userId).eq("active", true),

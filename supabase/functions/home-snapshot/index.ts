@@ -21,6 +21,7 @@ import { applyIntradayBankAnchorAdjustments } from "../_shared/finance-core/intr
 import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
 import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
+import { today as localToday } from "../_shared/finance-core/ninoClock.ts";
 
 const FN = "home-snapshot";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -99,7 +100,7 @@ Deno.serve(async (req) => {
   }
   const start = String(body.start);
   const end = String(body.end);
-  const today = ISO.test(String(body.today ?? "")) ? String(body.today) : new Date().toISOString().slice(0, 10);
+  const today = ISO.test(String(body.today ?? "")) ? String(body.today) : localToday();
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const missing: string[] = [];

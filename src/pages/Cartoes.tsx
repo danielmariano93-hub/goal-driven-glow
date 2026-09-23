@@ -812,7 +812,7 @@ function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
 }) {
   const [accountId, setAccountId] = useState(accounts.length === 1 ? accounts[0].id : "");
   const [amount, setAmount] = useState(Number(statement.outstanding_amount).toFixed(2).replace(".", ","));
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [paidAt, setPaidAt] = useState(todaySP());
   const [saving, setSaving] = useState(false);
   async function submit(event: React.FormEvent) {
     event.preventDefault();

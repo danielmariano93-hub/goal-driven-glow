@@ -8,6 +8,7 @@ import { BrainCircuit, Gauge, Loader2, Scale, ShieldCheck, Sparkles } from "luci
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { shift, today } from "@/lib/engine/ninoClock";
 
 type ProviderMetrics = {
   provider: string | null;
@@ -66,9 +67,7 @@ const PRESETS = [
 ] as const;
 
 function isoDaysAgo(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return shift(today(), -days);
 }
 
 function providerLabel(provider: string | null | undefined) {
@@ -128,7 +127,7 @@ export function AiProviderBenchmarkBoard() {
   const [days, setDays] = useState(30);
   const range = useMemo(() => ({
     from: isoDaysAgo(days - 1),
-    to: new Date().toISOString().slice(0, 10),
+    to: today(),
   }), [days]);
 
   const benchmark = useQuery({

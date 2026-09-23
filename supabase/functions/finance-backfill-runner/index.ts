@@ -11,6 +11,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
+import { shift, today as localToday } from "../_shared/finance-core/ninoClock.ts";
 
 const FN = "finance-backfill-runner";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
@@ -138,8 +139,8 @@ async function advancePhase(sb: any, cp: Checkpoint, stats: { diffs: number }): 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function computeAndRecordDiff(sb: any, cp: Checkpoint): Promise<boolean> {
   // Janela do dual_read: últimos 90 dias até hoje (SP).
-  const today = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const today = localToday();
+  const from = shift(today, -90);
 
   const { data: facts } = await sb
     .from("financial_daily_facts")

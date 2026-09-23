@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
+import { shift, today } from "@/lib/engine/ninoClock";
 import {
   emotionalScore,
   type BehavioralAssessment,
@@ -343,7 +344,7 @@ function emptyObserved(): ObservedBehaviorProfile {
 export async function loadBehavioralMapState(userId: string): Promise<BehavioralMapState> {
   const degraded = new Set<string>();
   const from180 = new Date(Date.now() - 180 * 86_400_000).toISOString();
-  const from90Day = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const from90Day = shift(today(), -90);
   const fromUntyped = supabase.from as unknown as (table: string) => any;
 
   const txPromise = fetchAllPages<TxRow>((from, to) => supabase.from("transactions")

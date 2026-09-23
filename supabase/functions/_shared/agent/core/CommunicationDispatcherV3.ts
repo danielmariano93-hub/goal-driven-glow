@@ -27,6 +27,7 @@ import { composeNarrative, type NarrativeResult } from "../narrative/NarrativeCo
 import { COMM_CONTRACT_VERSION, applyMessageContract, renderWhatsappMessage } from "./MessageContract.ts";
 import { loadNarrativeContext } from "../narrative/NarrativeMemory.ts";
 import { subjectKeyOf } from "../narrative/SignalGrouping.ts";
+import { shift, today } from "../../finance-core/ninoClock.ts";
 
 /**
  * Revalidação tardia (`comm_revalidation.v1`).
@@ -70,7 +71,7 @@ async function revalidateBeforeSend(
   try {
     const { data, error } = await sb.rpc("debt_obligation_state", {
       _user_id: userId,
-      _as_of: new Date().toISOString().slice(0, 10),
+      _as_of: today(),
       _due_soon_days: 7,
     });
     // Fail-safe: sem fonte canônica, cobrança de obrigação é ADIADA.
@@ -374,7 +375,7 @@ async function record(sb: SupabaseClient, args: {
 
 /** Renda operacional dos últimos 30 dias — base do piso de materialidade. */
 async function loadMonthlyIncome(sb: SupabaseClient, userId: string): Promise<number | null> {
-  const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const from = shift(today(), -30);
   const { data, error } = await sb.from("transactions")
     .select("amount")
     .eq("user_id", userId).eq("status", "confirmed").eq("type", "income")

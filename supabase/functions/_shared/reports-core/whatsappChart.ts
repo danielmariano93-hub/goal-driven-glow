@@ -8,7 +8,7 @@ import {
 } from "../finance-core/facts.ts";
 import type { IntelligentReport } from "./types.ts";
 
-export const REPORT_DAILY_CHART_VERSION = "financial_report.daily_gross.v2";
+export const REPORT_DAILY_CHART_VERSION = "financial_report.daily_gross.v3";
 
 export function trailingAverage(values: number[], window = 7): number[] {
   return values.map((_, index) => {

@@ -1,5 +1,6 @@
 import type { ToolContext } from "@lovable.dev/mcp-js";
 import { FINANCE_CONTRACT_VERSION } from "../engine/metrics";
+import { today } from "../engine/ninoClock";
 
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -72,5 +73,5 @@ export function monthRange(month: string): { from: string; to: string } {
 }
 
 export function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  return today().slice(0, 7);
 }

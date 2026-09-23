@@ -6,6 +6,7 @@
 // o que foi feito, valor, competência, conta/cartão e como corrigir. Nunca é
 // emitido sem prova de persistência (ver PersistenceProof).
 // deno-lint-ignore-file no-explicit-any
+import { today } from "../../finance-core/ninoClock.ts";
 
 const NUM_BR = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -70,7 +71,7 @@ export type ActionReceipt = {
 };
 
 function todayISO(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return today(null, now);
 }
 
 /**

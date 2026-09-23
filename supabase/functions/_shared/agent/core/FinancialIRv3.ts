@@ -35,6 +35,7 @@ import {
   MAX_IR_QUERIES,
   normalizeToV2,
 } from "./FinancialQueryIR.ts";
+import { today as localToday } from "../../finance-core/ninoClock.ts";
 
 export const TIME_ASPECTS = [
   /** Estado num instante (saldo, patrimônio, dívida hoje). */
@@ -149,7 +150,7 @@ export function normalizeToV3(
   ir: FinancialQueryIR | FinancialQueryIRv2 | FinancialQueryIRv3 | Record<string, unknown>,
   opts?: { dialogue?: Partial<IRDialogueState>; today?: string },
 ): FinancialQueryIRv3 {
-  const today = opts?.today ?? new Date().toISOString().slice(0, 10);
+  const today = opts?.today ?? localToday();
   const raw = ir as Record<string, unknown>;
   const v2 = normalizeToV2(ir as FinancialQueryIR, opts?.dialogue);
   const rawQueries = Array.isArray(raw.queries) ? (raw.queries as Record<string, unknown>[]) : [];
