@@ -78,6 +78,17 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     claims.push({ id: seq(), ...base, type: "money", value: totalB, label: "total_b", rank: null });
     claims.push({ id: seq(), ...base, type: "money", value: Math.abs(delta), label: "delta_abs", rank: null });
 
+    // O formatter canônico exibe delta_pct como percentual (ratio * 100).
+    // O engine já calculou esse valor; portanto ele deve entrar na evidência
+    // explicitamente, sem ser recalculado pelo Grounding Gate.
+    const totalDeltaPct = num(result.delta_pct);
+    if (totalDeltaPct != null) {
+      claims.push({
+        id: seq(), ...base, type: "percentage", value: Math.abs(totalDeltaPct) * 100,
+        label: "delta_pct", rank: null,
+      });
+    }
+
     const categoryMode = String(result.requested_group_by ?? "none") === "category";
     if (categoryMode) {
       const changed = (result.by_group as Array<Record<string, unknown>>)
@@ -111,6 +122,13 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
         for (const [field, raw] of [["total_a", row.total_a], ["total_b", row.total_b], ["delta_abs", row.delta_abs]] as const) {
           const value = num(raw);
           if (value != null) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(value), label: `${name}:${field}`, rank: null });
+        }
+        const rowDeltaPct = num(row.delta_pct);
+        if (rowDeltaPct != null) {
+          claims.push({
+            id: seq(), ...base, type: "percentage", value: Math.abs(rowDeltaPct) * 100,
+            label: `${name}:delta_pct`, rank: rankIndex >= 0 ? rankIndex + 1 : null,
+          });
         }
       });
       claims.push({
