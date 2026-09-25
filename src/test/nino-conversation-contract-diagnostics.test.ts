@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   conversationContractRepairHint,
   diagnoseConversationTurnContract,
 } from "../../supabase/functions/_shared/agent/core/ConversationTurnDiagnostics.ts";
+import { normalizeConversationTurnContract } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract.ts";
 
 function validRead(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,13 +57,17 @@ describe("ConversationTurnContract diagnostics", () => {
     expect(diagnoseConversationTurnContract(validRead())).toEqual({ valid: true, reasons: [] });
   });
 
-  it("identifies financial semantics emitted outside the financial_read domain", () => {
-    const diagnosis = diagnoseConversationTurnContract(validRead({
+  it("makes read + conversation structurally impossible (metas/compiler_failed regression)", () => {
+    const candidate = validRead({
       domain: "conversation",
-    }));
+      financial_read: null,
+    });
 
+    expect(normalizeConversationTurnContract(candidate)).toBeNull();
+    const diagnosis = diagnoseConversationTurnContract(candidate);
     expect(diagnosis.valid).toBe(false);
-    expect(diagnosis.reasons).toContain("financial_read_outside_domain");
+    expect(diagnosis.reasons).toContain("read_domain_mismatch");
+    expect(conversationContractRepairHint(candidate)).toContain("INVALID_REASONS: read_domain_mismatch");
   });
 
   it("identifies missing financial semantics on an explicit financial_read", () => {
@@ -94,5 +100,13 @@ describe("ConversationTurnContract diagnostics", () => {
       inherit_focus: false,
     }));
     expect(diagnosis.reasons).toContain("continuation_without_focus_inheritance");
+  });
+
+  it("wires deterministic reason codes into ConversationBrain repair and telemetry", () => {
+    const source = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
+    expect(source).toContain("diagnoseConversationTurnContract");
+    expect(source).toContain("INVALID_REASONS:");
+    expect(source).toContain("contract_invalid_reasons: invalidReasons");
+    expect(source).toContain("Corrija exatamente os invariantes listados acima");
   });
 });
