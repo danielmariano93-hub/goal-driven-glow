@@ -55,14 +55,13 @@ describe("ConversationTurnContract diagnostics", () => {
     expect(diagnoseConversationTurnContract(validRead())).toEqual({ valid: true, reasons: [] });
   });
 
-  it("explains the metas/read class that previously became compiler_failed", () => {
+  it("identifies financial semantics emitted outside the financial_read domain", () => {
     const diagnosis = diagnoseConversationTurnContract(validRead({
       domain: "conversation",
-      financial_read: null,
     }));
 
     expect(diagnosis.valid).toBe(false);
-    expect(diagnosis.reasons).toContain("contract_not_canonicalizable");
+    expect(diagnosis.reasons).toContain("financial_read_outside_domain");
   });
 
   it("identifies missing financial semantics on an explicit financial_read", () => {
