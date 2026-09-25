@@ -1,11 +1,12 @@
 // Provider-neutral structured output helper for Nino's semantic layers.
 //
 // Conversation understanding and Financial IR only need ONE structured result.
-// Best-effort schemas use stable Chat Completions tool calling. For Groq strict
-// schemas, use native Structured Outputs (response_format/json_schema): this
-// gives constrained decoding without abusing a local function call as an output
-// transport. The public result stays identical so semantic callers do not need
-// provider-specific branches.
+// For Groq, semantic-contract generation uses native Structured Outputs
+// (response_format/json_schema) in both best-effort and strict modes. This avoids
+// abusing tool calling as a serialization transport: HTTP 200 responses without a
+// tool_calls array are valid model responses, but they are not valid contract
+// transport. Real domain tools continue to be executed elsewhere by the agent
+// runtime; this helper never executes a tool.
 // deno-lint-ignore-file no-explicit-any
 import {
   aiEndpoint, aiJsonHeaders, normalizeAiModel,
@@ -61,14 +62,14 @@ export function safeAiErrorDetail(raw: string): string | null {
     .slice(0, 320) || null;
 }
 
-function useNativeStrictStructuredOutput(args: {
+function useNativeStructuredOutput(args: {
   provider: AiProviderConfig;
   tool: StructuredFunctionSpec;
 }): boolean {
-  // Groq supports constrained JSON-schema decoding for GPT-OSS. This path is
-  // deliberately limited to strict schemas so existing V2 best-effort/tool-call
-  // behavior remains untouched during the V3 migration.
-  return args.provider.provider === "groq" && args.tool.strict === true;
+  // Groq exposes JSON Schema mode for GPT-OSS in both best-effort and strict
+  // variants. callStructuredFunction is an OUTPUT helper, not a real tool
+  // executor, so native structured output is the canonical transport here.
+  return args.provider.provider === "groq";
 }
 
 function retryAfterMs(response: Response): number | null {
@@ -147,7 +148,7 @@ export async function callStructuredFunction(args: {
 }): Promise<StructuredCallResult> {
   const started = Date.now();
   const model = normalizeAiModel(args.model, args.provider);
-  const nativeStrictOutput = useNativeStrictStructuredOutput(args);
+  const nativeStructuredOutput = useNativeStructuredOutput(args);
   const body: Record<string, unknown> = {
     model,
     messages: [
@@ -157,13 +158,13 @@ export async function callStructuredFunction(args: {
     temperature: args.temperature ?? 0,
   };
 
-  if (nativeStrictOutput) {
+  if (nativeStructuredOutput) {
     body.response_format = {
       type: "json_schema",
       json_schema: {
         name: args.tool.name,
         ...(args.tool.description ? { description: args.tool.description } : {}),
-        strict: true,
+        strict: args.tool.strict === true,
         schema: args.tool.parameters,
       },
     };
@@ -256,7 +257,7 @@ export async function callStructuredFunction(args: {
   const outputTokens = Math.max(0, Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0);
 
   let functionArguments = "";
-  if (nativeStrictOutput) {
+  if (nativeStructuredOutput) {
     functionArguments = String(json?.choices?.[0]?.message?.content ?? "");
   } else {
     const call = (json?.choices?.[0]?.message?.tool_calls ?? []).find(
@@ -276,7 +277,7 @@ export async function callStructuredFunction(args: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       latency_ms: Date.now() - started,
-      error_code: nativeStrictOutput
+      error_code: nativeStructuredOutput
         ? "structured_call_missing_structured_output"
         : "structured_call_missing_tool_call",
       error_detail: null,

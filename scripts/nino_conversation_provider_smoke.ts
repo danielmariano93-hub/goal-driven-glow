@@ -3,9 +3,9 @@
 //
 // This is intentionally a MINIMAL deployment-compatibility probe. The repository
 // suite already covers semantic breadth (including goals overview). Here we spend
-// provider quota only on the two exact transport families production depends on:
-// - V2 best-effort/forced tool calling on the fast GPT-OSS model;
-// - V3 strict Structured Outputs on the primary GPT-OSS model.
+// provider quota only on the two exact semantic-output modes production depends on:
+// - V2 best-effort JSON Schema on the fast GPT-OSS model;
+// - V3 strict JSON Schema on the primary GPT-OSS model.
 //
 // Keeping this to two real calls avoids the deployment gate manufacturing Groq
 // TPM/RPM failures while still failing closed on genuine provider incompatibility.
@@ -15,7 +15,7 @@ import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
 
-// V2 / 20b: exercise the exact ConversationBrain structured tool-call transport.
+// V2 / 20b: exercise the exact ConversationBrain best-effort JSON Schema output.
 // Semantic correctness is model-independent and already covered by the full suite;
 // this probe verifies that the configured Groq account/model can execute the path.
 const outcome = await interpretConversationTurn({
@@ -101,8 +101,8 @@ console.log(JSON.stringify({
   ok: true,
   provider: outcome.telemetry.provider,
   models: {
-    v2_tool_call: fastModel,
-    v3_strict_output: model,
+    v2_best_effort_json_schema: fastModel,
+    v3_strict_json_schema: model,
   },
   v2: {
     mode: outcome.contract.mode,
