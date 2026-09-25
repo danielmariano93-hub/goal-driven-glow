@@ -92,6 +92,7 @@ jobs:
           supabase/functions/_shared/agent/v3/EvidenceEnvelopeV3.ts
           supabase/functions/_shared/agent/v3/TurnSpecV3Adapter.ts
           supabase/functions/_shared/agent/v3/RuntimeV3Shadow.ts
+          supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts
 
       - name: Report integrated legacy type debt
         continue-on-error: true
