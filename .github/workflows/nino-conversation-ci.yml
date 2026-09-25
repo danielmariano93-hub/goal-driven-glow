@@ -66,6 +66,7 @@ jobs:
           src/test/nino-ai-provider-shadow-v1.test.ts
           src/test/nino-ai-provider-admin-benchmark.test.ts
           src/test/nino-comparison-presentation.test.ts
+          src/test/nino-v2-goals-overview-safety.test.ts
           src/test/nino-runtime-v3-foundation.test.ts
           src/test/nino-runtime-v3-interpreter.test.ts
           src/test/nino-runtime-v3-production-shadow.test.ts
