@@ -377,14 +377,15 @@ function normalizeTask(raw: any): SemanticTaskV3 | null {
 export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 | null {
   const value = raw as any;
   if (!value || value.version !== TURN_SPEC_V3) return null;
+  const parsedReferences = references(value.references);
+  if (!parsedReferences) return null;
   const common = {
     version: TURN_SPEC_V3,
     act: value.act,
     canonical_request: String(value.canonical_request ?? "").trim(),
     inherit_topic: Boolean(value.inherit_topic),
-    references: references(value.references),
+    references: parsedReferences,
   } as const;
-  if (!common.references) return null;
 
   let turn: TurnSpecV3 | null = null;
   if (value.kind === "conversation") {
