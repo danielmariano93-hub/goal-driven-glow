@@ -1,13 +1,10 @@
-// Real-provider smoke for the semantic authority used in production.
+// Real-provider smoke for the semantic authorities used in production/migration.
 // Run only when GROQ_API_KEY + NINO_AI_PROVIDER are configured.
 //
-// IMPORTANT: this is a DEPLOYMENT-COMPATIBILITY probe, not a semantic benchmark.
-// It deliberately uses an unambiguous request with explicit entity + period so
-// the gate measures whether the provider can emit the canonical structured
-// contract. Broader language/continuity cases stay covered by the deterministic
-// Conversation Brain regression suite and must not make infrastructure deploys
-// depend on one model's interpretation of an intentionally open-ended phrase.
+// This is a DEPLOYMENT-COMPATIBILITY probe plus two closed-form V3 semantic
+// invariants derived from real production incidents. No user/database data is used.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
+import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
 
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const outcome = await interpretConversationTurn({
@@ -56,13 +53,64 @@ if ("confidence" in outcome.contract) {
   throw new Error("ConversationBrain reintroduced numeric self-confidence");
 }
 
+// V3: current-turn entity must beat prior memory; temporal demonstrative must
+// remain a period rather than becoming a reference to the old category.
+const lazer = await interpretSemanticTurnV3({
+  text: "E em Lazer? Quanto eu gastei esse mês?",
+  history_text: [
+    "Usuário: Quanto eu gastei em Alimentação?",
+    "Nino: Alimentação ficou abaixo da referência.",
+  ].join("\n"),
+  context_text: JSON.stringify({
+    conversation_state: {
+      current_topic: "categoria:Alimentação",
+      active_category: "Alimentação",
+      active_period: { from: "2026-09-01", to: "2026-09-25", label: "este mês" },
+    },
+  }),
+  model,
+});
+if (!lazer.telemetry.ok || lazer.turn?.kind !== "task") {
+  throw new Error(`V3 Lazer smoke failed: ${lazer.telemetry.error ?? "missing_task"}`);
+}
+const lazerTask = lazer.turn.tasks.find((item) => item.kind === "financial_query");
+if (!lazerTask || lazerTask.kind !== "financial_query") throw new Error("V3 Lazer smoke missing financial_query");
+const lazerCategory = lazerTask.filters.find((filter) => filter.field === "category")?.entity;
+if (String(lazerCategory?.value ?? "").toLowerCase() !== "lazer" || lazerCategory?.source !== "current_turn") {
+  throw new Error(`V3 did not preserve explicit Lazer override: ${JSON.stringify(lazerCategory)}`);
+}
+if (!lazerTask.periods.some((period) => /m[eê]s/i.test(period.value) && period.source === "current_turn")) {
+  throw new Error(`V3 lost current-month period: ${JSON.stringify(lazerTask.periods)}`);
+}
+if (lazer.turn.references.length !== 0) {
+  throw new Error(`V3 emitted inherited reference alongside explicit Lazer: ${JSON.stringify(lazer.turn.references)}`);
+}
+
+// V3: goals overview is executable semantics, never generic conversation.
+const goals = await interpretSemanticTurnV3({
+  text: "Quais metas eu tenho?",
+  history_text: "",
+  context_text: JSON.stringify({ conversation_state: null }),
+  model,
+});
+if (!goals.telemetry.ok || goals.turn?.kind !== "task") {
+  throw new Error(`V3 goals smoke failed: ${goals.telemetry.error ?? "missing_task"}`);
+}
+const goalTask = goals.turn.tasks.find((item) => item.kind === "goal_query");
+if (!goalTask || goalTask.kind !== "goal_query" || goalTask.operation !== "overview" || goalTask.goal !== null) {
+  throw new Error(`V3 goals semantics invalid: ${JSON.stringify(goalTask)}`);
+}
+
 console.log(JSON.stringify({
   ok: true,
   provider: outcome.telemetry.provider,
   model: outcome.telemetry.model,
-  mode: outcome.contract.mode,
-  act: outcome.contract.act,
-  periods,
-  canonical_request: outcome.contract.canonical_request,
-  financial_read: outcome.contract.financial_read,
+  v2: {
+    mode: outcome.contract.mode,
+    act: outcome.contract.act,
+    periods,
+    canonical_request: outcome.contract.canonical_request,
+    financial_read: outcome.contract.financial_read,
+  },
+  v3_smokes: ["explicit_entity_override", "goals_overview"],
 }));

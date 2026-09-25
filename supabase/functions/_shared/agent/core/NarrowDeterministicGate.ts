@@ -1,8 +1,10 @@
 // NarrowDeterministicGate (`nino_fast_contract.v2`)
 //
-// Latency/safety fast path for a deliberately tiny set of exact reads plus one
-// ambiguity guard that prevents the engine from inventing a comparison target.
-// Anything outside these exact shapes goes to the Conversation Brain.
+// Latency/safety fast path for a deliberately tiny set of unequivocal reads plus
+// one ambiguity guard that prevents the engine from inventing a comparison
+// target. The gate emits the SAME canonical contract consumed by the ordinary
+// runtime; it never answers directly or invents financial truth. Anything
+// outside these closed shapes goes to the Conversation Brain.
 
 import {
   normalizeConversationTurnContract,
@@ -17,13 +19,20 @@ function norm(text: string): string {
     .trim();
 }
 
-const EXACT_READS = new Map<string, string>([
-  ["qual meu saldo", "Qual é meu saldo atual?"],
-  ["qual e meu saldo", "Qual é meu saldo atual?"],
-  ["quanto tenho de saldo", "Qual é meu saldo atual?"],
-  ["qual meu patrimonio", "Qual é meu patrimônio líquido atual?"],
-  ["qual e meu patrimonio", "Qual é meu patrimônio líquido atual?"],
-  ["quanto tenho de patrimonio", "Qual é meu patrimônio líquido atual?"],
+const EXACT_READS = new Map<string, { canonical: string; metric: "balance" | "net_worth" | "goal_progress" }>([
+  ["qual meu saldo", { canonical: "Qual é meu saldo atual?", metric: "balance" }],
+  ["qual e meu saldo", { canonical: "Qual é meu saldo atual?", metric: "balance" }],
+  ["quanto tenho de saldo", { canonical: "Qual é meu saldo atual?", metric: "balance" }],
+  ["qual meu patrimonio", { canonical: "Qual é meu patrimônio líquido atual?", metric: "net_worth" }],
+  ["qual e meu patrimonio", { canonical: "Qual é meu patrimônio líquido atual?", metric: "net_worth" }],
+  ["quanto tenho de patrimonio", { canonical: "Qual é meu patrimônio líquido atual?", metric: "net_worth" }],
+  // Stable, entity-free goal overview. This is a canonical capability, not a
+  // phrase-specific answer: the read still executes get_goals_overview through
+  // Financial IR and therefore uses current database truth.
+  ["quais metas eu tenho", { canonical: "Quais metas eu tenho?", metric: "goal_progress" }],
+  ["mostre minhas metas", { canonical: "Quais metas eu tenho?", metric: "goal_progress" }],
+  ["me mostre minhas metas", { canonical: "Quais metas eu tenho?", metric: "goal_progress" }],
+  ["como estao minhas metas", { canonical: "Como estão minhas metas?", metric: "goal_progress" }],
 ]);
 
 const MONTH_TOKEN = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
@@ -88,16 +97,15 @@ export function resolveNarrowDeterministicTurn(
   const ambiguousWindow = ambiguousCategoryAverageComparison(normalized);
   if (ambiguousWindow) return ambiguityContract(text, ambiguousWindow);
 
-  const canonical = EXACT_READS.get(normalized);
-  if (!canonical) return null;
-  const metric = normalized.includes("patrimonio") ? "net_worth" : "balance";
+  const exact = EXACT_READS.get(normalized);
+  if (!exact) return null;
 
   return normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
     act: "new_request",
     mode: "read",
     domain: "financial_read",
-    canonical_request: canonical,
+    canonical_request: exact.canonical,
     inherit_focus: false,
     focus: {
       category: null,
@@ -120,7 +128,7 @@ export function resolveNarrowDeterministicTurn(
     financial_read: {
       intent: "lookup",
       queries: [{
-        metric,
+        metric: exact.metric,
         operation: "value",
         group_by: [],
         filters: [],

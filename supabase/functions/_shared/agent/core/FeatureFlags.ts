@@ -45,7 +45,9 @@ export type FlagName =
   | "write_workflow_v1"
   | "conversation_brain_v1"
   | "conversation_brain_shadow_v1"
-  | "ai_provider_shadow_v1";
+  | "ai_provider_shadow_v1"
+  | "runtime_v3_shadow"
+  | "runtime_v3_authority_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -80,6 +82,8 @@ const DEFAULTS: Record<FlagName, boolean> = {
   conversation_brain_v1: false,
   conversation_brain_shadow_v1: false,
   ai_provider_shadow_v1: false,
+  runtime_v3_shadow: false,
+  runtime_v3_authority_v1: false,
 };
 
 const ROLLOUT_FLAGS = new Set<FlagName>([
@@ -98,6 +102,8 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "conversation_brain_v1",
   "conversation_brain_shadow_v1",
   "ai_provider_shadow_v1",
+  "runtime_v3_shadow",
+  "runtime_v3_authority_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;

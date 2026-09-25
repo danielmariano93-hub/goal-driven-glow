@@ -74,11 +74,21 @@ function asksStatisticExplanation(text: string): boolean {
     || /\b(?:esses|esses valores|os valores).*(?:media|mensal|total)\b/.test(value);
 }
 
+/**
+ * Reuse previous comparison evidence only for real anaphora. A bare
+ * demonstrative ("esse/essa") is not enough: in Portuguese it commonly belongs
+ * to a temporal phrase ("esse mês", "essa semana"). The old rule treated any
+ * "esse" as a category reference and caused explicit topic switches such as
+ * "e em Lazer, quanto gastei esse mês?" to replay Alimentação.
+ */
 function asksSelectedEntityAmount(text: string): boolean {
   const value = norm(text);
   const amount = /\b(?:quanto|valor|diferenca|delta)\b/.test(value);
-  const relation = /\b(?:ela|ele|essa|esse|acima|abaixo|media)\b/.test(value);
-  return amount && relation;
+  if (!amount) return false;
+
+  const explicitEntityAnaphora = /\b(?:ela|ele|essa categoria|esta categoria|esse estabelecimento|este estabelecimento|esse valor|este valor|essa diferenca|esta diferenca)\b/.test(value);
+  const comparisonAnaphora = /\b(?:acima|abaixo|media)\b/.test(value);
+  return explicitEntityAnaphora || comparisonAnaphora;
 }
 
 function samePeriod(
