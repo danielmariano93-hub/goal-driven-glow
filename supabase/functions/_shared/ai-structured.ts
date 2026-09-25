@@ -38,6 +38,7 @@ export type StructuredCallResult = {
 
 const MAX_STRUCTURED_ATTEMPTS = 3;
 const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
+const CONVERSATION_BRAIN_TOOL = "emit_conversation_turn_contract";
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -70,6 +71,42 @@ function useNativeStructuredOutput(args: {
   // variants. callStructuredFunction is an OUTPUT helper, not a real tool
   // executor, so native structured output is the canonical transport here.
   return args.provider.provider === "groq";
+}
+
+function strictConversationBrainSchema(parameters: Record<string, unknown>): Record<string, unknown> {
+  const schema = JSON.parse(JSON.stringify(parameters)) as any;
+  const actionObject = schema?.properties?.action?.anyOf?.find(
+    (candidate: any) => candidate?.type === "object",
+  );
+  if (!actionObject?.properties?.slots) {
+    throw new Error("conversation_brain_schema_missing_action_slots");
+  }
+
+  // Groq strict Structured Outputs requires every object to be closed. ActionIR
+  // slots are intentionally open inside Nino because each write action has its own
+  // shape. Transport them as a JSON string across the provider boundary and
+  // restore the object before ConversationTurnContract validation.
+  actionObject.properties.slots = {
+    type: "string",
+    description: "Objeto JSON serializado contendo os slots da ação. Use um objeto JSON válido, por exemplo {\"target_amount\":5000}.",
+  };
+  return schema;
+}
+
+function restoreConversationBrainTransport(argumentsText: string): { ok: true; value: string } | { ok: false; error: string } {
+  try {
+    const payload = JSON.parse(argumentsText);
+    if (payload?.action && typeof payload.action === "object" && typeof payload.action.slots === "string") {
+      const slots = JSON.parse(payload.action.slots);
+      if (!slots || typeof slots !== "object" || Array.isArray(slots)) {
+        return { ok: false, error: "conversation_brain_slots_not_object" };
+      }
+      payload.action.slots = slots;
+    }
+    return { ok: true, value: JSON.stringify(payload) };
+  } catch {
+    return { ok: false, error: "conversation_brain_slots_transport_invalid" };
+  }
 }
 
 function retryAfterMs(response: Response): number | null {
@@ -149,10 +186,14 @@ export async function callStructuredFunction(args: {
   const started = Date.now();
   const model = normalizeAiModel(args.model, args.provider);
   const nativeStructuredOutput = useNativeStructuredOutput(args);
+  const strictConversationBrain = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
+  const system = strictConversationBrain
+    ? `${args.system}\n\nREGRA DE TRANSPORTE: quando action não for null, action.slots deve ser uma STRING contendo um objeto JSON serializado válido. O runtime desserializa essa string antes de validar/executar a ação.`
+    : args.system;
   const body: Record<string, unknown> = {
     model,
     messages: [
-      { role: "system", content: args.system },
+      { role: "system", content: system },
       { role: "user", content: args.user },
     ],
     temperature: args.temperature ?? 0,
@@ -164,8 +205,10 @@ export async function callStructuredFunction(args: {
       json_schema: {
         name: args.tool.name,
         ...(args.tool.description ? { description: args.tool.description } : {}),
-        strict: args.tool.strict === true,
-        schema: args.tool.parameters,
+        strict: strictConversationBrain || args.tool.strict === true,
+        schema: strictConversationBrain
+          ? strictConversationBrainSchema(args.tool.parameters)
+          : args.tool.parameters,
       },
     };
   } else {
@@ -283,6 +326,27 @@ export async function callStructuredFunction(args: {
       error_detail: null,
       attempts,
     };
+  }
+
+  if (strictConversationBrain) {
+    const restored = restoreConversationBrainTransport(functionArguments);
+    if (!restored.ok) {
+      return {
+        ok: false,
+        status: response.status || 200,
+        provider: args.provider.provider,
+        model,
+        arguments: "",
+        body: json,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        latency_ms: Date.now() - started,
+        error_code: restored.error,
+        error_detail: null,
+        attempts,
+      };
+    }
+    functionArguments = restored.value;
   }
 
   return {
