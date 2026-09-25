@@ -15,6 +15,11 @@ import { getState, patchState } from "./StateManager.ts";
 import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
 import type { ComparisonEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
+import { isEnabled } from "./FeatureFlags.ts";
+import {
+  captureRuntimeV3ShadowSnapshot,
+  scheduleRuntimeV3ProductionShadow,
+} from "../v3/RuntimeV3ProductionShadow.ts";
 
 function evidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
@@ -199,9 +204,39 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     return await handleLegacyTurn(input);
   }
 
+  // Shadow snapshot is captured before the official turn can mutate memory.
+  // It is gated per-user and never changes the official response or financial state.
+  const shadowEnabled = await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);
+  const shadowSb = shadowEnabled ? service() : null;
+  const shadowSnapshot = shadowSb
+    ? await captureRuntimeV3ShadowSnapshot(shadowSb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      inbound_message_id: input.inbound_message_id ?? null,
+      channel: input.channel,
+      text: input.text,
+    }).catch((error) => {
+      console.warn("[AgentCoreV2Entry] V3 shadow snapshot failed", String((error as Error)?.message ?? error).slice(0, 220));
+      return null;
+    })
+    : null;
+
   const turn = await handleTurnV2Core(input);
   await bindEvidence(input, turn).catch((error) => {
     console.error("[AgentCoreV2Entry] evidence binding failed", String((error as Error)?.message ?? error).slice(0, 240));
   });
+
+  if (shadowSb && shadowSnapshot) {
+    scheduleRuntimeV3ProductionShadow({
+      sb: shadowSb,
+      snapshot: shadowSnapshot,
+      official: {
+        path: turn.path ?? null,
+        reply_kind: turn.reply_kind ?? null,
+        run_id: turn.run_id ?? null,
+      },
+    });
+  }
+
   return turn;
 }
