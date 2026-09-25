@@ -5,6 +5,7 @@
 // single semantic authority while still protecting the runtime from impossible
 // or unsafe contracts.
 
+import { isActionKind } from "../core/ActionIR.ts";
 import type {
   EntityFieldV3,
   SemanticReferenceV3,
@@ -106,6 +107,13 @@ function legacySourceInAuthoritativeTurnViolations(turn: TurnSpecV3, allowLegacy
   return violations;
 }
 
+function writeActionViolations(turn: TurnSpecV3): string[] {
+  if (turn.kind !== "task") return [];
+  return turn.tasks
+    .filter((task) => task.kind === "financial_write" && !isActionKind(task.action))
+    .map((task) => `unsupported_financial_write_action:${task.kind === "financial_write" ? task.action : "unknown"}`);
+}
+
 export function verifySemanticInvariantsV3(
   turn: TurnSpecV3,
   options: { allowLegacySource?: boolean } = {},
@@ -116,6 +124,7 @@ export function verifySemanticInvariantsV3(
     ...explicitEntityOverrideViolations(turn),
     ...suspiciousTemporalEntityReferenceViolations(turn),
     ...legacySourceInAuthoritativeTurnViolations(turn, options.allowLegacySource === true),
+    ...writeActionViolations(turn),
   ];
   const unique = [...new Set(violations)];
   return { ok: unique.length === 0, violations: unique };
