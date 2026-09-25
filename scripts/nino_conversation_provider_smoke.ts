@@ -3,10 +3,14 @@
 //
 // This is a DEPLOYMENT-COMPATIBILITY probe plus two closed-form V3 semantic
 // invariants derived from real production incidents. No user/database data is used.
+// The V3 cases intentionally exercise both GPT-OSS models so the smoke validates
+// strict Structured Outputs without consuming the same model's minute-token
+// budget twice back-to-back.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
 import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
 
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
+const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
 const outcome = await interpretConversationTurn({
   text: "Nino, quanto eu gastei com Alimentação em agosto?",
   history: [],
@@ -53,8 +57,8 @@ if ("confidence" in outcome.contract) {
   throw new Error("ConversationBrain reintroduced numeric self-confidence");
 }
 
-// V3: current-turn entity must beat prior memory; temporal demonstrative must
-// remain a period rather than becoming a reference to the old category.
+// V3 / 120b: current-turn entity must beat prior memory; temporal demonstrative
+// must remain a period rather than becoming a reference to the old category.
 const lazer = await interpretSemanticTurnV3({
   text: "E em Lazer? Quanto eu gastei esse mês?",
   history_text: [
@@ -86,12 +90,14 @@ if (lazer.turn.references.length !== 0) {
   throw new Error(`V3 emitted inherited reference alongside explicit Lazer: ${JSON.stringify(lazer.turn.references)}`);
 }
 
-// V3: goals overview is executable semantics, never generic conversation.
+// V3 / 20b: goals overview is executable semantics, never generic conversation.
+// Using the second configured GPT-OSS model avoids manufacturing a 120b TPM
+// collision in CI while still exercising the exact strict-schema transport.
 const goals = await interpretSemanticTurnV3({
   text: "Quais metas eu tenho?",
   history_text: "",
   context_text: JSON.stringify({ conversation_state: null }),
-  model,
+  model: fastModel,
 });
 if (!goals.telemetry.ok || goals.turn?.kind !== "task") {
   throw new Error(`V3 goals smoke failed: ${goals.telemetry.error ?? "missing_task"}`);
@@ -111,6 +117,10 @@ console.log(JSON.stringify({
     periods,
     canonical_request: outcome.contract.canonical_request,
     financial_read: outcome.contract.financial_read,
+  },
+  v3_models: {
+    explicit_entity_override: model,
+    goals_overview: fastModel,
   },
   v3_smokes: ["explicit_entity_override", "goals_overview"],
 }));
