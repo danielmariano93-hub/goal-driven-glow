@@ -1,0 +1,51 @@
+name: Nino Agent Run Hotfix
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/nino-agent-run-hotfix.yml'
+
+permissions:
+  contents: read
+
+env:
+  SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Reconfirm real Groq smoke
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -euo pipefail
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+      - name: Deploy agent-run exact revision
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase functions deploy agent-run --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions list --project-ref "$SUPABASE_PROJECT_REF" | grep 'agent-run'
+      - name: Receipt
+        run: |
+          echo "revision=${GITHUB_SHA}"
+          echo "function=agent-run"
+          echo "provider_smoke=passed"
