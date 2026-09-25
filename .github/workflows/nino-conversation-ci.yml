@@ -65,6 +65,7 @@ jobs:
           src/test/nino-ai-provider-shadow-v1.test.ts
           src/test/nino-ai-provider-admin-benchmark.test.ts
           src/test/nino-runtime-v3-foundation.test.ts
+          src/test/nino-runtime-v3-interpreter.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
