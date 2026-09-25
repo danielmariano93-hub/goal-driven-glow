@@ -1,8 +1,11 @@
-// Provider-neutral structured function calling for Nino's semantic layers.
+// Provider-neutral structured output helper for Nino's semantic layers.
 //
 // Conversation understanding and Financial IR only need ONE structured result.
-// Use the stable Chat Completions tool-calling contract instead of depending on
-// provider-specific quirks in a beta Responses implementation.
+// Best-effort schemas use stable Chat Completions tool calling. For Groq strict
+// schemas, use native Structured Outputs (response_format/json_schema): this
+// gives constrained decoding without abusing a local function call as an output
+// transport. The public result stays identical so semantic callers do not need
+// provider-specific branches.
 // deno-lint-ignore-file no-explicit-any
 import {
   aiEndpoint, aiJsonHeaders, normalizeAiModel,
@@ -55,6 +58,16 @@ export function safeAiErrorDetail(raw: string): string | null {
     .slice(0, 320) || null;
 }
 
+function useNativeStrictStructuredOutput(args: {
+  provider: AiProviderConfig;
+  tool: StructuredFunctionSpec;
+}): boolean {
+  // Groq supports constrained JSON-schema decoding for GPT-OSS. This path is
+  // deliberately limited to strict schemas so existing V2 best-effort/tool-call
+  // behavior remains untouched during the V3 migration.
+  return args.provider.provider === "groq" && args.tool.strict === true;
+}
+
 export async function callStructuredFunction(args: {
   provider: AiProviderConfig;
   model: string;
@@ -67,13 +80,28 @@ export async function callStructuredFunction(args: {
 }): Promise<StructuredCallResult> {
   const started = Date.now();
   const model = normalizeAiModel(args.model, args.provider);
+  const nativeStrictOutput = useNativeStrictStructuredOutput(args);
   const body: Record<string, unknown> = {
     model,
     messages: [
       { role: "system", content: args.system },
       { role: "user", content: args.user },
     ],
-    tools: [{
+    temperature: args.temperature ?? 0,
+  };
+
+  if (nativeStrictOutput) {
+    body.response_format = {
+      type: "json_schema",
+      json_schema: {
+        name: args.tool.name,
+        ...(args.tool.description ? { description: args.tool.description } : {}),
+        strict: true,
+        schema: args.tool.parameters,
+      },
+    };
+  } else {
+    body.tools = [{
       type: "function",
       function: {
         name: args.tool.name,
@@ -81,13 +109,12 @@ export async function callStructuredFunction(args: {
         parameters: args.tool.parameters,
         ...(args.tool.strict === undefined ? {} : { strict: args.tool.strict }),
       },
-    }],
-    tool_choice: {
+    }];
+    body.tool_choice = {
       type: "function",
       function: { name: args.tool.name },
-    },
-    temperature: args.temperature ?? 0,
-  };
+    };
+  }
 
   if (args.provider.provider === "groq" && /openai\/gpt-oss-(?:20b|120b)/i.test(model)) {
     body.reasoning_effort = args.reasoning_effort ?? "low";
@@ -130,12 +157,12 @@ export async function callStructuredFunction(args: {
     json = null;
     try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
 
-    // Groq/gpt-oss pode devolver 400 quando a geração não fecha o JSON do
-    // tool-call (output_parse_failed). Isso é falha estocástica de geração,
-    // não pedido inválido. Uma única nova amostra preserva a mesma semântica
-    // sem cair para outro interpretador/rota.
+    // Groq/gpt-oss can return 400 when best-effort tool generation does not
+    // close valid JSON. This is stochastic generation failure, not a request
+    // contract failure. Native strict Structured Outputs should not need this,
+    // but keeping the retry predicate harmlessly covers transient gateway forms.
     const retryableParseFailure = response.status === 400
-      && /output_parse_failed|tool_use_failed|failed_generation/i.test(raw);
+      && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match/i.test(raw);
     if (retryableParseFailure && attempts < 2) continue;
     break;
   }
@@ -157,13 +184,19 @@ export async function callStructuredFunction(args: {
     };
   }
 
-  const call = (json?.choices?.[0]?.message?.tool_calls ?? []).find(
-    (item: any) => item?.type === "function" && item?.function?.name === args.tool.name,
-  );
-  const functionArguments = String(call?.function?.arguments ?? "");
   const usage = json?.usage ?? {};
   const inputTokens = Math.max(0, Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0);
   const outputTokens = Math.max(0, Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0);
+
+  let functionArguments = "";
+  if (nativeStrictOutput) {
+    functionArguments = String(json?.choices?.[0]?.message?.content ?? "");
+  } else {
+    const call = (json?.choices?.[0]?.message?.tool_calls ?? []).find(
+      (item: any) => item?.type === "function" && item?.function?.name === args.tool.name,
+    );
+    functionArguments = String(call?.function?.arguments ?? "");
+  }
 
   if (!functionArguments) {
     return {
@@ -176,7 +209,9 @@ export async function callStructuredFunction(args: {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       latency_ms: Date.now() - started,
-      error_code: "structured_call_missing_tool_call",
+      error_code: nativeStrictOutput
+        ? "structured_call_missing_structured_output"
+        : "structured_call_missing_tool_call",
       error_detail: null,
       attempts,
     };
