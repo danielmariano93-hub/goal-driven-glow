@@ -1,23 +1,24 @@
-// Real-provider smoke for the semantic authorities used in production/migration.
+// Real-provider smoke for the semantic authority that is active in production.
 // Run only when GROQ_API_KEY + NINO_AI_PROVIDER are configured.
 //
-// This is intentionally a MINIMAL deployment-compatibility probe. The repository
-// suite already covers semantic breadth (including goals overview). Here we spend
-// provider quota only on the two exact semantic-output modes production depends on:
-// - V2 best-effort JSON Schema on the fast GPT-OSS model;
-// - V3 strict JSON Schema on the primary GPT-OSS model.
+// Deployment blocking policy:
+// - exercise the FULL ConversationBrain contract on the SAME primary model used
+//   by AgentCoreV2 in production (GPT-OSS 120b);
+// - exercise strict JSON-Schema transport on the fast model with a tiny schema,
+//   without pretending the 20b model is a semantic authority for the full Nino
+//   contract. V3 semantic breadth remains covered by the repository regression
+//   suite and gets a full-model smoke before its authority rollout is enabled.
 //
-// Keeping this to two real calls avoids the deployment gate manufacturing Groq
-// TPM/RPM failures while still failing closed on genuine provider incompatibility.
+// This keeps the deployment gate fail-closed without manufacturing semantic
+// failures on a model that production never uses as ConversationBrain authority.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
-import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
+import { callStructuredFunction } from "../supabase/functions/_shared/ai-structured.ts";
+import { resolveAiProvider } from "../supabase/functions/_shared/ai-runtime.ts";
 
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
 
-// V2 / 20b: exercise the exact ConversationBrain best-effort JSON Schema output.
-// Semantic correctness is model-independent and already covered by the full suite;
-// this probe verifies that the configured Groq account/model can execute the path.
+// V2 / primary model: this is the exact semantic authority active in AgentCoreV2.
 const outcome = await interpretConversationTurn({
   text: "Nino, quanto eu gastei com Alimentação em agosto?",
   history: [],
@@ -26,7 +27,7 @@ const outcome = await interpretConversationTurn({
   user_context: JSON.stringify({
     preferences: { verbosity: "concise", suggestion_frequency: "medium" },
   }),
-  model: fastModel,
+  model,
 });
 
 if (!outcome.telemetry.ok || !outcome.contract) {
@@ -64,45 +65,49 @@ if ("confidence" in outcome.contract) {
   throw new Error("ConversationBrain reintroduced numeric self-confidence");
 }
 
-// V3 / 120b: exercise the exact strict JSON-schema transport and the production
-// regression that previously inherited Alimentação into an explicit Lazer turn.
-const lazer = await interpretSemanticTurnV3({
-  text: "E em Lazer? Quanto eu gastei esse mês?",
-  history_text: [
-    "Usuário: Quanto eu gastei em Alimentação?",
-    "Nino: Alimentação ficou abaixo da referência.",
-  ].join("\n"),
-  context_text: JSON.stringify({
-    conversation_state: {
-      current_topic: "categoria:Alimentação",
-      active_category: "Alimentação",
-      active_period: { from: "2026-09-01", to: "2026-09-25", label: "este mês" },
+// Fast model: validate only the provider transport it is allowed to use. A small
+// strict schema is intentional; semantic V3 correctness is validated separately
+// and must not be conflated with provider compatibility for a fast-tier model.
+const provider = resolveAiProvider();
+if (!provider) throw new Error("Groq provider not configured for strict transport smoke");
+const strictProbe = await callStructuredFunction({
+  provider,
+  model: fastModel,
+  system: "Return the requested structured compatibility result only.",
+  user: "Emit ok=true.",
+  tool: {
+    name: "emit_strict_transport_probe",
+    description: "Provider compatibility probe; no domain action is executed.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { ok: { type: "boolean" } },
+      required: ["ok"],
     },
-  }),
-  model,
+  },
+  temperature: 0,
+  reasoning_effort: "low",
 });
-if (!lazer.telemetry.ok || lazer.turn?.kind !== "task") {
-  throw new Error(`V3 Lazer smoke failed: ${lazer.telemetry.error ?? "missing_task"}`);
+if (!strictProbe.ok) {
+  throw new Error(`Fast-model strict JSON Schema smoke failed: ${strictProbe.error_code ?? "unknown"}`);
 }
-const lazerTask = lazer.turn.tasks.find((item) => item.kind === "financial_query");
-if (!lazerTask || lazerTask.kind !== "financial_query") throw new Error("V3 Lazer smoke missing financial_query");
-const lazerCategory = lazerTask.filters.find((filter) => filter.field === "category")?.entity;
-if (String(lazerCategory?.value ?? "").toLowerCase() !== "lazer" || lazerCategory?.source !== "current_turn") {
-  throw new Error(`V3 did not preserve explicit Lazer override: ${JSON.stringify(lazerCategory)}`);
+let strictArgs: { ok?: boolean } = {};
+try {
+  strictArgs = JSON.parse(strictProbe.arguments);
+} catch {
+  throw new Error("Fast-model strict JSON Schema smoke returned invalid JSON");
 }
-if (!lazerTask.periods.some((period) => /m[eê]s/i.test(period.value) && period.source === "current_turn")) {
-  throw new Error(`V3 lost current-month period: ${JSON.stringify(lazerTask.periods)}`);
-}
-if (lazer.turn.references.length !== 0) {
-  throw new Error(`V3 emitted inherited reference alongside explicit Lazer: ${JSON.stringify(lazer.turn.references)}`);
+if (strictArgs.ok !== true) {
+  throw new Error(`Fast-model strict JSON Schema smoke returned invalid payload: ${strictProbe.arguments}`);
 }
 
 console.log(JSON.stringify({
   ok: true,
   provider: outcome.telemetry.provider,
   models: {
-    v2_best_effort_json_schema: fastModel,
-    v3_strict_json_schema: model,
+    v2_semantic_authority: model,
+    fast_strict_transport_probe: fastModel,
   },
   v2: {
     mode: outcome.contract.mode,
@@ -111,6 +116,6 @@ console.log(JSON.stringify({
     canonical_request: outcome.contract.canonical_request,
     financial_read: outcome.contract.financial_read,
   },
-  v3_smokes: ["explicit_entity_override"],
-  note: "goals_overview remains covered by deterministic/unit regression suite; no duplicate real-provider call",
+  strict_transport_probe: true,
+  note: "V3 semantic regressions remain in repository tests; full primary-model V3 smoke gates its future authority rollout, not the current V2 deployment.",
 }));
