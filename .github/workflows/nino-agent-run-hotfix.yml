@@ -6,6 +6,11 @@ on:
       - main
     paths:
       - '.github/workflows/nino-agent-run-hotfix.yml'
+      - 'supabase/functions/_shared/agent/core/EvidenceClaims.ts'
+      - 'supabase/functions/_shared/agent/core/GroundingGateV3.ts'
+      - 'supabase/functions/_shared/agent/core/ComparisonPresentation.ts'
+      - 'supabase/functions/_shared/agent/core/RuntimeContract.ts'
+      - 'scripts/nino_comparison_grounding_smoke.ts'
 
 permissions:
   contents: read
@@ -27,6 +32,10 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - name: Reproduce comparison grounding regression
+        run: |
+          set -euo pipefail
+          deno run scripts/nino_comparison_grounding_smoke.ts
       - name: Reconfirm real Groq smoke
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -48,4 +57,5 @@ jobs:
         run: |
           echo "revision=${GITHUB_SHA}"
           echo "function=agent-run"
+          echo "comparison_grounding_smoke=passed"
           echo "provider_smoke=passed"
