@@ -103,4 +103,18 @@ describe("grounded comparison follow-up", () => {
     expect(contract?.direct_reply).toContain("Moradia");
     expect(contract?.direct_reply).toContain("R$ 5.222,33 (4.311,0%) acima");
   });
+
+  it.each([
+    "Quanto eu gastei esse mês?",
+    "E em Lazer? Quanto eu gastei esse mês?",
+    "Quanto eu gastei esta semana?",
+  ])("does not treat a temporal demonstrative as prior-category anaphora: %s", (text) => {
+    expect(resolveGroundedComparisonFollowup(text, memory("Moradia"))).toBeNull();
+  });
+
+  it("still resolves an explicit entity anaphora from prior evidence", () => {
+    const contract = resolveGroundedComparisonFollowup("Quanto ela ficou?", memory("Moradia"));
+    expect(contract?.focus.category).toBe("Moradia");
+    expect(contract?.direct_reply).toContain("Moradia");
+  });
 });
