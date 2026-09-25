@@ -10,11 +10,11 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .2 de 25/09 registra a correção do grounding de comparações:
-// percentuais delta_pct já calculados pelo engine agora entram explicitamente
-// no conjunto de evidências permitido, evitando falso bloqueio do formatter.
-// O contrato analítico permanece v5 porque a matemática/engine não mudou.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.2";
+// Deployment stamp .3 de 25/09 registra o fechamento do grounding de comparações:
+// (1) delta_pct calculado pelo engine entra explicitamente como evidência; e
+// (2) estados negativos de direção como no_decrease/no_increase não são tratados
+// como decrease/increase pelo gate semântico. A matemática do engine não mudou.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.3";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
