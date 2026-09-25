@@ -81,6 +81,9 @@ function strictConversationBrainSchema(parameters: Record<string, unknown>): Rec
   if (!actionObject?.properties?.slots) {
     throw new Error("conversation_brain_schema_missing_action_slots");
   }
+  if (!schema?.properties?.financial_read) {
+    throw new Error("conversation_brain_schema_missing_financial_read");
+  }
 
   // Groq strict Structured Outputs requires every object to be closed. ActionIR
   // slots are intentionally open inside Nino because each write action has its own
@@ -90,23 +93,60 @@ function strictConversationBrainSchema(parameters: Record<string, unknown>): Rec
     type: "string",
     description: "Objeto JSON serializado contendo os slots da ação. Use um objeto JSON válido, por exemplo {\"target_amount\":5000}.",
   };
+
+  // GPT-OSS 120b can occasionally generate financial_read with the wrong outer
+  // JSON type when asked to satisfy the deeply nested nullable object directly.
+  // Make the provider boundary unambiguous: the field is always a string in the
+  // transport schema. "null" means canonical null; otherwise it contains the
+  // serialized FinancialReadIR object. The runtime restores the canonical type
+  // immediately before ConversationTurnContract validation, so downstream Nino
+  // code never sees this transport representation.
+  schema.properties.financial_read = {
+    type: "string",
+    description: "FinancialReadIR serializado em JSON. Use a string literal null fora de financial_read; quando domain=financial_read, serialize o objeto completo {intent,queries}.",
+  };
   return schema;
 }
 
 function restoreConversationBrainTransport(argumentsText: string): { ok: true; value: string } | { ok: false; error: string } {
+  let payload: any;
   try {
-    const payload = JSON.parse(argumentsText);
-    if (payload?.action && typeof payload.action === "object" && typeof payload.action.slots === "string") {
+    payload = JSON.parse(argumentsText);
+  } catch {
+    return { ok: false, error: "conversation_brain_transport_invalid_json" };
+  }
+
+  if (payload?.action && typeof payload.action === "object" && typeof payload.action.slots === "string") {
+    try {
       const slots = JSON.parse(payload.action.slots);
       if (!slots || typeof slots !== "object" || Array.isArray(slots)) {
         return { ok: false, error: "conversation_brain_slots_not_object" };
       }
       payload.action.slots = slots;
+    } catch {
+      return { ok: false, error: "conversation_brain_slots_transport_invalid" };
     }
-    return { ok: true, value: JSON.stringify(payload) };
-  } catch {
-    return { ok: false, error: "conversation_brain_slots_transport_invalid" };
   }
+
+  if (typeof payload?.financial_read !== "string") {
+    return { ok: false, error: "conversation_brain_financial_read_transport_not_string" };
+  }
+  const financialReadText = payload.financial_read.trim();
+  if (financialReadText === "null") {
+    payload.financial_read = null;
+  } else {
+    try {
+      const financialRead = JSON.parse(financialReadText);
+      if (!financialRead || typeof financialRead !== "object" || Array.isArray(financialRead)) {
+        return { ok: false, error: "conversation_brain_financial_read_not_object" };
+      }
+      payload.financial_read = financialRead;
+    } catch {
+      return { ok: false, error: "conversation_brain_financial_read_transport_invalid" };
+    }
+  }
+
+  return { ok: true, value: JSON.stringify(payload) };
 }
 
 function retryAfterMs(response: Response): number | null {
@@ -188,7 +228,7 @@ export async function callStructuredFunction(args: {
   const nativeStructuredOutput = useNativeStructuredOutput(args);
   const strictConversationBrain = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
   const system = strictConversationBrain
-    ? `${args.system}\n\nREGRA DE TRANSPORTE: quando action não for null, action.slots deve ser uma STRING contendo um objeto JSON serializado válido. O runtime desserializa essa string antes de validar/executar a ação.`
+    ? `${args.system}\n\nREGRAS DE TRANSPORTE GROQ (apenas serialização; o significado canônico não muda):\n- action.slots, quando action não for null, deve ser uma STRING contendo um objeto JSON serializado válido.\n- financial_read deve ser SEMPRE uma STRING no JSON externo. Se domain=financial_read, serialize nela o objeto completo {\"intent\":...,\"queries\":[...]}; fora de financial_read, use exatamente a string \"null\".\nO runtime desserializa esses campos antes de validar ou executar qualquer ação.`
     : args.system;
   const body: Record<string, unknown> = {
     model,
