@@ -66,5 +66,17 @@ CREATE INDEX IF NOT EXISTS nino_runtime_v3_shadow_divergence_idx
 ALTER TABLE public.nino_runtime_v3_shadow_evaluations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.nino_runtime_v3_shadow_evaluations FROM anon, authenticated;
 
+-- The table is service-role only. Keep that intent explicit both for humans and
+-- for database advisors: client roles have a policy, but it is an unconditional
+-- deny. Service-role bypasses RLS and is the only runtime writer/reader.
+DROP POLICY IF EXISTS nino_runtime_v3_shadow_deny_all_clients
+  ON public.nino_runtime_v3_shadow_evaluations;
+CREATE POLICY nino_runtime_v3_shadow_deny_all_clients
+  ON public.nino_runtime_v3_shadow_evaluations
+  FOR ALL
+  TO anon, authenticated
+  USING (false)
+  WITH CHECK (false);
+
 COMMENT ON TABLE public.nino_runtime_v3_shadow_evaluations IS
   'Internal-only V2 x V3 semantic shadow telemetry. Service-role runtime writes; end users have no Data API access.';
