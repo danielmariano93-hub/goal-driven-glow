@@ -18,18 +18,23 @@ import { resolveAiProvider } from "../supabase/functions/_shared/ai-runtime.ts";
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
 
-// The smoke must expose deterministic contract reason codes when the provider
-// returns syntactically valid JSON that is rejected by Nino's canonical
-// invariants. Use an in-memory Supabase-shaped sink so CI gets the same
+// The smoke must expose deterministic contract reason codes and safe provider
+// error details. Use an in-memory Supabase-shaped sink so CI gets the same
 // diagnostic metadata as production without writing any row to the real DB.
 let capturedContractInvalidReasons: unknown = null;
+let capturedUpstreamError: unknown = null;
 const diagnosticSink = {
   from(table: string) {
     return {
       insert: async (row: Record<string, unknown>) => {
-        if (table === "ai_usage_ledger" && row?.error_code === "conversation_brain_contract_invalid") {
+        if (table === "ai_usage_ledger") {
           const metadata = row?.metadata as Record<string, unknown> | null | undefined;
-          capturedContractInvalidReasons = metadata?.contract_invalid_reasons ?? null;
+          if (row?.error_code === "conversation_brain_contract_invalid") {
+            capturedContractInvalidReasons = metadata?.contract_invalid_reasons ?? null;
+          }
+          if (String(row?.error_code ?? "").startsWith("conversation_brain_gateway_")) {
+            capturedUpstreamError = metadata?.upstream_error ?? null;
+          }
         }
         return { data: null, error: null };
       },
@@ -53,7 +58,8 @@ const outcome = await interpretConversationTurn({
 if (!outcome.telemetry.ok || !outcome.contract) {
   throw new Error(
     `ConversationBrain provider smoke failed: ${outcome.telemetry.error ?? "missing_contract"}`
-      + ` reasons=${JSON.stringify(capturedContractInvalidReasons)}`,
+      + ` reasons=${JSON.stringify(capturedContractInvalidReasons)}`
+      + ` upstream=${JSON.stringify(capturedUpstreamError)}`,
   );
 }
 if (outcome.contract.mode !== "read") {
@@ -113,7 +119,7 @@ const strictProbe = await callStructuredFunction({
   reasoning_effort: "low",
 });
 if (!strictProbe.ok) {
-  throw new Error(`Fast-model strict JSON Schema smoke failed: ${strictProbe.error_code ?? "unknown"}`);
+  throw new Error(`Fast-model strict JSON Schema smoke failed: ${strictProbe.error_code ?? "unknown"} detail=${JSON.stringify(strictProbe.error_detail)}`);
 }
 let strictArgs: { ok?: boolean } = {};
 try {
