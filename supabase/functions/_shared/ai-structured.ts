@@ -39,6 +39,7 @@ export type StructuredCallResult = {
 const MAX_STRUCTURED_ATTEMPTS = 3;
 const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
 const CONVERSATION_BRAIN_TOOL = "emit_conversation_turn_contract";
+const FINANCIAL_READ_NOT_APPLICABLE = "not_applicable";
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -81,8 +82,12 @@ function strictConversationBrainSchema(parameters: Record<string, unknown>): Rec
   if (!actionObject?.properties?.slots) {
     throw new Error("conversation_brain_schema_missing_action_slots");
   }
-  if (!schema?.properties?.financial_read) {
-    throw new Error("conversation_brain_schema_missing_financial_read");
+
+  const financialReadObject = schema?.properties?.financial_read?.anyOf?.find(
+    (candidate: any) => candidate?.type === "object",
+  );
+  if (!financialReadObject?.properties?.intent || !financialReadObject?.properties?.queries) {
+    throw new Error("conversation_brain_schema_missing_financial_read_object");
   }
 
   // Groq strict Structured Outputs requires every object to be closed. ActionIR
@@ -94,17 +99,19 @@ function strictConversationBrainSchema(parameters: Record<string, unknown>): Rec
     description: "Objeto JSON serializado contendo os slots da ação. Use um objeto JSON válido, por exemplo {\"target_amount\":5000}.",
   };
 
-  // GPT-OSS 120b can occasionally generate financial_read with the wrong outer
-  // JSON type when asked to satisfy the deeply nested nullable object directly.
-  // Make the provider boundary unambiguous: the field is always a string in the
-  // transport schema. "null" means canonical null; otherwise it contains the
-  // serialized FinancialReadIR object. The runtime restores the canonical type
-  // immediately before ConversationTurnContract validation, so downstream Nino
-  // code never sees this transport representation.
-  schema.properties.financial_read = {
-    type: "string",
-    description: "FinancialReadIR serializado em JSON. Use a string literal null fora de financial_read; quando domain=financial_read, serialize o objeto completo {intent,queries}.",
-  };
+  // Avoid a nullable anyOf at the outer financial_read boundary. GPT-OSS 120b
+  // has produced an array there during constrained generation. Keep the full
+  // nested schema strict by making the outer transport always an object. For
+  // non-financial-read turns, a deterministic sentinel is converted back to null
+  // immediately after transport validation.
+  const intentEnum = Array.isArray(financialReadObject.properties.intent.enum)
+    ? financialReadObject.properties.intent.enum
+    : [];
+  financialReadObject.properties.intent.enum = [
+    ...new Set([...intentEnum, FINANCIAL_READ_NOT_APPLICABLE]),
+  ];
+  financialReadObject.properties.queries.minItems = 0;
+  schema.properties.financial_read = financialReadObject;
   return schema;
 }
 
@@ -128,22 +135,11 @@ function restoreConversationBrainTransport(argumentsText: string): { ok: true; v
     }
   }
 
-  if (typeof payload?.financial_read !== "string") {
-    return { ok: false, error: "conversation_brain_financial_read_transport_not_string" };
+  if (!payload?.financial_read || typeof payload.financial_read !== "object" || Array.isArray(payload.financial_read)) {
+    return { ok: false, error: "conversation_brain_financial_read_transport_not_object" };
   }
-  const financialReadText = payload.financial_read.trim();
-  if (financialReadText === "null") {
+  if (payload.financial_read.intent === FINANCIAL_READ_NOT_APPLICABLE) {
     payload.financial_read = null;
-  } else {
-    try {
-      const financialRead = JSON.parse(financialReadText);
-      if (!financialRead || typeof financialRead !== "object" || Array.isArray(financialRead)) {
-        return { ok: false, error: "conversation_brain_financial_read_not_object" };
-      }
-      payload.financial_read = financialRead;
-    } catch {
-      return { ok: false, error: "conversation_brain_financial_read_transport_invalid" };
-    }
   }
 
   return { ok: true, value: JSON.stringify(payload) };
@@ -228,7 +224,7 @@ export async function callStructuredFunction(args: {
   const nativeStructuredOutput = useNativeStructuredOutput(args);
   const strictConversationBrain = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
   const system = strictConversationBrain
-    ? `${args.system}\n\nREGRAS DE TRANSPORTE GROQ (apenas serialização; o significado canônico não muda):\n- action.slots, quando action não for null, deve ser uma STRING contendo um objeto JSON serializado válido.\n- financial_read deve ser SEMPRE uma STRING no JSON externo. Se domain=financial_read, serialize nela o objeto completo {\"intent\":...,\"queries\":[...]}; fora de financial_read, use exatamente a string \"null\".\nO runtime desserializa esses campos antes de validar ou executar qualquer ação.`
+    ? `${args.system}\n\nREGRAS DE TRANSPORTE GROQ (apenas serialização; o significado canônico não muda):\n- action.slots, quando action não for null, deve ser uma STRING contendo um objeto JSON serializado válido.\n- financial_read deve ser SEMPRE um OBJETO no JSON externo. Se domain=financial_read, preencha o objeto real completo {intent,queries}. Fora de financial_read, use exatamente {\"intent\":\"not_applicable\",\"queries\":[]}.\nO runtime converte apenas esse sentinel para null e desserializa action.slots antes de validar ou executar qualquer ação.`
     : args.system;
   const body: Record<string, unknown> = {
     model,
