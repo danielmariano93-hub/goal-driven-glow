@@ -18,6 +18,25 @@ import { resolveAiProvider } from "../supabase/functions/_shared/ai-runtime.ts";
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
 
+// The smoke must expose deterministic contract reason codes when the provider
+// returns syntactically valid JSON that is rejected by Nino's canonical
+// invariants. Use an in-memory Supabase-shaped sink so CI gets the same
+// diagnostic metadata as production without writing any row to the real DB.
+let capturedContractInvalidReasons: unknown = null;
+const diagnosticSink = {
+  from(table: string) {
+    return {
+      insert: async (row: Record<string, unknown>) => {
+        if (table === "ai_usage_ledger" && row?.error_code === "conversation_brain_contract_invalid") {
+          const metadata = row?.metadata as Record<string, unknown> | null | undefined;
+          capturedContractInvalidReasons = metadata?.contract_invalid_reasons ?? null;
+        }
+        return { data: null, error: null };
+      },
+    };
+  },
+};
+
 // V2 / primary model: this is the exact semantic authority active in AgentCoreV2.
 const outcome = await interpretConversationTurn({
   text: "Nino, quanto eu gastei com Alimentação em agosto?",
@@ -28,10 +47,14 @@ const outcome = await interpretConversationTurn({
     preferences: { verbosity: "concise", suggestion_frequency: "medium" },
   }),
   model,
+  sb: diagnosticSink as any,
 });
 
 if (!outcome.telemetry.ok || !outcome.contract) {
-  throw new Error(`ConversationBrain provider smoke failed: ${outcome.telemetry.error ?? "missing_contract"}`);
+  throw new Error(
+    `ConversationBrain provider smoke failed: ${outcome.telemetry.error ?? "missing_contract"}`
+      + ` reasons=${JSON.stringify(capturedContractInvalidReasons)}`,
+  );
 }
 if (outcome.contract.mode !== "read") {
   throw new Error(`Expected read mode, got ${outcome.contract.mode}`);

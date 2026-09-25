@@ -23,4 +23,16 @@ describe("Nino provider smoke — model authority", () => {
     expect(smoke).toContain('name: "emit_strict_transport_probe"');
     expect(smoke).not.toContain("interpretSemanticTurnV3");
   });
+
+  it("surfaces deterministic contract reason codes without writing smoke telemetry to production", () => {
+    const smoke = readFileSync("scripts/nino_conversation_provider_smoke.ts", "utf8");
+
+    expect(smoke).toContain("capturedContractInvalidReasons");
+    expect(smoke).toContain('table === "ai_usage_ledger"');
+    expect(smoke).toContain('row?.error_code === "conversation_brain_contract_invalid"');
+    expect(smoke).toContain("metadata?.contract_invalid_reasons");
+    expect(smoke).toContain("sb: diagnosticSink as any");
+    expect(smoke).toContain('reasons=${JSON.stringify(capturedContractInvalidReasons)}');
+    expect(smoke).not.toContain("createClient(");
+  });
 });
