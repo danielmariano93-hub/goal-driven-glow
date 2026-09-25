@@ -84,32 +84,50 @@ describe("structured AI provider resilience", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps best-effort V2-style calls on forced tool calling", async () => {
+  it("uses native Groq json_schema for best-effort V2-style contracts", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      choices: [{
-        message: {
-          tool_calls: [{
-            type: "function",
-            function: { name: "emit_test", arguments: JSON.stringify({ ok: true }) },
-          }],
-        },
-      }],
+      choices: [{ message: { content: JSON.stringify({ ok: true }) } }],
       usage: { prompt_tokens: 8, completion_tokens: 2 },
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await callStructuredFunction({
       provider: groq,
-      model: "openai/gpt-oss-120b",
-      system: "Use the tool.",
+      model: "openai/gpt-oss-20b",
+      system: "Return the semantic contract.",
       user: "ok",
       tool: { ...strictTool, strict: false },
     });
 
     expect(result.ok).toBe(true);
+    expect(JSON.parse(result.arguments)).toEqual({ ok: true });
+
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-    expect(request.response_format).toBeUndefined();
-    expect(request.tools?.[0]?.function?.name).toBe("emit_test");
-    expect(request.tool_choice?.function?.name).toBe("emit_test");
+    expect(request.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: { name: "emit_test", strict: false },
+    });
+    expect(request.tools).toBeUndefined();
+    expect(request.tool_choice).toBeUndefined();
+  });
+
+  it("fails closed on HTTP 200 when structured output is actually absent", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "" } }],
+      usage: { prompt_tokens: 8, completion_tokens: 0 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callStructuredFunction({
+      provider: groq,
+      model: "openai/gpt-oss-20b",
+      system: "Return the semantic contract.",
+      user: "ok",
+      tool: { ...strictTool, strict: false },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.error_code).toBe("structured_call_missing_structured_output");
   });
 });
