@@ -20,7 +20,9 @@ CREATE TABLE IF NOT EXISTS public.nino_runtime_v3_shadow_evaluations (
   v2_act text,
   v2_canonical_request text,
   v2_signature jsonb NOT NULL DEFAULT '{}'::jsonb,
+  v2_run_id uuid,
   v2_path text,
+  v2_reply_kind text,
   v2_tools text[] NOT NULL DEFAULT '{}'::text[],
   v2_error text,
 
