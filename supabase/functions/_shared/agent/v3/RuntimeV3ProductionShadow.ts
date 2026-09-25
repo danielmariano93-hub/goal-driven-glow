@@ -162,6 +162,27 @@ async function replayV2Contract(snapshot: RuntimeV3ShadowSnapshot): Promise<{
   };
 }
 
+async function loadOfficialRun(sb: SupabaseClient, runId?: string | null): Promise<{
+  tools: string[];
+  error: string | null;
+}> {
+  if (!runId) return { tools: [], error: null };
+  try {
+    const { data } = await sb.from("agent_runs")
+      .select("tools_used,error_sanitized")
+      .eq("id", runId)
+      .maybeSingle();
+    return {
+      tools: Array.isArray((data as any)?.tools_used)
+        ? (data as any).tools_used.map(String).filter(Boolean)
+        : [],
+      error: String((data as any)?.error_sanitized ?? "").trim() || null,
+    };
+  } catch {
+    return { tools: [], error: null };
+  }
+}
+
 async function insertShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
   try {
     const { error } = await sb.from("nino_runtime_v3_shadow_evaluations").insert(row);
@@ -186,7 +207,7 @@ export async function evaluateRuntimeV3ProductionShadow(args: {
   });
   const semanticText = continuation.continue && continuation.prompt ? continuation.prompt : snapshot.input.text;
 
-  const [v2, v3] = await Promise.all([
+  const [v2, v3, officialRun] = await Promise.all([
     replayV2Contract(snapshot),
     interpretSemanticTurnV3({
       text: semanticText,
@@ -194,6 +215,7 @@ export async function evaluateRuntimeV3ProductionShadow(args: {
       context_text: typedContextText(snapshot),
       model: V3_SHADOW_MODEL,
     }),
+    loadOfficialRun(args.sb, args.official.run_id),
   ]);
 
   const v2Adapted = v2.contract
@@ -222,9 +244,11 @@ export async function evaluateRuntimeV3ProductionShadow(args: {
     v2_act: v2Turn?.act ?? null,
     v2_canonical_request: v2Turn?.canonical_request ?? null,
     v2_signature: v2Signature ?? {},
+    v2_run_id: args.official.run_id ?? null,
     v2_path: args.official.path ?? null,
-    v2_tools: [],
-    v2_error: v2.error ?? null,
+    v2_reply_kind: args.official.reply_kind ?? null,
+    v2_tools: officialRun.tools,
+    v2_error: officialRun.error ?? v2.error ?? null,
     v3_status: v3Turn ? "ok" : (v3.telemetry.error?.includes("contract") || v3.violations.length ? "rejected" : "error"),
     v3_kind: v3Turn?.kind ?? null,
     v3_act: v3Turn?.act ?? null,
