@@ -10,11 +10,11 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .1 de 25/09 marca a fundação operacional do Runtime V3 em
-// shadow: comparação V2×V3, telemetria side-effect-free e correção da falsa
-// anáfora temporal em follow-ups. O contrato analítico permanece v5 porque os
-// motores/cálculos financeiros não foram alterados nesta entrega.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.1";
+// Deployment stamp .2 de 25/09 registra a correção do grounding de comparações:
+// percentuais delta_pct já calculados pelo engine agora entram explicitamente
+// no conjunto de evidências permitido, evitando falso bloqueio do formatter.
+// O contrato analítico permanece v5 porque a matemática/engine não mudou.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.2";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
