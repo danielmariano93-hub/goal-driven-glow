@@ -216,7 +216,32 @@ describe("Nino Runtime V3 foundation", () => {
   });
 
   it("keeps legacy provenance quarantined to shadow adaptation", () => {
-    const adapted = adaptConversationTurnContractToV3(v2Base({}), "Quais metas eu tenho?");
+    const legacyRead = v2Base({
+      canonical_request: "Quanto gastei em Lazer este mês?",
+      focus: {
+        category: "Lazer",
+        merchant: null,
+        goal: null,
+        period_expression: "este mês",
+        period_expressions: ["este mês"],
+      },
+      financial_read: {
+        intent: "lookup",
+        queries: [{
+          metric: "expense_amount",
+          operation: "sum",
+          group_by: [],
+          filters: [{ field: "category", op: "eq", value: "Lazer" }],
+          limit: null,
+          comparison_direction: "any",
+          comparison_baseline: "period",
+          comparison_baseline_window: null,
+          comparison_baseline_expression: null,
+          comparison_target_expression: null,
+        }],
+      },
+    });
+    const adapted = adaptConversationTurnContractToV3(legacyRead, "Quanto gastei em Lazer este mês?");
     expect(adapted.ok).toBe(true);
     if (!adapted.ok) return;
     expect(verifySemanticInvariantsV3(adapted.turn).ok).toBe(false);
