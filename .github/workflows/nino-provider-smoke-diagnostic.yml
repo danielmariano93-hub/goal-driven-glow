@@ -1,0 +1,38 @@
+name: Nino Provider Smoke Diagnostic
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/nino-provider-smoke-diagnostic.yml'
+      - 'scripts/nino_conversation_provider_smoke.ts'
+      - 'supabase/functions/_shared/ai-structured.ts'
+      - 'supabase/functions/_shared/agent/core/ConversationBrain.ts'
+
+permissions:
+  contents: read
+
+env:
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run real provider smoke only
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GROQ_API_KEY" || (echo 'Missing GROQ_API_KEY repository secret' && exit 1)
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
