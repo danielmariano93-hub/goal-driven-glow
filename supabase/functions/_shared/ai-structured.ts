@@ -31,9 +31,12 @@ export type StructuredCallResult = {
   latency_ms: number;
   error_code: string | null;
   error_detail: string | null;
-  /** Tentativas HTTP efetuadas. Parse failure do provedor pode ter 1 retry. */
+  /** HTTP attempts actually executed, including bounded provider retries. */
   attempts?: number;
 };
+
+const MAX_STRUCTURED_ATTEMPTS = 3;
+const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -66,6 +69,70 @@ function useNativeStrictStructuredOutput(args: {
   // deliberately limited to strict schemas so existing V2 best-effort/tool-call
   // behavior remains untouched during the V3 migration.
   return args.provider.provider === "groq" && args.tool.strict === true;
+}
+
+function retryAfterMs(response: Response): number | null {
+  const raw = response.headers.get("retry-after")?.trim();
+  if (!raw) return null;
+
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+
+  const at = Date.parse(raw);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, at - Date.now());
+}
+
+function boundedRetryDelayMs(args: {
+  response: Response;
+  raw: string;
+  attempt: number;
+}): number | null {
+  const { response, raw, attempt } = args;
+
+  // One extra sample for stochastic best-effort JSON/tool generation failures.
+  if (
+    response.status === 400
+    && attempt < 2
+    && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match/i.test(raw)
+  ) {
+    return 0;
+  }
+
+  // Groq documents retry-after on 429. Respect it when the wait remains short
+  // enough for an interactive agent. A longer window fails closed instead of
+  // making users wait tens of seconds or hammering the provider prematurely.
+  if (response.status === 429) {
+    const providerDelay = retryAfterMs(response);
+    const delay = providerDelay ?? Math.min(1_000 * (2 ** Math.max(0, attempt - 1)), 4_000);
+    return delay <= MAX_PROVIDER_RETRY_WAIT_MS ? delay : null;
+  }
+
+  // Transient provider/gateway failures get a small bounded exponential retry.
+  if ([500, 502, 503, 504].includes(response.status)) {
+    return Math.min(400 * (2 ** Math.max(0, attempt - 1)), 2_000);
+  }
+
+  return null;
+}
+
+async function waitForRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (ms <= 0) return !signal?.aborted;
+  if (signal?.aborted) return false;
+
+  return await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(value);
+    };
+    const onAbort = () => finish(false);
+    const timer = setTimeout(() => finish(true), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function callStructuredFunction(args: {
@@ -125,7 +192,7 @@ export async function callStructuredFunction(args: {
   let json: any = null;
   let attempts = 0;
 
-  while (attempts < 2) {
+  while (attempts < MAX_STRUCTURED_ATTEMPTS) {
     attempts += 1;
     try {
       response = await fetch(aiEndpoint(args.provider, "chat/completions"), {
@@ -157,13 +224,13 @@ export async function callStructuredFunction(args: {
     json = null;
     try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
 
-    // Groq/gpt-oss can return 400 when best-effort tool generation does not
-    // close valid JSON. This is stochastic generation failure, not a request
-    // contract failure. Native strict Structured Outputs should not need this,
-    // but keeping the retry predicate harmlessly covers transient gateway forms.
-    const retryableParseFailure = response.status === 400
-      && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match/i.test(raw);
-    if (retryableParseFailure && attempts < 2) continue;
+    if (!response.ok && attempts < MAX_STRUCTURED_ATTEMPTS) {
+      const delay = boundedRetryDelayMs({ response, raw, attempt: attempts });
+      if (delay !== null) {
+        const mayRetry = await waitForRetry(delay, args.signal);
+        if (mayRetry) continue;
+      }
+    }
     break;
   }
 
