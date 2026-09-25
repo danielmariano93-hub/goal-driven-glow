@@ -25,6 +25,10 @@ import {
   RESOLUTION_STATES, TURN_DOMAINS, normalizeConversationTurnContract,
   type CanonicalConversationTurnContract, type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
+import {
+  diagnoseConversationTurnContract,
+  type ConversationContractReasonCode,
+} from "./ConversationTurnDiagnostics.ts";
 
 export { dialogueActsFromContract } from "./ConversationTurnContract.ts";
 export type { ConversationTurnContract } from "./ConversationTurnContract.ts";
@@ -318,6 +322,23 @@ function strictNormalizeConversationTurnContract(raw: unknown): CanonicalConvers
   return canonical ? normalizeConversationTurnContract(canonical) : null;
 }
 
+type ParsedContractAttempt = {
+  raw: unknown;
+  contract: CanonicalConversationTurnContract | null;
+  reasons: ConversationContractReasonCode[];
+};
+
+function parseContractAttempt(rawArguments: string): ParsedContractAttempt {
+  try {
+    const raw = JSON.parse(rawArguments);
+    const contract = strictNormalizeConversationTurnContract(raw);
+    const reasons = contract ? [] : diagnoseConversationTurnContract(raw).reasons;
+    return { raw, contract, reasons };
+  } catch {
+    return { raw: null, contract: null, reasons: ["not_object"] };
+  }
+}
+
 async function writeProviderShadowRow(sb: SupabaseClient, row: Record<string, unknown>): Promise<void> {
   try {
     await sb.from("ai_provider_shadow_evaluations").insert(row);
@@ -492,21 +513,21 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
     let tokensOut = structured.output_tokens;
     let providerLatency = structured.latency_ms;
 
-    const parseContract = (rawArguments: string): CanonicalConversationTurnContract | null => {
-      try {
-        return strictNormalizeConversationTurnContract(JSON.parse(rawArguments));
-      } catch {
-        return null;
-      }
-    };
-
-    let contract = parseContract(structured.arguments);
+    let parsed = parseContractAttempt(structured.arguments);
+    let contract = parsed.contract;
+    let invalidReasons = parsed.reasons;
     if (!contract) {
+      const reasonHint = invalidReasons.length
+        ? `INVALID_REASONS: ${invalidReasons.join(", ")}`
+        : "INVALID_REASONS: contract_not_canonicalizable";
       const repairUser = [
         user,
         "REPARO OBRIGATÓRIO: sua saída anterior foi rejeitada pelo contrato canônico.",
+        reasonHint,
+        "Corrija exatamente os invariantes listados acima sem mudar o significado do pedido.",
         "Emita novamente o objeto completo. version deve ser conversation_turn_contract.v2.",
         "Se domain=financial_read, financial_read NÃO pode ser null e deve descrever a mesma intenção com metric, operation, group_by, filters, limit e campos de comparação.",
+        "Se um slot indispensável estiver realmente ambíguo/missing/conflicting, use mode=clarify em vez de inventar resolução.",
         "Não altere o pedido do usuário apenas para satisfazer o schema.",
       ].join("\n\n");
       const repaired = await callStructuredFunction({
@@ -526,7 +547,9 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
       if (repaired.ok) {
         structured = repaired;
         requestModel = repaired.model;
-        contract = parseContract(repaired.arguments);
+        parsed = parseContractAttempt(repaired.arguments);
+        contract = parsed.contract;
+        invalidReasons = parsed.reasons;
       }
     }
 
@@ -542,6 +565,7 @@ export async function interpretConversationTurn(input: ConversationBrainInput): 
           transport: "chat_completions_structured",
           structured_attempts: llmCalls,
           repair_attempted: true,
+          contract_invalid_reasons: invalidReasons,
         },
       });
       return {

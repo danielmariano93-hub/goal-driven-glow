@@ -353,6 +353,14 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
     : null;
   const financialRead = normalizeFinancialRead(value.financial_read);
   const explicitV2 = String(value.version ?? "") === "conversation_turn_contract.v2";
+
+  // Make impossible semantic states unrepresentable at the canonical boundary.
+  // READ may be factual or advisory, WRITE is financial mutation, and CONVERSE
+  // is data-free conversation. Clarify may retain the domain being clarified.
+  if (mode === "read" && domain !== "financial_read" && domain !== "advisory") return null;
+  if (mode === "write" && domain !== "financial_write") return null;
+  if (mode === "converse" && domain !== "conversation") return null;
+
   if (domain === "advisory" && !advisoryKind) return null;
   if (domain !== "advisory" && advisoryKind) return null;
   if (explicitV2 && domain === "financial_read" && !financialRead) return null;
