@@ -1,16 +1,23 @@
 // Real-provider smoke for the semantic authorities used in production/migration.
 // Run only when GROQ_API_KEY + NINO_AI_PROVIDER are configured.
 //
-// This is a DEPLOYMENT-COMPATIBILITY probe plus two closed-form V3 semantic
-// invariants derived from real production incidents. No user/database data is used.
-// The V3 cases intentionally exercise both GPT-OSS models so the smoke validates
-// strict Structured Outputs without consuming the same model's minute-token
-// budget twice back-to-back.
+// This is intentionally a MINIMAL deployment-compatibility probe. The repository
+// suite already covers semantic breadth (including goals overview). Here we spend
+// provider quota only on the two exact transport families production depends on:
+// - V2 best-effort/forced tool calling on the fast GPT-OSS model;
+// - V3 strict Structured Outputs on the primary GPT-OSS model.
+//
+// Keeping this to two real calls avoids the deployment gate manufacturing Groq
+// TPM/RPM failures while still failing closed on genuine provider incompatibility.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
 import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
 
 const model = Deno.env.get("NINO_AI_MODEL") ?? "openai/gpt-oss-120b";
 const fastModel = Deno.env.get("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b";
+
+// V2 / 20b: exercise the exact ConversationBrain structured tool-call transport.
+// Semantic correctness is model-independent and already covered by the full suite;
+// this probe verifies that the configured Groq account/model can execute the path.
 const outcome = await interpretConversationTurn({
   text: "Nino, quanto eu gastei com Alimentação em agosto?",
   history: [],
@@ -19,7 +26,7 @@ const outcome = await interpretConversationTurn({
   user_context: JSON.stringify({
     preferences: { verbosity: "concise", suggestion_frequency: "medium" },
   }),
-  model,
+  model: fastModel,
 });
 
 if (!outcome.telemetry.ok || !outcome.contract) {
@@ -57,8 +64,8 @@ if ("confidence" in outcome.contract) {
   throw new Error("ConversationBrain reintroduced numeric self-confidence");
 }
 
-// V3 / 120b: current-turn entity must beat prior memory; temporal demonstrative
-// must remain a period rather than becoming a reference to the old category.
+// V3 / 120b: exercise the exact strict JSON-schema transport and the production
+// regression that previously inherited Alimentação into an explicit Lazer turn.
 const lazer = await interpretSemanticTurnV3({
   text: "E em Lazer? Quanto eu gastei esse mês?",
   history_text: [
@@ -90,27 +97,13 @@ if (lazer.turn.references.length !== 0) {
   throw new Error(`V3 emitted inherited reference alongside explicit Lazer: ${JSON.stringify(lazer.turn.references)}`);
 }
 
-// V3 / 20b: goals overview is executable semantics, never generic conversation.
-// Using the second configured GPT-OSS model avoids manufacturing a 120b TPM
-// collision in CI while still exercising the exact strict-schema transport.
-const goals = await interpretSemanticTurnV3({
-  text: "Quais metas eu tenho?",
-  history_text: "",
-  context_text: JSON.stringify({ conversation_state: null }),
-  model: fastModel,
-});
-if (!goals.telemetry.ok || goals.turn?.kind !== "task") {
-  throw new Error(`V3 goals smoke failed: ${goals.telemetry.error ?? "missing_task"}`);
-}
-const goalTask = goals.turn.tasks.find((item) => item.kind === "goal_query");
-if (!goalTask || goalTask.kind !== "goal_query" || goalTask.operation !== "overview" || goalTask.goal !== null) {
-  throw new Error(`V3 goals semantics invalid: ${JSON.stringify(goalTask)}`);
-}
-
 console.log(JSON.stringify({
   ok: true,
   provider: outcome.telemetry.provider,
-  model: outcome.telemetry.model,
+  models: {
+    v2_tool_call: fastModel,
+    v3_strict_output: model,
+  },
   v2: {
     mode: outcome.contract.mode,
     act: outcome.contract.act,
@@ -118,9 +111,6 @@ console.log(JSON.stringify({
     canonical_request: outcome.contract.canonical_request,
     financial_read: outcome.contract.financial_read,
   },
-  v3_models: {
-    explicit_entity_override: model,
-    goals_overview: fastModel,
-  },
-  v3_smokes: ["explicit_entity_override", "goals_overview"],
+  v3_smokes: ["explicit_entity_override"],
+  note: "goals_overview remains covered by deterministic/unit regression suite; no duplicate real-provider call",
 }));
