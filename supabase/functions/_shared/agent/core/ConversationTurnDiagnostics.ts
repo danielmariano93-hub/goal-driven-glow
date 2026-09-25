@@ -25,6 +25,9 @@ export const CONVERSATION_CONTRACT_REASON_CODES = [
   "invalid_act",
   "invalid_mode",
   "invalid_domain",
+  "read_domain_mismatch",
+  "write_domain_mismatch",
+  "converse_domain_mismatch",
   "write_without_action",
   "action_outside_write",
   "read_without_canonical_request",
@@ -98,6 +101,10 @@ export function diagnoseConversationTurnContract(raw: unknown): ConversationCont
     ? value.action
     : null;
   const inheritFocus = Boolean(value.inherit_focus);
+
+  if (mode === "read" && domain !== "financial_read" && domain !== "advisory") reasons.push("read_domain_mismatch");
+  if (mode === "write" && domain !== "financial_write") reasons.push("write_domain_mismatch");
+  if (mode === "converse" && domain !== "conversation") reasons.push("converse_domain_mismatch");
 
   if (mode === "write" && !action) reasons.push("write_without_action");
   if (mode !== "write" && action) reasons.push("action_outside_write");
