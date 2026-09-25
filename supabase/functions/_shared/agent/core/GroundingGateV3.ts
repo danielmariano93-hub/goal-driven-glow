@@ -28,6 +28,61 @@ function parseBrl(token: string): number {
 
 const cents = (n: number) => Math.round(n * 100);
 
+function directionState(labels: string[]) {
+  const normalized = new Set(labels.map((label) => String(label).trim().toLowerCase()));
+  return {
+    increase: ["up", "increase", "aumento", "subiu"].some((label) => normalized.has(label)),
+    decrease: ["down", "decrease", "queda", "caiu"].some((label) => normalized.has(label)),
+    noIncrease: normalized.has("no_increase"),
+    noDecrease: normalized.has("no_decrease"),
+    flat: normalized.has("flat"),
+  };
+}
+
+function directionMentions(reply: string) {
+  // O formatter canônico pode dizer "Aumentaram: nenhuma" ou
+  // "Nenhuma dessas categorias diminuiu". Essas frases são evidência de AUSÊNCIA
+  // de uma direção, não uma afirmação positiva daquela direção. Removemos essas
+  // cláusulas antes de procurar verbos positivos para não transformar negação em
+  // direction_inverted.
+  const noIncreasePatterns = [
+    /\baumentaram\s*:\s*nenhuma\b/gi,
+    /\bnenhuma(?:\s+dessas)?\s+categorias?\s+aumentou\b[^.!\n]*/gi,
+    /\bn(?:ã|a)o\s+(?:houve|teve)\s+aumento\b[^.!\n]*/gi,
+    /\bsem\s+aumento\b[^.!\n]*/gi,
+    /\bn(?:ã|a)o\s+aument(?:ou|aram)\b[^.!\n]*/gi,
+  ];
+  const noDecreasePatterns = [
+    /\bdiminu(?:í|i)ram\s*:\s*nenhuma\b/gi,
+    /\bnenhuma(?:\s+dessas)?\s+categorias?\s+diminuiu\b[^.!\n]*/gi,
+    /\bn(?:ã|a)o\s+(?:houve|teve)\s+(?:queda|redu(?:ç|c)ão)\b[^.!\n]*/gi,
+    /\bsem\s+(?:queda|redu(?:ç|c)ão)\b[^.!\n]*/gi,
+    /\bn(?:ã|a)o\s+(?:diminuiu|caiu|reduziu)\b[^.!\n]*/gi,
+  ];
+
+  const saysNoIncrease = noIncreasePatterns.some((rx) => {
+    rx.lastIndex = 0;
+    return rx.test(reply);
+  });
+  const saysNoDecrease = noDecreasePatterns.some((rx) => {
+    rx.lastIndex = 0;
+    return rx.test(reply);
+  });
+
+  let positiveText = reply;
+  for (const rx of [...noIncreasePatterns, ...noDecreasePatterns]) {
+    rx.lastIndex = 0;
+    positiveText = positiveText.replace(rx, " ");
+  }
+
+  return {
+    saysNoIncrease,
+    saysNoDecrease,
+    saysUp: /\b(aumentou|aumentaram|subiu|subiram|cresceu|cresceram|aumento\s+de|maior\s+que)\b/i.test(positiveText),
+    saysDown: /\b(diminuiu|diminuíram|diminuiram|caiu|caíram|cairam|reduziu|reduziram|queda\s+de|menor\s+que)\b/i.test(positiveText),
+  };
+}
+
 export function groundReply(args: {
   reply: string;
   claims: EvidenceClaimSet;
@@ -108,23 +163,29 @@ export function groundReply(args: {
     }
   }
 
-  // Direção: suporta evidência com alta E queda no mesmo comparativo.
-  // Antes só o primeiro claim era lido; respostas corretas com os dois grupos
-  // podiam ser bloqueadas como "direção invertida".
+  // Direção: distingue afirmação positiva de negação/ausência. Ex.:
+  // "Diminuíram: nenhuma" NÃO significa que houve queda; significa no_decrease.
   const directionLabels = claims
     .filter((c) => c.type === "direction" && c.label)
     .map((c) => String(c.label).toLowerCase());
   if (directionLabels.length) {
-    const saysUp = /\b(aumentou|aumentaram|subiu|subiram|cresceu|cresceram|maior que)\b/i.test(reply);
-    const saysDown = /\b(diminuiu|diminuíram|diminuiu|caiu|caíram|reduziu|reduziram|menor que)\b/i.test(reply);
-    const expectedUp = directionLabels.some((label) => /^(up|increase|aumento|subiu)$/.test(label));
-    const expectedDown = directionLabels.some((label) => /^(down|decrease|queda|caiu)$/.test(label));
-    if ((saysUp && !expectedUp) || (saysDown && !expectedDown)) {
+    const expected = directionState(directionLabels);
+    const said = directionMentions(reply);
+    const positiveMismatch = (said.saysUp && !expected.increase) || (said.saysDown && !expected.decrease);
+    const absenceMismatch = (said.saysNoIncrease && !expected.noIncrease) || (said.saysNoDecrease && !expected.noDecrease);
+    if (positiveMismatch || absenceMismatch) {
       verdicts.push({
         kind: "direction",
         token: directionLabels.join(","),
         status: "semantic_mismatch",
-        detail: "direction_inverted",
+        detail: positiveMismatch ? "direction_inverted" : "direction_absence_mismatch",
+      });
+    } else if (said.saysUp || said.saysDown || said.saysNoIncrease || said.saysNoDecrease) {
+      verdicts.push({
+        kind: "direction",
+        token: directionLabels.join(","),
+        status: "exact",
+        detail: null,
       });
     }
   }
