@@ -2,11 +2,8 @@
 //
 // Conversation understanding and Financial IR only need ONE structured result.
 // For Groq, semantic-contract generation uses native Structured Outputs
-// (response_format/json_schema) in both best-effort and strict modes. This avoids
-// abusing tool calling as a serialization transport: HTTP 200 responses without a
-// tool_calls array are valid model responses, but they are not valid contract
-// transport. Real domain tools continue to be executed elsewhere by the agent
-// runtime; this helper never executes a tool.
+// (response_format/json_schema). Real domain tools continue to be executed
+// elsewhere by the agent runtime; this helper never executes a tool.
 // deno-lint-ignore-file no-explicit-any
 import {
   aiEndpoint, aiJsonHeaders, normalizeAiModel,
@@ -39,7 +36,6 @@ export type StructuredCallResult = {
 const MAX_STRUCTURED_ATTEMPTS = 3;
 const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
 const CONVERSATION_BRAIN_TOOL = "emit_conversation_turn_contract";
-const FINANCIAL_READ_NOT_APPLICABLE = "not_applicable";
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -68,81 +64,40 @@ function useNativeStructuredOutput(args: {
   provider: AiProviderConfig;
   tool: StructuredFunctionSpec;
 }): boolean {
-  // Groq exposes JSON Schema mode for GPT-OSS in both best-effort and strict
-  // variants. callStructuredFunction is an OUTPUT helper, not a real tool
-  // executor, so native structured output is the canonical transport here.
   return args.provider.provider === "groq";
 }
 
-function strictConversationBrainSchema(parameters: Record<string, unknown>): Record<string, unknown> {
-  const schema = JSON.parse(JSON.stringify(parameters)) as any;
-  const actionObject = schema?.properties?.action?.anyOf?.find(
-    (candidate: any) => candidate?.type === "object",
-  );
-  if (!actionObject?.properties?.slots) {
-    throw new Error("conversation_brain_schema_missing_action_slots");
-  }
-
-  const financialReadObject = schema?.properties?.financial_read?.anyOf?.find(
-    (candidate: any) => candidate?.type === "object",
-  );
-  if (!financialReadObject?.properties?.intent || !financialReadObject?.properties?.queries) {
-    throw new Error("conversation_brain_schema_missing_financial_read_object");
-  }
-
-  // Groq strict Structured Outputs requires every object to be closed. ActionIR
-  // slots are intentionally open inside Nino because each write action has its own
-  // shape. Transport them as a JSON string across the provider boundary and
-  // restore the object before ConversationTurnContract validation.
-  actionObject.properties.slots = {
-    type: "string",
-    description: "Objeto JSON serializado contendo os slots da ação. Use um objeto JSON válido, por exemplo {\"target_amount\":5000}.",
-  };
-
-  // Avoid a nullable anyOf at the outer financial_read boundary. GPT-OSS 120b
-  // has produced an array there during constrained generation. Keep the full
-  // nested schema strict by making the outer transport always an object. For
-  // non-financial-read turns, a deterministic sentinel is converted back to null
-  // immediately after transport validation.
-  const intentEnum = Array.isArray(financialReadObject.properties.intent.enum)
-    ? financialReadObject.properties.intent.enum
-    : [];
-  financialReadObject.properties.intent.enum = [
-    ...new Set([...intentEnum, FINANCIAL_READ_NOT_APPLICABLE]),
-  ];
-  financialReadObject.properties.queries.minItems = 0;
-  schema.properties.financial_read = financialReadObject;
-  return schema;
-}
-
-function restoreConversationBrainTransport(argumentsText: string): { ok: true; value: string } | { ok: false; error: string } {
-  let payload: any;
+/**
+ * GPT-OSS 120b on Groq has repeatedly emitted `financial_read` as a singleton
+ * array even though Nino's canonical contract defines one FinancialReadIR object.
+ * This is a provider serialization quirk, not a semantic choice. Normalize only
+ * the unambiguous cases before canonical validation:
+ * - [object] -> object
+ * - [] -> null only when the declared domain is NOT financial_read
+ * Any other shape is deliberately left untouched so ConversationTurnContract
+ * rejects it fail-closed.
+ */
+function normalizeConversationBrainArguments(argumentsText: string): string {
   try {
-    payload = JSON.parse(argumentsText);
-  } catch {
-    return { ok: false, error: "conversation_brain_transport_invalid_json" };
-  }
+    const payload = JSON.parse(argumentsText);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return argumentsText;
 
-  if (payload?.action && typeof payload.action === "object" && typeof payload.action.slots === "string") {
-    try {
-      const slots = JSON.parse(payload.action.slots);
-      if (!slots || typeof slots !== "object" || Array.isArray(slots)) {
-        return { ok: false, error: "conversation_brain_slots_not_object" };
+    if (Array.isArray(payload.financial_read)) {
+      if (
+        payload.financial_read.length === 1
+        && payload.financial_read[0]
+        && typeof payload.financial_read[0] === "object"
+        && !Array.isArray(payload.financial_read[0])
+      ) {
+        payload.financial_read = payload.financial_read[0];
+      } else if (payload.financial_read.length === 0 && payload.domain !== "financial_read") {
+        payload.financial_read = null;
       }
-      payload.action.slots = slots;
-    } catch {
-      return { ok: false, error: "conversation_brain_slots_transport_invalid" };
     }
+    return JSON.stringify(payload);
+  } catch {
+    return argumentsText;
   }
-
-  if (!payload?.financial_read || typeof payload.financial_read !== "object" || Array.isArray(payload.financial_read)) {
-    return { ok: false, error: "conversation_brain_financial_read_transport_not_object" };
-  }
-  if (payload.financial_read.intent === FINANCIAL_READ_NOT_APPLICABLE) {
-    payload.financial_read = null;
-  }
-
-  return { ok: true, value: JSON.stringify(payload) };
 }
 
 function retryAfterMs(response: Response): number | null {
@@ -164,25 +119,22 @@ function boundedRetryDelayMs(args: {
 }): number | null {
   const { response, raw, attempt } = args;
 
-  // One extra sample for stochastic best-effort JSON/tool generation failures.
+  // Best-effort Structured Outputs can fail generation stochastically. Retry the
+  // bounded provider budget; canonical validation still decides acceptance.
   if (
     response.status === 400
-    && attempt < 2
-    && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match/i.test(raw)
+    && attempt < MAX_STRUCTURED_ATTEMPTS
+    && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match|json_validate_failed/i.test(raw)
   ) {
     return 0;
   }
 
-  // Groq documents retry-after on 429. Respect it when the wait remains short
-  // enough for an interactive agent. A longer window fails closed instead of
-  // making users wait tens of seconds or hammering the provider prematurely.
   if (response.status === 429) {
     const providerDelay = retryAfterMs(response);
     const delay = providerDelay ?? Math.min(1_000 * (2 ** Math.max(0, attempt - 1)), 4_000);
     return delay <= MAX_PROVIDER_RETRY_WAIT_MS ? delay : null;
   }
 
-  // Transient provider/gateway failures get a small bounded exponential retry.
   if ([500, 502, 503, 504].includes(response.status)) {
     return Math.min(400 * (2 ** Math.max(0, attempt - 1)), 2_000);
   }
@@ -222,14 +174,11 @@ export async function callStructuredFunction(args: {
   const started = Date.now();
   const model = normalizeAiModel(args.model, args.provider);
   const nativeStructuredOutput = useNativeStructuredOutput(args);
-  const strictConversationBrain = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
-  const system = strictConversationBrain
-    ? `${args.system}\n\nREGRAS DE TRANSPORTE GROQ (apenas serialização; o significado canônico não muda):\n- action.slots, quando action não for null, deve ser uma STRING contendo um objeto JSON serializado válido.\n- financial_read deve ser SEMPRE um OBJETO no JSON externo. Se domain=financial_read, preencha o objeto real completo {intent,queries}. Fora de financial_read, use exatamente {\"intent\":\"not_applicable\",\"queries\":[]}.\nO runtime converte apenas esse sentinel para null e desserializa action.slots antes de validar ou executar qualquer ação.`
-    : args.system;
+  const conversationBrainOutput = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
   const body: Record<string, unknown> = {
     model,
     messages: [
-      { role: "system", content: system },
+      { role: "system", content: args.system },
       { role: "user", content: args.user },
     ],
     temperature: args.temperature ?? 0,
@@ -241,10 +190,8 @@ export async function callStructuredFunction(args: {
       json_schema: {
         name: args.tool.name,
         ...(args.tool.description ? { description: args.tool.description } : {}),
-        strict: strictConversationBrain || args.tool.strict === true,
-        schema: strictConversationBrain
-          ? strictConversationBrainSchema(args.tool.parameters)
-          : args.tool.parameters,
+        strict: args.tool.strict === true,
+        schema: args.tool.parameters,
       },
     };
   } else {
@@ -364,25 +311,8 @@ export async function callStructuredFunction(args: {
     };
   }
 
-  if (strictConversationBrain) {
-    const restored = restoreConversationBrainTransport(functionArguments);
-    if (!restored.ok) {
-      return {
-        ok: false,
-        status: response.status || 200,
-        provider: args.provider.provider,
-        model,
-        arguments: "",
-        body: json,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        latency_ms: Date.now() - started,
-        error_code: restored.error,
-        error_detail: null,
-        attempts,
-      };
-    }
-    functionArguments = restored.value;
+  if (conversationBrainOutput) {
+    functionArguments = normalizeConversationBrainArguments(functionArguments);
   }
 
   return {
