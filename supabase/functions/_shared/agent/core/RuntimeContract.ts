@@ -10,12 +10,11 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .1 marca a correção do fast path humano na V2: check-ins
-// emocionais explícitos são roteados deterministicamente antes do Conversation
-// Brain, sem relaxar o contrato analítico (`nino_analytical.v5`). A expectativa
-// de teste correspondente foi alinhada preservando integralmente a regressão
-// analítica existente antes deste deploy atômico de produção.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-23.1";
+// Deployment stamp .1 de 25/09 marca a fundação operacional do Runtime V3 em
+// shadow: comparação V2×V3, telemetria side-effect-free e correção da falsa
+// anáfora temporal em follow-ups. O contrato analítico permanece v5 porque os
+// motores/cálculos financeiros não foram alterados nesta entrega.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
