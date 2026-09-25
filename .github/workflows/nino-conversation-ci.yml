@@ -50,7 +50,7 @@ jobs:
       - name: Install
         run: npm install --package-lock=false --no-audit --no-fund
 
-      - name: Conversation P0 + V2 regression tests
+      - name: Conversation P0 + V2/V3 regression tests
         run: >-
           npx vitest run
           src/test/nino-confirmation-fastpath.test.ts
@@ -64,12 +64,13 @@ jobs:
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
           src/test/nino-ai-provider-admin-benchmark.test.ts
+          src/test/nino-runtime-v3-foundation.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
       # anterior a este PR; essa dívida é reportada separadamente sem esconder o
-      # gate estrito dos módulos V2 puros.
-      - name: Typecheck pure V2 contracts
+      # gate estrito dos módulos puros V2/V3.
+      - name: Typecheck pure V2/V3 contracts
         run: >-
           deno check --no-config
           supabase/functions/_shared/ai-runtime.ts
@@ -85,6 +86,12 @@ jobs:
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
           supabase/functions/_shared/agent/core/ConversationBrain.ts
           supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
+          supabase/functions/_shared/agent/v3/TurnSpecV3.ts
+          supabase/functions/_shared/agent/v3/SemanticInvariantsV3.ts
+          supabase/functions/_shared/agent/v3/CapabilityRegistryV3.ts
+          supabase/functions/_shared/agent/v3/EvidenceEnvelopeV3.ts
+          supabase/functions/_shared/agent/v3/TurnSpecV3Adapter.ts
+          supabase/functions/_shared/agent/v3/RuntimeV3Shadow.ts
 
       - name: Report integrated legacy type debt
         continue-on-error: true
