@@ -221,6 +221,8 @@ const MEDIAN_RX = /\b(mediana|tipico|padrao|habitual)\b/;
 const PROJECTION_RX =
   /\b(fechamento|projecao|ate o fim do mes|ate o final do mes|final do mes|(vou|devo|deve|vai) fechar)\b/;
 const TREND_RX = /\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes|mes por mes|em cada mes|separad[oa] por mes|quebrad[oa] por mes|separ(e|a|ar) por mes|mostr(e|ar) por mes|trag(a|zer) por mes|list(e|ar) por mes|quebr(e|ar) por mes)\b/;
+const MONTHLY_RATE_RX = /\b(por mes|ao mes|cada mes)\b/;
+const FACTUAL_MONTHLY_VERB_RX = /\b(gastei|recebi|paguei|desembolsei|foi|ficou|deu|somei|somou|totalizei)\b/;
 
 export const HABITUAL_WINDOW_MONTHS = 6;
 
@@ -231,6 +233,30 @@ export const HABITUAL_WINDOW_MONTHS = 6;
 export function resolveTimeAspectPt(text: string, now: Date = new Date()): ResolvedTimeAspect {
   const t = norm(text);
   const explicitPeriod = resolvePeriodPt(text, now);
+
+  const explicitMonthWindow = t.match(new RegExp(`\\bultimos?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`));
+  const explicitMonthCount = explicitMonthWindow ? parseMonthCount(explicitMonthWindow[1]) : null;
+  // Historical/factual past + "por mês" + explicit N-month window means a
+  // decomposition into N calendar buckets, not the habitual 6-month statistic.
+  // Present-tense "quanto gasto por mês" remains habitual below.
+  if (explicitMonthCount && MONTHLY_RATE_RX.test(t) && FACTUAL_MONTHLY_VERB_RX.test(t)) {
+    const wantsComplete = /\b(completos?|fechados?)\b/.test(t);
+    if (wantsComplete) {
+      const w = lastCompleteMonths(explicitMonthCount, now);
+      return {
+        aspect: "trend", from: w.from, to: w.to, n: explicitMonthCount, exclude_partial: true,
+        grain: "month", reduce: "none", label: `últimos ${explicitMonthCount} meses completos, por mês`,
+        matched: explicitMonthWindow?.[0] ?? "", assumption: null, ambiguous: false,
+      };
+    }
+    const shifted = shiftMonthsClamped(todaySP(now), -(explicitMonthCount - 1));
+    return {
+      aspect: "trend", from: shifted.slice(0, 7) + "-01", to: todaySP(now),
+      n: explicitMonthCount, exclude_partial: false, grain: "month", reduce: "none",
+      label: `últimos ${explicitMonthCount} meses, por mês`, matched: explicitMonthWindow?.[0] ?? "",
+      assumption: null, ambiguous: false,
+    };
+  }
 
   if (TREND_RX.test(t)) {
     const requested = t.match(new RegExp("\\bultimos?\\s+(" + MONTH_COUNT_TOKEN + ")\\s+meses?\\b"));

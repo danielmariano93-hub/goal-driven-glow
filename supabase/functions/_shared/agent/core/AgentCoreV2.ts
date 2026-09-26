@@ -865,6 +865,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
         if (categoryLabel && (!categoryIds || !categoryIds.length)) {
           return { domain_error: "category_not_found" as const };
         }
+        if (categoryLabel && categoryIds && categoryIds.length > 1) {
+          return { domain_error: "category_ambiguous" as const };
+        }
         const from = String(query.time.from ?? "");
         const to = String(query.time.to ?? "");
         if (!from || !to) return null;
