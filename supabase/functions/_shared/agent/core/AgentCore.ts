@@ -76,6 +76,9 @@ import {
   loadMonthlyExpenseBuckets, resolveCategoryIdsByName, typicalMonthlyExecutedIR,
   typicalMonthlyPolicy, typicalMonthlyText,
 } from "./handlers/TypicalMonthlyHandler.ts";
+import {
+  loadMonthlySpendingSeries, monthlySeriesExecutedIR, monthlySpendingSeriesText,
+} from "./handlers/MonthlySeriesHandler.ts";
 import { normalizeTopicState, resolveTopicForTurn, upsertTopic } from "./ConversationTopicState.ts";
 import { loadClarificationOptions } from "./SemanticClarificationOptions.ts";
 import { rescueCapabilityDenial } from "./CapabilityRescue.ts";
@@ -1071,6 +1074,33 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
           return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
         },
         runTypicalMonthly: async (query) => {
+      if (query.grain === "month" && query.time.aspect === "trend") {
+        const categoryLabel = query.filters.find((f) => f.field === "category")?.value ?? null;
+        const merchantLabel = query.filters.find((f) => f.field === "merchant")?.value ?? null;
+        const categoryIds = categoryLabel
+          ? await resolveCategoryIdsByName(sb, input.user_id, String(categoryLabel))
+          : null;
+        if (categoryLabel && (!categoryIds || !categoryIds.length)) {
+          return { domain_error: "category_not_found" as const };
+        }
+        const from = String(query.time.from ?? "");
+        const to = String(query.time.to ?? "");
+        if (!from || !to) return null;
+        const result = await loadMonthlySpendingSeries(sb, {
+          user_id: input.user_id,
+          from, to,
+          category_ids: categoryIds,
+          category_label: categoryLabel ? String(categoryLabel) : null,
+          merchant: merchantLabel ? String(merchantLabel) : null,
+        });
+        return {
+          text: monthlySpendingSeriesText(result),
+          executed_ir: monthlySeriesExecutedIR(query, result),
+          engine: "spending_timeseries_monthly",
+          result,
+        };
+      }
+
           const label = query.filters.find((f) => f.field === "category")?.value ?? null;
           const categoryIds = label
             ? await resolveCategoryIdsByName(sb, input.user_id, String(label))

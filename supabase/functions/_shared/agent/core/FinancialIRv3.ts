@@ -325,3 +325,19 @@ export function isTypicalMonthlyShape(q: FinancialQueryV3): boolean {
     && (q.reduce === "typical" || q.reduce === "median" || q.reduce === "mean")
     && (q.group_by?.length ?? 0) === 0;
 }
+
+
+/** Canonical shape for a factual month-by-month spending series. */
+export function isMonthlySeriesShape(q: FinancialQueryV3): boolean {
+  const filterFields = new Set((q.filters ?? []).map((f) => f.field));
+  const filtersSupported = [...filterFields].every((field) => field === "category" || field === "merchant");
+  const groupSupported = (q.group_by?.length ?? 0) === 0
+    || (q.group_by.length === 1 && q.group_by[0] === "month");
+  return q.metric === "expense_amount"
+    && q.grain === "month"
+    && q.time.aspect === "trend"
+    && (q.reduce === "none" || q.reduce === "sum")
+    && Boolean(q.time.from && q.time.to)
+    && filtersSupported
+    && groupSupported;
+}

@@ -220,7 +220,7 @@ const MEAN_RX = /\b(media|media mensal|na media)\b/;
 const MEDIAN_RX = /\b(mediana|tipico|padrao|habitual)\b/;
 const PROJECTION_RX =
   /\b(fechamento|projecao|ate o fim do mes|ate o final do mes|final do mes|(vou|devo|deve|vai) fechar)\b/;
-const TREND_RX = /\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes)\b/;
+const TREND_RX = /\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes|mes por mes|em cada mes|separad[oa] por mes|quebrad[oa] por mes|separ(e|a|ar) por mes|mostr(e|ar) por mes|trag(a|zer) por mes|list(e|ar) por mes|quebr(e|ar) por mes)\b/;
 
 export const HABITUAL_WINDOW_MONTHS = 6;
 
@@ -233,6 +233,27 @@ export function resolveTimeAspectPt(text: string, now: Date = new Date()): Resol
   const explicitPeriod = resolvePeriodPt(text, now);
 
   if (TREND_RX.test(t)) {
+    const requested = t.match(new RegExp("\\bultimos?\\s+(" + MONTH_COUNT_TOKEN + ")\\s+meses?\\b"));
+    const count = requested ? parseMonthCount(requested[1]) : null;
+    if (count) {
+      const wantsComplete = /\b(completos?|fechados?)\b/.test(t);
+      if (wantsComplete) {
+        const w = lastCompleteMonths(count, now);
+        return {
+          aspect: "trend", from: w.from, to: w.to, n: count, exclude_partial: true,
+          grain: "month", reduce: "none", label: "últimos " + count + " meses completos", matched: requested?.[0] ?? "",
+          assumption: null, ambiguous: false,
+        };
+      }
+      const shifted = shiftMonthsClamped(todaySP(now), -(count - 1));
+      const from = shifted.slice(0, 7) + "-01";
+      const to = todaySP(now);
+      return {
+        aspect: "trend", from, to, n: count, exclude_partial: false,
+        grain: "month", reduce: "none", label: "últimos " + count + " meses, mês a mês", matched: requested?.[0] ?? "",
+        assumption: null, ambiguous: false,
+      };
+    }
     const window = explicitPeriod ?? { ...lastCompleteMonths(HABITUAL_WINDOW_MONTHS, now), label: "últimos 6 meses completos", matched: "", complete: true, kind: "range" as const };
     return {
       aspect: "trend", from: window.from, to: window.to, n: null, exclude_partial: false,

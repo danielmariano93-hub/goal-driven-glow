@@ -150,6 +150,22 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "trend") {
+      const monthlyCategory = filter(q, "category");
+      if (metric === "expense"
+        && (group === null || group === "month")
+        && (monthlyCategory || merchant)
+        && onlyFilters(q, ["category", "merchant"])) {
+        return {
+          tool: "spending_timeseries_monthly",
+          capability: "financial_analysis",
+          execution: "deterministic",
+          args: {
+            from: period.from, to: period.to,
+            ...(monthlyCategory ? { category_name: monthlyCategory } : {}),
+            ...(merchant ? { merchant } : {}),
+          },
+        };
+      }
       // Trajetória mês a mês: motor longitudinal (ponto de virada, tendência).
       if (group === "month" && !q.filters.length) {
         return {
@@ -331,6 +347,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
   "expense_amount + value|sum com filtro merchant e filtro opcional category (motor merchant_profile)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
+  "expense_amount + trend/grain month com filtro category e/ou merchant (motor spending_timeseries_monthly)",
   "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
