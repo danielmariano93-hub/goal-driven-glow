@@ -15,7 +15,7 @@
 // (2) negações como "Diminuíram: nenhuma"/"Aumentaram: nenhuma" são validadas
 // como no_decrease/no_increase, sem serem confundidas com afirmações positivas.
 // A matemática do engine e o contrato analítico permanecem inalterados.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.4";
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-26.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
