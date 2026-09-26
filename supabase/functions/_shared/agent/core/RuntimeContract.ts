@@ -10,12 +10,11 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .4 de 25/09 registra o fechamento do grounding de comparações:
-// (1) delta_pct calculado pelo engine entra explicitamente como evidência; e
-// (2) negações como "Diminuíram: nenhuma"/"Aumentaram: nenhuma" são validadas
-// como no_decrease/no_increase, sem serem confundidas com afirmações positivas.
-// A matemática do engine e o contrato analítico permanecem inalterados.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-25.4";
+// Deployment stamp .5 de 26/09 fecha três causas do incidente conversacional:
+// filtro merchant é preservado até merchant_profile (inclusive com categoria),
+// período implícito segue uma política determinística única e cada etapa do
+// pipeline WhatsApp registra a versão efetiva do bundle que a executou.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-26.5";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 

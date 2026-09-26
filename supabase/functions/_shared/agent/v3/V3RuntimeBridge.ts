@@ -43,17 +43,13 @@ function periodExpressions(tasks: SemanticTaskV3[]): string[] {
 }
 
 function financialQuery(task: FinancialQueryTaskV3): FinancialReadSemanticQuery | null {
-  // Current FinancialQueryIR does not expose merchant as a generic filter.
-  // Never silently drop it; V3 authority must wait for a canonical engine/IR
-  // mapping for that shape.
-  if (task.filters.some((filter) => filter.field === "merchant")) return null;
   const comparison = task.comparison;
   return {
     metric: task.metric,
     operation: task.operation,
     group_by: [...task.group_by],
     filters: task.filters.map((filter) => ({
-      field: filter.field as "category" | "card" | "account" | "payment_method",
+      field: filter.field as "category" | "merchant" | "card" | "account" | "payment_method",
       op: "eq" as const,
       value: filter.entity.value,
     })),

@@ -2,6 +2,7 @@
 // Nunca persiste corpo, telefone, URL ou segredo. Falha de telemetria jamais
 // bloqueia mensagem, mas ausência dela impede declarar o canal "verificado".
 // deno-lint-ignore-file no-explicit-any
+import { runtimeStamp } from "../agent/core/RuntimeContract.ts";
 
 type Client = { from: (table: string) => any };
 
@@ -52,7 +53,7 @@ export async function recordWhatsappPipelineEvent(
       provider_message_hash: await hashShort(event.provider_message_id),
       session: event.session ? String(event.session).slice(0, 80) : null,
       error_code: event.error_code ? String(event.error_code).slice(0, 120) : null,
-      metadata: event.metadata ?? {},
+      metadata: { ...runtimeStamp(), ...(event.metadata ?? {}) },
     });
   } catch {
     // observabilidade é best-effort; o fluxo de negócio continua.

@@ -1,16 +1,16 @@
 name: Nino Agent Run Hotfix
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/nino-agent-run-hotfix.yml'
-      - 'supabase/functions/_shared/agent/core/EvidenceClaims.ts'
-      - 'supabase/functions/_shared/agent/core/GroundingGateV3.ts'
-      - 'supabase/functions/_shared/agent/core/ComparisonPresentation.ts'
-      - 'supabase/functions/_shared/agent/core/RuntimeContract.ts'
-      - 'scripts/nino_comparison_grounding_smoke.ts'
+  # Emergency execution is explicit. Ordinary pushes use the complete deploy
+  # workflow; two concurrent deploy workflows previously left whatsapp-webhook
+  # on .1 while agent-run alone reached .4.
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type HOTFIX to redeploy every agent runtime consumer'
+        required: true
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -23,8 +23,9 @@ env:
 
 jobs:
   hotfix:
+    if: ${{ inputs.confirm == 'HOTFIX' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@v4
@@ -46,16 +47,23 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: 2.117.0
-      - name: Deploy agent-run exact revision
+      - name: Validate atomic agent dependents
+        run: node scripts/check-agent-dependents.mjs
+      - name: Deploy every agent runtime consumer from the exact revision
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase functions deploy agent-run --project-ref "$SUPABASE_PROJECT_REF"
-          supabase functions list --project-ref "$SUPABASE_PROJECT_REF" | grep 'agent-run'
+          mapfile -t functions < <(sed -n 's/^- `\([^`]*\)`$/\1/p' supabase/functions/_shared/agent/DEPENDENTS.md)
+          test "${#functions[@]}" -gt 0
+          for fn in "${functions[@]}"; do
+            echo "Deploying runtime consumer: $fn"
+            supabase functions deploy "$fn" --project-ref "$SUPABASE_PROJECT_REF"
+          done
+          supabase functions list --project-ref "$SUPABASE_PROJECT_REF"
       - name: Receipt
         run: |
           echo "revision=${GITHUB_SHA}"
-          echo "function=agent-run"
+          echo "scope=all_agent_runtime_consumers"
           echo "comparison_grounding_smoke=passed"
           echo "provider_smoke=passed"

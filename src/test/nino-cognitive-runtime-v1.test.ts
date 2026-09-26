@@ -180,7 +180,11 @@ describe("Nino Cognitive Runtime v1 — autoridade única e contratos hierárqui
       resolution: { intent: "resolved" },
     });
     expect(resolveNarrowDeterministicTurn("E qual delas piorou?")).toBeNull();
-    expect(resolveNarrowDeterministicTurn("Quanto gastei com alimentação?")).toBeNull();
+    expect(resolveNarrowDeterministicTurn("Quanto gastei com alimentação?")).toMatchObject({
+      mode: "read",
+      financial_read: { queries: [{ filters: [{ field: "category", value: "Alimentação" }] }] },
+    });
+    expect(resolveNarrowDeterministicTurn("Quanto gastei com alguma coisa?")).toBeNull();
   });
 
   it("falha de compilação na lane autoritativa não devolve autoridade ao legado", async () => {

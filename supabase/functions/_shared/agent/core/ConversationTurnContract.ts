@@ -248,7 +248,7 @@ function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | nu
       const filter = rawFilter as Record<string, unknown>;
       const field = String(filter.field ?? "") as FinancialFilter["field"];
       const filterValue = String(filter.value ?? "").trim();
-      if (!["category", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
+      if (!["category", "merchant", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
       filters.push({ field, op: "eq", value: filterValue });
     }
     const limit = q.limit == null ? null : Number(q.limit);

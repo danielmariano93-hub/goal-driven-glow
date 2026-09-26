@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { runOrchestrator } from "../_shared/agent/orchestrator.ts";
+import { runtimeStamp } from "../_shared/agent/core/RuntimeContract.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
       user_id, conversation_id, inbound_message_id, text, to_phone,
       source: source === "simulator" ? "simulator" : "whatsapp",
     });
-    return h.ok({ ...result });
+    return h.ok({ ...result, runtime: runtimeStamp() });
   } catch (e) {
     console.error("[agent-run] failure", String((e as Error).message).slice(0, 200));
     return h.fail("internal", 500);
