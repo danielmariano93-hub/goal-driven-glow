@@ -1,0 +1,318 @@
+name: Phase 2 Contract Hardening Once
+
+on:
+  push:
+    branches:
+      - hardening/nino-phase2-contract-matrix-20260926
+    paths:
+      - .github/workflows/phase2-contract-hardening-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/nino-phase2-contract-matrix-20260926
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply phase 2 hardening
+        shell: python
+        run: |
+          from pathlib import Path
+
+          narrow = Path('supabase/functions/_shared/agent/core/NarrowDeterministicGate.ts')
+          s = narrow.read_text()
+          anchor = '''function normalizeEntity(value: string | null | undefined): string {
+            return norm(String(value ?? ""));
+          }
+          '''
+          helper = '''function normalizeEntity(value: string | null | undefined): string {
+            return norm(String(value ?? ""));
+          }
+
+          /**
+           * Extrai estabelecimento sem depender da ordem categoria/merchant.
+           * Formas semanticamente equivalentes como "Lazer no Thales" e
+           * "no Thales com Lazer" precisam produzir o MESMO contrato.
+           */
+          function merchantFromMonthlyScope(rawScope: string, category: string | null): string | null {
+            const leading = /^(?:no|na|do|da)\\s+(?:(?:estabelecimento|loja|comerciante)\\s+)?(.+?)(?=\\s+(?:com|em|de)\\s+|$)/i.exec(rawScope);
+            const trailing = /\\b(?:no|na|do|da)\\s+(?:(?:estabelecimento|loja|comerciante)\\s+)?(.+)$/i.exec(rawScope);
+            const candidate = String(leading?.[1] ?? trailing?.[1] ?? "").trim();
+            if (!candidate) return null;
+            if (category && normalizeEntity(candidate) === normalizeEntity(category)) return null;
+            return candidate;
+          }
+          '''
+          if anchor not in s:
+            raise SystemExit('normalizeEntity anchor not found')
+          s = s.replace(anchor, helper, 1)
+
+          old = '''  const category = detectCategory(rawScope);
+            let merchant: string | null = null;
+            const merchantMatch = /\\b(?:no|na|do|da)\\s+(?:(?:estabelecimento|loja|comerciante)\\s+)?(.+)$/i.exec(rawScope);
+            if (merchantMatch?.[1]) {
+              const candidate = merchantMatch[1].trim();
+              if (!category || normalizeEntity(candidate) !== normalizeEntity(category)) merchant = candidate;
+            }
+          '''
+          new = '''  const category = detectCategory(rawScope);
+            const merchant = merchantFromMonthlyScope(rawScope, category);
+          '''
+          if old not in s:
+            raise SystemExit('monthly merchant block not found')
+          s = s.replace(old, new, 1)
+          narrow.write_text(s)
+
+          core = Path('supabase/functions/_shared/agent/core/AgentCoreV2.ts')
+          s = core.read_text()
+          import_anchor = 'import { comparablePrevious } from "../../analytics/periodResolver.ts";\n'
+          import_line = 'import { persistV2ToolCalls } from "./V2EvidencePersistence.ts";\n'
+          if import_line not in s:
+            if import_anchor not in s:
+              raise SystemExit('AgentCoreV2 import anchor not found')
+            s = s.replace(import_anchor, import_anchor + import_line, 1)
+
+          run_anchor = '''  const run_id = await recordV2Run({
+            sb: args.sb, input: args.input, contract: args.contract,
+            started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
+            model: args.model, provider: args.provider, path: args.path,
+            tools: args.tools, error: args.error, diagnostics: args.diagnostics,
+          });
+          '''
+          run_replacement = run_anchor + '''
+            // Persist the exact structured evidence while it is still available.
+            // The entry bridge remains as a compatibility fallback for old/non-V2
+            // paths, but normal V2 financial turns no longer degrade to
+            // `result=null / evidence_unavailable_in_v2_bridge`.
+            await persistV2ToolCalls(args.sb, run_id, args.tool_calls ?? []);
+          '''
+          if 'await persistV2ToolCalls(args.sb, run_id, args.tool_calls ?? []);' not in s:
+            if run_anchor not in s:
+              raise SystemExit('recordV2Run anchor not found')
+            s = s.replace(run_anchor, run_replacement, 1)
+          core.write_text(s)
+
+          test = Path('src/test/nino-phase2-contract-matrix.test.ts')
+          test.write_text(r'''import { describe, expect, it } from "vitest";
+          import { readFileSync } from "node:fs";
+          import { resolveNarrowDeterministicTurn } from "../../supabase/functions/_shared/agent/core/NarrowDeterministicGate.ts";
+          import { resolveTimeAspectPt } from "../../supabase/functions/_shared/analytics/periodResolver.ts";
+          import { compileFinancialReadFromTurn } from "../../supabase/functions/_shared/agent/core/TurnContractFinancialAdapter.ts";
+          import { normalizeToV3 } from "../../supabase/functions/_shared/agent/core/FinancialIRv3.ts";
+          import { applyTurnAspect } from "../../supabase/functions/_shared/agent/core/SemanticAspectOverlay.ts";
+          import { requestedSubsumesExecuted } from "../../supabase/functions/_shared/agent/core/SemanticPreservation.ts";
+          import {
+            MONTHLY_SERIES_FORMULA_VERSION,
+            monthlySeriesExecutedIR,
+            type MonthlySpendingSeriesResult,
+          } from "../../supabase/functions/_shared/agent/core/handlers/MonthlySeriesHandler.ts";
+          import { persistV2ToolCalls } from "../../supabase/functions/_shared/agent/core/V2EvidencePersistence.ts";
+
+          const NOW = new Date("2026-09-26T19:00:00-03:00");
+          const PERIOD = { from: "2026-09-01", to: "2026-09-26", label: "este mês" };
+
+          function canonicalSignature(text: string) {
+            const turn = resolveNarrowDeterministicTurn(text);
+            expect(turn, text).not.toBeNull();
+            const q = turn!.financial_read!.queries[0];
+            const time = resolveTimeAspectPt(text, NOW);
+            return {
+              category: turn!.focus.category,
+              merchant: turn!.focus.merchant,
+              metric: q.metric,
+              operation: q.operation,
+              group_by: [...(q.group_by ?? [])],
+              filters: [...(q.filters ?? [])]
+                .map((f) => `${f.field}=${String(f.value)}`)
+                .sort(),
+              aspect: time.aspect,
+              grain: time.grain,
+              from: time.from,
+              to: time.to,
+              n: time.n,
+              exclude_partial: time.exclude_partial,
+            };
+          }
+
+          describe("Nino Phase 2 — contract matrix and semantic invariants", () => {
+            it("maps category+merchant paraphrases and word order to one canonical intent", () => {
+              const variants = [
+                "Quanto gastei com Lazer no Thales mês a mês nos últimos 7 meses?",
+                "Quanto gastei no Thales com Lazer mês a mês nos últimos 7 meses?",
+                "Quanto gastei no Thales em Lazer mês por mês nos últimos sete meses?",
+                "Quanto gastei em Lazer no Thales em cada mês nos últimos 7 meses?",
+                "Nino, quanto eu gastei com Lazer no Thales por mês nos últimos sete meses?",
+              ];
+              const signatures = variants.map(canonicalSignature);
+              for (const signature of signatures) {
+                expect(signature).toEqual({
+                  category: "Lazer",
+                  merchant: "Thales",
+                  metric: "expense_amount",
+                  operation: "trend",
+                  group_by: ["month"],
+                  filters: ["category=Lazer", "merchant=Thales"],
+                  aspect: "trend",
+                  grain: "month",
+                  from: "2026-03-01",
+                  to: "2026-09-26",
+                  n: 7,
+                  exclude_partial: false,
+                });
+              }
+            });
+
+            it.each([
+              ["5", "2026-05-01"],
+              ["cinco", "2026-05-01"],
+              ["7", "2026-03-01"],
+              ["sete", "2026-03-01"],
+              ["10", "2025-12-01"],
+              ["dez", "2025-12-01"],
+            ])("changing only N changes only the calendar window: %s months", (token, expectedFrom) => {
+              const text = `Quanto gastei com Lazer mês a mês nos últimos ${token} meses?`;
+              const signature = canonicalSignature(text);
+              expect(signature.category).toBe("Lazer");
+              expect(signature.merchant).toBeNull();
+              expect(signature.metric).toBe("expense_amount");
+              expect(signature.operation).toBe("trend");
+              expect(signature.group_by).toEqual(["month"]);
+              expect(signature.from).toBe(expectedFrom);
+              expect(signature.to).toBe("2026-09-26");
+            });
+
+            it("keeps habitual paraphrases equivalent and separate from factual month-by-month", () => {
+              const variants = [
+                "Quanto gasto por mês com Lazer?",
+                "Quanto eu gasto aproximadamente por mês com Lazer?",
+                "Quanto costumo gastar por mês com Lazer?",
+                "Quanto estou gastando por mês com Lazer?",
+              ];
+              for (const text of variants) {
+                const signature = canonicalSignature(text);
+                expect(signature).toMatchObject({
+                  category: "Lazer",
+                  merchant: null,
+                  metric: "expense_amount",
+                  operation: "value",
+                  group_by: [],
+                  filters: ["category=Lazer"],
+                  aspect: "habitual",
+                  grain: "month",
+                  from: "2026-03-01",
+                  to: "2026-08-31",
+                  n: 6,
+                  exclude_partial: true,
+                });
+              }
+            });
+
+            it("preserves requested IR through execution and rejects filter/window/grain mutations", () => {
+              const text = "Quanto gastei com Lazer no Thales mês a mês nos últimos 7 meses?";
+              const turn = resolveNarrowDeterministicTurn(text)!;
+              const compiled = compileFinancialReadFromTurn({ turn, period: PERIOD })!;
+              const requested = applyTurnAspect(
+                normalizeToV3(compiled.ir!, { today: "2026-09-26" }),
+                text,
+                NOW,
+              ).ir.queries[0];
+
+              const result: MonthlySpendingSeriesResult = {
+                version: "nino_monthly_series.v1",
+                formula_version: MONTHLY_SERIES_FORMULA_VERSION,
+                months: [],
+                total: 0,
+                transaction_count: 0,
+                window: { from: "2026-03-01", to: "2026-09-26", n: 7 },
+                scope: { category: "Lazer", merchant: "Thales" },
+                partial_first_month: false,
+                partial_last_month: true,
+              };
+              const executed = monthlySeriesExecutedIR(requested, result);
+              expect(requestedSubsumesExecuted(requested, executed).compatible).toBe(true);
+
+              const noMerchant = {
+                ...executed,
+                filters: executed.filters.filter((f) => f.field !== "merchant"),
+              };
+              expect(requestedSubsumesExecuted(requested, noMerchant)).toMatchObject({
+                compatible: false,
+                mismatches: expect.arrayContaining([expect.objectContaining({ reason: "filter_lost" })]),
+              });
+
+              const wrongWindow = {
+                ...executed,
+                time: { ...executed.time, from: "2026-03-26" },
+              };
+              expect(requestedSubsumesExecuted(requested, wrongWindow)).toMatchObject({
+                compatible: false,
+                mismatches: expect.arrayContaining([expect.objectContaining({ reason: "window_changed" })]),
+              });
+
+              const wrongGrain = { ...executed, grain: "day" as const };
+              expect(requestedSubsumesExecuted(requested, wrongGrain)).toMatchObject({
+                compatible: false,
+                mismatches: expect.arrayContaining([expect.objectContaining({ reason: "grain_changed" })]),
+              });
+            });
+
+            it("persists structured V2 evidence instead of degrading successful reads to result=null", async () => {
+              let inserted: any[] = [];
+              const sb = {
+                from(table: string) {
+                  expect(table).toBe("agent_tool_calls");
+                  return {
+                    insert(payload: any[]) {
+                      inserted = payload;
+                      return {
+                        select() {
+                          return Promise.resolve({
+                            data: payload.map((row, index) => ({ id: `tc-${index + 1}`, step_index: row.step_index })),
+                            error: null,
+                          });
+                        },
+                      };
+                    },
+                  };
+                },
+              };
+              const result = {
+                version: "nino_monthly_series.v1",
+                formula_version: MONTHLY_SERIES_FORMULA_VERSION,
+                months: [{ month: "2026-09", total: 147.2, has_data: true, transaction_count: 3 }],
+              };
+              const ids = await persistV2ToolCalls(sb as any, "run-1", [{
+                tool_name: "spending_timeseries_monthly",
+                args: { query_id: "q1" },
+                result,
+                ok: true,
+              }]);
+              expect(ids).toEqual(["tc-1"]);
+              expect(inserted[0].result).toEqual(result);
+              expect(inserted[0].args).toEqual({ query_id: "q1" });
+
+              const source = readFileSync(
+                "supabase/functions/_shared/agent/core/AgentCoreV2.ts",
+                "utf8",
+              );
+              expect(source).toContain("persistV2ToolCalls(args.sb, run_id, args.tool_calls ?? [])");
+            });
+          });
+          ''')
+
+          wf = Path('.github/workflows/phase2-contract-hardening-once.yml')
+          wf.unlink()
+      - name: Commit applied hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test(nino): phase 2 contract matrix and evidence hardening"
+          git push origin HEAD:hardening/nino-phase2-contract-matrix-20260926
