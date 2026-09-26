@@ -34,11 +34,11 @@ function insertAfter(path, marker, addition) {
 }
 
 // 2) Exact-N monthly windows for trend reads. Aggregate rolling-month semantics
-// remain unchanged; only the month-by-month lane gets exact calendar buckets.
+// remain unchanged; only explicit decomposition/evolution phrasing enters trend.
 replaceOnce(
   "supabase/functions/_shared/analytics/periodResolver.ts",
   'const TREND_RX = /\\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes)\\b/;',
-  'const TREND_RX = /\\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes|mes por mes|em cada mes|separad[oa] por mes|quebrad[oa] por mes)\\b/;',
+  'const TREND_RX = /\\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes|mes por mes|em cada mes|separad[oa] por mes|quebrad[oa] por mes|separ(e|a|ar) por mes|mostr(e|ar) por mes|trag(a|zer) por mes|list(e|ar) por mes|quebr(e|ar) por mes)\\b/;',
 );
 
 replaceOnce(
