@@ -4,6 +4,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
+import { buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
 
 type ToolCallLike = {
   step_index: number;
@@ -71,23 +72,29 @@ async function persistArtifact(
   return (data as any)?.id ?? null;
 }
 
-const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-
-function monthLabel(value: unknown): string {
-  const raw = String(value ?? "");
-  const match = raw.match(/^(\d{4})-(\d{2})$/);
-  if (!match) return raw;
-  const month = Number(match[2]);
-  return `${MONTHS[month - 1] ?? match[2]}/${match[1].slice(-2)}`;
-}
-
-function monthlyTitle(result: any): string {
-  const category = String(result?.scope?.category ?? "").trim();
-  const merchant = String(result?.scope?.merchant ?? "").trim();
-  if (category && merchant) return `Gastos com ${category} em ${merchant} — mês a mês`;
-  if (category) return `Gastos com ${category} — mês a mês`;
-  if (merchant) return `Gastos em ${merchant} — mês a mês`;
-  return "Gastos mês a mês";
+async function persistRichArtifact(
+  sb: SupabaseClient,
+  args: {
+    user_id: string;
+    conversation_id: string;
+    payload: any;
+  },
+): Promise<string | null> {
+  const payload = args.payload ?? {};
+  const formulaVersion = String(payload?.provenance?.formula_version ?? "artifact.v2");
+  const summaryText = String(payload?.summary_text ?? payload?.fallback_text ?? "");
+  const fallbackText = String(payload?.fallback_text ?? summaryText);
+  const { data, error } = await sb.from("agent_artifacts").insert({
+    user_id: args.user_id,
+    conversation_id: args.conversation_id,
+    kind: String(payload?.kind ?? "chart"),
+    payload,
+    summary_text: summaryText,
+    fallback_text: fallbackText,
+    formula_version: formulaVersion,
+  }).select("id").maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as any)?.id ?? null;
 }
 
 export async function ensureRequestedArtifact(args: {
@@ -113,22 +120,18 @@ export async function ensureRequestedArtifact(args: {
     if (monthlyAnalytical) {
       const result = monthlyAnalytical.result as any;
       const months = Array.isArray(result?.months) ? result.months : [];
-      if (!months.length) throw new Error("monthly_series_evidence_unavailable");
-      const series = months.map((point: any) => ({
-        name: monthLabel(point?.month),
-        value: Number(point?.total ?? 0),
-      }));
-      const artifact_id = await persistArtifact(args.sb, {
+      if (!months.length || !months.some((point: any) => Boolean(point?.has_data))) {
+        throw new Error("monthly_series_evidence_unavailable");
+      }
+
+      // Uses the same visual contract as the existing WhatsApp daily chart:
+      // purple bars + orange smooth moving-average line. The caption is also
+      // deterministic and becomes the WhatsApp image caption/fallback text.
+      const payload = buildMonthlySeriesChartArtifact(result);
+      const artifact_id = await persistRichArtifact(args.sb, {
         user_id: args.user_id,
         conversation_id: args.conversation_id,
-        kind: "monthly_timeseries",
-        title: monthlyTitle(result),
-        summary_text: `Série mensal de ${result?.window?.from ?? ""} a ${result?.window?.to ?? ""}, usando o mesmo recorte da resposta textual.`,
-        fallback_text: "Não consegui exibir a imagem, mas a resposta em texto contém os mesmos valores mês a mês.",
-        series,
-        formula_version: String(result?.formula_version ?? "monthly_spending_series.v1"),
-        confidence: "high",
-        row_count: Number(result?.transaction_count ?? 0),
+        payload,
       });
       return {
         artifact_id,
