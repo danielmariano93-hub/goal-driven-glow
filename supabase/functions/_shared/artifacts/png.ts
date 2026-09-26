@@ -176,8 +176,17 @@ export function barAmountLabel(value: number, includeCents = true): string {
     ? `${sign}${absolute.toFixed(2).replace(".", ",")}`
     : `${sign}${Math.round(absolute)}`;
 }
+const MONTH_AXIS_LABELS: Record<string, string> = {
+  jan: "01", fev: "02", mar: "03", abr: "04", mai: "05", jun: "06",
+  jul: "07", ago: "08", set: "09", out: "10", nov: "11", dez: "12",
+};
 export function chartDayLabel(label: string): string {
-  return String(label).split("/")[0].padStart(2, "0").slice(0, 2);
+  const raw = String(label ?? "").trim().toLowerCase();
+  const monthly = raw.match(/^([a-z]{3})\/(\d{2})$/);
+  if (monthly && MONTH_AXIS_LABELS[monthly[1]]) {
+    return `${MONTH_AXIS_LABELS[monthly[1]]}-${monthly[2]}`;
+  }
+  return raw.split("/")[0].padStart(2, "0").slice(0, 2);
 }
 function line(buf: Uint8Array, x0: number, y0: number, x1: number, y1: number, color: number[], thickness = 3) {
   x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);

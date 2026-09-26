@@ -4,6 +4,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
+import { buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
 
 type ToolCallLike = {
   step_index: number;
@@ -71,6 +72,31 @@ async function persistArtifact(
   return (data as any)?.id ?? null;
 }
 
+async function persistRichArtifact(
+  sb: SupabaseClient,
+  args: {
+    user_id: string;
+    conversation_id: string;
+    payload: any;
+  },
+): Promise<string | null> {
+  const payload = args.payload ?? {};
+  const formulaVersion = String(payload?.provenance?.formula_version ?? "artifact.v2");
+  const summaryText = String(payload?.summary_text ?? payload?.fallback_text ?? "");
+  const fallbackText = String(payload?.fallback_text ?? summaryText);
+  const { data, error } = await sb.from("agent_artifacts").insert({
+    user_id: args.user_id,
+    conversation_id: args.conversation_id,
+    kind: String(payload?.kind ?? "chart"),
+    payload,
+    summary_text: summaryText,
+    fallback_text: fallbackText,
+    formula_version: formulaVersion,
+  }).select("id").maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as any)?.id ?? null;
+}
+
 export async function ensureRequestedArtifact(args: {
   sb: SupabaseClient;
   user_id: string;
@@ -84,6 +110,50 @@ export async function ensureRequestedArtifact(args: {
   const started = Date.now();
   const step = args.toolCalls.length + 1;
   try {
+    // Prefer evidence already executed for the SAME financial question. This is
+    // critical for follow-ups such as "me mostra isso em gráfico": the chart
+    // must reuse category/merchant/period instead of running a generic 30-day
+    // chart that silently answers a different question.
+    const monthlyAnalytical = [...args.toolCalls].reverse().find((call) =>
+      call.ok && call.tool_name === "spending_timeseries_monthly"
+    );
+    if (monthlyAnalytical) {
+      const result = monthlyAnalytical.result as any;
+      const months = Array.isArray(result?.months) ? result.months : [];
+      if (!months.length || !months.some((point: any) => Boolean(point?.has_data))) {
+        throw new Error("monthly_series_evidence_unavailable");
+      }
+
+      // Uses the same visual contract as the existing WhatsApp daily chart:
+      // purple bars + orange smooth moving-average line. The caption is also
+      // deterministic and becomes the WhatsApp image caption/fallback text.
+      const payload = buildMonthlySeriesChartArtifact(result);
+      const artifact_id = await persistRichArtifact(args.sb, {
+        user_id: args.user_id,
+        conversation_id: args.conversation_id,
+        payload,
+      });
+      return {
+        artifact_id,
+        message: artifact_id ? "Preparei o gráfico mês a mês com o mesmo recorte da resposta." : "Não consegui gerar a imagem agora.",
+        toolCall: {
+          step_index: step,
+          tool_name: "generate_monthly_series_chart_artifact",
+          args: request,
+          result: { artifact_id },
+          ok: Boolean(artifact_id),
+          duration_ms: Date.now() - started,
+          error: artifact_id ? null : "artifact_not_persisted",
+        },
+      };
+    }
+
+    // If the user explicitly asked for a monthly chart, never degrade to a
+    // daily/category chart without the monthly analytical evidence.
+    if (request.mode === "monthly_series") {
+      throw new Error("monthly_series_evidence_unavailable");
+    }
+
     if (request.mode === "weekday_pattern") {
       const analytical = [...args.toolCalls].reverse().find((call) =>
         call.ok && call.tool_name === "get_weekday_spending_pattern"
@@ -186,11 +256,13 @@ export async function ensureRequestedArtifact(args: {
       message: "Não consegui gerar a imagem agora. Mantive a resposta em texto sem fingir que o gráfico foi enviado.",
       toolCall: {
         step_index: step,
-        tool_name: request.mode === "category"
-          ? "generate_category_chart_artifact"
-          : request.mode === "weekday_pattern"
-            ? "generate_weekday_chart_artifact"
-            : "generate_chart_artifact",
+        tool_name: request.mode === "monthly_series"
+          ? "generate_monthly_series_chart_artifact"
+          : request.mode === "category"
+            ? "generate_category_chart_artifact"
+            : request.mode === "weekday_pattern"
+              ? "generate_weekday_chart_artifact"
+              : "generate_chart_artifact",
         args: request,
         result: null,
         ok: false,

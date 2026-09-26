@@ -34,6 +34,19 @@ describe("ontologia executável", () => {
     expect((m?.args as any).metric).toBe("category_spend");
   });
 
+  it("mês a mês explícito com categoria usa a série mensal determinística", () => {
+    const m = mappingForQuery(
+      q({
+        operation: "trend",
+        group_by: ["month"],
+        filters: [{ field: "category", op: "eq", value: "Transporte" }],
+      }),
+      ir as any,
+    );
+    expect(m?.tool).toBe("spending_timeseries_monthly");
+    expect((m?.args as any).category_name).toBe("Transporte");
+  });
+
   it("assinatura e dica de lacuna são determinísticas", () => {
     expect(ontologySignature(q({ operation: "trend", group_by: ["weekday"] })))
       .toBe("expense_amount/trend/group:weekday/filters:none");
