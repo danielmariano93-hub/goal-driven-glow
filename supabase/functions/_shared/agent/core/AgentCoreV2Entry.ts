@@ -214,10 +214,10 @@ async function bindExecutedMonthlyPeriod(input: HandleTurnInput, turn: HandleTur
     .select("tools_used,error_sanitized")
     .eq("id", turn.run_id).maybeSingle();
   if ((run as any)?.error_sanitized) return;
-  const tools = Array.isArray((run as any)?.tools_used)
+  const tools: string[] = Array.isArray((run as any)?.tools_used)
     ? (run as any).tools_used.map(String).filter(Boolean)
     : [];
-  if (!tools.some((tool) => tool === "spending_timeseries_monthly" || tool === "typical_monthly_expense")) return;
+  if (!tools.some((tool: string) => tool === "spending_timeseries_monthly" || tool === "typical_monthly_expense")) return;
 
   const aspect = resolveTimeAspectPt(input.text, new Date());
   if (!aspect.from || !aspect.to || !["trend", "habitual", "last_n_complete"].includes(String(aspect.aspect))) return;
