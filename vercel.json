@@ -3,6 +3,7 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "ignoreCommand": "node scripts/vercel-ignore-build.mjs",
   "rewrites": [
     {
       "source": "/(.*)",
