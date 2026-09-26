@@ -219,27 +219,114 @@ export function typicalMonthlyExecutedIR(q: FinancialQueryV3, result: TypicalMon
   };
 }
 
+const MONTH_NAMES_PT = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+function monthNamePt(month: string): string {
+  const idx = Number(String(month).slice(5, 7)) - 1;
+  return MONTH_NAMES_PT[idx] ?? month;
+}
+
+function formatBrl(n: number): string {
+  return n.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function joinNaturalPt(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} e ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} e ${items.at(-1)}`;
+}
+
+function influentialMonths(result: TypicalMonthlyResult): MonthlyBucket[] {
+  const withData = result.months.filter((m) => m.has_data);
+  if (!withData.length || result.median == null || result.mean == null) return [];
+  const upward = result.mean >= result.median;
+  return [...withData]
+    .sort((a, b) => upward ? b.total - a.total : a.total - b.total)
+    .slice(0, Math.min(2, withData.length));
+}
+
 /**
- * Texto determinístico do handler. A estatística usada é DECLARADA, a base de
- * meses aparece, e sem cobertura mínima o Nino diz que não tem padrão — nunca
- * entrega um número de um mês só como se fosse hábito.
+ * Texto determinístico do handler. Além de declarar a estatística e a base,
+ * explica a diferença entre "típico" e média quando meses excepcionais
+ * distorcem a média. A explicação usa os próprios buckets calculados pelo
+ * motor — sem pedir ao LLM para inferir causa ou recalcular valores.
  */
 export function typicalMonthlyText(
   result: TypicalMonthlyResult,
   scopeLabel: string | null,
 ): string {
-  const brl = (n: number) =>
-    n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
   const scope = scopeLabel ? ` com ${scopeLabel}` : "";
   if (result.headline == null) {
     return `Não tenho lançamentos suficientes${scope} nos últimos ${result.window.n} meses fechados para dizer quanto é o seu padrão. ${result.caveats[0] ?? ""}`.trim();
   }
-  const statistic = result.statistic === "mean" ? "média" : "mediana";
-  const lines = [
-    `Seu gasto típico${scope} é de ${brl(result.headline)} por mês (${statistic} dos últimos ${result.window.n} meses fechados).`,
-    ...result.caveats,
-  ];
-  return lines.join(" ");
+
+  const baseDescription = result.months_with_data === result.window.n
+    ? `últimos ${result.window.n} meses fechados`
+    : `${result.months_with_data} meses fechados com dados dentro da janela dos últimos ${result.window.n} meses`;
+  const lines: string[] = [];
+
+  if (result.statistic === "median") {
+    lines.push(`💸 Seu gasto típico${scope} é de ${formatBrl(result.headline)} por mês.`);
+    lines.push(
+      `Esse valor usa a mediana dos ${baseDescription}, por isso representa melhor o centro do seu comportamento mensal e sofre menos com meses excepcionalmente altos ou baixos.`,
+    );
+  } else {
+    lines.push(`💸 Sua média mensal${scope} é de ${formatBrl(result.headline)}.`);
+    lines.push(`Esse valor é a média aritmética dos ${baseDescription}.`);
+  }
+
+  if (result.divergent && result.median != null && result.mean != null) {
+    const upward = result.mean > result.median;
+    const influencers = influentialMonths(result);
+    const influencerText = joinNaturalPt(influencers.map((m) => `${monthNamePt(m.month)} (${formatBrl(m.total)})`));
+
+    if (result.statistic === "median") {
+      lines.push(
+        `Mas a média aritmética no mesmo período foi de ${formatBrl(result.mean)}, ${upward ? "bem acima" : "bem abaixo"} do seu gasto típico.`,
+      );
+    } else {
+      lines.push(
+        `A mediana no mesmo período foi de ${formatBrl(result.median)}, ${upward ? "bem abaixo" : "bem acima"} da média.`,
+      );
+    }
+
+    if (influencerText) {
+      lines.push(
+        `Isso aconteceu principalmente por ${influencerText}, ${influencers.length === 1 ? "o mês que mais puxou" : "os meses que mais puxaram"} a média para ${upward ? "cima" : "baixo"}.`,
+      );
+    }
+
+    if (result.statistic === "median") {
+      lines.push(
+        `Em outras palavras: ${formatBrl(result.median)} representa melhor o que você costuma gastar em um mês normal; ${formatBrl(result.mean)} é a média do período e ficou muito influenciada por esses meses fora do padrão.`,
+      );
+    } else {
+      lines.push(
+        `A média responde ao valor aritmético do período; a mediana de ${formatBrl(result.median)} mostra o centro do comportamento sem dar o mesmo peso aos meses mais extremos.`,
+      );
+    }
+  }
+
+  const extraCaveats = result.caveats.filter((c) =>
+    !c.startsWith("Base:") && !c.startsWith("Mediana e média ficam distantes")
+  );
+  if (extraCaveats.length) lines.push(extraCaveats.join(" "));
+
+  lines.push(
+    result.divergent
+      ? "Se quiser, eu detalho os meses fora do padrão ou comparo com o período anterior."
+      : "Se quiser, eu comparo esse padrão com o período anterior ou detalho mês a mês.",
+  );
+
+  return lines.join("\n\n");
 }
 
 /**
