@@ -193,6 +193,7 @@ function interpreterTool() {
         references: { type: "array", items: referenceSchema },
         tasks: {
           type: "array",
+          description: "Se kind=task, inclua obrigatoriamente pelo menos uma task completa. Nunca use tasks=[] com kind=task. Para conversation/clarification use [].",
           maxItems: 8,
           items: {
             type: "object",
@@ -240,6 +241,8 @@ PRINCÍPIOS OBRIGATÓRIOS:
 18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.
 19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.
 20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.
+21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para registrar/anotar/lançar gasto, emita exatamente uma financial_write: kind=financial_write, financial=null, goal=null, advisory=null, write.action=transaction.create e write.slots com os dados explicitamente informados.
+22. Para transaction.create, use slots textuais amount, merchant, date, account, category quando existirem. Campos ausentes serão resolvidos pelo workflow; não transforme o pedido em tasks=[].
 
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 

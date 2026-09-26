@@ -127,6 +127,8 @@ describe("Nino Runtime V3 production authority", () => {
     expect(interpreter).toContain('"Quanto gasto por mês com X?"');
     expect(interpreter).toContain("operation=trend");
     expect(interpreter).toContain('"Registre um gasto..." = transaction.create');
+    expect(interpreter).toContain("PROIBIDO emitir kind=task com tasks=[]");
+    expect(interpreter).toContain("write.action=transaction.create");
 
     const smoke = readFileSync("scripts/nino_conversation_provider_smoke.ts", "utf8");
     expect(smoke).toContain("interpretSemanticTurnV3");
