@@ -101,6 +101,20 @@ function normalizeEntity(value: string | null | undefined): string {
 }
 
 /**
+ * Extract merchant independently from category/merchant word order.
+ * Semantically equivalent forms such as "Lazer no Thales" and
+ * "no Thales com Lazer" must emit the same contract.
+ */
+function merchantFromMonthlyScope(rawScope: string, category: string | null): string | null {
+  const leading = /^(?:no|na|do|da)\s+(?:(?:estabelecimento|loja|comerciante)\s+)?(.+?)(?=\s+(?:com|em|de)\s+|$)/i.exec(rawScope);
+  const trailing = /\b(?:no|na|do|da)\s+(?:(?:estabelecimento|loja|comerciante)\s+)?(.+)$/i.exec(rawScope);
+  const candidate = String(leading?.[1] ?? trailing?.[1] ?? "").trim();
+  if (!candidate) return null;
+  if (category && normalizeEntity(candidate) === normalizeEntity(category)) return null;
+  return candidate;
+}
+
+/**
  * Fast contract for an explicit habitual monthly spend such as:
  * - "Quanto gasto por mês com assinaturas?"
  * - "Quanto eu gasto aproximadamente por mês com lazer?"
@@ -200,12 +214,7 @@ function directMonthlyExpenseLookup(text: string, normalized: string): Canonical
     .trim();
 
   const category = detectCategory(rawScope);
-  let merchant: string | null = null;
-  const merchantMatch = /\b(?:no|na|do|da)\s+(?:(?:estabelecimento|loja|comerciante)\s+)?(.+)$/i.exec(rawScope);
-  if (merchantMatch?.[1]) {
-    const candidate = merchantMatch[1].trim();
-    if (!category || normalizeEntity(candidate) !== normalizeEntity(category)) merchant = candidate;
-  }
+  const merchant = merchantFromMonthlyScope(rawScope, category);
 
   // Closed grammar: a named scope must resolve to category and/or merchant.
   // This prevents phrases with unrelated qualifiers from being partially read.
