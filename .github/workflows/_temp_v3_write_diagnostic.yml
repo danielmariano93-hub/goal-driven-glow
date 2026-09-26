@@ -1,0 +1,41 @@
+name: Temp V3 Write Diagnostic
+
+on:
+  push:
+    branches:
+      - hotfix/nino-v3-write-contract-20260926
+
+permissions:
+  contents: read
+
+env:
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/nino-v3-write-contract-20260926
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Instrument contract invalid locally and run smoke
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts')
+          s=p.read_text()
+          old='    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);'
+          new='    if (!turn) { console.error("[V3_WRITE_DIAGNOSTIC]", JSON.stringify(parsed)); return fail("semantic_interpreter_v3_contract_invalid", structured.provider); }'
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          PY
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
