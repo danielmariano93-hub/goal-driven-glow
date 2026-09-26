@@ -1,0 +1,449 @@
+name: Temp Apply V3 Authority
+
+on:
+  push:
+    branches:
+      - hardening/nino-runtime-v3-authority-20260926
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: stage runtime v3 authority consolidation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/nino-runtime-v3-authority-20260926
+          fetch-depth: 0
+      - name: Apply authority consolidation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+
+          authority = r'''// Runtime V3 semantic authority for Nino.
+//
+// V3 owns natural-language interpretation when `runtime_v3_authority_v1` is
+// enabled. The mature V2 execution runtime remains the deterministic executor
+// for financial engines, writes, evidence and memory. V2 ConversationBrain is
+// retained only as a circuit breaker when V3 cannot emit/bridge a safe contract.
+// deno-lint-ignore-file no-explicit-any
+
+import { isEnabled } from "./FeatureFlags.ts";
+import {
+  interpretConversationTurn as interpretConversationTurnV2,
+  type ConversationBrainOutcome,
+} from "./ConversationBrain.ts";
+import type { CanonicalConversationTurnContract, TurnReference } from "./ConversationTurnContract.ts";
+import { interpretSemanticTurnV3 } from "../v3/SemanticInterpreterV3.ts";
+import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
+import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
+
+export { dialogueActsFromContract } from "./ConversationBrain.ts";
+export type { ConversationTurnContract } from "./ConversationBrain.ts";
+
+const V3_MODEL = "openai/gpt-oss-120b";
+type AuthorityInput = Parameters<typeof interpretConversationTurnV2>[0];
+
+function historyText(history: AuthorityInput["history"]): string {
+  return (history ?? []).slice(-12).map((turn) => {
+    const role = turn.role === "user" ? "Usuário" : "Nino";
+    return `${role}: ${String(turn.content ?? "").trim().slice(0, 700)}`;
+  }).join("\n").slice(0, 7000);
+}
+
+function typedContextText(input: AuthorityInput): string {
+  const memory = input.memory;
+  const workflow = input.workflow;
+  const context = {
+    relationship_context: input.user_context ? String(input.user_context).slice(0, 4200) : null,
+    conversation_state: memory ? {
+      current_topic: memory.current_topic ?? null,
+      active_category: memory.active_category ?? null,
+      active_merchant: memory.active_merchant ?? null,
+      active_period: memory.active_period ?? null,
+      comparison_period: memory.comparison_period ?? null,
+      awaiting: memory.awaiting ?? null,
+      pending_conversation_action: memory.pending_conversation_action ?? null,
+      active_references: (memory.references ?? []).filter((ref) => ref.status === "active").slice(-5).map((ref) => ({
+        target: ref.target,
+        entity_labels: ref.entity_labels,
+        source_tool: ref.source?.tool_name ?? null,
+      })),
+    } : null,
+    workflow: workflow ? {
+      kind: (workflow as any).kind ?? null,
+      status: (workflow as any).status ?? null,
+      slots: (workflow as any).slots ?? null,
+    } : null,
+  };
+  return JSON.stringify(context).slice(0, 7000);
+}
+
+function referenceFromV3(turn: TurnSpecV3): TurnReference | null {
+  const ref = turn.references[0] ?? null;
+  if (!ref) return null;
+  const kind: TurnReference["kind"] = ref.source === "quoted_turn"
+    ? "quoted_turn"
+    : ref.kind === "result_set_reference"
+      ? "previous_result_set"
+      : "previous_entity";
+  return {
+    kind,
+    target: ref.target,
+    expression: ref.expression,
+    status: "resolved",
+  };
+}
+
+/** Preserve V3's structured anaphora through the transitional V2 executor. */
+export function attachV3ReferenceToContract(
+  turn: TurnSpecV3,
+  contract: CanonicalConversationTurnContract,
+): CanonicalConversationTurnContract {
+  const reference = referenceFromV3(turn);
+  if (!reference) return contract;
+  return {
+    ...contract,
+    reference,
+    resolution: { ...contract.resolution, reference: "resolved" },
+  };
+}
+
+function circuitBreakerTelemetry(
+  v3: Awaited<ReturnType<typeof interpretSemanticTurnV3>>,
+  fallback: ConversationBrainOutcome,
+  reason: string,
+): ConversationBrainOutcome["telemetry"] {
+  return {
+    ...fallback.telemetry,
+    model: `v3-circuit-breaker:${reason}:${fallback.telemetry.model}`.slice(0, 180),
+    llm_calls: Number(v3.telemetry.llm_calls ?? 0) + Number(fallback.telemetry.llm_calls ?? 0),
+    tokens_in: Number(v3.telemetry.tokens_in ?? 0) + Number(fallback.telemetry.tokens_in ?? 0),
+    tokens_out: Number(v3.telemetry.tokens_out ?? 0) + Number(fallback.telemetry.tokens_out ?? 0),
+    latency_ms: Number(v3.telemetry.latency_ms ?? 0) + Number(fallback.telemetry.latency_ms ?? 0),
+  };
+}
+
+export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
+  const authorityEnabled = input.user_id
+    ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
+    : false;
+  if (!authorityEnabled) return await interpretConversationTurnV2(input);
+
+  const v3 = await interpretSemanticTurnV3({
+    text: input.text,
+    history_text: historyText(input.history),
+    context_text: typedContextText(input),
+    model: input.model || V3_MODEL,
+    provider_override: input.provider_override ?? null,
+  });
+
+  if (v3.turn) {
+    const bridged = bridgeTurnSpecV3ToRuntime(v3.turn);
+    if (bridged.ok) {
+      return {
+        contract: attachV3ReferenceToContract(v3.turn, bridged.contract),
+        telemetry: {
+          ...v3.telemetry,
+          model: `v3-authority:${v3.telemetry.model}`,
+        },
+      };
+    }
+    const reason = `bridge:${bridged.errors.join("+")}`.slice(0, 120);
+    console.warn("[ConversationAuthority] V3 bridge rejected; using circuit breaker", reason);
+    const fallback = await interpretConversationTurnV2(input);
+    return { contract: fallback.contract, telemetry: circuitBreakerTelemetry(v3, fallback, reason) };
+  }
+
+  const reason = String(v3.telemetry.error ?? v3.violations.join("+") ?? "contract_unavailable").slice(0, 120);
+  console.warn("[ConversationAuthority] V3 unavailable; using circuit breaker", reason);
+  const fallback = await interpretConversationTurnV2(input);
+  return { contract: fallback.contract, telemetry: circuitBreakerTelemetry(v3, fallback, reason) };
+}
+'''
+          (root / 'supabase/functions/_shared/agent/core/ConversationAuthority.ts').write_text(authority, encoding='utf-8')
+
+          # AgentCoreV2: V3 authority enables the mature execution lane globally,
+          # and all non-deterministic interpretation comes from ConversationAuthority.
+          p = root / 'supabase/functions/_shared/agent/core/AgentCoreV2.ts'
+          s = p.read_text(encoding='utf-8')
+          old = 'import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";'
+          new = 'import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationAuthority.ts";'
+          assert old in s, 'AgentCoreV2 authority import anchor missing'
+          s = s.replace(old, new, 1)
+          old = '''  const enabled = await isEnabled("conversation_brain_v1", input.user_id);\n  const shadowEnabled = !enabled && await isEnabled("conversation_brain_shadow_v1", input.user_id);'''
+          new = '''  const v3AuthorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);\n  const enabled = v3AuthorityEnabled || await isEnabled("conversation_brain_v1", input.user_id);\n  const shadowEnabled = !enabled && await isEnabled("conversation_brain_shadow_v1", input.user_id);'''
+          assert old in s, 'AgentCoreV2 rollout anchor missing'
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # Entry: never run an independent V3 shadow call when V3 already owns the turn.
+          p = root / 'supabase/functions/_shared/agent/core/AgentCoreV2Entry.ts'
+          s = p.read_text(encoding='utf-8')
+          old = '  const shadowEnabled = await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);'
+          new = '''  const authorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);\n  const shadowEnabled = !authorityEnabled\n    && await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);'''
+          assert old in s, 'AgentCoreV2Entry shadow anchor missing'
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # V3 interpreter: constrain writes to domain actions and lock the monthly semantics
+          # that production already established in phases 1/2.
+          p = root / 'supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts'
+          s = p.read_text(encoding='utf-8')
+          anchor = 'import { verifySemanticInvariantsV3 } from "./SemanticInvariantsV3.ts";'
+          assert anchor in s
+          s = s.replace(anchor, 'import { ACTION_KINDS } from "../core/ActionIR.ts";\nimport { NINO_IDENTITY } from "../core/Conversational.ts";\n' + anchor, 1)
+          old = '    action: { type: "string" },'
+          new = '    action: { type: "string", enum: [...ACTION_KINDS] },'
+          assert old in s, 'V3 write action schema anchor missing'
+          s = s.replace(old, new, 1)
+          old = 'const SYSTEM = `Você é o Semantic Interpreter V3 do Nino.\nSua única responsabilidade é transformar UMA mensagem em UMA interpretação semântica canônica estruturada.'
+          new = 'const SYSTEM = `Você é o Semantic Interpreter V3 do Nino.\nIDENTIDADE CANÔNICA: Nino é ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product}; propósito: ${NINO_IDENTITY.purpose}.\nSua única responsabilidade é transformar UMA mensagem em UMA interpretação semântica canônica estruturada.'
+          assert old in s, 'V3 system anchor missing'
+          s = s.replace(old, new, 1)
+          old = '''14. canonical_request deve preservar o significado completo sem inventar dados ou datas resolvidas.\n\nA saída deve ser exclusivamente emit_nino_turn_spec_v3.`;'''
+          new = '''14. canonical_request deve preservar o significado completo sem inventar dados ou datas resolvidas.\n15. "Quanto gasto por mês com X?", sem período histórico explícito, é hábito/típico: financial_query expense_amount, operation=value, group_by=[], periods=[], filtro X. NUNCA peça esclarecimento só por faltar período.\n16. "Quanto gastei ... por mês nos últimos N meses?" é série histórica factual: financial_query expense_amount, operation=trend, group_by=[month], periods=["últimos N meses"].\n17. "mês a mês", "mês por mês", "em cada mês", "evolução mensal" e equivalentes significam série histórica: operation=trend e group_by=[month], preservando filtros e período. Não use sum/breakdown para esse formato.\n18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.\n19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.\n20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída deve ser exclusivamente emit_nino_turn_spec_v3.`;'''
+          assert old in s, 'V3 prompt tail anchor missing'
+          s = s.replace(old, new, 1)
+          s = s.replace('strict semantic interpreter (shadow-ready, not routed yet)', 'strict semantic interpreter (production-authority ready)', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # Deterministic invariant: historical month buckets have one canonical semantic
+          # representation. Wrong-but-valid LLM shapes fail closed/circuit-break instead
+          # of reaching a different engine.
+          p = root / 'supabase/functions/_shared/agent/v3/SemanticInvariantsV3.ts'
+          s = p.read_text(encoding='utf-8')
+          anchor = 'function legacySourceInAuthoritativeTurnViolations(turn: TurnSpecV3, allowLegacySource: boolean): string[] {'
+          assert anchor in s
+          fn = r'''function canonicalMonthlySeriesViolations(turn: TurnSpecV3): string[] {
+  if (turn.kind !== "task") return [];
+  const violations: string[] = [];
+  for (const [index, task] of turn.tasks.entries()) {
+    if (task.kind !== "financial_query") continue;
+    const monthly = task.group_by.length === 1 && task.group_by[0] === "month" && task.periods.length > 0;
+    if (monthly && (task.operation === "sum" || task.operation === "breakdown")) {
+      violations.push(`task_${index}_monthly_series_requires_trend`);
+    }
+  }
+  return violations;
+}
+
+'''
+          s = s.replace(anchor, fn + anchor, 1)
+          old = '    ...suspiciousTemporalEntityReferenceViolations(turn),\n    ...legacySourceInAuthoritativeTurnViolations(turn, options.allowLegacySource === true),'
+          new = '    ...suspiciousTemporalEntityReferenceViolations(turn),\n    ...canonicalMonthlySeriesViolations(turn),\n    ...legacySourceInAuthoritativeTurnViolations(turn, options.allowLegacySource === true),'
+          assert old in s, 'V3 invariant list anchor missing'
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          # Real-provider deployment smoke now blocks release unless V3 itself emits and
+          # bridges both a representative monthly read and a canonical financial write.
+          p = root / 'scripts/nino_conversation_provider_smoke.ts'
+          s = p.read_text(encoding='utf-8')
+          anchor = 'import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";'
+          assert anchor in s
+          s = s.replace(anchor, anchor + '\nimport { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";\nimport { bridgeTurnSpecV3ToRuntime } from "../supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts";', 1)
+          marker = '// V2 / primary model: this is the exact semantic authority active in AgentCoreV2.'
+          assert marker in s
+          v3_smoke = r'''// V3 / primary model: production semantic authority. Exercise the two shapes
+// that exposed real shadow gaps before rollout: historical monthly read + write.
+const v3Monthly = await interpretSemanticTurnV3({
+  text: "Quanto gastei com Alimentação por mês nos últimos 5 meses?",
+  history_text: "",
+  context_text: "",
+  model,
+});
+if (!v3Monthly.telemetry.ok || !v3Monthly.turn || v3Monthly.turn.kind !== "task") {
+  throw new Error(`V3 monthly authority smoke failed: ${v3Monthly.telemetry.error ?? "missing_task"}`);
+}
+const monthlyTask = v3Monthly.turn.tasks[0];
+if (monthlyTask?.kind !== "financial_query"
+  || monthlyTask.metric !== "expense_amount"
+  || monthlyTask.operation !== "trend"
+  || monthlyTask.group_by[0] !== "month"
+  || !monthlyTask.filters.some((filter) => filter.field === "category" && filter.entity.value.toLowerCase() === "alimentação")) {
+  throw new Error(`V3 lost monthly semantics: ${JSON.stringify(v3Monthly.turn)}`);
+}
+const v3MonthlyBridge = bridgeTurnSpecV3ToRuntime(v3Monthly.turn);
+if (!v3MonthlyBridge.ok || v3MonthlyBridge.contract.mode !== "read") {
+  throw new Error(`V3 monthly bridge failed: ${JSON.stringify(v3MonthlyBridge)}`);
+}
+
+const v3Write = await interpretSemanticTurnV3({
+  text: "Registre um gasto de R$ 50,00 no estabelecimento Teste em 26 de setembro de 2026 na conta Corrente Itaú.",
+  history_text: "",
+  context_text: "",
+  model,
+});
+if (!v3Write.telemetry.ok || !v3Write.turn || v3Write.turn.kind !== "task") {
+  throw new Error(`V3 write authority smoke failed: ${v3Write.telemetry.error ?? "missing_task"}`);
+}
+const writeTask = v3Write.turn.tasks[0];
+if (writeTask?.kind !== "financial_write" || writeTask.action !== "transaction.create") {
+  throw new Error(`V3 lost canonical write action: ${JSON.stringify(v3Write.turn)}`);
+}
+const v3WriteBridge = bridgeTurnSpecV3ToRuntime(v3Write.turn);
+if (!v3WriteBridge.ok || v3WriteBridge.contract.mode !== "write") {
+  throw new Error(`V3 write bridge failed: ${JSON.stringify(v3WriteBridge)}`);
+}
+
+'''
+          s = s.replace(marker, v3_smoke + marker, 1)
+          s = s.replace('    v2_semantic_authority: model,', '    v3_semantic_authority: model,\n    v2_circuit_breaker: model,', 1)
+          s = s.replace('note: "V3 semantic regressions remain in repository tests; full primary-model V3 smoke gates its future authority rollout, not the current V2 deployment."', 'note: "V3 full-model read/write smoke gates production; V2 remains a marked circuit breaker only."', 1)
+          p.write_text(s, encoding='utf-8')
+
+          tests = r'''import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
+import { verifySemanticInvariantsV3 } from "../../supabase/functions/_shared/agent/v3/SemanticInvariantsV3";
+import type { TaskTurnSpecV3 } from "../../supabase/functions/_shared/agent/v3/TurnSpecV3";
+
+const sourced = (value: string) => ({ value, source: "current_turn" as const, source_span: value });
+
+function baseTask(task: TaskTurnSpecV3["tasks"][number]): TaskTurnSpecV3 {
+  return {
+    version: "nino_turn_spec.v3",
+    kind: "task",
+    response_intent: "execute",
+    act: "new_request",
+    canonical_request: "teste canônico",
+    inherit_topic: false,
+    references: [],
+    tasks: [task],
+  };
+}
+
+describe("Nino Runtime V3 production authority", () => {
+  it("routes normal semantic authority through V3 with a marked V2 circuit breaker", () => {
+    const authority = readFileSync("supabase/functions/_shared/agent/core/ConversationAuthority.ts", "utf8");
+    expect(authority).toContain('isEnabled("runtime_v3_authority_v1"');
+    expect(authority).toContain("interpretSemanticTurnV3");
+    expect(authority).toContain("bridgeTurnSpecV3ToRuntime");
+    expect(authority).toContain("v3-authority:");
+    expect(authority).toContain("v3-circuit-breaker:");
+
+    const core = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
+    expect(core).toContain('from "./ConversationAuthority.ts"');
+    expect(core).toContain('v3AuthorityEnabled || await isEnabled("conversation_brain_v1"');
+    const narrow = core.indexOf("resolveNarrowDeterministicTurn(brainText)");
+    const authorityCall = core.indexOf("await interpretConversationTurn({", narrow);
+    expect(narrow).toBeGreaterThan(0);
+    expect(authorityCall).toBeGreaterThan(narrow);
+  });
+
+  it("does not double-call V3 shadow once authority owns the turn", () => {
+    const entry = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2Entry.ts", "utf8");
+    expect(entry).toContain('const authorityEnabled = await isEnabled("runtime_v3_authority_v1"');
+    expect(entry).toContain("const shadowEnabled = !authorityEnabled");
+  });
+
+  it("bridges canonical historical monthly semantics into the mature financial runtime", () => {
+    const turn = baseTask({
+      kind: "financial_query",
+      family: "financial.query",
+      metric: "expense_amount",
+      operation: "trend",
+      group_by: ["month"],
+      filters: [{ field: "category", entity: sourced("Lazer") }],
+      periods: [sourced("últimos 5 meses")],
+      limit: null,
+      comparison: null,
+    });
+    const result = bridgeTurnSpecV3ToRuntime(turn);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.contract).toMatchObject({
+      mode: "read",
+      domain: "financial_read",
+      focus: { category: "Lazer", period_expression: "últimos 5 meses" },
+      financial_read: { queries: [{ metric: "expense_amount", operation: "trend", group_by: ["month"] }] },
+    });
+  });
+
+  it("bridges habitual monthly value without inventing a historical window", () => {
+    const turn = baseTask({
+      kind: "financial_query",
+      family: "financial.query",
+      metric: "expense_amount",
+      operation: "value",
+      group_by: [],
+      filters: [{ field: "category", entity: sourced("Assinaturas") }],
+      periods: [],
+      limit: null,
+      comparison: null,
+    });
+    const result = bridgeTurnSpecV3ToRuntime(turn);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.contract.focus.period_expressions).toEqual([]);
+    expect(result.contract.financial_read?.queries[0]).toMatchObject({ operation: "value", group_by: [] });
+  });
+
+  it("bridges canonical transaction.create writes", () => {
+    const turn = baseTask({
+      kind: "financial_write",
+      family: "financial.write",
+      action: "transaction.create",
+      slots: { amount: "50,00", merchant: "Teste" },
+    });
+    const result = bridgeTurnSpecV3ToRuntime(turn);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.contract).toMatchObject({
+      mode: "write",
+      domain: "financial_write",
+      action: { action: "transaction.create" },
+    });
+  });
+
+  it("fails closed when a monthly series is emitted as sum/breakdown", () => {
+    for (const operation of ["sum", "breakdown"] as const) {
+      const turn = baseTask({
+        kind: "financial_query",
+        family: "financial.query",
+        metric: "expense_amount",
+        operation,
+        group_by: ["month"],
+        filters: [{ field: "category", entity: sourced("Lazer") }],
+        periods: [sourced("últimos 5 meses")],
+        limit: null,
+        comparison: null,
+      });
+      const result = verifySemanticInvariantsV3(turn);
+      expect(result.ok).toBe(false);
+      expect(result.violations).toContain("task_0_monthly_series_requires_trend");
+    }
+  });
+
+  it("hardens the V3 prompt/schema for production monthly semantics and writes", () => {
+    const interpreter = readFileSync("supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts", "utf8");
+    expect(interpreter).toContain("enum: [...ACTION_KINDS]");
+    expect(interpreter).toContain('"Quanto gasto por mês com X?"');
+    expect(interpreter).toContain("operation=trend");
+    expect(interpreter).toContain('"Registre um gasto..." = transaction.create');
+
+    const smoke = readFileSync("scripts/nino_conversation_provider_smoke.ts", "utf8");
+    expect(smoke).toContain("interpretSemanticTurnV3");
+    expect(smoke).toContain("V3 monthly authority smoke failed");
+    expect(smoke).toContain("V3 write authority smoke failed");
+  });
+});
+'''
+          (root / 'src/test/nino-runtime-v3-authority.test.ts').write_text(tests, encoding='utf-8')
+
+          # Remove this one-shot patch workflow from the resulting product commit.
+          Path('.github/workflows/_temp_apply_v3_authority.yml').unlink()
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat(nino): promote Runtime V3 semantic authority"
+          git push origin HEAD:hardening/nino-runtime-v3-authority-20260926
