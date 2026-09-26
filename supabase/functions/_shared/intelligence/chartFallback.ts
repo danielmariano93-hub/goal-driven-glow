@@ -2,7 +2,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
-import { hasExplicitChartIntent, inferChartRequest } from "./chartIntent.ts";
+import { inferChartRequest, isContextualChartFollowup } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
 import { buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
 
@@ -23,29 +23,6 @@ export type ArtifactFallbackResult = {
   message: string;
 };
 
-function normalize(text: string): string {
-  return String(text ?? "").toLowerCase().normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ").trim();
-}
-
-/**
- * A chart follow-up can reuse prior evidence only when the language explicitly
- * points backwards. A fresh scoped request must execute its own analytical
- * contract; otherwise a stale chart could silently answer another question.
- */
-export function isContextualChartFollowup(text: string): boolean {
-  if (!hasExplicitChartIntent(text)) return false;
-  const t = normalize(text);
-  if (/\b(isso|disso|esse|essa|esses|essas|mesmo|mesma|mesmos|mesmas|dados|resultado|resposta|acima)\b/.test(t)) {
-    return true;
-  }
-  const words = t.split(/\s+/).filter(Boolean);
-  return words.length <= 5 && /\b(grafico|visualizacao|visualiza|plotar|plote)\b/.test(t)
-    && /\b(mostra|mostrar|mostre|manda|mandar|gere|gera|quero|coloca|poe)\b/.test(t);
-}
-
 function hasArtifact(toolCalls: ToolCallLike[]): boolean {
   return toolCalls.some((call) =>
     call.ok && (
@@ -54,6 +31,11 @@ function hasArtifact(toolCalls: ToolCallLike[]): boolean {
       || Boolean((call.result as any)?.artifact_id)
     )
   );
+}
+
+function isArtifactCall(call: ToolCallLike | null | undefined): boolean {
+  const tool = String(call?.tool_name ?? "");
+  return tool.startsWith("generate_") && tool.includes("artifact");
 }
 
 function isMonthlyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
@@ -67,7 +49,12 @@ function isMonthlyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
   );
 }
 
-/** Load the most recent persisted monthly evidence for a contextual follow-up. */
+/**
+ * Load monthly evidence only from the latest previous run that actually
+ * produced analytical evidence. We deliberately do not search arbitrarily
+ * backwards: if the user changed financial subject, "mostre isso em gráfico"
+ * must not resurrect an older monthly series from another topic.
+ */
 async function loadRecentMonthlyEvidence(
   sb: SupabaseClient,
   userId: string,
@@ -86,32 +73,38 @@ async function loadRecentMonthlyEvidence(
   const { data: calls, error: callError } = await sb.from("agent_tool_calls")
     .select("run_id,step_index,tool_name,args,result,ok,duration_ms,error")
     .in("run_id", runIds)
-    .eq("tool_name", "spending_timeseries_monthly")
     .eq("ok", true);
   if (callError || !(calls?.length)) return null;
 
-  const byRun = new Map<string, any[]>();
-  for (const call of calls as any[]) {
-    const id = String(call.run_id ?? "");
-    const list = byRun.get(id) ?? [];
+  const byRun = new Map<string, ToolCallLike[]>();
+  for (const raw of calls as any[]) {
+    const runId = String(raw.run_id ?? "");
+    if (!runId) continue;
+    const call: ToolCallLike = {
+      run_id: runId,
+      step_index: Number(raw.step_index ?? 0),
+      tool_name: String(raw.tool_name ?? ""),
+      args: raw.args ?? {},
+      result: raw.result ?? null,
+      ok: raw.ok === true,
+      duration_ms: Number(raw.duration_ms ?? 0),
+      error: raw.error ? String(raw.error) : null,
+    };
+    const list = byRun.get(runId) ?? [];
     list.push(call);
-    byRun.set(id, list);
+    byRun.set(runId, list);
   }
+
   for (const runId of runIds) {
-    const candidates = (byRun.get(runId) ?? []).sort((a, b) => Number(b.step_index ?? 0) - Number(a.step_index ?? 0));
-    for (const call of candidates) {
-      const normalizedCall: ToolCallLike = {
-        run_id: runId,
-        step_index: Number(call.step_index ?? 0),
-        tool_name: String(call.tool_name ?? ""),
-        args: call.args ?? {},
-        result: call.result ?? null,
-        ok: call.ok === true,
-        duration_ms: Number(call.duration_ms ?? 0),
-        error: call.error ? String(call.error) : null,
-      };
-      if (isMonthlyEvidenceCall(normalizedCall)) return normalizedCall;
-    }
+    const analytical = (byRun.get(runId) ?? [])
+      .filter((call) => call.ok && !isArtifactCall(call))
+      .sort((a, b) => Number(b.step_index ?? 0) - Number(a.step_index ?? 0));
+    // Current contextual chart turn normally has no analytical call. Social
+    // turns also have none, so they do not sever the evidence chain.
+    if (!analytical.length) continue;
+    // The first evidence-producing run is authoritative. If it is not the
+    // monthly series, stop here instead of walking back into stale context.
+    return analytical.find((call) => isMonthlyEvidenceCall(call)) ?? null;
   }
   return null;
 }
@@ -197,7 +190,7 @@ export async function ensureRequestedArtifact(args: {
   try {
     // Prefer evidence already executed for the SAME financial question. If this
     // is an explicit referential follow-up ("mostra isso em gráfico"), the V2
-    // bridge may load the immediately previous persisted evidence instead.
+    // bridge may load the immediately previous persisted analytical evidence.
     let monthlyAnalytical = [...args.toolCalls].reverse().find((call) => isMonthlyEvidenceCall(call)) ?? null;
     if (!monthlyAnalytical && contextualFollowup) {
       monthlyAnalytical = await loadRecentMonthlyEvidence(args.sb, args.user_id, args.conversation_id);
@@ -242,7 +235,7 @@ export async function ensureRequestedArtifact(args: {
     }
 
     // Referential chart requests are never allowed to silently turn into a new
-    // generic 30-day query. Missing evidence fails honestly instead.
+    // generic 30-day query. Missing/incompatible evidence fails honestly.
     if (contextualFollowup) {
       throw new Error("referenced_chart_evidence_unavailable");
     }
