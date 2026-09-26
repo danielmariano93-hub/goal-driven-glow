@@ -2,7 +2,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
-import { inferChartRequest } from "./chartIntent.ts";
+import { hasExplicitChartIntent, inferChartRequest } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
 import { buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
 
@@ -14,6 +14,7 @@ type ToolCallLike = {
   ok: boolean;
   duration_ms: number;
   error: string | null;
+  run_id?: string | null;
 };
 
 export type ArtifactFallbackResult = {
@@ -21,6 +22,29 @@ export type ArtifactFallbackResult = {
   artifact_id: string | null;
   message: string;
 };
+
+function normalize(text: string): string {
+  return String(text ?? "").toLowerCase().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A chart follow-up can reuse prior evidence only when the language explicitly
+ * points backwards. A fresh scoped request must execute its own analytical
+ * contract; otherwise a stale chart could silently answer another question.
+ */
+export function isContextualChartFollowup(text: string): boolean {
+  if (!hasExplicitChartIntent(text)) return false;
+  const t = normalize(text);
+  if (/\b(isso|disso|esse|essa|esses|essas|mesmo|mesma|mesmos|mesmas|dados|resultado|resposta|acima)\b/.test(t)) {
+    return true;
+  }
+  const words = t.split(/\s+/).filter(Boolean);
+  return words.length <= 5 && /\b(grafico|visualizacao|visualiza|plotar|plote)\b/.test(t)
+    && /\b(mostra|mostrar|mostre|manda|mandar|gere|gera|quero|coloca|poe)\b/.test(t);
+}
 
 function hasArtifact(toolCalls: ToolCallLike[]): boolean {
   return toolCalls.some((call) =>
@@ -30,6 +54,66 @@ function hasArtifact(toolCalls: ToolCallLike[]): boolean {
       || Boolean((call.result as any)?.artifact_id)
     )
   );
+}
+
+function isMonthlyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
+  const result = (call?.result ?? {}) as any;
+  return Boolean(
+    call?.ok
+    && call?.tool_name === "spending_timeseries_monthly"
+    && result?.version === "nino_monthly_series.v1"
+    && Array.isArray(result?.months)
+    && result.months.length,
+  );
+}
+
+/** Load the most recent persisted monthly evidence for a contextual follow-up. */
+async function loadRecentMonthlyEvidence(
+  sb: SupabaseClient,
+  userId: string,
+  conversationId: string,
+): Promise<ToolCallLike | null> {
+  const { data: runs, error: runError } = await sb.from("agent_runs")
+    .select("id,started_at")
+    .eq("user_id", userId)
+    .eq("conversation_id", conversationId)
+    .order("started_at", { ascending: false })
+    .limit(12);
+  if (runError || !(runs?.length)) return null;
+  const runIds = (runs as any[]).map((run) => String(run.id ?? "")).filter(Boolean);
+  if (!runIds.length) return null;
+
+  const { data: calls, error: callError } = await sb.from("agent_tool_calls")
+    .select("run_id,step_index,tool_name,args,result,ok,duration_ms,error")
+    .in("run_id", runIds)
+    .eq("tool_name", "spending_timeseries_monthly")
+    .eq("ok", true);
+  if (callError || !(calls?.length)) return null;
+
+  const byRun = new Map<string, any[]>();
+  for (const call of calls as any[]) {
+    const id = String(call.run_id ?? "");
+    const list = byRun.get(id) ?? [];
+    list.push(call);
+    byRun.set(id, list);
+  }
+  for (const runId of runIds) {
+    const candidates = (byRun.get(runId) ?? []).sort((a, b) => Number(b.step_index ?? 0) - Number(a.step_index ?? 0));
+    for (const call of candidates) {
+      const normalizedCall: ToolCallLike = {
+        run_id: runId,
+        step_index: Number(call.step_index ?? 0),
+        tool_name: String(call.tool_name ?? ""),
+        args: call.args ?? {},
+        result: call.result ?? null,
+        ok: call.ok === true,
+        duration_ms: Number(call.duration_ms ?? 0),
+        error: call.error ? String(call.error) : null,
+      };
+      if (isMonthlyEvidenceCall(normalizedCall)) return normalizedCall;
+    }
+  }
+  return null;
 }
 
 async function persistArtifact(
@@ -109,14 +193,15 @@ export async function ensureRequestedArtifact(args: {
 
   const started = Date.now();
   const step = args.toolCalls.length + 1;
+  const contextualFollowup = isContextualChartFollowup(args.text);
   try {
-    // Prefer evidence already executed for the SAME financial question. This is
-    // critical for follow-ups such as "me mostra isso em gráfico": the chart
-    // must reuse category/merchant/period instead of running a generic 30-day
-    // chart that silently answers a different question.
-    const monthlyAnalytical = [...args.toolCalls].reverse().find((call) =>
-      call.ok && call.tool_name === "spending_timeseries_monthly"
-    );
+    // Prefer evidence already executed for the SAME financial question. If this
+    // is an explicit referential follow-up ("mostra isso em gráfico"), the V2
+    // bridge may load the immediately previous persisted evidence instead.
+    let monthlyAnalytical = [...args.toolCalls].reverse().find((call) => isMonthlyEvidenceCall(call)) ?? null;
+    if (!monthlyAnalytical && contextualFollowup) {
+      monthlyAnalytical = await loadRecentMonthlyEvidence(args.sb, args.user_id, args.conversation_id);
+    }
     if (monthlyAnalytical) {
       const result = monthlyAnalytical.result as any;
       const months = Array.isArray(result?.months) ? result.months : [];
@@ -124,9 +209,8 @@ export async function ensureRequestedArtifact(args: {
         throw new Error("monthly_series_evidence_unavailable");
       }
 
-      // Uses the same visual contract as the existing WhatsApp daily chart:
-      // purple bars + orange smooth moving-average line. The caption is also
-      // deterministic and becomes the WhatsApp image caption/fallback text.
+      // The artifact is a pure presentation of the SAME evidence object. No
+      // financial value is recalculated by the chart path.
       const payload = buildMonthlySeriesChartArtifact(result);
       const artifact_id = await persistRichArtifact(args.sb, {
         user_id: args.user_id,
@@ -140,12 +224,27 @@ export async function ensureRequestedArtifact(args: {
           step_index: step,
           tool_name: "generate_monthly_series_chart_artifact",
           args: request,
-          result: { artifact_id },
+          result: {
+            artifact_id,
+            source_evidence: {
+              run_id: monthlyAnalytical.run_id ?? null,
+              tool_name: monthlyAnalytical.tool_name,
+              formula_version: result.formula_version ?? null,
+              window: result.window ?? null,
+              scope: result.scope ?? null,
+            },
+          },
           ok: Boolean(artifact_id),
           duration_ms: Date.now() - started,
           error: artifact_id ? null : "artifact_not_persisted",
         },
       };
+    }
+
+    // Referential chart requests are never allowed to silently turn into a new
+    // generic 30-day query. Missing evidence fails honestly instead.
+    if (contextualFollowup) {
+      throw new Error("referenced_chart_evidence_unavailable");
     }
 
     // If the user explicitly asked for a monthly chart, never degrade to a
