@@ -22,7 +22,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply hardening patch
-        run: python3 scripts/phase1_hardening_patch.py
+        run: |
+          python3 scripts/phase1_hardening_patch.py
+          python3 scripts/phase1_hardening_regex_fix.py
       - name: Install
         run: npm install --package-lock=false --no-audit --no-fund
       - name: Targeted regressions
