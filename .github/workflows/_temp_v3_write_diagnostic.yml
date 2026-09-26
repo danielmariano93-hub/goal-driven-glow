@@ -24,7 +24,7 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Instrument contract invalid locally and run smoke
+      - name: Probe stricter task completeness against real provider
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         shell: bash
@@ -33,6 +33,8 @@ jobs:
           from pathlib import Path
           p=Path('supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts')
           s=p.read_text()
+          s=s.replace('''        tasks: {\n          type: "array",\n          maxItems: 8,''','''        tasks: {\n          type: "array",\n          description: "OBRIGATÓRIO: se kind=task, inclua pelo menos uma task completa; se kind=conversation ou clarification, use []. Nunca emita kind=task com tasks=[].",\n          maxItems: 8,''',1)
+          s=s.replace('''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída''','''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para pedidos de registrar/anotar/lançar gasto, emita exatamente uma financial_write com write.action=transaction.create e write.slots preenchidos com os dados literalmente informados; financial/goal/advisory devem ser null.\n22. Para financial_write de transaction.create, use slots textuais como amount, merchant, date, account e category quando explicitamente informados. Não peça esclarecimento por campos que o workflow de escrita pode resolver depois.\n\nA saída''',1)
           old='    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);'
           new='    if (!turn) { console.error("[V3_WRITE_DIAGNOSTIC]", JSON.stringify(parsed)); return fail("semantic_interpreter_v3_contract_invalid", structured.provider); }'
           assert old in s
