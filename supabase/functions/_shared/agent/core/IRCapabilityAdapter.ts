@@ -62,6 +62,26 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
   if (q.metric === "expense_amount" || q.metric === "income_amount") {
     const metric = q.metric === "income_amount" ? "income" : "expense";
     const group = q.group_by[0] ?? null;
+    const merchant = filter(q, "merchant");
+
+    // Specific merchant lookup is a first-class deterministic capability.
+    // merchant_profile already owns merchant truth; category remains an optional
+    // additional scope and is never silently dropped.
+    if (merchant && ["value", "sum"].includes(q.operation)) {
+      if (metric !== "expense" || group || !onlyFilters(q, ["category", "merchant"])) return null;
+      const category = filter(q, "category");
+      return {
+        tool: "merchant_profile",
+        capability: "financial_analysis",
+        execution: "deterministic",
+        args: {
+          query: merchant,
+          from: period.from,
+          to: period.to,
+          ...(category ? { category_name: category } : {}),
+        },
+      };
+    }
 
     if (["value", "sum", "rank", "breakdown"].includes(q.operation)) {
       if (group === "merchant") {
@@ -311,6 +331,7 @@ export function ontologySignature(q: FinancialQuery): string {
 export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
+  "expense_amount + value|sum com filtro merchant (filtro category opcional; motor merchant_profile)",
   "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",

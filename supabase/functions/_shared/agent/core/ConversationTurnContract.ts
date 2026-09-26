@@ -248,7 +248,7 @@ function normalizeFinancialRead(raw: unknown): FinancialReadSemanticRequest | nu
       const filter = rawFilter as Record<string, unknown>;
       const field = String(filter.field ?? "") as FinancialFilter["field"];
       const filterValue = String(filter.value ?? "").trim();
-      if (!["category", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
+      if (!["category", "merchant", "card", "account", "payment_method"].includes(field) || !filterValue) return null;
       filters.push({ field, op: "eq", value: filterValue });
     }
     const limit = q.limit == null ? null : Number(q.limit);
@@ -346,8 +346,15 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
     period_expressions: periodExpressions,
   };
   const reference = normalizeReference(value.reference);
-  const resolution = inferResolution({ raw: value, mode, action, focus, reference });
+  let resolution = inferResolution({ raw: value, mode, action, focus, reference });
   const domain = inferDomain(mode, value.domain);
+  // Low-risk temporal default policy: omitting a period in a factual financial read
+  // is not an unresolved semantic slot. The backend owns the current-month default.
+  // Explicit ambiguous/conflicting time expressions remain fail-closed.
+  if (mode === "read" && domain === "financial_read"
+    && resolution.time === "missing" && normalizePeriodExpressions(focus).length === 0) {
+    resolution = { ...resolution, time: "not_applicable" };
+  }
   const advisoryKind = ADVISORY_KINDS.includes(String(value.advisory_kind) as AdvisoryKind)
     ? String(value.advisory_kind) as AdvisoryKind
     : null;

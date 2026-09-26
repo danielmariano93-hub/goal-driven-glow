@@ -14,7 +14,7 @@ import type { FinancialQueryV3 } from "./FinancialIRv3.ts";
 import type { ExecutedIR } from "./SemanticPreservation.ts";
 import type { FinancialFilter } from "./FinancialQueryIR.ts";
 
-const FILTER_FIELDS = ["category", "card", "account", "payment_method"] as const;
+const FILTER_FIELDS = ["category", "merchant", "card", "account", "payment_method"] as const;
 
 function filtersFromRecord(raw: unknown): FinancialFilter[] {
   const obj = (raw ?? {}) as Record<string, unknown>;

@@ -124,6 +124,26 @@ function runtimeFailureContract(reply: string): CanonicalConversationTurnContrac
  * O backend pode validar/bindar os slots, mas não chama outro classificador para
  * decidir novamente se o usuário mudou de assunto/entidade/período.
  */
+function applyLowRiskFinancialReadDefault(
+  contract: CanonicalConversationTurnContract,
+  fallbackCanonicalRequest: string,
+): CanonicalConversationTurnContract {
+  if (contract.mode !== "clarify" || contract.domain !== "financial_read" || !contract.financial_read?.queries?.length) return contract;
+  if (contract.resolution.time !== "missing" || normalizePeriodExpressions(contract.focus).length > 0) return contract;
+  const unresolvedOther = [contract.resolution.intent, contract.resolution.entity, contract.resolution.reference]
+    .some((state) => state === "ambiguous" || state === "missing" || state === "conflicting");
+  if (unresolvedOther) return contract;
+  const canonicalRequest = String(contract.canonical_request ?? fallbackCanonicalRequest).trim();
+  if (!canonicalRequest) return contract;
+  return {
+    ...contract,
+    mode: "read",
+    canonical_request: canonicalRequest,
+    clarification_question: null,
+    resolution: { ...contract.resolution, time: "not_applicable" },
+  };
+}
+
 function constraintsFromContract(contract: ConversationTurnContract, _canonical: string) {
   const semanticQueries = contract.financial_read?.queries ?? [];
   return {
@@ -615,7 +635,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
-  const contract: CanonicalConversationTurnContract = brain.contract;
+  const contract: CanonicalConversationTurnContract = applyLowRiskFinancialReadDefault(brain.contract, brainText);
 
   // Grounding only binds the reference already declared by the Turn Contract.
   // Missing/expired referents fail closed instead of widening scope.

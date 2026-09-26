@@ -249,27 +249,33 @@ export function distributionHeadline(dist: {
 
 export function merchant_profile(
   ctx: EngineToolContext,
-  args: { query: string; days?: number; from?: string; to?: string },
+  args: { query: string; days?: number; from?: string; to?: string; category_id?: string; category_name?: string },
 ): Promise<EngineToolResult> {
   return guard(async () => {
     const period = periodFromArgs(args ?? ({} as any), 90);
     const comparison = previousWindow(period);
-    const [txs, aliases] = await Promise.all([
+    const [txs, aliases, categoryId, categoryNames] = await Promise.all([
       loadEngineTransactions(ctx, comparison.from, period.to),
       loadAliases(ctx),
+      resolveCategoryId(ctx, args ?? {}),
+      loadCategoryNames(ctx),
     ]);
+    if ((args?.category_id || args?.category_name) && !categoryId) throw new Error("category_not_found");
+    const categoryName = categoryId ? (categoryNames[categoryId] ?? args?.category_name ?? null) : null;
     const env = merchantProfile({
       txs: txs as any,
       period,
       comparisonPeriod: comparison,
       aliases,
+      categoryId,
       query: String(args?.query ?? ""),
     });
     const f = env.facts;
+    const scope = categoryName ? ` em ${categoryName}` : "";
     const headline = f.found
-      ? `${f.label}: ${brl(f.net_total)} em ${f.count} compra(s), ticket médio ${brl(f.avg_ticket)}.`
-      : `Não encontrei lançamentos de “${f.query}” nessa janela.`;
-    return withAnswerFormat(env, headline, f.delta_abs);
+      ? `${f.label}${scope}: ${brl(f.net_total)} em ${f.count} compra(s), ticket médio ${brl(f.avg_ticket)}.`
+      : `Não encontrei lançamentos de “${f.query}”${scope} nessa janela.`;
+    return withAnswerFormat({ ...env, facts: { ...f, category_id: categoryId, category_name: categoryName } }, headline, f.delta_abs);
   });
 }
 
