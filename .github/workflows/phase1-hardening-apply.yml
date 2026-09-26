@@ -19,12 +19,12 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - name: Apply hardening patch
         run: python3 scripts/phase1_hardening_patch.py
       - name: Install
-        run: npm ci
+        run: npm install --package-lock=false --no-audit --no-fund
       - name: Targeted regressions
         run: npx vitest run src/test/nino-phase1-hardening.test.ts src/test/nino-monthly-series-v1.test.ts src/test/nino-semantic-authority.test.ts src/test/nino-semantic-ontology.test.ts
       - name: Production build
