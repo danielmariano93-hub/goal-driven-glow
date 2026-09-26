@@ -1,0 +1,43 @@
+name: Nino Phase 1 Hardening Apply
+
+on:
+  push:
+    branches:
+      - fix/nino-phase1-semantic-finance-hardening-20260926
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/nino-phase1-semantic-finance-hardening-20260926
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply hardening patch
+        run: python3 scripts/phase1_hardening_patch.py
+      - name: Install
+        run: npm ci
+      - name: Targeted regressions
+        run: npx vitest run src/test/nino-phase1-hardening.test.ts src/test/nino-monthly-series-v1.test.ts src/test/nino-semantic-authority.test.ts src/test/nino-semantic-ontology.test.ts
+      - name: Production build
+        run: npm run build
+      - name: Commit validated hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/analytics/periodResolver.ts
+          git add supabase/functions/_shared/agent/core/FinancialIRv3.ts
+          git add supabase/functions/_shared/agent/core/AgentCore.ts
+          git add supabase/functions/_shared/agent/core/AgentCoreV2.ts
+          git add supabase/functions/_shared/agent/core/handlers/TypicalMonthlyHandler.ts
+          git add src/test/nino-phase1-hardening.test.ts
+          git commit -m "fix(nino): hardening semântico e financeiro da fase 1 [phase1-bot]"
+          git push origin HEAD:fix/nino-phase1-semantic-finance-hardening-20260926
