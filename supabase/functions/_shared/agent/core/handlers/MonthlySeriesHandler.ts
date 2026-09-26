@@ -217,14 +217,10 @@ export function monthlySpendingSeriesText(result: MonthlySpendingSeriesResult): 
 
   const header = `💸 Nos ${result.window.n} meses analisados, de ${formatDatePt(result.window.from)} a ${formatDatePt(result.window.to)}, você gastou ${brl(result.total)}${scope}, em ${launchCount(result.transaction_count)}.`;
 
-  const points = result.months.map((point, index) => {
-    const partial = (index === 0 && result.partial_first_month)
-      || (index === result.months.length - 1 && result.partial_last_month);
+  const points = result.months.map((point) => {
     const name = monthlyPointName(point.month);
-    if (!point.has_data) {
-      return `* ${name}${partial ? " (parcial)" : ""}: R$ 0,00 — nenhum lançamento`;
-    }
-    return `* ${name}${partial ? " (parcial)" : ""}: ${brl(point.total)} — ${launchCount(point.transaction_count)}`;
+    if (!point.has_data) return `* ${name}: sem lançamentos encontrados`;
+    return `* ${name}: ${brl(point.total)} — ${launchCount(point.transaction_count)}`;
   });
 
   const average = round2(result.total / Math.max(1, result.months.length));
