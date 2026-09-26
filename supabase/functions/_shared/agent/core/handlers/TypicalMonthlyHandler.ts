@@ -12,12 +12,22 @@
 //  - mês sem cobertura de dados NÃO é mês de gasto zero.
 // deno-lint-ignore-file no-explicit-any
 import { fetchAllPages } from "../../../derived/pagedSelect.ts";
-import { reportingCompetenceDate } from "../../../finance-core/facts.ts";
+import {
+  behavioralMetricAmount,
+  buildRefundAttribution,
+  effectiveCategoryId,
+  reportingCompetenceDate,
+  type TransactionRow,
+} from "../../../finance-core/facts.ts";
 import type { FinancialQueryV3 } from "../FinancialIRv3.ts";
 import type { ExecutedIR } from "../SemanticPreservation.ts";
 import { DIVERGENCE_ALERT_PCT, MIN_MONTHS_FOR_HABIT } from "../resolvers/AssessorDefaults.ts";
 
-const TX_COLUMNS = "amount,type,status,occurred_at,competence_date,payment_method,credit_card_id,category_id";
+const TX_COLUMNS = [
+  "id", "category_id", "type", "status", "amount", "occurred_at",
+  "transfer_group_id", "payment_method", "credit_card_id", "settles_card_id",
+  "movement_kind", "competence_date", "refund_of_transaction_id",
+].join(",");
 
 export type MonthlyBucket = { month: string; total: number; has_data: boolean };
 
@@ -125,35 +135,62 @@ export async function loadMonthlyExpenseBuckets(
     category_ids?: string[] | null;
   },
 ): Promise<MonthlyBucket[]> {
-  // A janela é por competência; carregamos com folga de 45 dias em occurred_at
-  // porque compra de cartão pode ocorrer antes da competência.
   const loadFrom = shiftDays(args.from, -45);
   const loadTo = shiftDays(args.to, 45);
-  const rows = await fetchAllPages<any>((from, to) => {
-    let q = sb.from("transactions").select(TX_COLUMNS)
+  const rows = await fetchAllPages<any>((from, to) =>
+    sb.from("transactions").select(TX_COLUMNS)
       .eq("user_id", args.user_id)
-      .eq("type", "expense")
       .eq("status", "confirmed")
       .gte("occurred_at", loadFrom)
       .lte("occurred_at", loadTo)
       .order("occurred_at", { ascending: true })
-      .range(from, to);
-    if (args.category_ids?.length) q = q.in("category_id", args.category_ids);
-    return q;
-  }, { source: "typical_monthly" });
+      .range(from, to),
+  { source: "typical_monthly" });
 
+  // Refunds may inherit the category from the original purchase. If that
+  // purchase fell outside the padded read window, load only referenced rows.
+  const present = new Set(rows.map((row: any) => String(row.id)));
+  const missingOriginalIds = [...new Set(rows
+    .map((row: any) => String(row.refund_of_transaction_id ?? ""))
+    .filter((id: string) => id && !present.has(id)))];
+  const referenced: any[] = [];
+  for (let offset = 0; offset < missingOriginalIds.length; offset += 200) {
+    const ids = missingOriginalIds.slice(offset, offset + 200);
+    const { data, error } = await sb.from("transactions").select(TX_COLUMNS)
+      .eq("user_id", args.user_id).in("id", ids);
+    if (!error && data?.length) referenced.push(...data);
+  }
+
+  const universe = [...rows, ...referenced] as TransactionRow[];
+  const refundAttribution = buildRefundAttribution(universe);
+  const categorySet = args.category_ids?.length
+    ? new Set(args.category_ids.map(String))
+    : null;
   const totals = new Map<string, number>();
-  for (const row of rows) {
+  const observed = new Set<string>();
+
+  for (const raw of rows) {
+    const row = { ...raw, amount: Number(raw.amount ?? 0) } as TransactionRow;
     const competence = reportingCompetenceDate(row);
     if (competence < args.from || competence > args.to) continue;
+
+    const amount = behavioralMetricAmount(row, "expense");
+    if (amount === 0) continue;
+
+    if (categorySet) {
+      const categoryId = effectiveCategoryId(row, refundAttribution);
+      if (!categoryId || !categorySet.has(String(categoryId))) continue;
+    }
+
     const key = competence.slice(0, 7);
-    totals.set(key, round2((totals.get(key) ?? 0) + Math.abs(Number(row.amount ?? 0))));
+    totals.set(key, round2((totals.get(key) ?? 0) + amount));
+    observed.add(key);
   }
 
   return monthsInWindow(args.from, args.to).map((month) => ({
     month,
-    total: totals.get(month) ?? 0,
-    has_data: totals.has(month),
+    total: round2(totals.get(month) ?? 0),
+    has_data: observed.has(month),
   }));
 }
 
