@@ -14,7 +14,7 @@ import type { FinancialQueryV3 } from "./FinancialIRv3.ts";
 import type { ExecutedIR } from "./SemanticPreservation.ts";
 import type { FinancialFilter } from "./FinancialQueryIR.ts";
 
-const FILTER_FIELDS = ["category", "card", "account", "payment_method"] as const;
+const FILTER_FIELDS = ["category", "merchant", "card", "account", "payment_method"] as const;
 
 function filtersFromRecord(raw: unknown): FinancialFilter[] {
   const obj = (raw ?? {}) as Record<string, unknown>;
@@ -146,6 +146,31 @@ function fromMerchantDistribution(requested: FinancialQueryV3, result: unknown):
   };
 }
 
+/** Derivação estrutural do perfil de um estabelecimento, inclusive quando o
+ * motor aplicou simultaneamente o recorte de categoria. */
+function fromMerchantProfile(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (r.engine !== "merchant_profile" || r.total_metric == null) return null;
+  const period = (r.period ?? {}) as Record<string, unknown>;
+  return {
+    metric: requested.metric,
+    filters: filtersFromRecord(r.filters),
+    time: {
+      aspect: requested.time.aspect,
+      from: period.from ? String(period.from) : null,
+      to: period.to ? String(period.to) : null,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: [],
+    comparison_baseline: requested.comparison_baseline ?? "period",
+    comparison_baseline_window: requested.comparison_baseline_window ?? null,
+    partial: false,
+  };
+}
+
 /** Derivação estrutural de `spending_report` (analyze_spending). */
 function fromSpendingReport(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
   const r = (result ?? {}) as Record<string, unknown>;
@@ -182,5 +207,6 @@ export function executedIRFrom(
     ?? fromMonthlyAverageComparison(requested, result)
     ?? fromPeriodComparison(requested, result)
     ?? fromMerchantDistribution(requested, result)
+    ?? fromMerchantProfile(requested, result)
     ?? fromSpendingReport(requested, result);
 }

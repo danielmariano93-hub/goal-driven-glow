@@ -34,7 +34,7 @@ export const COMPARISON_BASELINES = [
 export type ComparisonBaseline = typeof COMPARISON_BASELINES[number];
 
 export type FinancialFilter = {
-  field: "category" | "card" | "account" | "payment_method";
+  field: "category" | "merchant" | "card" | "account" | "payment_method";
   op: "eq";
   value: string;
 };
@@ -91,7 +91,7 @@ const DIMS = new Set<string>(FINANCIAL_DIMENSIONS);
 const OPS = new Set<string>(FINANCIAL_OPERATIONS);
 const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
 const COMPARISON_BASELINE_SET = new Set<string>(COMPARISON_BASELINES);
-const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
+const FILTER_FIELDS = new Set(["category", "merchant", "card", "account", "payment_method"]);
 
 export function validateFinancialIR(value: unknown): string[] {
   const errors: string[] = [];

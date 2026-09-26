@@ -95,7 +95,7 @@ function compilerTool(maxQueries: number) {
                     type: "object", additionalProperties: false,
                     required: ["field", "op", "value"],
                     properties: {
-                      field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
+                      field: { type: "string", enum: ["category", "merchant", "card", "account", "payment_method"] },
                       op: { type: "string", enum: ["eq"] },
                       value: { type: "string" },
                     },

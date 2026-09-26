@@ -74,12 +74,27 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
     expect(result.contract.financial_read?.queries).toHaveLength(2);
   });
 
-  it("fails closed instead of dropping an unsupported merchant filter", () => {
+  it("preserves category + merchant so the canonical merchant engine can execute both filters", () => {
     const turn = financialTurn();
     if (turn.kind !== "task" || turn.tasks[0].kind !== "financial_query") throw new Error("task expected");
-    turn.tasks[0].filters = [{ field: "merchant", entity: sourced("Mercado X") }];
+    turn.tasks[0].filters = [
+      { field: "category", entity: sourced("Lazer") },
+      { field: "merchant", entity: sourced("Thales") },
+    ];
     const result = bridgeTurnSpecV3ToRuntime(turn);
-    expect(result).toMatchObject({ ok: false, contract: null, errors: ["task_not_executable:financial_query"] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.contract).toMatchObject({
+      focus: { category: "Lazer", merchant: "Thales" },
+      financial_read: {
+        queries: [{
+          filters: [
+            { field: "category", value: "Lazer" },
+            { field: "merchant", value: "Thales" },
+          ],
+        }],
+      },
+    });
   });
 
   it("rejects arbitrary write action names before they reach draft tooling", () => {

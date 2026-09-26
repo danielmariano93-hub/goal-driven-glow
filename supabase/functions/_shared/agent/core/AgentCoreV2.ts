@@ -68,6 +68,8 @@ import { buildFinancialReadContract } from "./FinancialReadContract.ts";
 import { compileFinancialReadFromTurn } from "./TurnContractFinancialAdapter.ts";
 import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 import { resolveGroundedComparisonFollowup } from "./GroundedComparisonFollowup.ts";
+import { resolveImplicitPeriod } from "./ImplicitPeriodPolicy.ts";
+import { comparablePrevious } from "../../analytics/periodResolver.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -753,14 +755,18 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const hasExplicitComparisonRoles = comparisonIntent
     && !!comparisonExpressions
     && multiPeriod.periods.length >= 2;
-  const basePeriod = (hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0]) ?? {
-    from: plan.effective_period.from,
-    to: plan.effective_period.to,
-    label: plan.effective_period.label,
-  };
+  const explicitBasePeriod = hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
+  const lastRelatedPeriod = memory?.last_analysis?.period ?? memory?.last_tool_context?.period ?? null;
+  const periodPolicy = resolveImplicitPeriod({
+    explicit: explicitBasePeriod,
+    active: memory?.active_period ?? null,
+    last_related: lastRelatedPeriod,
+    current_month: plan.effective_period,
+  });
+  const basePeriod = periodPolicy.period;
   const resolvedComparisonPeriod = hasExplicitComparisonRoles
     ? multiPeriod.periods[0]
-    : plan.previous_period;
+    : comparablePrevious(basePeriod);
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;

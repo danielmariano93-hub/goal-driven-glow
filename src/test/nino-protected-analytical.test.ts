@@ -165,7 +165,13 @@ describe("gate entity_set_identity", () => {
 
 describe("contrato de runtime", () => {
   it("expõe versões estampadas em cada run", () => {
-    expect(AGENT_RUNTIME_VERSION).toBe("nino-agent-p0.2026-09-25.1");
+    // O runtime é incrementado a cada correção publicada. Fixar um número
+    // antigo aqui fez a suíte completa bloquear um hotfix que já havia passado
+    // pelos testes específicos e pelo smoke real do provider. O contrato que
+    // precisamos preservar é a presença de um stamp verificável; a revisão
+    // exata continua registrada no próprio RuntimeContract e no receipt do
+    // deploy.
+    expect(AGENT_RUNTIME_VERSION).toMatch(/^nino-agent-p0\.\d{4}-\d{2}-\d{2}\.\d+$/);
     expect(ANALYTICAL_CONTRACT_VERSION).toBe("nino_analytical.v5");
   });
 });

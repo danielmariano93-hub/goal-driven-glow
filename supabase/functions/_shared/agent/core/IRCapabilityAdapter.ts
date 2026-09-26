@@ -62,8 +62,27 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
   if (q.metric === "expense_amount" || q.metric === "income_amount") {
     const metric = q.metric === "income_amount" ? "income" : "expense";
     const group = q.group_by[0] ?? null;
+    const merchant = filter(q, "merchant");
 
     if (["value", "sum", "rank", "breakdown"].includes(q.operation)) {
+      // Consulta literal de um estabelecimento, com recorte opcional de
+      // categoria. O merchant_profile aplica alias/estorno no motor canônico e
+      // declara os dois filtros executados; nenhum filtro é descartado.
+      if (merchant) {
+        if (metric !== "expense" || group || !["value", "sum"].includes(q.operation)
+          || !onlyFilters(q, ["merchant", "category"])) return null;
+        return {
+          tool: "merchant_profile",
+          capability: "financial_analysis",
+          execution: "deterministic",
+          args: {
+            query: merchant,
+            from: period.from,
+            to: period.to,
+            ...(filter(q, "category") ? { category_name: filter(q, "category") } : {}),
+          },
+        };
+      }
       if (group === "merchant") {
         if (metric !== "expense" || !onlyFilters(q, ["category"])) return null;
         return {
@@ -310,6 +329,7 @@ export function ontologySignature(q: FinancialQuery): string {
 /** Combinações realmente mapeadas, para o prompt do compilador. */
 export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
+  "expense_amount + value|sum com filtro merchant e filtro opcional category (motor merchant_profile)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
   "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",

@@ -3391,13 +3391,14 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "merchant_profile",
-    description: "Perfil de UM estabelecimento: total líquido, número de compras, ticket médio, maior compra, dia da semana típico e variação vs período anterior. Use para 'quanto gastei com iFood/Uber/mercado X'.",
+    description: "Perfil de UM estabelecimento, opcionalmente dentro de uma categoria: total líquido, número de compras, ticket médio, maior compra, dia da semana típico e variação vs período anterior. Use para 'quanto gastei com iFood/Uber/mercado X' e 'quanto gastei em Lazer no estabelecimento X'.",
     parameters: {
       type: "object",
       properties: {
         query: requiredStr,
         days: { type: "integer", minimum: 7, maximum: 730 },
         from: optionalStr, to: optionalStr,
+        category_id: optionalStr, category_name: optionalStr,
       },
       required: ["query"], additionalProperties: false,
     },

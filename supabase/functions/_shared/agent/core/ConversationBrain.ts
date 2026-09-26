@@ -170,7 +170,7 @@ function brainTool() {
                           type: "object", additionalProperties: false,
                           required: ["field", "value"],
                           properties: {
-                            field: { type: "string", enum: ["category", "card", "account", "payment_method"] },
+                            field: { type: "string", enum: ["category", "merchant", "card", "account", "payment_method"] },
                             value: { type: "string" },
                           },
                         },
@@ -232,7 +232,7 @@ Regras obrigatórias:
 20. Referências como "delas", "essa categoria", "aquele estabelecimento", "isso" devem ser representadas em reference. Não resolva para entidades por palpite: o Grounding Engine fará isso contra Working Memory/Reference Store.
 21. Se uma referência necessária estiver ambígua ou ausente, mode=clarify. Nenhum componente posterior pode reinterpretar essa referência.
 22. Se domain=advisory, advisory_kind é obrigatório e deve ser exatamente um de: current_insight, next_best_action, goal_strategy, wealth_opportunity, financial_plan. Use current_insight quando o usuário pedir insight/dica/leitura personalizada sobre hoje ou o período atual. Use next_best_action SOMENTE quando ele pedir o que fazer, próximo passo ou ação recomendada. Nenhuma camada posterior reclassifica o tipo de conselho.
-23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Defaults financeiros de baixo risco e resolução de datas/entidades pertencem aos resolvers do backend. Use missing/ambiguous/conflicting apenas quando a informação é realmente necessária para entender o turno; nesse caso, mode=clarify.
+23. resolution descreve SOMENTE o que a conversa resolveu. Se o usuário não citou período/entidade e isso não é indispensável para entender o pedido, use not_applicable — nunca invente. Em leitura financeira comum (quanto gastei, quanto recebi, ranking, distribuição), período omitido NUNCA exige clarification: o backend aplica deterministicamente período ativo da conversa, último resultado relacionado ou mês corrente, nessa ordem. Use missing/ambiguous/conflicting apenas quando o período muda o próprio significado do pedido (por exemplo, comparação que não identifica o alvo); nesse caso, mode=clarify.
 24. Se houver active_references e a mensagem usar uma referência plural/anáfora compatível ("delas", "essas categorias", "entre elas"), emita reference.kind=previous_result_set, target correto e status=resolved. Não copie a lista para canonical_request; o Grounding Engine vincula o objeto estruturado.
 25. Se domain=financial_read, financial_read é obrigatório e descreve a MESMA interpretação canônica: metric, operation, group_by, filters, limit e semântica de comparação. Não inclua datas resolvidas nem nomes de tools. Se domain não for financial_read, financial_read=null. Exemplos: "quanto gastei" => expense_amount/sum; "quais categorias mais gastei" => expense_amount/rank/group_by=[category].
 26. Para operation=compare, NUNCA reduza "aumentou", "diminuiu" e "aumentaram e diminuíram" ao mesmo significado. comparison_direction deve ser: increase quando o usuário pede altas; decrease quando pede quedas; both quando pede altas E quedas; any quando pede apenas maior variação sem sinal. Para "qual mais..." use limit=1; para "quais..." preserve o conjunto (limit=null ou o limite explicitamente herdado).
@@ -246,6 +246,8 @@ Exemplos:
 - Nino: "Quer que eu detalhe essa oportunidade?"; usuário: "Quero" => answer/read, canonical_request=pedido completo da oferta, nunca emotional_checkin.
 - usuário: "Cria uma meta de R$ 5.000 até o fim do ano" => write, action=goal.create, slots target_amount=5000 e target_date_expression="fim do ano".
 - usuário: "Quanto gastei em alimentação no mês de julho e agosto?" => new_request/read, focus.category="Alimentação", focus.period_expressions=["julho","agosto"].
+- usuário: "Quanto gastei em lazer?" => new_request/read/financial_read; expense_amount/sum; filtro category=Lazer; resolution.time=not_applicable; nunca pergunte o período.
+- usuário: "Quanto gastei em lazer no estabelecimento Thales?" => new_request/read/financial_read; expense_amount/sum; filtros category=Lazer e merchant=Thales; resolution.time=not_applicable.
 - usuário: "Qual insight para hoje?" => new_request/read/advisory; advisory_kind=current_insight; focus.period_expression="hoje"; financial_read=null.
 - usuário: "E sobre o mês atual, qual insight você tem?" => follow_up/read/advisory; advisory_kind=current_insight; focus.period_expression="mês atual"; financial_read=null.
 - usuário: "Qual próximo passo você recomenda?" => read/advisory; advisory_kind=next_best_action.

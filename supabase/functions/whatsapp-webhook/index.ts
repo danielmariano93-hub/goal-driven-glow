@@ -35,6 +35,7 @@ import { audioFailureReply, describeMediaHint, isAudioMedia, transcribeInboundAu
 import { drainPendingAudio, persistPendingAudio, shouldDrainPendingAudio, type PendingAudioRow } from "../_shared/messaging/pendingAudio.ts";
 
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
+import { runtimeStamp } from "../_shared/agent/core/RuntimeContract.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -840,5 +841,5 @@ Deno.serve(async (req) => {
   } else {
     orchestrate().catch((err) => console.error("[webhook] orchestrate bg", err));
   }
-  return json({ ok: true, accepted: true, inbound_message_id }, 202);
+  return json({ ok: true, accepted: true, inbound_message_id, runtime: runtimeStamp() }, 202);
 });

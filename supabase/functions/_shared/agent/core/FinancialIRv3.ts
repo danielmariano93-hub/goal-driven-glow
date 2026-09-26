@@ -115,7 +115,7 @@ const GRAINS = new Set<string>(TIME_GRAINS);
 const REDUCES = new Set<string>(REDUCTIONS);
 const COMPARISON_DIRECTION_SET = new Set<string>(COMPARISON_DIRECTIONS);
 const COMPARISON_BASELINE_SET = new Set<string>(COMPARISON_BASELINES);
-const FILTER_FIELDS = new Set(["category", "card", "account", "payment_method"]);
+const FILTER_FIELDS = new Set(["category", "merchant", "card", "account", "payment_method"]);
 
 const POINT_IN_TIME_METRICS = new Set<string>([
   "balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health",

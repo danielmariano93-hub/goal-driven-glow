@@ -10,6 +10,7 @@ import {
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
 } from "./ConversationTurnContract.ts";
+import { detectCategory } from "./ConversationMemory.ts";
 
 function norm(text: string): string {
   return String(text ?? "").toLowerCase().normalize("NFD")
@@ -86,6 +87,74 @@ function ambiguityContract(text: string, months: number): CanonicalConversationT
   });
 }
 
+const EXPLICIT_PERIOD_ANY_RX = new RegExp(
+  `\\b(?:${MONTH_TOKEN}|este mes|esse mes|neste mes|mes atual|mes passado|mes anterior|hoje|ontem|anteontem|ultim[oa]s?\\s+\\d+\\s+(?:dias|semanas|meses)|por mes|ao mes)\\b`,
+);
+
+/**
+ * Fast contract for the high-volume, unequivocal lookup shape
+ * "quanto gastei [em categoria] [no estabelecimento X]". This bypasses the
+ * probabilistic Brain only for a closed grammar; dates/comparisons and unknown
+ * category wording continue through the full interpreter.
+ */
+function directExpenseLookup(text: string, normalized: string): CanonicalConversationTurnContract | null {
+  if (!/^(?:nino\s+)?quanto(?:\s+que)?\s+(?:eu\s+)?gastei\b/.test(normalized)) return null;
+  if (EXPLICIT_PERIOD_ANY_RX.test(normalized)) return null;
+
+  const raw = String(text ?? "").trim().replace(/[?!.]+$/g, "").trim();
+  const merchantMatch = /\b(?:(?:no|na|do|da)\s+)?(?:estabelecimento|loja|comerciante)\s+(.+)$/i.exec(raw);
+  const merchant = merchantMatch?.[1]?.trim() || null;
+  const categoryText = merchantMatch ? raw.slice(0, merchantMatch.index) : raw;
+  const category = detectCategory(categoryText);
+
+  // Extra qualifiers outside the closed grammar must go to the Brain rather
+  // than being silently ignored as an overall-spend lookup.
+  const bare = /^(?:nino\s+)?quanto(?:\s+que)?\s+(?:eu\s+)?gastei$/i.test(raw);
+  if (!bare && !category && !merchant) return null;
+
+  const filters = [
+    ...(category ? [{ field: "category" as const, value: category }] : []),
+    ...(merchant ? [{ field: "merchant" as const, value: merchant }] : []),
+  ];
+  return normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "new_request",
+    mode: "read",
+    domain: "financial_read",
+    canonical_request: raw,
+    inherit_focus: false,
+    focus: {
+      category,
+      merchant,
+      goal: null,
+      period_expression: null,
+      period_expressions: [],
+    },
+    action: null,
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: "not_applicable",
+      time: "not_applicable",
+      entity: filters.length ? "resolved" : "not_applicable",
+      action: "not_applicable",
+    },
+    reference: null,
+    financial_read: {
+      intent: "lookup",
+      queries: [{
+        metric: "expense_amount",
+        operation: "sum",
+        group_by: [],
+        filters,
+        limit: null,
+      }],
+    },
+    advisory_kind: null,
+  });
+}
+
 export function resolveNarrowDeterministicTurn(
   text: string,
 ): CanonicalConversationTurnContract | null {
@@ -96,6 +165,9 @@ export function resolveNarrowDeterministicTurn(
   // como alvo e baseline, criando uma comparação híbrida silenciosa.
   const ambiguousWindow = ambiguousCategoryAverageComparison(normalized);
   if (ambiguousWindow) return ambiguityContract(text, ambiguousWindow);
+
+  const directExpense = directExpenseLookup(text, normalized);
+  if (directExpense) return directExpense;
 
   const exact = EXACT_READS.get(normalized);
   if (!exact) return null;
