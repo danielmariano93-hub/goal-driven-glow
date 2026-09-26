@@ -1,4 +1,4 @@
-// AgentCoreV2Entry (`nino_v2_evidence_bridge.v1`)
+// AgentCoreV2Entry (`nino_v2_evidence_bridge.v2`)
 //
 // Thin production entry around AgentCoreV2. The V2 core historically persisted
 // agent_runs only after the financial engine had executed, so the canonical
@@ -13,16 +13,18 @@ import { handleTurn as handleLegacyTurn, type HandleTurnInput, type HandleTurnRe
 import { service } from "./service.ts";
 import { getState, patchState } from "./StateManager.ts";
 import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
-import type { ComparisonEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
+import type { ComparisonEvidence, MonthlySeriesEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import { resolveTimeAspectPt } from "../../analytics/periodResolver.ts";
+import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
+import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
 import {
   captureRuntimeV3ShadowSnapshot,
   scheduleRuntimeV3ProductionShadow,
 } from "../v3/RuntimeV3ProductionShadow.ts";
 
-function evidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
+function comparisonEvidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
     requested_comparison_direction: evidence.requested_direction,
     requested_limit: evidence.requested_limit,
@@ -43,10 +45,49 @@ function evidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   };
 }
 
-function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCall | null {
+function monthlySeriesEvidenceResult(evidence: MonthlySeriesEvidence) {
+  return {
+    version: evidence.version,
+    formula_version: evidence.formula_version,
+    months: evidence.months,
+    total: evidence.total,
+    transaction_count: evidence.transaction_count,
+    window: evidence.window,
+    scope: evidence.scope,
+    partial_first_month: evidence.partial_first_month,
+    partial_last_month: evidence.partial_last_month,
+  };
+}
+
+/**
+ * Reconstructs only evidence that was already executed and stored in working
+ * memory. No money is recalculated here. Exported so the Phase 2 contract suite
+ * can prove that persisted V2 evidence is lossless.
+ */
+export function v2CallFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCall | null {
   const evidence = ref.source?.context?.evidence ?? null;
   const toolName = String(ref.source?.tool_name ?? fallbackTool).split("+")[0] || fallbackTool;
-  if (!evidence || evidence.kind !== "comparison") return null;
+  if (!evidence) return null;
+
+  if (evidence.kind === "monthly_series") {
+    return {
+      tool_name: "spending_timeseries_monthly",
+      args: {
+        query_id: ref.source?.query_id ?? null,
+        evidence_reconstructed: true,
+        from: evidence.window.from,
+        to: evidence.window.to,
+        category_name: evidence.scope.category,
+        merchant: evidence.scope.merchant,
+      },
+      result: monthlySeriesEvidenceResult(evidence),
+      ok: true,
+      duration_ms: null,
+      error: null,
+    };
+  }
+
+  if (evidence.kind !== "comparison") return null;
   const context = ref.source?.context ?? {};
   const categoryScope = ref.target === "category" && ref.entity_labels.length
     ? { category_scope: [...ref.entity_labels] }
@@ -73,7 +114,7 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
   return {
     tool_name: toolName,
     args,
-    result: evidenceResult(evidence, ref),
+    result: comparisonEvidenceResult(evidence, ref),
     ok: true,
     duration_ms: null,
     error: null,
@@ -83,7 +124,8 @@ function callFromReference(ref: ReferenceObject, fallbackTool: string): V2ToolCa
 function formulaVersionsFromCalls(calls: V2ToolCall[]): Record<string, string> | null {
   const entries: Array<[string, string]> = [];
   for (const call of calls) {
-    const version = String((call.result as any)?.provenance?.formula_version ?? "").trim();
+    const result = (call.result ?? {}) as any;
+    const version = String(result?.formula_version ?? result?.provenance?.formula_version ?? "").trim();
     if (!version) continue;
     entries.push([call.tool_name, version]);
   }
@@ -131,16 +173,16 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
   const calls: V2ToolCall[] = [];
   const callRefs: ReferenceObject[] = [];
   for (const ref of candidates) {
-    const call = callFromReference(ref, tools[0]);
+    const call = v2CallFromReference(ref, tools[0]);
     if (!call) continue;
     if (calls.some((existingCall) => existingCall.tool_name === call.tool_name)) continue;
     calls.push(call);
     callRefs.push(ref);
   }
 
-  // For non-comparison V2 tools we still record that the engine ran, rather
-  // than leaving the audit table empty. We deliberately do NOT fabricate a
-  // result; richer evidence can be added by each capability over time.
+  // Capabilities that still do not expose structured working-memory evidence
+  // retain an explicit placeholder. Monthly series and comparisons no longer
+  // use this path: their exact executed result is persisted above.
   if (!calls.length) {
     for (const tool of tools) {
       calls.push({
@@ -193,6 +235,45 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
       evidence_reference: { run_id: turn.run_id, tool_call_ids: toolCallIds },
       execution_summary: { engines: tools, complete: !(run as any)?.error_sanitized },
     }).eq("id", activeTopicId).eq("user_id", input.user_id);
+  }
+}
+
+async function bindRequestedArtifact(input: HandleTurnInput, turn: HandleTurnResult): Promise<void> {
+  if (!turn.run_id || !hasExplicitChartIntent(input.text)) return;
+  const sb = service();
+  const { data } = await sb.from("agent_tool_calls")
+    .select("step_index,tool_name,args,result,ok,duration_ms,error")
+    .eq("run_id", turn.run_id)
+    .order("step_index", { ascending: true });
+  const calls = ((data ?? []) as any[]).map((call) => ({
+    step_index: Number(call.step_index ?? 0),
+    tool_name: String(call.tool_name ?? ""),
+    args: call.args ?? {},
+    result: call.result ?? null,
+    ok: call.ok === true,
+    duration_ms: Number(call.duration_ms ?? 0),
+    error: call.error ? String(call.error) : null,
+  }));
+
+  const artifact = await ensureRequestedArtifact({
+    sb: sb as any,
+    user_id: input.user_id,
+    conversation_id: input.conversation_id,
+    text: input.text,
+    toolCalls: calls,
+  });
+  if (!artifact) return;
+
+  await persistV2ToolCalls(sb, turn.run_id, [{
+    ...artifact.toolCall,
+    step_index: calls.length,
+  }]).catch(() => []);
+
+  if (artifact.artifact_id && input.channel !== "app" && input.inbound_message_id) {
+    await sb.from("outbound_messages").update({
+      artifact_id: artifact.artifact_id,
+      media_status: "pending",
+    }).eq("inbound_message_id", input.inbound_message_id);
   }
 }
 
@@ -296,6 +377,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const turn = await handleTurnV2Core(input);
   await bindEvidence(input, turn).catch((error) => {
     console.error("[AgentCoreV2Entry] evidence binding failed", String((error as Error)?.message ?? error).slice(0, 240));
+  });
+  await bindRequestedArtifact(input, turn).catch((error) => {
+    console.error("[AgentCoreV2Entry] artifact binding failed", String((error as Error)?.message ?? error).slice(0, 240));
   });
   await bindExecutedMonthlyPeriod(input, turn).catch((error) => {
     console.error("[AgentCoreV2Entry] monthly period binding failed", String((error as Error)?.message ?? error).slice(0, 240));
