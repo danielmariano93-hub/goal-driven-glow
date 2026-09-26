@@ -101,6 +101,76 @@ function normalizeEntity(value: string | null | undefined): string {
 }
 
 /**
+ * Fast contract for an explicit habitual monthly spend such as:
+ * - "Quanto gasto por mês com assinaturas?"
+ * - "Quanto eu gasto aproximadamente por mês com lazer?"
+ *
+ * This shape is intentionally resolved BEFORE the Conversation Brain. The
+ * financial runtime still owns the dates and the money: SemanticAspectOverlay
+ * turns this value lookup into the canonical habitual window of complete months.
+ * Therefore a provider 429 can never make an unequivocal habitual read become
+ * "não consegui interpretar".
+ */
+function directTypicalMonthlyExpenseLookup(
+  text: string,
+  normalized: string,
+): CanonicalConversationTurnContract | null {
+  const match = /^(?:nino\s+)?(?:quanto(?:\s+que)?\s+)?(?:eu\s+)?(?:gasto|costumo\s+gastar|estou\s+gastando)(?:\s+aproximadamente|\s+em\s+media)?\s+(?:por|ao)\s+mes(?:\s+com\s+(.+?))?$/.exec(normalized);
+  if (!match) return null;
+
+  // An explicit N-month window is a different semantic contract. Leave it to
+  // the temporal authority instead of silently forcing the default habitual
+  // window here.
+  if (MONTHLY_PERIOD_RX.test(normalized)) return null;
+
+  const raw = String(text ?? "").trim().replace(/[?!.]+$/g, "").trim();
+  const category = detectCategory(raw);
+  const namesAScope = /\bcom\s+.+$/i.test(raw);
+  // Closed grammar: if the user named a scope, it must resolve to a canonical
+  // category. Never drop an unknown category and answer the overall average.
+  if (namesAScope && !category) return null;
+
+  const filters = category ? [{ field: "category" as const, value: category }] : [];
+  return normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "new_request",
+    mode: "read",
+    domain: "financial_read",
+    canonical_request: raw,
+    inherit_focus: false,
+    focus: {
+      category,
+      merchant: null,
+      goal: null,
+      period_expression: null,
+      period_expressions: [],
+    },
+    action: null,
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: "not_applicable",
+      time: "resolved",
+      entity: category ? "resolved" : "not_applicable",
+      action: "not_applicable",
+    },
+    reference: null,
+    financial_read: {
+      intent: "analyze",
+      queries: [{
+        metric: "expense_amount",
+        operation: "value",
+        group_by: [],
+        filters,
+        limit: null,
+      }],
+    },
+    advisory_kind: null,
+  });
+}
+
+/**
  * Fast contract for explicit factual monthly breakdowns such as:
  * - "quanto gastei em lazer mês a mês nos últimos 7 meses?"
  * - "quanto gastei com Lazer no Thales mês a mês nos últimos 7 meses?"
@@ -262,6 +332,9 @@ export function resolveNarrowDeterministicTurn(
   // como alvo e baseline, criando uma comparação híbrida silenciosa.
   const ambiguousWindow = ambiguousCategoryAverageComparison(normalized);
   if (ambiguousWindow) return ambiguityContract(text, ambiguousWindow);
+
+  const typicalMonthlyExpense = directTypicalMonthlyExpenseLookup(text, normalized);
+  if (typicalMonthlyExpense) return typicalMonthlyExpense;
 
   const monthlyExpense = directMonthlyExpenseLookup(text, normalized);
   if (monthlyExpense) return monthlyExpense;
