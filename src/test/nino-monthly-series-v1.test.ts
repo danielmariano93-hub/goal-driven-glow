@@ -9,6 +9,11 @@ import {
   type MonthlySpendingSeriesResult,
 } from "../../supabase/functions/_shared/agent/core/handlers/MonthlySeriesHandler";
 import { inferChartRequest } from "../../supabase/functions/_shared/intelligence/chartIntent";
+import {
+  buildMonthlySeriesChartArtifact,
+  monthlySeriesChartCaption,
+} from "../../supabase/functions/_shared/intelligence/monthlySeriesChart";
+import { toRenderableSeries } from "../../supabase/functions/_shared/artifacts/normalize";
 import { chartDayLabel } from "../../supabase/functions/_shared/artifacts/png";
 // JS module is intentionally executable by Vercel outside the TS build.
 // @ts-ignore
@@ -36,6 +41,27 @@ function query(overrides: Partial<FinancialQueryV3> = {}): FinancialQueryV3 {
     depends_on: [],
     legacy_operation: "sum",
     ...overrides,
+  };
+}
+
+function thalesFixture(): MonthlySpendingSeriesResult {
+  return {
+    version: "nino_monthly_series.v1",
+    formula_version: "monthly_spending_series.v1",
+    months: [
+      { month: "2026-04", total: 80, has_data: true, transaction_count: 1 },
+      { month: "2026-05", total: 14, has_data: true, transaction_count: 1 },
+      { month: "2026-06", total: 160, has_data: true, transaction_count: 1 },
+      { month: "2026-07", total: 72, has_data: true, transaction_count: 2 },
+      { month: "2026-08", total: 125, has_data: true, transaction_count: 3 },
+      { month: "2026-09", total: 155, has_data: true, transaction_count: 3 },
+    ],
+    total: 606,
+    transaction_count: 11,
+    window: { from: "2026-04-01", to: "2026-09-26", n: 6 },
+    scope: { category: "Lazer", merchant: "Thales" },
+    partial_first_month: false,
+    partial_last_month: true,
   };
 }
 
@@ -102,25 +128,7 @@ describe("nino_monthly_series.v1", () => {
   });
 
   it("returns the conversational summary with total, monthly counts, average, peak and partial-month warning", () => {
-    const result: MonthlySpendingSeriesResult = {
-      version: "nino_monthly_series.v1",
-      formula_version: "monthly_spending_series.v1",
-      months: [
-        { month: "2026-04", total: 80, has_data: true, transaction_count: 1 },
-        { month: "2026-05", total: 14, has_data: true, transaction_count: 1 },
-        { month: "2026-06", total: 160, has_data: true, transaction_count: 1 },
-        { month: "2026-07", total: 72, has_data: true, transaction_count: 2 },
-        { month: "2026-08", total: 125, has_data: true, transaction_count: 3 },
-        { month: "2026-09", total: 155, has_data: true, transaction_count: 3 },
-      ],
-      total: 606,
-      transaction_count: 11,
-      window: { from: "2026-04-01", to: "2026-09-26", n: 6 },
-      scope: { category: "Lazer", merchant: "Thales" },
-      partial_first_month: false,
-      partial_last_month: true,
-    };
-    const text = monthlySpendingSeriesText(result);
+    const text = monthlySpendingSeriesText(thalesFixture());
     expect(text).toContain("💸 Nos 6 meses analisados, de 01/04/2026 a 26/09/2026, você gastou R$ 606,00 em Lazer com Thales, em 11 lançamentos.");
     expect(text).toContain("* Abril: R$ 80,00 — 1 lançamento");
     expect(text).toContain("* Julho: R$ 72,00 — 2 lançamentos");
@@ -128,6 +136,36 @@ describe("nino_monthly_series.v1", () => {
     expect(text).toContain("Sua média foi de R$ 101,00 por mês.");
     expect(text).toContain("Junho teve o maior gasto, com R$ 160,00.");
     expect(text).toContain("Setembro já soma R$ 155,00, mas ainda é um mês parcial, considerado somente até o dia 26.");
+  });
+
+  it("builds the monthly WhatsApp artifact in the same visual family as the daily chart", () => {
+    const artifact = buildMonthlySeriesChartArtifact(thalesFixture());
+    const normalized = toRenderableSeries(artifact);
+    expect(artifact.kind).toBe("chart");
+    expect(normalized.labels).toEqual(["abr/26", "mai/26", "jun/26", "jul/26", "ago/26", "set/26"]);
+    expect(normalized.series).toHaveLength(2);
+    expect(normalized.series[0]).toMatchObject({
+      name: "Gasto mensal",
+      renderAs: "bar",
+      values: [80, 14, 160, 72, 125, 155],
+    });
+    expect(normalized.series[1]).toMatchObject({
+      name: "Média de 3 meses",
+      renderAs: "line",
+      values: [80, 47, 84.67, 82, 119, 117.33],
+    });
+  });
+
+  it("uses a grounded WhatsApp image caption instead of a false render-failure message", () => {
+    const caption = monthlySeriesChartCaption(thalesFixture()).replace(/\u00a0/g, " ");
+    expect(caption).toContain("📊 Gastos mês a mês · Lazer com Thales");
+    expect(caption).toContain("• Período: 01/04/2026 a 26/09/2026.");
+    expect(caption).toContain("• Total gasto: R$ 606,00 em 11 lançamentos.");
+    expect(caption).toContain("• Maior mês: R$ 160,00 em junho.");
+    expect(caption).toContain("• Média mensal: R$ 101,00.");
+    expect(caption).toContain("• Setembro está parcial: considerado até 26/09.");
+    expect(caption).not.toContain("Não consegui exibir a imagem");
+    expect(caption.length).toBeLessThanOrEqual(950);
   });
 
   it("routes explicit month-by-month chart intent before generic category charts", () => {
