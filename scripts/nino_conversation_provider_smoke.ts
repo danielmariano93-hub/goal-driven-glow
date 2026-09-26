@@ -12,6 +12,8 @@
 // This keeps the deployment gate fail-closed without manufacturing semantic
 // failures on a model that production never uses as ConversationBrain authority.
 import { interpretConversationTurn } from "../supabase/functions/_shared/agent/core/ConversationBrain.ts";
+import { interpretSemanticTurnV3 } from "../supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
+import { bridgeTurnSpecV3ToRuntime } from "../supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts";
 import { callStructuredFunction } from "../supabase/functions/_shared/ai-structured.ts";
 import { resolveAiProvider } from "../supabase/functions/_shared/ai-runtime.ts";
 
@@ -41,6 +43,48 @@ const diagnosticSink = {
     };
   },
 };
+
+// V3 / primary model: production semantic authority. Exercise the two shapes
+// that exposed real shadow gaps before rollout: historical monthly read + write.
+const v3Monthly = await interpretSemanticTurnV3({
+  text: "Quanto gastei com Alimentação por mês nos últimos 5 meses?",
+  history_text: "",
+  context_text: "",
+  model,
+});
+if (!v3Monthly.telemetry.ok || !v3Monthly.turn || v3Monthly.turn.kind !== "task") {
+  throw new Error(`V3 monthly authority smoke failed: ${v3Monthly.telemetry.error ?? "missing_task"}`);
+}
+const monthlyTask = v3Monthly.turn.tasks[0];
+if (monthlyTask?.kind !== "financial_query"
+  || monthlyTask.metric !== "expense_amount"
+  || monthlyTask.operation !== "trend"
+  || monthlyTask.group_by[0] !== "month"
+  || !monthlyTask.filters.some((filter) => filter.field === "category" && filter.entity.value.toLowerCase() === "alimentação")) {
+  throw new Error(`V3 lost monthly semantics: ${JSON.stringify(v3Monthly.turn)}`);
+}
+const v3MonthlyBridge = bridgeTurnSpecV3ToRuntime(v3Monthly.turn);
+if (!v3MonthlyBridge.ok || v3MonthlyBridge.contract.mode !== "read") {
+  throw new Error(`V3 monthly bridge failed: ${JSON.stringify(v3MonthlyBridge)}`);
+}
+
+const v3Write = await interpretSemanticTurnV3({
+  text: "Registre um gasto de R$ 50,00 no estabelecimento Teste em 26 de setembro de 2026 na conta Corrente Itaú.",
+  history_text: "",
+  context_text: "",
+  model,
+});
+if (!v3Write.telemetry.ok || !v3Write.turn || v3Write.turn.kind !== "task") {
+  throw new Error(`V3 write authority smoke failed: ${v3Write.telemetry.error ?? "missing_task"}`);
+}
+const writeTask = v3Write.turn.tasks[0];
+if (writeTask?.kind !== "financial_write" || writeTask.action !== "transaction.create") {
+  throw new Error(`V3 lost canonical write action: ${JSON.stringify(v3Write.turn)}`);
+}
+const v3WriteBridge = bridgeTurnSpecV3ToRuntime(v3Write.turn);
+if (!v3WriteBridge.ok || v3WriteBridge.contract.mode !== "write") {
+  throw new Error(`V3 write bridge failed: ${JSON.stringify(v3WriteBridge)}`);
+}
 
 // V2 / primary model: this is the exact semantic authority active in AgentCoreV2.
 const outcome = await interpretConversationTurn({
@@ -135,7 +179,8 @@ console.log(JSON.stringify({
   ok: true,
   provider: outcome.telemetry.provider,
   models: {
-    v2_semantic_authority: model,
+    v3_semantic_authority: model,
+    v2_circuit_breaker: model,
     fast_strict_transport_probe: fastModel,
   },
   v2: {
@@ -146,5 +191,5 @@ console.log(JSON.stringify({
     financial_read: outcome.contract.financial_read,
   },
   strict_transport_probe: true,
-  note: "V3 semantic regressions remain in repository tests; full primary-model V3 smoke gates its future authority rollout, not the current V2 deployment.",
+  note: "V3 full-model read/write smoke gates production; V2 remains a marked circuit breaker only.",
 }));

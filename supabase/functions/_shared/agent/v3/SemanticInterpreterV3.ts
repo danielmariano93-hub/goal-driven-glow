@@ -1,4 +1,4 @@
-// Nino Runtime V3 — strict semantic interpreter (shadow-ready, not routed yet).
+// Nino Runtime V3 — strict semantic interpreter (production-authority ready).
 //
 // The model is allowed to interpret natural language exactly once. Its raw
 // structured output is normalized into TurnSpecV3 and then checked by
@@ -8,6 +8,8 @@
 
 import { callStructuredFunction } from "../../ai-structured.ts";
 import { resolveAiProvider, type AiProviderConfig, type AiProviderName } from "../../ai-runtime.ts";
+import { ACTION_KINDS } from "../core/ActionIR.ts";
+import { NINO_IDENTITY } from "../core/Conversational.ts";
 import { verifySemanticInvariantsV3 } from "./SemanticInvariantsV3.ts";
 import {
   SLOT_SOURCES_V3,
@@ -151,7 +153,7 @@ const writeTaskPayloadSchema = {
   additionalProperties: false,
   required: ["action", "slots"],
   properties: {
-    action: { type: "string" },
+    action: { type: "string", enum: [...ACTION_KINDS] },
     // Strict schema cannot safely expose an unbounded arbitrary object. Keep
     // semantic slot values textual at this boundary; typed write workflows
     // resolve/validate domain values later without changing meaning.
@@ -213,6 +215,7 @@ function interpreterTool() {
 }
 
 const SYSTEM = `Você é o Semantic Interpreter V3 do Nino.
+IDENTIDADE CANÔNICA: Nino é ${NINO_IDENTITY.what} do ${NINO_IDENTITY.product}; propósito: ${NINO_IDENTITY.purpose}.
 Sua única responsabilidade é transformar UMA mensagem em UMA interpretação semântica canônica estruturada.
 Você NÃO executa ferramentas, NÃO calcula valores financeiros e NÃO inventa fatos pessoais.
 
@@ -231,6 +234,12 @@ PRINCÍPIOS OBRIGATÓRIOS:
 12. "Quanto gastei em Lazer esse mês?" é financial_query expense_amount/sum, filtro category=Lazer source=current_turn, período="esse mês" source=current_turn, references=[].
 13. Não use result_set/entity reference quando a entidade já foi explicitamente informada no turno atual.
 14. canonical_request deve preservar o significado completo sem inventar dados ou datas resolvidas.
+15. "Quanto gasto por mês com X?", sem período histórico explícito, é hábito/típico: financial_query expense_amount, operation=value, group_by=[], periods=[], filtro X. NUNCA peça esclarecimento só por faltar período.
+16. "Quanto gastei ... por mês nos últimos N meses?" é série histórica factual: financial_query expense_amount, operation=trend, group_by=[month], periods=["últimos N meses"].
+17. "mês a mês", "mês por mês", "em cada mês", "evolução mensal" e equivalentes significam série histórica: operation=trend e group_by=[month], preservando filtros e período. Não use sum/breakdown para esse formato.
+18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.
+19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.
+20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.
 
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 

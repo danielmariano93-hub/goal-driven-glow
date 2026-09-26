@@ -17,7 +17,7 @@ import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
-import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationBrain.ts";
+import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationAuthority.ts";
 import {
   comparisonPeriodExpressions, normalizeConversationTurnContract, normalizePeriodExpressions,
   type CanonicalConversationTurnContract, type ConversationTurnContract,
@@ -425,7 +425,8 @@ async function finishV2(args: {
  * apenas compara interpretação: nunca executa tools/drafts da V2.
  */
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
-  const enabled = await isEnabled("conversation_brain_v1", input.user_id);
+  const v3AuthorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);
+  const enabled = v3AuthorityEnabled || await isEnabled("conversation_brain_v1", input.user_id);
   const shadowEnabled = !enabled && await isEnabled("conversation_brain_shadow_v1", input.user_id);
 
   if (!enabled && !shadowEnabled) return await handleLegacyTurn(input);
