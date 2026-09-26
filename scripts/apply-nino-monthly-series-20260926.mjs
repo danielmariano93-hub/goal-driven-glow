@@ -23,9 +23,7 @@ function insertAfter(path, marker, addition) {
   write(path, source.slice(0, at) + addition + source.slice(at));
 }
 
-// ---------------------------------------------------------------------------
 // 1) V3 semantic shape: month-by-month factual series != typical monthly spend.
-// ---------------------------------------------------------------------------
 {
   const path = "supabase/functions/_shared/agent/core/FinancialIRv3.ts";
   let source = read(path);
@@ -35,11 +33,8 @@ function insertAfter(path, marker, addition) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 2) Exact-N monthly windows for trend reads. Existing rolling-month semantics
-// stay untouched for aggregate questions; only month-by-month trend uses exact
-// calendar buckets (5 => exactly 5 buckets, not 6 due inclusive endpoints).
-// ---------------------------------------------------------------------------
+// 2) Exact-N monthly windows for trend reads. Aggregate rolling-month semantics
+// remain unchanged; only the month-by-month lane gets exact calendar buckets.
 replaceOnce(
   "supabase/functions/_shared/analytics/periodResolver.ts",
   'const TREND_RX = /\\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes)\\b/;',
@@ -49,13 +44,10 @@ replaceOnce(
 replaceOnce(
   "supabase/functions/_shared/analytics/periodResolver.ts",
   `  if (TREND_RX.test(t)) {\n    const window = explicitPeriod ?? { ...lastCompleteMonths(HABITUAL_WINDOW_MONTHS, now), label: "últimos 6 meses completos", matched: "", complete: true, kind: "range" as const };\n    return {\n      aspect: "trend", from: window.from, to: window.to, n: null, exclude_partial: false,\n      grain: "month", reduce: "none", label: window.label, matched: window.matched ?? "",\n      assumption: null, ambiguous: false,\n    };\n  }`,
-  `  if (TREND_RX.test(t)) {\n    const requested = t.match(new RegExp(\\`\\\\bultimos?\\\\s+(\\${MONTH_COUNT_TOKEN})\\\\s+meses?\\\\b\\`));\n    const count = requested ? parseMonthCount(requested[1]) : null;\n    if (count) {\n      const wantsComplete = /\\b(completos?|fechados?)\\b/.test(t);\n      if (wantsComplete) {\n        const w = lastCompleteMonths(count, now);\n        return {\n          aspect: "trend", from: w.from, to: w.to, n: count, exclude_partial: true,\n          grain: "month", reduce: "none", label: \\`últimos \\${count} meses completos\\`, matched: requested?.[0] ?? "",\n          assumption: null, ambiguous: false,\n        };\n      }\n      const shifted = shiftMonthsClamped(todaySP(now), -(count - 1));\n      const from = \\`\\${shifted.slice(0, 7)}-01\\`;\n      const to = todaySP(now);\n      return {\n        aspect: "trend", from, to, n: count, exclude_partial: false,\n        grain: "month", reduce: "none", label: \\`últimos \\${count} meses, mês a mês\\`, matched: requested?.[0] ?? "",\n        assumption: null, ambiguous: false,\n      };\n    }\n    const window = explicitPeriod ?? { ...lastCompleteMonths(HABITUAL_WINDOW_MONTHS, now), label: "últimos 6 meses completos", matched: "", complete: true, kind: "range" as const };\n    return {\n      aspect: "trend", from: window.from, to: window.to, n: null, exclude_partial: false,\n      grain: "month", reduce: "none", label: window.label, matched: window.matched ?? "",\n      assumption: null, ambiguous: false,\n    };\n  }`,
+  `  if (TREND_RX.test(t)) {\n    const requested = t.match(new RegExp("\\\\bultimos?\\\\s+(" + MONTH_COUNT_TOKEN + ")\\\\s+meses?\\\\b"));\n    const count = requested ? parseMonthCount(requested[1]) : null;\n    if (count) {\n      const wantsComplete = /\\b(completos?|fechados?)\\b/.test(t);\n      if (wantsComplete) {\n        const w = lastCompleteMonths(count, now);\n        return {\n          aspect: "trend", from: w.from, to: w.to, n: count, exclude_partial: true,\n          grain: "month", reduce: "none", label: "últimos " + count + " meses completos", matched: requested?.[0] ?? "",\n          assumption: null, ambiguous: false,\n        };\n      }\n      const shifted = shiftMonthsClamped(todaySP(now), -(count - 1));\n      const from = shifted.slice(0, 7) + "-01";\n      const to = todaySP(now);\n      return {\n        aspect: "trend", from, to, n: count, exclude_partial: false,\n        grain: "month", reduce: "none", label: "últimos " + count + " meses, mês a mês", matched: requested?.[0] ?? "",\n        assumption: null, ambiguous: false,\n      };\n    }\n    const window = explicitPeriod ?? { ...lastCompleteMonths(HABITUAL_WINDOW_MONTHS, now), label: "últimos 6 meses completos", matched: "", complete: true, kind: "range" as const };\n    return {\n      aspect: "trend", from: window.from, to: window.to, n: null, exclude_partial: false,\n      grain: "month", reduce: "none", label: window.label, matched: window.matched ?? "",\n      assumption: null, ambiguous: false,\n    };\n  }`,
 );
 
-// ---------------------------------------------------------------------------
-// 3) Capability validation. The monthly handler executes before the generic
-// executor, but the V2 validation layer must know the combination is supported.
-// ---------------------------------------------------------------------------
+// 3) Capability validation knows this is supported before the V3 handler runs.
 replaceOnce(
   "supabase/functions/_shared/agent/core/IRCapabilityAdapter.ts",
   `    if (q.operation === "trend") {\n      // Trajetória mês a mês: motor longitudinal (ponto de virada, tendência).`,
@@ -68,10 +60,8 @@ replaceOnce(
   '  "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",\n  "expense_amount + trend/grain month com filtro category e/ou merchant (motor spending_timeseries_monthly)",',
 );
 
-// ---------------------------------------------------------------------------
-// 4) Semantic pipeline reuses the existing monthly-handler lane, preserving all
-// grounding/preservation/fail-closed rules instead of adding a side channel.
-// ---------------------------------------------------------------------------
+// 4) Reuse the existing monthly-handler lane so grounding/preservation remain
+// authoritative and the generic engine cannot answer a different question.
 replaceOnce(
   "supabase/functions/_shared/agent/core/SemanticTurnPipeline.ts",
   `  isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,`,
@@ -83,10 +73,7 @@ replaceOnce(
   `  const typicalQuery = irV3?.queries.length === 1\n    && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]))\n    ? irV3.queries[0]\n    : null;`,
 );
 
-// ---------------------------------------------------------------------------
-// 5) Wire the deterministic handler into both Core generations still present in
-// rollout. Existing typical-monthly behavior is left byte-for-byte after branch.
-// ---------------------------------------------------------------------------
+// 5) Wire deterministic series into both Core generations during rollout.
 for (const path of [
   "supabase/functions/_shared/agent/core/AgentCore.ts",
   "supabase/functions/_shared/agent/core/AgentCoreV2.ts",
