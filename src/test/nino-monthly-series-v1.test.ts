@@ -15,6 +15,9 @@ import {
 } from "../../supabase/functions/_shared/intelligence/monthlySeriesChart";
 import { toRenderableSeries } from "../../supabase/functions/_shared/artifacts/normalize";
 import { chartDayLabel } from "../../supabase/functions/_shared/artifacts/png";
+import { resolveNarrowDeterministicTurn } from "../../supabase/functions/_shared/agent/core/NarrowDeterministicGate";
+import { capabilityFromFinancialIR } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
+import type { FinancialQueryIR } from "../../supabase/functions/_shared/agent/core/FinancialQueryIR";
 // JS module is intentionally executable by Vercel outside the TS build.
 // @ts-ignore
 import { isVercelRelevantPath, shouldBuildForFiles } from "../../scripts/vercel-ignore-build.mjs";
@@ -102,6 +105,95 @@ describe("nino_monthly_series.v1", () => {
       filters: [{ field: "merchant", op: "eq", value: "Thales" }],
     }))).toBe(true);
     expect(isMonthlySeriesShape(query({ grain: "day" }))).toBe(false);
+  });
+
+  it("bypasses the Conversation Brain for the exact production category + merchant monthly phrase", () => {
+    const turn = resolveNarrowDeterministicTurn(
+      "Quanto gastei com Lazer no Thales mês a mês nos últimos 7 meses?",
+    );
+    expect(turn).toMatchObject({
+      mode: "read",
+      domain: "financial_read",
+      focus: {
+        category: "Lazer",
+        merchant: "Thales",
+        period_expression: "ultimos 7 meses",
+        period_expressions: ["ultimos 7 meses"],
+      },
+      financial_read: {
+        intent: "analyze",
+        queries: [{
+          metric: "expense_amount",
+          operation: "trend",
+          group_by: ["month"],
+          filters: [
+            { field: "category", value: "Lazer" },
+            { field: "merchant", value: "Thales" },
+          ],
+        }],
+      },
+    });
+  });
+
+  it("bypasses the Conversation Brain for the exact production category-only monthly phrase", () => {
+    const turn = resolveNarrowDeterministicTurn(
+      "Nino, quanto gastei em lazer mês a mês nos últimos 7 meses?",
+    );
+    expect(turn).toMatchObject({
+      mode: "read",
+      domain: "financial_read",
+      focus: {
+        category: "Lazer",
+        merchant: null,
+        period_expression: "ultimos 7 meses",
+      },
+      financial_read: {
+        queries: [{
+          metric: "expense_amount",
+          operation: "trend",
+          group_by: ["month"],
+          filters: [{ field: "category", value: "Lazer" }],
+        }],
+      },
+    });
+  });
+
+  it("accepts semantic compiler sum + group month as the same deterministic monthly series", () => {
+    const ir: FinancialQueryIR = {
+      version: "financial_query_ir.v1",
+      intent: "analyze",
+      needs_clarification: [],
+      assumptions: [],
+      queries: [{
+        id: "q1",
+        metric: "expense_amount",
+        operation: "sum",
+        group_by: ["month"],
+        filters: [
+          { field: "category", op: "eq", value: "Lazer" },
+          { field: "merchant", op: "eq", value: "Thales" },
+        ],
+        limit: null,
+      }],
+      completeness_targets: ["q1.money"],
+      period: { from: "2026-03-01", to: "2026-09-26", label: "últimos 7 meses" },
+      comparison_period: null,
+      source: "semantic_compiler",
+      unsupported_reason: null,
+    };
+    expect(capabilityFromFinancialIR(ir)).toMatchObject({
+      unsupported_queries: [],
+      mapped_tools: ["spending_timeseries_monthly"],
+      capability: {
+        required_tool: "spending_timeseries_monthly",
+        tool_args: {
+          from: "2026-03-01",
+          to: "2026-09-26",
+          category_name: "Lazer",
+          merchant: "Thales",
+        },
+      },
+    });
   });
 
   it("formats deterministic monthly facts without inventing a value for missing data", () => {
