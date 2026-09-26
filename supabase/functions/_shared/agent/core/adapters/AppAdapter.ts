@@ -14,7 +14,7 @@ import { routeIntent } from "../IntentRouter.ts";
 import { confirmAndBuildReceipt } from "../ConfirmAndReceipt.ts";
 import { findBulkPending, executeBulkPending } from "../BulkEntry.ts";
 
-import { hasExplicitChartIntent } from "../../../intelligence/chartIntent.ts";
+import { hasExplicitChartIntent, isContextualChartFollowup } from "../../../intelligence/chartIntent.ts";
 import { generate_chart_artifact } from "../../tools.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -165,7 +165,10 @@ export async function handleAppMessage(args: {
   let recent = await findRecentArtifact(sb, args.conversation_id, args.user_id, turnStartedAt);
   let reply = turn.reply;
 
-  if (!recent?.payload && wantsChart(args.text)) {
+  // The V2 Entry owns referential charts because it can prove which evidence
+  // they refer to. If it deliberately failed closed, do not manufacture a new
+  // generic timeseries here and answer a different question.
+  if (!recent?.payload && wantsChart(args.text) && !isContextualChartFollowup(args.text)) {
     try {
       const kind = pickDeterministicChartKind(args.text);
       const chart = await generate_chart_artifact(

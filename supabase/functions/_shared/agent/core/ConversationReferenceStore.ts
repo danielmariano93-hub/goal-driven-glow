@@ -1,4 +1,4 @@
-// ConversationReferenceStore (`nino_reference_store.v2`)
+// ConversationReferenceStore (`nino_reference_store.v3`)
 //
 // Structured working-memory references. "delas", "essa categoria" and similar
 // expressions are grounded against objects captured from executed tool results,
@@ -41,6 +41,33 @@ export type ComparisonEvidence = {
   rows: ComparisonEvidenceRow[];
 };
 
+export type MonthlySeriesEvidencePoint = {
+  month: string;
+  total: number;
+  has_data: boolean;
+  transaction_count: number;
+};
+
+/**
+ * Exact executed evidence for `spending_timeseries_monthly`.
+ * This is intentionally a lossless projection of `nino_monthly_series.v1` so
+ * follow-ups and charts can reuse the SAME facts without recalculating money.
+ */
+export type MonthlySeriesEvidence = {
+  kind: "monthly_series";
+  version: "nino_monthly_series.v1";
+  formula_version: string | null;
+  months: MonthlySeriesEvidencePoint[];
+  total: number;
+  transaction_count: number;
+  window: { from: string; to: string; n: number };
+  scope: { category: string | null; merchant: string | null };
+  partial_first_month: boolean;
+  partial_last_month: boolean;
+};
+
+export type AnalyticalEvidence = ComparisonEvidence | MonthlySeriesEvidence;
+
 export type ReferenceObject = {
   id: string;
   type: ReferenceObjectType;
@@ -61,7 +88,7 @@ export type ReferenceObject = {
       target_period?: { from: string; to: string; label?: string | null };
       period_a?: { from: string; to: string; label?: string | null };
       period_b?: { from: string; to: string; label?: string | null };
-      evidence?: ComparisonEvidence | null;
+      evidence?: AnalyticalEvidence | null;
     } | null;
   };
 };
@@ -143,6 +170,14 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
   const r = (result ?? {}) as Record<string, unknown>;
   const tool = String(toolName ?? "").toLowerCase();
 
+  if (tool === "spending_timeseries_monthly") {
+    const scope = (r.scope ?? {}) as Record<string, unknown>;
+    const category = String(scope.category ?? "").trim();
+    const merchant = String(scope.merchant ?? "").trim();
+    // A ReferenceObject has exactly one entity type. Keep the merchant inside
+    // the evidence payload, but never publish it as a category label.
+    return category ? [category] : merchant ? [merchant] : [];
+  }
   if (tool === "compare_periods" || tool === "compare_to_monthly_average") {
     const displayed = labelsFromRows(displayedComparisonRows(r));
     if (displayed.length) return displayed;
@@ -161,6 +196,14 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
 }
 
 function targetFromCall(call: any): ReferenceObject["target"] | null {
+  const tool = String(call?.tool_name ?? "").toLowerCase();
+  if (tool === "spending_timeseries_monthly") {
+    const scope = (call?.result?.scope ?? {}) as Record<string, unknown>;
+    if (String(scope.category ?? "").trim()) return "category";
+    if (String(scope.merchant ?? "").trim()) return "merchant";
+    return null;
+  }
+
   const appliedTarget = String(call?.result?.applied_reference_scope?.target ?? "").toLowerCase();
   if (["category", "merchant", "card", "account", "goal"].includes(appliedTarget)) {
     return appliedTarget as ReferenceObject["target"];
@@ -176,7 +219,6 @@ function targetFromCall(call: any): ReferenceObject["target"] | null {
   if (group === "card") return "card";
   if (group === "account") return "account";
 
-  const tool = String(call?.tool_name ?? "").toLowerCase();
   if (tool.includes("merchant")) return "merchant";
   if (tool.includes("categor")) return "category";
   return null;
@@ -223,7 +265,43 @@ function comparisonEvidenceFromCall(call: unknown): ComparisonEvidence | null {
   };
 }
 
-function comparisonContextFromCall(call: unknown): NonNullable<ReferenceObject["source"]["context"]> | null {
+export function monthlySeriesEvidenceFromCall(call: unknown): MonthlySeriesEvidence | null {
+  const record = (call ?? {}) as Record<string, unknown>;
+  if (String(record.tool_name ?? "").toLowerCase() !== "spending_timeseries_monthly") return null;
+  const result = (record.result ?? {}) as Record<string, any>;
+  if (result.version !== "nino_monthly_series.v1" || !Array.isArray(result.months)) return null;
+  const window = (result.window ?? {}) as Record<string, unknown>;
+  if (!window.from || !window.to) return null;
+  const months = result.months.map((point: any) => ({
+    month: String(point?.month ?? ""),
+    total: Number(point?.total ?? 0),
+    has_data: Boolean(point?.has_data),
+    transaction_count: Number(point?.transaction_count ?? 0),
+  })).filter((point: MonthlySeriesEvidencePoint) => /^\d{4}-\d{2}$/.test(point.month));
+  if (!months.length) return null;
+  const scope = (result.scope ?? {}) as Record<string, unknown>;
+  return {
+    kind: "monthly_series",
+    version: "nino_monthly_series.v1",
+    formula_version: String(result.formula_version ?? "").trim() || null,
+    months,
+    total: Number(result.total ?? 0),
+    transaction_count: Number(result.transaction_count ?? 0),
+    window: {
+      from: String(window.from),
+      to: String(window.to),
+      n: Number(window.n ?? months.length),
+    },
+    scope: {
+      category: String(scope.category ?? "").trim() || null,
+      merchant: String(scope.merchant ?? "").trim() || null,
+    },
+    partial_first_month: Boolean(result.partial_first_month),
+    partial_last_month: Boolean(result.partial_last_month),
+  };
+}
+
+function analyticalContextFromCall(call: unknown): NonNullable<ReferenceObject["source"]["context"]> | null {
   const record = (call ?? {}) as Record<string, unknown>;
   const tool = String(record.tool_name ?? "").toLowerCase();
   const value = (record.args ?? {}) as Record<string, unknown>;
@@ -237,6 +315,16 @@ function comparisonContextFromCall(call: unknown): NonNullable<ReferenceObject["
       }
       : undefined;
   };
+
+  const monthly = monthlySeriesEvidenceFromCall(call);
+  if (monthly) {
+    return {
+      months: monthly.window.n,
+      target_period: { from: monthly.window.from, to: monthly.window.to },
+      evidence: monthly,
+    };
+  }
+
   const evidence = comparisonEvidenceFromCall(call);
   if (tool === "compare_to_monthly_average") {
     const months = Number(value.months);
@@ -281,7 +369,7 @@ export function captureReferenceObjects(
     current.labels = uniqueLabels([...current.labels, ...labels]);
     if (call.tool_name) current.tools.push(String(call.tool_name));
     if (call?.args?.query_id) current.queryIds.push(String(call.args.query_id));
-    const context = comparisonContextFromCall(call);
+    const context = analyticalContextFromCall(call);
     if (context) current.contexts.push(context);
     grouped.set(target, current);
   }
@@ -320,7 +408,7 @@ export function advanceReferences(
   return (refs ?? []).map((ref) => {
     if (ref.status !== "active") return ref;
     const expiredByTime = Date.parse(ref.expires_at) <= ts;
-    const durableEvidence = ref.source?.context?.evidence?.kind === "comparison";
+    const durableEvidence = Boolean(ref.source?.context?.evidence);
     if (expiredByTime) return { ...ref, status: "expired" as const, turns_remaining: 0 };
     if (durableEvidence) {
       return { ...ref, turns_remaining: Math.max(1, Number(ref.turns_remaining ?? REFERENCE_MAX_TURNS)) };

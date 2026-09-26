@@ -99,7 +99,8 @@ function samePeriod(
 }
 
 function evidenceOf(reference: ReferenceObject): ComparisonEvidence | null {
-  return reference.source?.context?.evidence ?? null;
+  const evidence = reference.source?.context?.evidence ?? null;
+  return evidence?.kind === "comparison" ? evidence : null;
 }
 
 function latestComparisonReference(memory: ConversationMemory): ReferenceObject | null {

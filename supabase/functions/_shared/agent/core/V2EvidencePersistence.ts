@@ -1,4 +1,4 @@
-// V2EvidencePersistence (`nino_evidence_persistence.v1`)
+// V2EvidencePersistence (`nino_evidence_persistence.v2`)
 //
 // Conversation Brain V2 used to record only agent_runs.tools_used. That lost the
 // actual args/result needed to prove a financial follow-up later. This helper
@@ -6,6 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 export type V2ToolCall = {
+  step_index?: number;
   tool_name: string;
   args?: any;
   result?: any;
@@ -23,7 +24,7 @@ export async function persistV2ToolCalls(
   try {
     const payload = calls.map((call, index) => ({
       run_id: runId,
-      step_index: index,
+      step_index: Number.isInteger(call.step_index) ? Number(call.step_index) : index,
       tool_name: String(call.tool_name ?? "v2_tool"),
       args: call.args ?? {},
       result: call.result ?? null,
