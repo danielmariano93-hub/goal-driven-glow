@@ -1,0 +1,36 @@
+name: Temp Trigger V3 Authority
+
+on:
+  push:
+    branches:
+      - hardening/nino-runtime-v3-authority-20260926
+
+permissions:
+  contents: write
+
+jobs:
+  run-staged-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/nino-runtime-v3-authority-20260926
+          fetch-depth: 0
+      - name: Run staged patch and self-clean
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/_temp_apply_v3_authority.yml').read_text(encoding='utf-8')
+          marker = '        run: |\n'
+          start = source.index(marker) + len(marker)
+          block = source[start:]
+          lines = block.splitlines()
+          shell = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          shell = shell.replace(
+              "Path('.github/workflows/_temp_apply_v3_authority.yml').unlink()",
+              "Path('.github/workflows/_temp_apply_v3_authority.yml').unlink(); Path('.github/workflows/_temp_trigger_v3_authority.yml').unlink()",
+          )
+          Path('/tmp/apply_v3_authority.sh').write_text(shell, encoding='utf-8')
+          PY
+          bash /tmp/apply_v3_authority.sh
