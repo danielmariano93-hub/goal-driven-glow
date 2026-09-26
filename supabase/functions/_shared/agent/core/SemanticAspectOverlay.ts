@@ -7,9 +7,12 @@
 // decidido pela LLM: sai do resolver pt-BR, aqui, e desce para cada query.
 //
 // Regras:
-// - só sobrescreve queries de fluxo (expense/income) cujo aspecto veio do
-//   inferidor legado (`mtd`/`calendar`) — aspecto declarado explicitamente é
-//   respeitado;
+// - sobrescreve queries de fluxo (expense/income) quando o aspecto veio do
+//   inferidor legado (`mtd`/`calendar`);
+// - quando o próprio texto pede uma janela mensal explícita (ex.: "mês a mês
+//   nos últimos 6 meses"), o resolver determinístico também é autoridade sobre
+//   as DATAS de um `trend` já emitido pelo compilador. Isso evita séries como
+//   26/04–26/09, cujo primeiro bucket mensal nasce artificialmente parcial;
 // - uma comparação com baseline estatístico já tem semântica temporal explícita
 //   no contrato e NÃO pode ser reinterpretada por palavras como "últimos 3 meses";
 // - habitual/last_n_complete SEMPRE excluem o mês parcial e viram grão mensal;
@@ -60,9 +63,26 @@ export function applyTurnAspect(
     // o resolver a classifica como `trend`, não como `habitual`.
     const correctsCompilerTrend = (aspect.aspect === "habitual" || aspect.aspect === "last_n_complete")
       && q.time.aspect === "trend";
-    if (!INFERRED_ASPECTS.has(String(q.time.aspect)) && !correctsCompilerTrend) return q;
+
+    // O compilador pode acertar que a operação é `trend`, mas carregar a janela
+    // genérica de "últimos N meses" (dia X -> dia X). Quando o resolver
+    // determinístico encontrou N buckets mensais explícitos, a janela correta
+    // é calendário: primeiro dia do primeiro bucket -> hoje (ou último mês
+    // fechado, quando solicitado). Sem isso abril/maio/etc. ficam incomparáveis.
+    const correctsExplicitTrendWindow = aspect.aspect === "trend"
+      && q.time.aspect === "trend"
+      && Number.isInteger(aspect.n)
+      && Number(aspect.n) >= 1
+      && Boolean(aspect.from)
+      && Boolean(aspect.to);
+
+    if (!INFERRED_ASPECTS.has(String(q.time.aspect))
+      && !correctsCompilerTrend
+      && !correctsExplicitTrendWindow) return q;
+
     changed.push(q.id);
     const windowed = aspect.aspect === "habitual" || aspect.aspect === "last_n_complete";
+    const deterministicMonthlyWindow = aspect.aspect === "trend" && correctsExplicitTrendWindow;
     return {
       ...q,
       time: {
@@ -70,7 +90,9 @@ export function applyTurnAspect(
         from: aspect.from,
         to: aspect.to,
         n: aspect.n ?? null,
-        exclude_partial: windowed ? true : q.time.exclude_partial,
+        exclude_partial: windowed || deterministicMonthlyWindow
+          ? aspect.exclude_partial
+          : q.time.exclude_partial,
         label: aspect.label,
       },
       grain: windowed || aspect.aspect === "trend" ? "month" : q.grain,
