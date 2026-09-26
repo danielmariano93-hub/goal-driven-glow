@@ -63,6 +63,28 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     const metric = q.metric === "income_amount" ? "income" : "expense";
     const group = q.group_by[0] ?? null;
     const merchant = filter(q, "merchant");
+    const monthlyCategory = filter(q, "category");
+
+    // "mês a mês" é semanticamente uma série factual, independentemente de o
+    // compilador representá-la como trend ou como sum agrupado por month. As
+    // duas formas significam o mesmo cálculo executável; rejeitar sum+month
+    // criava um falso unsupported em produção.
+    if (metric === "expense"
+      && group === "month"
+      && ["sum", "trend"].includes(q.operation)
+      && (monthlyCategory || merchant)
+      && onlyFilters(q, ["category", "merchant"])) {
+      return {
+        tool: "spending_timeseries_monthly",
+        capability: "financial_analysis",
+        execution: "deterministic",
+        args: {
+          from: period.from, to: period.to,
+          ...(monthlyCategory ? { category_name: monthlyCategory } : {}),
+          ...(merchant ? { merchant } : {}),
+        },
+      };
+    }
 
     if (["value", "sum", "rank", "breakdown"].includes(q.operation)) {
       // Consulta literal de um estabelecimento, com recorte opcional de
@@ -150,24 +172,6 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
 
     if (q.operation === "trend") {
-      const monthlyCategory = filter(q, "category");
-      // Só a quebra EXPLÍCITA por mês ativa a nova série factual. Uma pergunta
-      // genérica de tendência por categoria continua no comparador canônico.
-      if (metric === "expense"
-        && group === "month"
-        && (monthlyCategory || merchant)
-        && onlyFilters(q, ["category", "merchant"])) {
-        return {
-          tool: "spending_timeseries_monthly",
-          capability: "financial_analysis",
-          execution: "deterministic",
-          args: {
-            from: period.from, to: period.to,
-            ...(monthlyCategory ? { category_name: monthlyCategory } : {}),
-            ...(merchant ? { merchant } : {}),
-          },
-        };
-      }
       // Trajetória mês a mês: motor longitudinal (ponto de virada, tendência).
       if (group === "month" && !q.filters.length) {
         return {
@@ -349,7 +353,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount|income_amount + value|sum|rank|breakdown (group: category|card|account, filtros: category|card|account|payment_method)",
   "expense_amount + value|sum com filtro merchant e filtro opcional category (motor merchant_profile)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
-  "expense_amount + trend/grain month com filtro category e/ou merchant (motor spending_timeseries_monthly)",
+  "expense_amount + sum|trend group month com filtro category e/ou merchant (motor spending_timeseries_monthly)",
   "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
