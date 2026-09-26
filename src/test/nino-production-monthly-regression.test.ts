@@ -43,7 +43,7 @@ describe("produção 26/09 — hardening definitivo das leituras mensais", () =>
       domain: "financial_read",
       focus: {
         category: "Alimentação",
-        period_expression: "últimos 5 meses",
+        period_expression: "ultimos 5 meses",
       },
       financial_read: {
         queries: [{
@@ -63,7 +63,7 @@ describe("produção 26/09 — hardening definitivo das leituras mensais", () =>
       domain: "financial_read",
       focus: {
         merchant: "Thales",
-        period_expression: "últimos 10 meses",
+        period_expression: "ultimos 10 meses",
       },
       financial_read: {
         queries: [{
