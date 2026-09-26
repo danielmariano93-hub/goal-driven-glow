@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message != 'fix(agent): merchant scope and current-month default [hotfix-applied]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,13 +27,27 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Stop after applied commit
+        id: guard
+        shell: bash
+        run: |
+          MSG="$(git log -1 --pretty=%B)"
+          if [[ "$MSG" == *"[hotfix-applied]"* ]]; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Apply fail-fast source patch
+        if: steps.guard.outputs.already == 'false'
         run: node scripts/apply-nino-merchant-period-hotfix-20260926.mjs
 
       - name: Install dependencies
+        if: steps.guard.outputs.already == 'false'
         run: npm install --package-lock=false --no-audit --no-fund
 
       - name: Targeted regression
+        if: steps.guard.outputs.already == 'false'
         run: >-
           npx vitest run
           src/test/nino-merchant-period-continuity-20260926.test.ts
@@ -43,6 +56,7 @@ jobs:
           src/test/nino-semantic-ir-v3.test.ts
 
       - name: Pure contract typecheck
+        if: steps.guard.outputs.already == 'false'
         run: >-
           deno check --no-config
           supabase/functions/_shared/agent/core/FinancialQueryIR.ts
@@ -51,12 +65,15 @@ jobs:
           supabase/functions/_shared/agent/core/TurnContractFinancialAdapter.ts
 
       - name: Deploy contract gate
+        if: steps.guard.outputs.already == 'false'
         run: npm run test:deploy-contract
 
       - name: Diff sanity
+        if: steps.guard.outputs.already == 'false'
         run: git diff --check
 
       - name: Commit applied hotfix
+        if: steps.guard.outputs.already == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
