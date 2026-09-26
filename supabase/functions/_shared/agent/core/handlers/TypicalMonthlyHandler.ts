@@ -269,18 +269,18 @@ export function typicalMonthlyText(
   }
 
   const baseDescription = result.months_with_data === result.window.n
-    ? `os últimos ${result.window.n} meses fechados`
+    ? `últimos ${result.window.n} meses fechados`
     : `${result.months_with_data} meses fechados com dados dentro da janela dos últimos ${result.window.n} meses`;
   const lines: string[] = [];
 
   if (result.statistic === "median") {
     lines.push(`💸 Seu gasto típico${scope} é de ${formatBrl(result.headline)} por mês.`);
     lines.push(
-      `Esse valor usa a mediana de ${baseDescription}, por isso representa melhor o centro do seu comportamento mensal e sofre menos com meses excepcionalmente altos ou baixos.`,
+      `Esse valor usa a mediana dos ${baseDescription}, por isso representa melhor o centro do seu comportamento mensal e sofre menos com meses excepcionalmente altos ou baixos.`,
     );
   } else {
     lines.push(`💸 Sua média mensal${scope} é de ${formatBrl(result.headline)}.`);
-    lines.push(`Esse valor é a média aritmética de ${baseDescription}.`);
+    lines.push(`Esse valor é a média aritmética dos ${baseDescription}.`);
   }
 
   if (result.divergent && result.median != null && result.mean != null) {
