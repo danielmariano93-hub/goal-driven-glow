@@ -182,10 +182,25 @@ export async function loadMonthlySpendingSeries(
 }
 
 const MONTH_LABELS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MONTH_NAMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 
 export function monthlyPointLabel(month: string): string {
   const [year, mm] = month.split("-").map(Number);
   return `${MONTH_LABELS[mm - 1]}/${String(year).slice(-2)}`;
+}
+
+function monthlyPointName(month: string): string {
+  const mm = Number(month.slice(5, 7));
+  return MONTH_NAMES[mm - 1] ?? month;
+}
+
+function formatDatePt(ymd: string): string {
+  const [year, month, day] = ymd.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function launchCount(count: number): string {
+  return `${count} ${count === 1 ? "lançamento" : "lançamentos"}`;
 }
 
 export function monthlySpendingSeriesText(result: MonthlySpendingSeriesResult): string {
@@ -193,21 +208,44 @@ export function monthlySpendingSeriesText(result: MonthlySpendingSeriesResult): 
     style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2,
   });
   const category = result.scope.category ? ` em ${result.scope.category}` : "";
-  const merchant = result.scope.merchant ? ` no estabelecimento ${result.scope.merchant}` : "";
+  const merchant = result.scope.merchant ? ` com ${result.scope.merchant}` : "";
   const scope = `${category}${merchant}`;
 
   if (!result.months.some((point) => point.has_data)) {
-    return `Não encontrei gastos${scope} entre ${result.window.from} e ${result.window.to}.`;
+    return `Não encontrei gastos${scope} entre ${formatDatePt(result.window.from)} e ${formatDatePt(result.window.to)}.`;
   }
+
+  const header = `💸 Nos ${result.window.n} meses analisados, de ${formatDatePt(result.window.from)} a ${formatDatePt(result.window.to)}, você gastou ${brl(result.total)}${scope}, em ${launchCount(result.transaction_count)}.`;
 
   const points = result.months.map((point, index) => {
     const partial = (index === 0 && result.partial_first_month)
       || (index === result.months.length - 1 && result.partial_last_month);
-    const value = point.has_data ? brl(point.total) : "sem lançamentos encontrados";
-    return `${monthlyPointLabel(point.month)}${partial ? " (parcial)" : ""}: ${value}`;
+    const name = monthlyPointName(point.month);
+    if (!point.has_data) {
+      return `* ${name}${partial ? " (parcial)" : ""}: R$ 0,00 — nenhum lançamento`;
+    }
+    return `* ${name}${partial ? " (parcial)" : ""}: ${brl(point.total)} — ${launchCount(point.transaction_count)}`;
   });
 
-  return `Mês a mês${scope}: ${points.join("; ")}. Total no período: ${brl(result.total)}.`;
+  const average = round2(result.total / Math.max(1, result.months.length));
+  const peak = result.months.reduce((best, point) => point.total > best.total ? point : best, result.months[0]);
+  const insights = [
+    `Sua média foi de ${brl(average)} por mês.`,
+    `${monthlyPointName(peak.month)} teve o maior gasto, com ${brl(peak.total)}.`,
+  ];
+
+  if (result.partial_last_month) {
+    const last = result.months[result.months.length - 1];
+    const cutoffDay = Number(result.window.to.slice(-2));
+    insights.push(`${monthlyPointName(last.month)} já soma ${brl(last.total)}, mas ainda é um mês parcial, considerado somente até o dia ${cutoffDay}.`);
+  }
+  if (result.partial_first_month) {
+    const first = result.months[0];
+    const startDay = Number(result.window.from.slice(-2));
+    insights.push(`${monthlyPointName(first.month)} também é parcial: a leitura começa no dia ${startDay}.`);
+  }
+
+  return `${header}\n\n${points.join("\n")}\n\n${insights.join(" ")}`;
 }
 
 export function monthlySeriesExecutedIR(
