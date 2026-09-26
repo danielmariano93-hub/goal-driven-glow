@@ -65,12 +65,15 @@ describe("nino_monthly_series.v1", () => {
     expect(aspect.exclude_partial).toBe(true);
   });
 
-  it("recognizes category + merchant as a first-class monthly series shape", () => {
+  it("recognizes category + merchant and merchant-only as first-class monthly series shapes", () => {
     expect(isMonthlySeriesShape(query({
       filters: [
         { field: "category", op: "eq", value: "Alimentação" },
         { field: "merchant", op: "eq", value: "Thales" },
       ],
+    }))).toBe(true);
+    expect(isMonthlySeriesShape(query({
+      filters: [{ field: "merchant", op: "eq", value: "Thales" }],
     }))).toBe(true);
     expect(isMonthlySeriesShape(query({ grain: "day" }))).toBe(false);
   });
