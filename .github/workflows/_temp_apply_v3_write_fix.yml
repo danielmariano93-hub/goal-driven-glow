@@ -1,0 +1,57 @@
+name: Temp Apply V3 Write Fix
+
+on:
+  push:
+    branches:
+      - hotfix/nino-v3-write-contract-20260926
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore: stage validated V3 write completeness fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/nino-v3-write-contract-20260926
+          fetch-depth: 0
+      - name: Apply provider-validated fix and clean diagnostics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts')
+          s=p.read_text()
+          old='''        tasks: {\n          type: "array",\n          maxItems: 8,'''
+          new='''        tasks: {\n          type: "array",\n          description: "Se kind=task, inclua obrigatoriamente pelo menos uma task completa. Nunca use tasks=[] com kind=task. Para conversation/clarification use [].",\n          maxItems: 8,'''
+          assert old in s, 'tasks schema anchor missing'
+          s=s.replace(old,new,1)
+          old='''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída'''
+          new='''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para registrar/anotar/lançar gasto, emita exatamente uma financial_write: kind=financial_write, financial=null, goal=null, advisory=null, write.action=transaction.create e write.slots com os dados explicitamente informados.\n22. Para transaction.create, use slots textuais amount, merchant, date, account, category quando existirem. Campos ausentes serão resolvidos pelo workflow; não transforme o pedido em tasks=[].\n\nA saída'''
+          assert old in s, 'prompt anchor missing'
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          t=Path('src/test/nino-runtime-v3-authority.test.ts')
+          ts=t.read_text()
+          anchor='''    expect(interpreter).toContain('"Registre um gasto..." = transaction.create');'''
+          assert anchor in ts, 'authority test anchor missing'
+          ts=ts.replace(anchor, anchor + '''\n    expect(interpreter).toContain("PROIBIDO emitir kind=task com tasks=[]");\n    expect(interpreter).toContain("write.action=transaction.create");''',1)
+          t.write_text(ts)
+
+          for name in [
+            '.github/workflows/_temp_v3_write_diagnostic.yml',
+            '.github/workflows/_temp_v3_write_probe2.yml',
+            '.github/workflows/_temp_apply_v3_write_fix.yml',
+          ]:
+            q=Path(name)
+            if q.exists(): q.unlink()
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(nino): require complete V3 financial write tasks"
+          git push origin HEAD:hotfix/nino-v3-write-contract-20260926
