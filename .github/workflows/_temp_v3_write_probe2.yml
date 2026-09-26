@@ -1,0 +1,43 @@
+name: Temp V3 Write Probe 2
+
+on:
+  push:
+    branches:
+      - hotfix/nino-v3-write-contract-20260926
+
+permissions:
+  contents: read
+
+env:
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/nino-v3-write-contract-20260926
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test stricter task completeness
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts')
+          s=p.read_text()
+          s=s.replace('''        tasks: {\n          type: "array",\n          maxItems: 8,''','''        tasks: {\n          type: "array",\n          description: "Se kind=task, inclua obrigatoriamente pelo menos uma task completa. Nunca use tasks=[] com kind=task. Para conversation/clarification use [].",\n          maxItems: 8,''',1)
+          s=s.replace('''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída''','''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para registrar/anotar/lançar gasto, emita exatamente uma financial_write: kind=financial_write, financial=null, goal=null, advisory=null, write.action=transaction.create e write.slots com os dados explicitamente informados.\n22. Para transaction.create, use slots textuais amount, merchant, date, account, category quando existirem. Campos ausentes serão resolvidos pelo workflow; não transforme o pedido em tasks=[].\n\nA saída''',1)
+          old='    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);'
+          new='    if (!turn) { console.error("[V3_WRITE_PROBE2]", JSON.stringify(parsed)); return fail("semantic_interpreter_v3_contract_invalid", structured.provider); }'
+          assert old in s
+          p.write_text(s.replace(old,new,1))
+          PY
+          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
