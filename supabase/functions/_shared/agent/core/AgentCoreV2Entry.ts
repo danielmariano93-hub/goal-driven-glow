@@ -359,7 +359,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   // Shadow snapshot is captured before the official turn can mutate memory.
   // It is gated per-user and never changes the official response or financial state.
-  const shadowEnabled = await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);
+  const authorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);
+  const shadowEnabled = !authorityEnabled
+    && await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);
   const shadowSb = shadowEnabled ? service() : null;
   const shadowSnapshot = shadowSb
     ? await captureRuntimeV3ShadowSnapshot(shadowSb, {

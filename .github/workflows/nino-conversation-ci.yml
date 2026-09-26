@@ -71,6 +71,8 @@ jobs:
           src/test/nino-runtime-v3-interpreter.test.ts
           src/test/nino-runtime-v3-production-shadow.test.ts
           src/test/nino-runtime-v3-bridge.test.ts
+          src/test/nino-runtime-v3-authority.test.ts
+          src/test/nino-provider-smoke-authority.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
@@ -91,6 +93,7 @@ jobs:
           supabase/functions/_shared/agent/core/MemoryWriter.ts
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
           supabase/functions/_shared/agent/core/ConversationBrain.ts
+          supabase/functions/_shared/agent/core/ConversationAuthority.ts
           supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
           supabase/functions/_shared/agent/v3/TurnSpecV3.ts
           supabase/functions/_shared/agent/v3/SemanticInvariantsV3.ts
