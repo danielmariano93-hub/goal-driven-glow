@@ -9,6 +9,7 @@ import {
   type MonthlySpendingSeriesResult,
 } from "../../supabase/functions/_shared/agent/core/handlers/MonthlySeriesHandler";
 import { inferChartRequest } from "../../supabase/functions/_shared/intelligence/chartIntent";
+import { chartDayLabel } from "../../supabase/functions/_shared/artifacts/png";
 // JS module is intentionally executable by Vercel outside the TS build.
 // @ts-ignore
 import { isVercelRelevantPath, shouldBuildForFiles } from "../../scripts/vercel-ignore-build.mjs";
@@ -101,6 +102,12 @@ describe("nino_monthly_series.v1", () => {
     expect(inferChartRequest("gere um gráfico de Alimentação mês a mês nos últimos 6 meses"))
       .toEqual({ mode: "monthly_series" });
   });
+
+  it("renders monthly axis labels with month and year while preserving daily labels", () => {
+    expect(chartDayLabel("jan/26")).toBe("01-26");
+    expect(chartDayLabel("dez/25")).toBe("12-25");
+    expect(chartDayLabel("23/09")).toBe("23");
+  });
 });
 
 describe("Vercel impact gate", () => {
@@ -116,6 +123,8 @@ describe("Vercel impact gate", () => {
     expect(isVercelRelevantPath("src/components/AppLayout.tsx")).toBe(true);
     expect(isVercelRelevantPath("public/favicon.svg")).toBe(true);
     expect(isVercelRelevantPath("package-lock.json")).toBe(true);
+    expect(isVercelRelevantPath("bun.lock")).toBe(true);
+    expect(isVercelRelevantPath(".npmrc")).toBe(true);
     expect(isVercelRelevantPath("scripts/sync-finance-core.mjs")).toBe(true);
     expect(shouldBuildForFiles(["supabase/functions/a.ts", "src/pages/Home.tsx"])).toBe(true);
   });
