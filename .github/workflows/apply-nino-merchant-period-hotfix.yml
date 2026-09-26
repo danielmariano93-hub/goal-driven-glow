@@ -38,6 +38,11 @@ jobs:
             echo "already=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Align one-shot patcher with current tree
+        if: steps.guard.outputs.already == 'false'
+        shell: bash
+        run: sed -i '/SemanticPreservation\.ts/d' scripts/apply-nino-merchant-period-hotfix-20260926.mjs
+
       - name: Apply fail-fast source patch
         if: steps.guard.outputs.already == 'false'
         run: node scripts/apply-nino-merchant-period-hotfix-20260926.mjs
@@ -82,7 +87,6 @@ jobs:
                   supabase/functions/_shared/agent/core/ConversationBrain.ts \
                   supabase/functions/_shared/agent/core/IRCapabilityAdapter.ts \
                   supabase/functions/_shared/agent/core/ExecutedIRBridge.ts \
-                  supabase/functions/_shared/agent/core/SemanticPreservation.ts \
                   supabase/functions/_shared/agent/core/AgentCoreV2.ts \
                   supabase/functions/_shared/agent/core/RuntimeContract.ts \
                   supabase/functions/_shared/agent/engineToolsImpl.ts
