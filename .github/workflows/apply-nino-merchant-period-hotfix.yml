@@ -1,0 +1,73 @@
+name: Apply Nino Merchant Period Hotfix
+
+on:
+  push:
+    branches:
+      - fix/nino-merchant-period-continuity-20260926
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message != 'fix(agent): merchant scope and current-month default [hotfix-applied]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/nino-merchant-period-continuity-20260926
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Apply fail-fast source patch
+        run: node scripts/apply-nino-merchant-period-hotfix-20260926.mjs
+
+      - name: Install dependencies
+        run: npm install --package-lock=false --no-audit --no-fund
+
+      - name: Targeted regression
+        run: >-
+          npx vitest run
+          src/test/nino-merchant-period-continuity-20260926.test.ts
+          src/test/nino-conversation-contract-diagnostics.test.ts
+          src/test/nino-conversation-v2-golden-scenarios.test.ts
+          src/test/nino-semantic-ir-v3.test.ts
+
+      - name: Pure contract typecheck
+        run: >-
+          deno check --no-config
+          supabase/functions/_shared/agent/core/FinancialQueryIR.ts
+          supabase/functions/_shared/agent/core/ConversationTurnContract.ts
+          supabase/functions/_shared/agent/core/ConversationBrain.ts
+          supabase/functions/_shared/agent/core/TurnContractFinancialAdapter.ts
+
+      - name: Deploy contract gate
+        run: npm run test:deploy-contract
+
+      - name: Diff sanity
+        run: git diff --check
+
+      - name: Commit applied hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/_shared/agent/core/FinancialQueryIR.ts \
+                  supabase/functions/_shared/agent/core/ConversationTurnContract.ts \
+                  supabase/functions/_shared/agent/core/ConversationBrain.ts \
+                  supabase/functions/_shared/agent/core/IRCapabilityAdapter.ts \
+                  supabase/functions/_shared/agent/core/ExecutedIRBridge.ts \
+                  supabase/functions/_shared/agent/core/SemanticPreservation.ts \
+                  supabase/functions/_shared/agent/core/AgentCoreV2.ts \
+                  supabase/functions/_shared/agent/core/RuntimeContract.ts \
+                  supabase/functions/_shared/agent/engineToolsImpl.ts
+          git commit -m "fix(agent): merchant scope and current-month default [hotfix-applied]"
+          git push origin HEAD:fix/nino-merchant-period-continuity-20260926
