@@ -18,6 +18,7 @@ function normalize(text: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -40,6 +41,22 @@ export function hasExplicitChartIntent(text: string): boolean {
   if (/\bem\s+(linha|linhas|barra|barras|colunas?)\b/.test(t)) return true;
   if (/\b(mostra|mostrar|me mostre|quero)\b.{0,20}\b(grafico|visual)\b/.test(t)) return true;
   return false;
+}
+
+/**
+ * Visual follow-up that points to already executed evidence. This must not be
+ * treated as a fresh generic 30-day chart, otherwise "mostra isso em gráfico"
+ * can silently answer a different question from the immediately previous turn.
+ */
+export function isContextualChartFollowup(text: string): boolean {
+  if (!hasExplicitChartIntent(text)) return false;
+  const t = normalize(text);
+  if (/\b(isso|disso|esse|essa|esses|essas|mesmo|mesma|mesmos|mesmas|dados|resultado|resposta|acima)\b/.test(t)) {
+    return true;
+  }
+  const words = t.split(/\s+/).filter(Boolean);
+  return words.length <= 5 && /\b(grafico|visualizacao|visualiza|plotar|plote)\b/.test(t)
+    && /\b(mostra|mostrar|mostre|manda|mandar|gere|gera|quero|coloca|poe)\b/.test(t);
 }
 
 export function inferChartRequest(text: string): ChartRequest | null {
