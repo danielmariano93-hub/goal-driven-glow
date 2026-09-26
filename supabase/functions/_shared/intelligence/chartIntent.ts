@@ -2,6 +2,7 @@ import { interpretSemanticQuery } from "./semanticQuery.ts";
 
 export type ChartRequest =
   | { mode: "weekday_pattern" }
+  | { mode: "monthly_series" }
   | { mode: "category"; days: number }
   | {
       mode: "tool";
@@ -47,6 +48,12 @@ export function inferChartRequest(text: string): ChartRequest | null {
 
   if (interpretSemanticQuery(text)?.intent === "weekday_pattern") {
     return { mode: "weekday_pattern" };
+  }
+  // Monthly series is not a category breakdown. This check MUST precede the
+  // generic category branch or "gráfico de Alimentação mês a mês" becomes a
+  // ranking of categories and answers a different question.
+  if (/\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)) {
+    return { mode: "monthly_series" };
   }
   if (/\b(categoria|categorias)\b/.test(t)) {
     return { mode: "category", days: requestedDays(t) };
