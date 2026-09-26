@@ -6,38 +6,44 @@ on:
       - hotfix/nino-v3-write-contract-20260926
 
 permissions:
-  contents: read
-
-env:
-  NINO_AI_PROVIDER: groq
-  NINO_AI_MODEL: openai/gpt-oss-120b
-  NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+  contents: write
 
 jobs:
-  diagnose:
+  apply:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           ref: hotfix/nino-v3-write-contract-20260926
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
-      - name: Probe stricter task completeness against real provider
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          fetch-depth: 0
+      - name: Apply validated fix and self-clean
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts')
           s=p.read_text()
-          s=s.replace('''        tasks: {\n          type: "array",\n          maxItems: 8,''','''        tasks: {\n          type: "array",\n          description: "OBRIGATÓRIO: se kind=task, inclua pelo menos uma task completa; se kind=conversation ou clarification, use []. Nunca emita kind=task com tasks=[].",\n          maxItems: 8,''',1)
-          s=s.replace('''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída''','''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para pedidos de registrar/anotar/lançar gasto, emita exatamente uma financial_write com write.action=transaction.create e write.slots preenchidos com os dados literalmente informados; financial/goal/advisory devem ser null.\n22. Para financial_write de transaction.create, use slots textuais como amount, merchant, date, account e category quando explicitamente informados. Não peça esclarecimento por campos que o workflow de escrita pode resolver depois.\n\nA saída''',1)
-          old='    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);'
-          new='    if (!turn) { console.error("[V3_WRITE_DIAGNOSTIC]", JSON.stringify(parsed)); return fail("semantic_interpreter_v3_contract_invalid", structured.provider); }'
+          old='''        tasks: {\n          type: "array",\n          maxItems: 8,'''
+          new='''        tasks: {\n          type: "array",\n          description: "Se kind=task, inclua obrigatoriamente pelo menos uma task completa. Nunca use tasks=[] com kind=task. Para conversation/clarification use [].",\n          maxItems: 8,'''
+          assert old in s
+          s=s.replace(old,new,1)
+          old='''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n\nA saída'''
+          new='''20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.\n21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para registrar/anotar/lançar gasto, emita exatamente uma financial_write: kind=financial_write, financial=null, goal=null, advisory=null, write.action=transaction.create e write.slots com os dados explicitamente informados.\n22. Para transaction.create, use slots textuais amount, merchant, date, account, category quando existirem. Campos ausentes serão resolvidos pelo workflow; não transforme o pedido em tasks=[].\n\nA saída'''
           assert old in s
           p.write_text(s.replace(old,new,1))
+          t=Path('src/test/nino-runtime-v3-authority.test.ts')
+          ts=t.read_text()
+          anchor='''    expect(interpreter).toContain('"Registre um gasto..." = transaction.create');'''
+          assert anchor in ts
+          t.write_text(ts.replace(anchor, anchor + '''\n    expect(interpreter).toContain("PROIBIDO emitir kind=task com tasks=[]");\n    expect(interpreter).toContain("write.action=transaction.create");''',1))
+          for name in ['.github/workflows/_temp_v3_write_diagnostic.yml','.github/workflows/_temp_v3_write_probe2.yml','.github/workflows/_temp_apply_v3_write_fix.yml']:
+            q=Path(name)
+            if q.exists(): q.unlink()
           PY
-          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(nino): require complete V3 financial write tasks"
+          git push origin HEAD:hotfix/nino-v3-write-contract-20260926
