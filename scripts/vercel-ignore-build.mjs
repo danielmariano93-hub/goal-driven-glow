@@ -9,6 +9,13 @@ const ROOT_BUILD_FILES = new Set([
   "package.json",
   "package-lock.json",
   "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+  ".npmrc",
+  ".nvmrc",
+  ".node-version",
   "vercel.json",
   "components.json",
 ]);
