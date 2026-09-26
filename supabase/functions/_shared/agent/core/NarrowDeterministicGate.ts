@@ -44,7 +44,12 @@ const MONTH_WORDS: Record<string, number> = {
   um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6,
   sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
 };
-const HISTORICAL_MEAN_RX = /\bmedia\b.*\bultimos?\s+(\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+meses?\b/;
+const MONTH_COUNT_TOKEN = "\\d{1,2}|um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze";
+const HISTORICAL_MEAN_RX = new RegExp(`\\bmedia\\b.*\\bultimos?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`);
+const MONTHLY_BREAKDOWN_RX = /\b(?:mes a mes|mes por mes|em cada mes|separe por mes|mostre por mes|traga por mes|liste por mes|por mes)\b/;
+const MONTHLY_PERIOD_RX = new RegExp(
+  `\\b(?:nos?\\s+)?(?:ultim[oa]s?)\\s+(${MONTH_COUNT_TOKEN})\\s+meses?(?:\\s+(?:fechados?|completos?))?\\b`,
+);
 
 function ambiguousCategoryAverageComparison(value: string): number | null {
   const hasCategory = /\bcategorias?\b/.test(value);
@@ -90,6 +95,98 @@ function ambiguityContract(text: string, months: number): CanonicalConversationT
 const EXPLICIT_PERIOD_ANY_RX = new RegExp(
   `\\b(?:${MONTH_TOKEN}|este mes|esse mes|neste mes|mes atual|mes passado|mes anterior|hoje|ontem|anteontem|ultim[oa]s?\\s+\\d+\\s+(?:dias|semanas|meses)|por mes|ao mes)\\b`,
 );
+
+function normalizeEntity(value: string | null | undefined): string {
+  return norm(String(value ?? ""));
+}
+
+/**
+ * Fast contract for explicit factual monthly breakdowns such as:
+ * - "quanto gastei em lazer mês a mês nos últimos 7 meses?"
+ * - "quanto gastei com Lazer no Thales mês a mês nos últimos 7 meses?"
+ *
+ * This exists before the Conversation Brain on purpose: a clear read must not
+ * become unavailable because the semantic model is rate-limited. It only emits
+ * the semantic contract; dates and money are still resolved by the canonical
+ * financial runtime.
+ */
+function directMonthlyExpenseLookup(text: string, normalized: string): CanonicalConversationTurnContract | null {
+  if (!/^(?:nino\s+)?quanto(?:\s+que)?\s+(?:eu\s+)?gastei\b/.test(normalized)) return null;
+  const marker = MONTHLY_BREAKDOWN_RX.exec(normalized);
+  if (!marker) return null;
+
+  const normalizedPrefix = normalized.slice(0, marker.index).trim();
+  const normalizedScope = normalizedPrefix
+    .replace(/^(?:nino\s+)?quanto(?:\s+que)?\s+(?:eu\s+)?gastei\s*/, "")
+    .trim();
+  if (!normalizedScope) return null;
+
+  const raw = String(text ?? "").trim().replace(/[?!.]+$/g, "").trim();
+  const rawMonthlyMarker = /\b(?:m[eê]s\s+a\s+m[eê]s|m[eê]s\s+por\s+m[eê]s|em\s+cada\s+m[eê]s|separe\s+por\s+m[eê]s|mostre\s+por\s+m[eê]s|traga\s+por\s+m[eê]s|liste\s+por\s+m[eê]s|por\s+m[eê]s)\b/i.exec(raw);
+  if (!rawMonthlyMarker) return null;
+  const rawPrefix = raw.slice(0, rawMonthlyMarker.index).trim();
+  const rawScope = rawPrefix
+    .replace(/^(?:nino\s*,?\s*)?quanto(?:\s+que)?\s+(?:eu\s+)?gastei\s*/i, "")
+    .trim();
+
+  const category = detectCategory(rawScope);
+  let merchant: string | null = null;
+  const merchantMatch = /\b(?:no|na|do|da)\s+(?:(?:estabelecimento|loja|comerciante)\s+)?(.+)$/i.exec(rawScope);
+  if (merchantMatch?.[1]) {
+    const candidate = merchantMatch[1].trim();
+    if (!category || normalizeEntity(candidate) !== normalizeEntity(category)) merchant = candidate;
+  }
+
+  // Closed grammar: a named scope must resolve to category and/or merchant.
+  // This prevents phrases with unrelated qualifiers from being partially read.
+  if (!category && !merchant) return null;
+
+  const periodMatch = MONTHLY_PERIOD_RX.exec(normalized);
+  if (!periodMatch) return null;
+  const periodExpression = periodMatch[0].replace(/^nos?\s+/, "").trim();
+  const filters = [
+    ...(category ? [{ field: "category" as const, value: category }] : []),
+    ...(merchant ? [{ field: "merchant" as const, value: merchant }] : []),
+  ];
+
+  return normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "new_request",
+    mode: "read",
+    domain: "financial_read",
+    canonical_request: raw,
+    inherit_focus: false,
+    focus: {
+      category,
+      merchant,
+      goal: null,
+      period_expression: periodExpression,
+      period_expressions: [periodExpression],
+    },
+    action: null,
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: "not_applicable",
+      time: "resolved",
+      entity: "resolved",
+      action: "not_applicable",
+    },
+    reference: null,
+    financial_read: {
+      intent: "analyze",
+      queries: [{
+        metric: "expense_amount",
+        operation: "trend",
+        group_by: ["month"],
+        filters,
+        limit: null,
+      }],
+    },
+    advisory_kind: null,
+  });
+}
 
 /**
  * Fast contract for the high-volume, unequivocal lookup shape
@@ -165,6 +262,9 @@ export function resolveNarrowDeterministicTurn(
   // como alvo e baseline, criando uma comparação híbrida silenciosa.
   const ambiguousWindow = ambiguousCategoryAverageComparison(normalized);
   if (ambiguousWindow) return ambiguityContract(text, ambiguousWindow);
+
+  const monthlyExpense = directMonthlyExpenseLookup(text, normalized);
+  if (monthlyExpense) return monthlyExpense;
 
   const directExpense = directExpenseLookup(text, normalized);
   if (directExpense) return directExpense;
