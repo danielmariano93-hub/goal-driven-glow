@@ -68,7 +68,7 @@ import { buildFinancialReadContract } from "./FinancialReadContract.ts";
 import { compileFinancialReadFromTurn } from "./TurnContractFinancialAdapter.ts";
 import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 import { resolveGroundedComparisonFollowup } from "./GroundedComparisonFollowup.ts";
-import { resolveImplicitPeriod } from "./ImplicitPeriodPolicy.ts";
+import { applyImplicitPeriodToClarification, resolveImplicitPeriod } from "./ImplicitPeriodPolicy.ts";
 import { comparablePrevious } from "../../analytics/periodResolver.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
@@ -617,7 +617,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
-  const contract: CanonicalConversationTurnContract = brain.contract;
+  const contract: CanonicalConversationTurnContract = applyImplicitPeriodToClarification(
+    brain.contract,
+    brainText,
+  );
 
   // Grounding only binds the reference already declared by the Turn Contract.
   // Missing/expired referents fail closed instead of widening scope.

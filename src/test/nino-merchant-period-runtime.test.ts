@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveNarrowDeterministicTurn } from "../../supabase/functions/_shared/agent/core/NarrowDeterministicGate";
-import { resolveImplicitPeriod } from "../../supabase/functions/_shared/agent/core/ImplicitPeriodPolicy";
+import { applyImplicitPeriodToClarification, resolveImplicitPeriod } from "../../supabase/functions/_shared/agent/core/ImplicitPeriodPolicy";
+import { normalizeConversationTurnContract } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract";
 import { capabilityFromFinancialIR } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
 import { executedIRFrom } from "../../supabase/functions/_shared/agent/core/ExecutedIRBridge";
 import type { FinancialQueryIR } from "../../supabase/functions/_shared/agent/core/FinancialQueryIR";
@@ -61,6 +62,55 @@ describe("merchant + category contract and implicit-period policy", () => {
     expect(resolveImplicitPeriod({ active, last_related: last, current_month: current })).toMatchObject({ source: "active_conversation", period: active });
     expect(resolveImplicitPeriod({ last_related: last, current_month: current })).toMatchObject({ source: "last_related_result", period: last });
     expect(resolveImplicitPeriod({ current_month: current })).toMatchObject({ source: "current_month", period: current });
+  });
+
+  it("promotes a period-only Brain clarification when the financial meaning is already complete", () => {
+    const clarified = normalizeConversationTurnContract({
+      version: "conversation_turn_contract.v2",
+      act: "new_request",
+      mode: "clarify",
+      domain: "financial_read",
+      canonical_request: "Quanto gastei em lazer?",
+      inherit_focus: false,
+      focus: { category: "Lazer", merchant: null, goal: null, period_expression: null, period_expressions: [] },
+      action: null,
+      direct_reply: null,
+      clarification_question: "De qual período você quer saber?",
+      resolution: { intent: "ambiguous", reference: "not_applicable", time: "missing", entity: "resolved", action: "not_applicable" },
+      reference: null,
+      financial_read: {
+        intent: "lookup",
+        queries: [{ metric: "expense_amount", operation: "sum", group_by: [], filters: [{ field: "category", value: "Lazer" }], limit: null }],
+      },
+      advisory_kind: null,
+    });
+    expect(clarified).not.toBeNull();
+    const promoted = applyImplicitPeriodToClarification(clarified!, "Quanto gastei em lazer?");
+    expect(promoted).toMatchObject({
+      mode: "read",
+      clarification_question: null,
+      resolution: { intent: "resolved", time: "not_applicable", entity: "resolved" },
+    });
+  });
+
+  it("keeps real entity and comparison ambiguities fail-closed", () => {
+    const base = resolveNarrowDeterministicTurn("Quanto gastei em lazer?")!;
+    const entityAmbiguous = {
+      ...base,
+      mode: "clarify" as const,
+      clarification_question: "Qual categoria?",
+      resolution: { ...base.resolution, intent: "ambiguous" as const, time: "missing" as const, entity: "ambiguous" as const },
+    };
+    expect(applyImplicitPeriodToClarification(entityAmbiguous, base.canonical_request!)).toBe(entityAmbiguous);
+
+    const comparisonAmbiguous = {
+      ...base,
+      mode: "clarify" as const,
+      clarification_question: "Qual período comparar?",
+      resolution: { ...base.resolution, intent: "ambiguous" as const, time: "missing" as const },
+      financial_read: { ...base.financial_read!, queries: [{ ...base.financial_read!.queries[0], operation: "compare" as const }] },
+    };
+    expect(applyImplicitPeriodToClarification(comparisonAmbiguous, base.canonical_request!)).toBe(comparisonAmbiguous);
   });
 
   it("maps merchant-only and category+merchant lookups to merchant_profile without losing scope", () => {

@@ -8,6 +8,11 @@
 // 5. clarification apenas para ambiguidades semânticas reais (decidida antes
 //    desta função, por exemplo uma comparação sem alvo identificável).
 
+import {
+  normalizePeriodExpressions,
+  type CanonicalConversationTurnContract,
+} from "./ConversationTurnContract.ts";
+
 export type PeriodCandidate = { from: string; to: string; label?: string | null };
 
 export type ImplicitPeriodSource =
@@ -51,4 +56,38 @@ export function resolveImplicitPeriod(args: {
     return { period: canonical(args.last_related, "último período analisado"), source: "last_related_result" };
   }
   return { period: canonical(args.current_month, "este mês"), source: "current_month" };
+}
+
+/**
+ * Converts a period-only clarification back into an executable factual read.
+ * This is intentionally narrower than a generic "repair": the Brain must have
+ * already supplied the complete financial query, no explicit date may exist,
+ * and every non-time slot must be resolved. Software only applies the temporal
+ * default; it never reconstructs missing financial meaning.
+ */
+export function applyImplicitPeriodToClarification(
+  contract: CanonicalConversationTurnContract,
+  fallbackCanonicalRequest: string,
+): CanonicalConversationTurnContract {
+  if (contract.mode !== "clarify" || contract.domain !== "financial_read") return contract;
+  if (!contract.financial_read?.queries?.length) return contract;
+  if (normalizePeriodExpressions(contract.focus).length > 0) return contract;
+  if (!["missing", "ambiguous"].includes(contract.resolution.time)) return contract;
+  if (!["resolved", "not_applicable", "ambiguous"].includes(contract.resolution.intent)) return contract;
+  if (!["resolved", "not_applicable"].includes(contract.resolution.entity)) return contract;
+  if (!["resolved", "not_applicable"].includes(contract.resolution.reference)) return contract;
+  if (contract.financial_read.queries.some((query) => ["compare", "explain"].includes(query.operation))) return contract;
+  const canonicalRequest = String(contract.canonical_request ?? fallbackCanonicalRequest).trim();
+  if (!canonicalRequest) return contract;
+  return {
+    ...contract,
+    mode: "read",
+    canonical_request: canonicalRequest,
+    clarification_question: null,
+    resolution: {
+      ...contract.resolution,
+      intent: "resolved",
+      time: "not_applicable",
+    },
+  };
 }
