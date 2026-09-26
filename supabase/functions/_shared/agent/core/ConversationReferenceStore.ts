@@ -172,7 +172,11 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
 
   if (tool === "spending_timeseries_monthly") {
     const scope = (r.scope ?? {}) as Record<string, unknown>;
-    return uniqueLabels([scope.category, scope.merchant]);
+    const category = String(scope.category ?? "").trim();
+    const merchant = String(scope.merchant ?? "").trim();
+    // A ReferenceObject has exactly one entity type. Keep the merchant inside
+    // the evidence payload, but never publish it as a category label.
+    return category ? [category] : merchant ? [merchant] : [];
   }
   if (tool === "compare_periods" || tool === "compare_to_monthly_average") {
     const displayed = labelsFromRows(displayedComparisonRows(r));
