@@ -78,7 +78,7 @@ describe("nino_monthly_series.v1", () => {
     expect(isMonthlySeriesShape(query({ grain: "day" }))).toBe(false);
   });
 
-  it("formats deterministic monthly facts without inventing a zero for missing data", () => {
+  it("formats deterministic monthly facts without inventing a value for missing data", () => {
     const result: MonthlySpendingSeriesResult = {
       version: "nino_monthly_series.v1",
       formula_version: "monthly_spending_series.v1",
@@ -94,11 +94,40 @@ describe("nino_monthly_series.v1", () => {
       partial_last_month: true,
     };
     const text = monthlySpendingSeriesText(result);
-    expect(text).toContain("ago/26");
-    expect(text).toContain("R$ 123,45");
-    expect(text).toContain("set/26 (parcial): sem lançamentos encontrados");
+    expect(text).toContain("* Agosto: R$ 123,45 — 2 lançamentos");
+    expect(text).toContain("* Setembro: sem lançamentos encontrados");
     expect(text).toContain("Alimentação");
     expect(text).toContain("Thales");
+    expect(text).toContain("mês parcial");
+  });
+
+  it("returns the conversational summary with total, monthly counts, average, peak and partial-month warning", () => {
+    const result: MonthlySpendingSeriesResult = {
+      version: "nino_monthly_series.v1",
+      formula_version: "monthly_spending_series.v1",
+      months: [
+        { month: "2026-04", total: 80, has_data: true, transaction_count: 1 },
+        { month: "2026-05", total: 14, has_data: true, transaction_count: 1 },
+        { month: "2026-06", total: 160, has_data: true, transaction_count: 1 },
+        { month: "2026-07", total: 72, has_data: true, transaction_count: 2 },
+        { month: "2026-08", total: 125, has_data: true, transaction_count: 3 },
+        { month: "2026-09", total: 155, has_data: true, transaction_count: 3 },
+      ],
+      total: 606,
+      transaction_count: 11,
+      window: { from: "2026-04-01", to: "2026-09-26", n: 6 },
+      scope: { category: "Lazer", merchant: "Thales" },
+      partial_first_month: false,
+      partial_last_month: true,
+    };
+    const text = monthlySpendingSeriesText(result);
+    expect(text).toContain("💸 Nos 6 meses analisados, de 01/04/2026 a 26/09/2026, você gastou R$ 606,00 em Lazer com Thales, em 11 lançamentos.");
+    expect(text).toContain("* Abril: R$ 80,00 — 1 lançamento");
+    expect(text).toContain("* Julho: R$ 72,00 — 2 lançamentos");
+    expect(text).toContain("* Setembro: R$ 155,00 — 3 lançamentos");
+    expect(text).toContain("Sua média foi de R$ 101,00 por mês.");
+    expect(text).toContain("Junho teve o maior gasto, com R$ 160,00.");
+    expect(text).toContain("Setembro já soma R$ 155,00, mas ainda é um mês parcial, considerado somente até o dia 26.");
   });
 
   it("routes explicit month-by-month chart intent before generic category charts", () => {
