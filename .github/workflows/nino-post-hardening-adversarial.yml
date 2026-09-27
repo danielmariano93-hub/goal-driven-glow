@@ -1,0 +1,23 @@
+name: Nino Post-Hardening Adversarial
+on:
+  pull_request:
+    paths:
+      - 'scripts/nino_post_hardening_adversarial.ts'
+      - '.github/workflows/nino-post-hardening-adversarial.yml'
+permissions:
+  contents: read
+jobs:
+  adversarial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run 22 real-provider adversarial scenarios
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NINO_AI_PROVIDER: groq
+          NINO_AI_MODEL: openai/gpt-oss-120b
+        run: deno run --allow-env --allow-net scripts/nino_post_hardening_adversarial.ts
