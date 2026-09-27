@@ -10,9 +10,11 @@ import {
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
   type FinancialReadSemanticQuery,
+  type TurnReference,
 } from "../core/ConversationTurnContract.ts";
 import type {
   FinancialQueryTaskV3,
+  FinancialWriteTaskV3,
   GoalQueryTaskV3,
   SemanticTaskV3,
   TurnSpecV3,
@@ -25,6 +27,11 @@ export type V3RuntimeBridgeResult =
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+function normalized(value: unknown): string {
+  return String(value ?? "").toLowerCase().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
 function periodExpressions(tasks: SemanticTaskV3[]): string[] {
@@ -40,6 +47,20 @@ function periodExpressions(tasks: SemanticTaskV3[]): string[] {
     if (task.kind === "advisory") values.push(...task.periods.map((p) => p.value));
   }
   return unique(values.map((value) => value.trim()).filter(Boolean));
+}
+
+function runtimeReference(turn: TurnSpecV3): TurnReference | null {
+  if (!turn.references.length) return null;
+  if (turn.references.length !== 1) return null;
+  const ref = turn.references[0];
+  return {
+    kind: ref.kind === "entity_reference" ? "previous_entity" : "previous_result_set",
+    target: ref.target,
+    expression: ref.expression,
+    // "resolved" here means semantic shape is known. GroundingEngine still
+    // proves the referenced entity/result exists before execution.
+    status: "resolved",
+  };
 }
 
 function financialQuery(task: FinancialQueryTaskV3): FinancialReadSemanticQuery | null {
@@ -100,9 +121,51 @@ function explicitFocus(tasks: SemanticTaskV3[]) {
   return { category, merchant, goal };
 }
 
+/**
+ * Compile the common dependent command
+ *   goal.create + goal.contribute(newly-created goal)
+ * into ONE confirmation. The database executor commits both in one transaction.
+ * Arbitrary multi-writes remain unsupported rather than partially executing.
+ */
+function compileAtomicGoalCreate(tasks: SemanticTaskV3[]): FinancialWriteTaskV3 | null {
+  if (tasks.length !== 2 || tasks.some((task) => task.kind !== "financial_write")) return null;
+  const writes = tasks as FinancialWriteTaskV3[];
+  const create = writes.find((task) => task.action === "goal.create");
+  const contribute = writes.find((task) => task.action === "goal.contribute");
+  if (!create || !contribute) return null;
+
+  const goalName = String(create.slots.name ?? "").trim();
+  const targetAmount = String(create.slots.target_amount ?? create.slots.amount ?? "").trim();
+  const contributionAmount = String(contribute.slots.amount ?? "").trim();
+  if (!goalName || !targetAmount || !contributionAmount) return null;
+
+  const referencedGoal = String(contribute.slots.goal ?? "").trim();
+  if (referencedGoal && normalized(referencedGoal) !== normalized(goalName)) return null;
+
+  const allowedContributionSlots = new Set(["goal", "amount", "date", "occurred_at"]);
+  if (Object.keys(contribute.slots).some((key) => !allowedContributionSlots.has(key))) return null;
+
+  return {
+    kind: "financial_write",
+    family: "financial.write",
+    action: "goal.create",
+    slots: {
+      ...create.slots,
+      initial_contribution: contributionAmount,
+      ...(contribute.slots.date || contribute.slots.occurred_at
+        ? { contribution_date: contribute.slots.date ?? contribute.slots.occurred_at }
+        : {}),
+    },
+  };
+}
+
 export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResult {
   const invariant = verifySemanticInvariantsV3(turn);
   if (!invariant.ok) return { ok: false, contract: null, errors: invariant.violations };
+  if (turn.references.length > 1) {
+    return { ok: false, contract: null, errors: ["multiple_references_not_executable"] };
+  }
+  const reference = runtimeReference(turn);
 
   if (turn.kind === "conversation") {
     const contract = normalizeConversationTurnContract({
@@ -116,8 +179,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       action: null,
       direct_reply: turn.direct_reply,
       clarification_question: null,
-      resolution: { intent: "resolved", reference: "not_applicable", time: "not_applicable", entity: "not_applicable", action: "not_applicable" },
-      reference: null,
+      resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: "not_applicable", entity: "not_applicable", action: "not_applicable" },
+      reference,
       financial_read: null,
       advisory_kind: null,
     });
@@ -136,8 +199,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       action: null,
       direct_reply: null,
       clarification_question: turn.question,
-      resolution: { intent: "ambiguous", reference: "not_applicable", time: "not_applicable", entity: "not_applicable", action: "not_applicable" },
-      reference: null,
+      resolution: { intent: "ambiguous", reference: reference ? "resolved" : "not_applicable", time: "not_applicable", entity: "not_applicable", action: "not_applicable" },
+      reference,
       financial_read: null,
       advisory_kind: null,
     });
@@ -149,10 +212,15 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
   const focus = explicitFocus(turn.tasks);
 
   if (families.length === 1 && families[0] === "financial.write") {
-    if (turn.tasks.length !== 1 || turn.tasks[0].kind !== "financial_write" || !isActionKind(turn.tasks[0].action)) {
+    const compiledGoal = compileAtomicGoalCreate(turn.tasks);
+    const task = compiledGoal ?? (
+      turn.tasks.length === 1 && turn.tasks[0].kind === "financial_write"
+        ? turn.tasks[0]
+        : null
+    );
+    if (!task || !isActionKind(task.action)) {
       return { ok: false, contract: null, errors: ["write_shape_not_executable"] };
     }
-    const task = turn.tasks[0];
     const contract = normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
@@ -164,8 +232,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       action: { action: task.action, slots: task.slots },
       direct_reply: null,
       clarification_question: null,
-      resolution: { intent: "resolved", reference: "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: focus.category || focus.merchant || focus.goal ? "resolved" : "not_applicable", action: "resolved" },
-      reference: null,
+      resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: focus.category || focus.merchant || focus.goal ? "resolved" : "not_applicable", action: "resolved" },
+      reference,
       financial_read: null,
       advisory_kind: null,
     });
@@ -188,8 +256,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       action: null,
       direct_reply: null,
       clarification_question: null,
-      resolution: { intent: "resolved", reference: "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: "not_applicable", action: "not_applicable" },
-      reference: null,
+      resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: "not_applicable", action: "not_applicable" },
+      reference,
       financial_read: null,
       advisory_kind: task.operation,
     });
@@ -220,8 +288,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       action: null,
       direct_reply: null,
       clarification_question: null,
-      resolution: { intent: "resolved", reference: turn.references.length ? "resolved" : "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: focus.category || focus.merchant || focus.goal ? "resolved" : "not_applicable", action: "not_applicable" },
-      reference: null,
+      resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: focus.category || focus.merchant || focus.goal ? "resolved" : "not_applicable", action: "not_applicable" },
+      reference,
       financial_read: { intent: queries.some((query) => ["compare", "trend", "explain"].includes(query.operation)) ? "analyze" : "lookup", queries },
       advisory_kind: null,
     });
