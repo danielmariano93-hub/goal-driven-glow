@@ -9,6 +9,7 @@ import {
 } from "../../supabase/functions/_shared/agent/core/ConversationReferenceStore";
 import { groundTurnContract } from "../../supabase/functions/_shared/agent/core/GroundingEngine";
 import { normalizeConversationTurnContract } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract";
+import { interpretConversationTurn } from "../../supabase/functions/_shared/agent/core/ConversationAuthority";
 import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
 
 describe("Nino lifecycle hardening — linguagem humana", () => {
@@ -171,5 +172,88 @@ describe("Nino lifecycle hardening — ações compostas", () => {
     } as any);
 
     expect(bridged.ok).toBe(false);
+  });
+});
+
+describe("Nino lifecycle hardening — atalhos determinísticos", () => {
+  it("'mostra isso em gráfico' reutiliza a série mensal sem chamar IA", async () => {
+    const outcome = await interpretConversationTurn({
+      text: "Me mostra isso em gráfico",
+      history: [],
+      memory: {
+        active_category: "Lazer",
+        active_merchant: null,
+        references: [{
+          id: "monthly-ref",
+          type: "entity",
+          target: "category",
+          entity_labels: ["Lazer"],
+          created_at: "2026-09-27T03:00:00.000Z",
+          expires_at: "2099-09-27T03:30:00.000Z",
+          turns_remaining: 5,
+          status: "active",
+          source: {
+            tool_name: "spending_timeseries_monthly",
+            query_id: null,
+            context: {
+              evidence: {
+                kind: "monthly_series",
+                version: "nino_monthly_series.v1",
+                formula_version: "test",
+                months: [{ month: "2026-08", total: 100, has_data: true, transaction_count: 1 }],
+                total: 100,
+                transaction_count: 1,
+                window: { from: "2026-08-01", to: "2026-08-31", n: 1 },
+                scope: { category: "Lazer", merchant: null },
+                partial_first_month: false,
+                partial_last_month: false,
+              },
+            },
+          },
+        }],
+      } as any,
+      workflow: null,
+      model: "unused",
+      user_id: null,
+    } as any);
+
+    expect(outcome.telemetry.llm_calls).toBe(0);
+    expect(outcome.contract?.direct_reply).toContain("gráfico");
+  });
+
+  it("'e no mês passado?' reaproveita uma análise de gastos sem chamar IA", async () => {
+    const outcome = await interpretConversationTurn({
+      text: "E no mês passado?",
+      history: [],
+      memory: {
+        active_category: "Alimentação",
+        active_merchant: null,
+        last_tool_context: { tool: "analyze_spending", period: null },
+        references: [],
+      } as any,
+      workflow: null,
+      model: "unused",
+      user_id: null,
+    } as any);
+
+    expect(outcome.telemetry.llm_calls).toBe(0);
+    expect(outcome.contract?.mode).toBe("read");
+    expect(outcome.contract?.focus.category).toBe("Alimentação");
+    expect(outcome.contract?.focus.period_expression).toMatch(/mês passado/i);
+  });
+
+  it("'desfaz isso' vira reversão segura sem depender da IA", async () => {
+    const outcome = await interpretConversationTurn({
+      text: "Desfaz isso",
+      history: [],
+      memory: null,
+      workflow: null,
+      model: "unused",
+      user_id: null,
+    } as any);
+
+    expect(outcome.telemetry.llm_calls).toBe(0);
+    expect(outcome.contract?.mode).toBe("write");
+    expect(outcome.contract?.action?.action).toBe("undo.last");
   });
 });
