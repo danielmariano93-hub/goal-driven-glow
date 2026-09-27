@@ -42,7 +42,7 @@ for(const c of cases){
  if(!err&&o.turn?.kind==="task"){bridge=bridgeTurnSpecV3ToRuntime(o.turn); if(!bridge.ok) err=`bridge:${bridge.errors?.join(",")}`;}
  const ok=!err; if(!ok)failed++;
  console.log(JSON.stringify({test:c.name,ok,error:err,turn:o.turn,telemetry:o.telemetry}));
- await new Promise(r=>setTimeout(r,1200));
+ await new Promise(r=>setTimeout(r,4500));
 }
 console.log(JSON.stringify({summary:{total:cases.length,passed:cases.length-failed,failed,model}}));
 if(failed)Deno.exit(1);
