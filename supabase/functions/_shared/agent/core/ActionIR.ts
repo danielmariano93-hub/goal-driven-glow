@@ -40,7 +40,9 @@ const ACTION_TO_TOOL: Record<ActionKind, WriteWorkflowKind> = {
   "transaction.update": "lifecycle_transaction_update_draft",
   "transaction.delete": "lifecycle_transaction_delete_draft",
   "transfer.create": "create_transfer_draft",
-  "goal.create": "create_goal_draft",
+  // Goal creation now uses the lifecycle executor so a create + initial
+  // contribution can be confirmed and committed in one atomic database action.
+  "goal.create": "lifecycle_goal_create_draft",
   "goal.contribute": "add_goal_contribution_draft",
   "goal.update": "lifecycle_goal_update_draft",
   "goal.delete": "lifecycle_goal_delete_draft",
