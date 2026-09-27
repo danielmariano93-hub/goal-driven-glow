@@ -17,6 +17,7 @@ import {
   type TurnReference,
 } from "./ConversationTurnContract.ts";
 import { detectCategory } from "./ConversationMemory.ts";
+import { compileDeterministicConversationTurn } from "./DeterministicConversationCompiler.ts";
 import { interpretSemanticTurnV3 } from "../v3/SemanticInterpreterV3.ts";
 import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
@@ -251,6 +252,46 @@ function circuitBreakerTelemetry(
   };
 }
 
+export function isProviderCapacityFailure(reason: unknown): boolean {
+  return /(?:structured_call_gateway_429|\b429\b|rate\s*limit|too\s+many\s+requests|structured_call_network|gateway_(?:500|502|503|504))/i
+    .test(String(reason ?? ""));
+}
+
+function humanCapacityFallback(input: AuthorityInput, reason: string): ConversationBrainOutcome {
+  const contract = normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "answer",
+    mode: "converse",
+    domain: "conversation",
+    canonical_request: String(input.text ?? "").trim() || null,
+    inherit_focus: false,
+    focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
+    action: null,
+    direct_reply: "Não consegui fechar esse pedido agora. Pode me mandar a mesma mensagem novamente?",
+    clarification_question: null,
+    resolution: {
+      intent: "resolved", reference: "not_applicable", time: "not_applicable",
+      entity: "not_applicable", action: "not_applicable",
+    },
+    reference: null,
+    financial_read: null,
+    advisory_kind: null,
+  });
+  return {
+    contract,
+    telemetry: {
+      model: `provider-capacity:${reason}`.slice(0, 180),
+      provider: null,
+      llm_calls: 1,
+      tokens_in: 0,
+      tokens_out: 0,
+      latency_ms: 0,
+      ok: false,
+      error: reason,
+    },
+  };
+}
+
 export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
   // These shortcuts are independent of V3 rollout. They are narrow,
   // deterministic and backed by stored evidence/state, so every user benefits.
@@ -260,6 +301,16 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   if (temporal) return temporal;
   const undo = safeUndoFastPath(input);
   if (undo) return undo;
+
+  // High-confidence CRUD/read/write requests are compiled locally before any
+  // provider call. Ambiguous language still falls through to semantic AI.
+  const deterministic = compileDeterministicConversationTurn({ text: input.text, memory: input.memory });
+  if (deterministic) {
+    return {
+      contract: deterministic,
+      telemetry: zeroCallTelemetry("deterministic:known-financial-intent.v2"),
+    };
+  }
 
   const authorityEnabled = input.user_id
     ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
@@ -292,7 +343,14 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   }
 
   const reason = String(v3.telemetry.error ?? v3.violations.join("+") ?? "contract_unavailable").slice(0, 120);
-  console.warn("[ConversationAuthority] V3 unavailable; using circuit breaker", reason);
+  console.warn("[ConversationAuthority] V3 unavailable", reason);
+
+  // A 429/transport outage is not a semantic failure. Calling V2 against the
+  // same provider here only doubles quota pressure and latency, so fail once in
+  // human language. Real provider failover, when configured, already happens
+  // inside the structured AI transport before control returns here.
+  if (isProviderCapacityFailure(reason)) return humanCapacityFallback(input, reason);
+
   const fallback = await interpretConversationTurnV2(input);
   return { contract: fallback.contract, telemetry: circuitBreakerTelemetry(v3, fallback, reason) };
 }

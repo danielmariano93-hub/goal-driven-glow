@@ -144,6 +144,9 @@ export function applyGroundedReferenceScope(
   ) {
     return { ...args, category_scope: [...grounded.entity_labels] };
   }
+  if (grounded.target === "debt" && tool === "get_debt_status" && grounded.entity_labels.length === 1) {
+    return { ...args, debt_name: grounded.entity_labels[0] };
+  }
   return args;
 }
 
