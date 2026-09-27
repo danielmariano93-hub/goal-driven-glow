@@ -1,0 +1,370 @@
+{
+  "generated_at": "2026-09-27T01:20:30.094Z",
+  "results": [
+    {
+      "id": "list_debts",
+      "text": "Nino, quais dívidas eu tenho hoje? Me mostra saldo, parcelas e vencimentos.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 143
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "debt_detail_reference",
+      "text": "Quanto falta pagar dessa dívida e quando vence a próxima parcela?",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 3,
+        "latency_ms": 8082
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Quanto falta pagar dessa dívida e quando vence a próxima parcela?",
+        "inherit_topic": true,
+        "references": [],
+        "kind": "task",
+        "response_intent": "execute",
+        "tasks": [
+          {
+            "kind": "financial_query",
+            "family": "financial.query",
+            "metric": "debt_balance",
+            "operation": "value",
+            "group_by": [],
+            "filters": [],
+            "periods": [],
+            "limit": null,
+            "comparison": null
+          }
+        ]
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "read",
+          "domain": "financial_read",
+          "canonical_request": "Quanto falta pagar dessa dívida e quando vence a próxima parcela?",
+          "inherit_focus": true,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": null,
+          "resolution": {
+            "intent": "resolved",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": {
+            "intent": "lookup",
+            "queries": [
+              {
+                "metric": "debt_balance",
+                "operation": "value",
+                "group_by": [],
+                "filters": [],
+                "limit": null,
+                "comparison_direction": "any",
+                "comparison_baseline": "period",
+                "comparison_baseline_window": null,
+                "comparison_baseline_expression": null,
+                "comparison_target_expression": null
+              }
+            ]
+          },
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "debt_payment_partial",
+      "text": "Registra um pagamento de R$ 300 na dívida do Lucas hoje.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 2,
+        "latency_ms": 10118
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "debt_payment_full",
+      "text": "Quita a dívida do Lucas hoje.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 1,
+        "latency_ms": 795
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Quita a dívida do Lucas hoje.",
+        "inherit_topic": true,
+        "references": [
+          {
+            "kind": "entity_reference",
+            "target": "goal",
+            "expression": "dívida com Lucas",
+            "source": "memory"
+          }
+        ],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Qual o valor que você deseja pagar para quitar a dívida com Lucas?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Quita a dívida do Lucas hoje.",
+          "inherit_focus": true,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Qual o valor que você deseja pagar para quitar a dívida com Lucas?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "debt_payment_pronoun",
+      "text": "Paga R$ 200 nessa hoje.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 2,
+        "latency_ms": 7097
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "debt_due_soon",
+      "text": "Quais dívidas estão vencidas ou vencem nos próximos 30 dias?",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 53
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "list_goals",
+      "text": "Quais metas eu tenho e quanto falta para cada uma?",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 2,
+        "latency_ms": 4097
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "recurring_expense",
+      "text": "Registra Netflix de R$ 39,90 todo dia 10 como assinatura recorrente.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 65
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "installment_expense",
+      "text": "Comprei um notebook por R$ 3.600 em 12 vezes no cartão Itaú hoje, categoria Trabalho.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 3,
+        "latency_ms": 4059
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "update_transaction",
+      "text": "Aquele Uber de R$ 89,90 não era Transporte, muda para Lazer.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 45
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "undo_last",
+      "text": "Desfaz o último lançamento que eu fiz.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 3,
+        "latency_ms": 5831
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "repair",
+        "canonical_request": "Desfaz o último lançamento que eu fiz.",
+        "inherit_topic": true,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você quer remover o lançamento de farmácia de R$ 45 registrado hoje?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "repair",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Desfaz o último lançamento que eu fiz.",
+          "inherit_focus": true,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você quer remover o lançamento de farmácia de R$ 45 registrado hoje?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "compound_goal_create_contribute",
+      "text": "Cria uma meta Reserva de Emergência de R$ 20 mil e já coloca R$ 500 nela.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "semantic_interpreter_v3_contract_invalid",
+        "llm_calls": 1,
+        "latency_ms": 1111
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "split_receivable_paid",
+      "text": "O Lucas já me pagou os R$ 120 do jantar, marca como recebido.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 45
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "duplicate_explicit",
+      "text": "Registra de novo o mesmo gasto de R$ 45 da farmácia de ontem.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 44
+      },
+      "turn": null,
+      "bridge": null
+    }
+  ]
+}
