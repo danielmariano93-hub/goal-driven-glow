@@ -28,6 +28,14 @@ function requestedDays(t: string): number {
   return Math.max(1, Math.min(366, Number(match?.[1] ?? 30)));
 }
 
+const MONTH_COUNT_TOKEN = "um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|\\d{1,2}";
+const DAILY_GRAIN_RX = /\b(dia a dia|por dia|diari[oa]s?|diariamente)\b/;
+
+function requestsExplicitMonthlyWindow(t: string): boolean {
+  if (DAILY_GRAIN_RX.test(t)) return false;
+  return new RegExp(`\\bultim[oa]s?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`).test(t);
+}
+
 /**
  * Única fonte de verdade sobre intenção VISUAL explícita (`nino_brain.v2`).
  * "evolução", "tendência", "dia a dia" e "por dia" NÃO são pedidos de gráfico:
@@ -69,7 +77,13 @@ export function inferChartRequest(text: string): ChartRequest | null {
   // Monthly series is not a category breakdown. This check MUST precede the
   // generic category branch or "gráfico de Alimentação mês a mês" becomes a
   // ranking of categories and answers a different question.
-  if (/\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)) {
+  //
+  // "gráfico dos últimos N meses" is also monthly by default: a visual request
+  // over months means one bucket per calendar month unless the user explicitly
+  // asks for daily grain ("dia a dia", "por dia", etc.). This prevents the
+  // generic timeseries renderer from turning a 4-month request into a daily line.
+  if (/\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)
+    || requestsExplicitMonthlyWindow(t)) {
     return { mode: "monthly_series" };
   }
   if (/\b(categoria|categorias)\b/.test(t)) {
