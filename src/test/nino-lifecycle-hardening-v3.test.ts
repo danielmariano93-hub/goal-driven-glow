@@ -89,7 +89,7 @@ describe("Nino lifecycle hardening — referência de dívida", () => {
 
   it("V3 não perde 'essa dívida' ao passar para a execução", () => {
     const bridged = bridgeTurnSpecV3ToRuntime({
-      version: "turn_spec.v3",
+      version: "nino_turn_spec.v3",
       kind: "task",
       act: "follow_up",
       response_intent: "execute",
@@ -123,7 +123,7 @@ describe("Nino lifecycle hardening — referência de dívida", () => {
 describe("Nino lifecycle hardening — ações compostas", () => {
   it("criar meta + aporte inicial vira uma única ação atômica", () => {
     const bridged = bridgeTurnSpecV3ToRuntime({
-      version: "turn_spec.v3",
+      version: "nino_turn_spec.v3",
       kind: "task",
       act: "new_request",
       response_intent: "execute",
@@ -158,7 +158,7 @@ describe("Nino lifecycle hardening — ações compostas", () => {
 
   it("não executa parcialmente duas escritas sem compilador atômico", () => {
     const bridged = bridgeTurnSpecV3ToRuntime({
-      version: "turn_spec.v3",
+      version: "nino_turn_spec.v3",
       kind: "task",
       act: "new_request",
       response_intent: "execute",
