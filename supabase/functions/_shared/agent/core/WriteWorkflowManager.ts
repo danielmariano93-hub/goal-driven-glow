@@ -30,7 +30,11 @@ export const WRITE_WORKFLOW_KINDS = [
 export type WriteWorkflowKind = typeof WRITE_WORKFLOW_KINDS[number];
 
 export const REQUIRED_SLOTS: Record<WriteWorkflowKind, string[]> = {
-  create_transaction_draft: ["type", "amount"],
+  // Type is deliberately not required here: create_transaction_draft already
+  // infers income/expense server-side from the raw user sentence and defaults a
+  // manual purchase to expense. Requiring it in the workflow caused the needless
+  // “entrada ou saída?” question found by the adversarial tests.
+  create_transaction_draft: ["amount"],
   lifecycle_transaction_update_draft: ["transaction"],
   lifecycle_transaction_delete_draft: ["transaction"],
   create_transfer_draft: ["amount", "from_account", "to_account"],
@@ -54,7 +58,6 @@ export const REQUIRED_SLOTS: Record<WriteWorkflowKind, string[]> = {
 };
 
 const SLOT_QUESTION: Record<string, string> = {
-  type: "É entrada ou saída?",
   amount: "Qual foi o valor?",
   from_account: "Sai de qual conta?",
   to_account: "Vai para qual conta?",
