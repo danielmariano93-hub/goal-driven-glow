@@ -10,11 +10,9 @@
 // `AGENT_RUNTIME_VERSION`. Ao alterar o contrato analítico (planner, gates,
 // escopo, períodos, motor de metas), suba também `ANALYTICAL_CONTRACT_VERSION`.
 
-// Deployment stamp .5 de 26/09 fecha três causas do incidente conversacional:
-// filtro merchant é preservado até merchant_profile (inclusive com categoria),
-// período implícito segue uma política determinística única e cada etapa do
-// pipeline WhatsApp registra a versão efetiva do bundle que a executou.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-26.2";
+// 27/09: lifecycle hardening + referências de dívida + atalhos determinísticos
+// de gráfico/período/undo + barreira de linguagem humana e resiliência de IA.
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-27.1";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 
