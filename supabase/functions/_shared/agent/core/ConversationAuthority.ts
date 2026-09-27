@@ -11,7 +11,12 @@ import {
   interpretConversationTurn as interpretConversationTurnV2,
   type ConversationBrainOutcome,
 } from "./ConversationBrain.ts";
-import type { CanonicalConversationTurnContract, TurnReference } from "./ConversationTurnContract.ts";
+import {
+  normalizeConversationTurnContract,
+  type CanonicalConversationTurnContract,
+  type TurnReference,
+} from "./ConversationTurnContract.ts";
+import { detectCategory } from "./ConversationMemory.ts";
 import { interpretSemanticTurnV3 } from "../v3/SemanticInterpreterV3.ts";
 import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
@@ -55,6 +60,125 @@ function typedContextText(input: AuthorityInput): string {
     } : null,
   };
   return JSON.stringify(context).slice(0, 7000);
+}
+
+function zeroCallTelemetry(model: string): ConversationBrainOutcome["telemetry"] {
+  return {
+    model,
+    provider: null,
+    llm_calls: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+    latency_ms: 0,
+    ok: true,
+    error: null,
+  };
+}
+
+function contextualMonthlyChartFastPath(input: AuthorityInput): ConversationBrainOutcome | null {
+  const text = String(input.text ?? "").trim();
+  if (!/\b(?:gr[aá]fico|chart)\b/i.test(text)) return null;
+  const memory = input.memory;
+  if (!memory) return null;
+
+  const refs = (memory.references ?? []).filter((ref: any) =>
+    ref.status === "active" && ref.source?.context?.evidence?.kind === "monthly_series"
+  );
+  const ref = refs[refs.length - 1] as any;
+  const evidence = ref?.source?.context?.evidence as any;
+  if (!evidence?.months?.length) return null;
+
+  // Explicitly requesting a different time horizon must execute a new query.
+  if (/\b(?:[uú]ltim[oa]s?\s+\d+\s+mes|\d+\s+meses|20\d{2}|de\s+\w+\s+a\s+\w+)\b/i.test(text)) return null;
+  const explicitCategory = detectCategory(text);
+  const evidenceCategory = String(evidence?.scope?.category ?? "").trim();
+  if (explicitCategory && evidenceCategory && explicitCategory.toLowerCase() !== evidenceCategory.toLowerCase()) return null;
+
+  const contract = normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "follow_up",
+    mode: "converse",
+    domain: "conversation",
+    canonical_request: "Exibir em gráfico a série mensal já calculada no contexto atual.",
+    inherit_focus: true,
+    focus: {
+      category: evidenceCategory || memory.active_category || null,
+      merchant: evidence?.scope?.merchant ?? memory.active_merchant ?? null,
+      goal: null,
+      period_expression: null,
+      period_expressions: [],
+    },
+    action: null,
+    direct_reply: "Claro — aqui está o gráfico. 📊",
+    clarification_question: null,
+    resolution: {
+      intent: "resolved", reference: "not_applicable", time: "not_applicable",
+      entity: evidenceCategory || memory.active_category || memory.active_merchant ? "resolved" : "not_applicable",
+      action: "not_applicable",
+    },
+    reference: null,
+    financial_read: null,
+    advisory_kind: null,
+  });
+  return contract ? { contract, telemetry: zeroCallTelemetry("deterministic:monthly-chart-followup.v1") } : null;
+}
+
+function temporalExpenseFastPath(input: AuthorityInput): ConversationBrainOutcome | null {
+  const text = String(input.text ?? "").trim();
+  const match = text.match(/^\s*(?:e\s+)?(?:no|em)?\s*(m[eê]s passado|m[eê]s anterior|este m[eê]s|esse m[eê]s|hoje)\s*[?.!]*\s*$/i);
+  if (!match || !input.memory) return null;
+  // Only reuse a known expense-analysis operation. Other previous operations
+  // (income, balance, debt, goals, comparisons) must retain semantic authority.
+  if (input.memory.last_tool_context?.tool !== "analyze_spending") return null;
+
+  const periodExpression = match[1];
+  const category = input.memory.active_category ?? null;
+  const merchant = input.memory.active_merchant ?? null;
+  const filters = [
+    ...(category ? [{ field: "category", op: "eq", value: category }] : []),
+    ...(merchant ? [{ field: "merchant", op: "eq", value: merchant }] : []),
+  ];
+  const subject = category ? ` com ${category}` : merchant ? ` em ${merchant}` : "";
+  const contract = normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "follow_up",
+    mode: "read",
+    domain: "financial_read",
+    canonical_request: `Quanto gastei${subject} em ${periodExpression}?`,
+    inherit_focus: true,
+    focus: {
+      category,
+      merchant,
+      goal: null,
+      period_expression: periodExpression,
+      period_expressions: [periodExpression],
+    },
+    action: null,
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved", reference: "not_applicable", time: "resolved",
+      entity: category || merchant ? "resolved" : "not_applicable", action: "not_applicable",
+    },
+    reference: null,
+    financial_read: {
+      intent: "lookup",
+      queries: [{
+        metric: "expense_amount",
+        operation: "sum",
+        group_by: [],
+        filters,
+        limit: null,
+        comparison_direction: "any",
+        comparison_baseline: "period",
+        comparison_baseline_window: null,
+        comparison_baseline_expression: null,
+        comparison_target_expression: null,
+      }],
+    },
+    advisory_kind: null,
+  });
+  return contract ? { contract, telemetry: zeroCallTelemetry("deterministic:temporal-expense-followup.v1") } : null;
 }
 
 function referenceFromV3(turn: TurnSpecV3): TurnReference | null {
@@ -108,6 +232,13 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
     : false;
   if (!authorityEnabled) return await interpretConversationTurnV2(input);
 
+  // Deterministic no-LLM shortcuts are deliberately narrow and evidence/state
+  // backed. Anything outside these exact shapes continues through V3 authority.
+  const chart = contextualMonthlyChartFastPath(input);
+  if (chart) return chart;
+  const temporal = temporalExpenseFastPath(input);
+  if (temporal) return temporal;
+
   const v3 = await interpretSemanticTurnV3({
     text: input.text,
     history_text: historyText(input.history),
@@ -122,8 +253,8 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
       return {
         contract: attachV3ReferenceToContract(v3.turn, bridged.contract),
         telemetry: {
-...v3.telemetry,
-model: `v3-authority:${v3.telemetry.model}`,
+          ...v3.telemetry,
+          model: `v3-authority:${v3.telemetry.model}`,
         },
       };
     }
