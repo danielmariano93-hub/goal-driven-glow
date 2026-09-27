@@ -9,6 +9,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from "../tools.ts";
+import { localDate } from "../../finance-core/ninoClock.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,6 +32,11 @@ function numberValue(value: unknown): number | null {
 function intValue(value: unknown): number | null {
   const n = numberValue(value);
   return n != null && Number.isInteger(n) ? n : null;
+}
+
+function boolValue(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  return /^(true|1|sim|yes|s)$/i.test(String(value ?? "").trim());
 }
 
 function dateValue(value: unknown): string | null {
@@ -219,7 +225,7 @@ async function debtPayment(ctx: ToolContext, args: any): Promise<ToolResult> {
   if (!debt) return { ok: false, error: "debt_not_found" };
   let amount = numberValue(args.amount);
   const installmentCount = intValue(args.installments_covered ?? args.installments);
-  const wantsFull = Boolean(args.full_payment) || /\b(quita|quitar|quitei|inteira|inteiro|toda|todo)\b/i.test(String(ctx.user_text ?? ""));
+  const wantsFull = boolValue(args.full_payment) || /\b(quita|quitar|quitei|inteira|inteiro|toda|todo)\b/i.test(String(ctx.user_text ?? ""));
   if (amount == null && wantsFull) amount = Number(debt.outstanding_balance);
   if (amount == null && installmentCount && Number(debt.installment_amount) > 0) amount = installmentCount * Number(debt.installment_amount);
   if (amount == null || amount <= 0) return { ok: false, error: "debt_payment_amount_required" };
@@ -227,7 +233,7 @@ async function debtPayment(ctx: ToolContext, args: any): Promise<ToolResult> {
   const account = await resolveAccount(ctx, args.account ?? args.account_id);
   if (Array.isArray(account) && args.account) return choiceError("account", account);
   const selected = Array.isArray(account) ? null : account;
-  const paidAt = dateValue(args.paid_at ?? args.date) ?? new Date().toISOString().slice(0, 10);
+  const paidAt = dateValue(args.paid_at ?? args.date) ?? localDate();
   const payload = {
     debt_id: debt.id,
     amount,
@@ -298,6 +304,7 @@ async function splitReceive(ctx: ToolContext, args: any): Promise<ToolResult> {
     participant_name: participant.participant_name,
     title: participant.title,
     amount,
+    paid_at: dateValue(args.paid_at ?? args.date) ?? localDate(),
     balance_before: balance,
   }, `Marcar ${BRL.format(amount)} de ${participant.participant_name} como recebido em “${participant.title}”.`);
 }
@@ -309,7 +316,7 @@ async function splitUpdate(ctx: ToolContext, args: any): Promise<ToolResult> {
   const patch: any = {};
   if (args.new_title != null) patch.title = String(args.new_title).trim();
   if (args.due_date != null) patch.due_date = dateValue(args.due_date);
-  if (args.reminder_enabled != null) patch.reminder_enabled = /^(true|1|sim|yes)$/i.test(String(args.reminder_enabled));
+  if (args.reminder_enabled != null) patch.reminder_enabled = boolValue(args.reminder_enabled);
   if (args.pix_key != null) patch.pix_key = String(args.pix_key);
   // Participant/amount changes affect installment truth and therefore require a
   // dedicated complete participant payload; never degrade them into metadata edits.
@@ -336,12 +343,20 @@ async function recurringCreate(ctx: ToolContext, args: any): Promise<ToolResult>
   const account = await resolveAccount(ctx, args.account ?? args.account_id);
   if (Array.isArray(account)) return choiceError("account", account);
   if (!account) return { ok: false, error: "recurring_account_required" };
+  let category: any = null;
+  if (args.category != null || args.category_id != null) {
+    category = await resolveCategory(ctx, args.category ?? args.category_id);
+    if (Array.isArray(category)) return choiceError("category", category);
+    if (!category) return { ok: false, error: "category_not_found" };
+  }
   const kind = String(args.type ?? args.kind ?? "expense").toLowerCase() === "income" ? "income" : "expense";
+  const frequency = String(args.frequency ?? "monthly").toLowerCase();
+  if (!["daily", "weekly", "monthly", "yearly"].includes(frequency)) return { ok: false, error: "recurring_frequency_invalid" };
   return await draft(ctx, "recurring_create", {
-    name, amount, account_id: account.id, kind,
-    frequency: String(args.frequency ?? "monthly"), day_of_month: day,
-    start_date: dateValue(args.start_date) ?? new Date().toISOString().slice(0, 10),
-    end_date: dateValue(args.end_date), category: args.category ?? null,
+    name, amount, account_id: account.id, category_id: category?.id ?? null, kind,
+    frequency, day_of_month: day,
+    start_date: dateValue(args.start_date) ?? localDate(),
+    end_date: dateValue(args.end_date),
   }, `Criar recorrência “${name}” de ${BRL.format(amount)} todo dia ${day}.`);
 }
 
@@ -351,8 +366,33 @@ async function recurringUpdate(ctx: ToolContext, args: any): Promise<ToolResult>
   if (!rule) return { ok: false, error: "recurring_not_found" };
   const patch: any = {};
   if (args.new_name != null) patch.name = String(args.new_name).trim();
-  const amount = numberValue(args.amount ?? args.new_amount); if (amount != null) patch.amount = amount;
-  const day = intValue(args.day_of_month ?? args.day); if (day != null) patch.day_of_month = day;
+  const amount = numberValue(args.amount ?? args.new_amount);
+  if (amount != null) {
+    if (amount <= 0) return { ok: false, error: "recurring_amount_invalid" };
+    patch.amount = amount;
+  }
+  const day = intValue(args.day_of_month ?? args.day);
+  if (day != null) {
+    if (day < 1 || day > 31) return { ok: false, error: "recurring_day_invalid" };
+    patch.day_of_month = day;
+  }
+  if (args.frequency != null) {
+    const frequency = String(args.frequency).toLowerCase();
+    if (!["daily", "weekly", "monthly", "yearly"].includes(frequency)) return { ok: false, error: "recurring_frequency_invalid" };
+    patch.frequency = frequency;
+  }
+  if (args.category != null || args.category_id != null) {
+    const category = await resolveCategory(ctx, args.category ?? args.category_id);
+    if (Array.isArray(category)) return choiceError("category", category);
+    if (!category) return { ok: false, error: "category_not_found" };
+    patch.category_id = category.id;
+  }
+  if (args.account != null || args.account_id != null) {
+    const account = await resolveAccount(ctx, args.account ?? args.account_id);
+    if (Array.isArray(account)) return choiceError("account", account);
+    if (!account) return { ok: false, error: "account_not_found" };
+    patch.account_id = account.id;
+  }
   if (args.status != null) patch.status = String(args.status);
   if (args.end_date != null) patch.end_date = dateValue(args.end_date);
   if (!Object.keys(patch).length) return { ok: false, error: "recurring_update_empty_patch" };
