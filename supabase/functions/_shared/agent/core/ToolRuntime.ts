@@ -9,6 +9,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { runAgentTurn, type LLMTurn } from "../llm.ts";
 import { toolByName, type ToolContext, type ToolResult } from "../tools.ts";
 import { lifecycleToolByName } from "./LifecycleTools.ts";
+import { goalLifecycleToolByName } from "./GoalLifecycleTools.ts";
 import type { HistoryTurn } from "./ConversationHistory.ts";
 import { isRetryable } from "./ErrorRecovery.ts";
 import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
@@ -88,7 +89,7 @@ async function runToolUncached(
   const maxRetries = Math.max(0, opts.maxRetries ?? 1);
   // Lifecycle adapters are intentionally NOT exposed as free-form LLM tools.
   // They are reachable only after ActionIR validation and deterministic routing.
-  const tool = toolByName(tool_name) ?? lifecycleToolByName(tool_name);
+  const tool = toolByName(tool_name) ?? lifecycleToolByName(tool_name) ?? goalLifecycleToolByName(tool_name);
   const started = Date.now();
 
   if (!tool) {
