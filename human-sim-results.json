@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-09-27T00:43:19.523Z",
+  "results": [
+    {
+      "id": "compound_social_financial",
+      "text": "Oi Nino, tudo bem? Antes de qualquer coisa, quanto eu gastei com lazer este mês?",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "followup_previous_month",
+      "text": "E no mês passado?",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "typical_to_monthly_series",
+      "text": "Tá, mas me mostra mês a mês os últimos 5 meses.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "merchant_category_order_words",
+      "text": "Agora olha no Thales com Alimentação nos últimos sete meses, mês por mês.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "chart_followup",
+      "text": "Mostra isso em gráfico.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "pronoun_reference",
+      "text": "E dela, quanto eu gastei no mês anterior?",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "explicit_interval_total",
+      "text": "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "emotional_nonfinancial",
+      "text": "Estou me sentindo atento hoje.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "financial_write_complete",
+      "text": "Registre um gasto de R$ 50 no mercado hoje.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "human_summary_followup",
+      "text": "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "error": "structured_call_network_error",
+        "llm_calls": 1
+      },
+      "turn": null,
+      "bridge": null
+    }
+  ]
+}
