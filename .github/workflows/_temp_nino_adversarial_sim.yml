@@ -1,0 +1,42 @@
+name: Temp Nino Adversarial Simulation
+
+on:
+  push:
+    branches: [test/nino-human-sim-20260926]
+    paths:
+      - 'scripts/_temp_nino_adversarial_sim.ts'
+      - '.github/workflows/_temp_nino_adversarial_sim.yml'
+
+permissions:
+  contents: write
+
+env:
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/nino-human-sim-20260926
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run adversarial semantic scenarios against production model
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GROQ_API_KEY"
+          deno run --allow-env --allow-net --allow-read --allow-write scripts/_temp_nino_adversarial_sim.ts
+      - name: Commit adversarial results
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add adversarial-sim-results.json
+          git commit -m "test: capture adversarial Nino simulation results"
+          git push origin HEAD:test/nino-human-sim-20260926
