@@ -1,555 +1,9 @@
 {
-  "generated_at": "2026-09-27T00:48:26.007Z",
+  "generated_at": "2026-09-27T00:53:39.169Z",
   "results": [
     {
-      "id": "compound_social_financial",
-      "text": "Oi Nino, tudo bem? Antes de qualquer coisa, quanto eu gastei com lazer este mês?",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "sum",
-            "group_by": [],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Lazer",
-                  "source": "current_turn",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "este mês",
-                "source": "current_turn",
-                "source_span": null
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Quanto eu gastei com lazer este mês?",
-          "inherit_focus": false,
-          "focus": {
-            "category": "Lazer",
-            "merchant": null,
-            "goal": null,
-            "period_expression": "este mês",
-            "period_expressions": [
-              "este mês"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "lookup",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "sum",
-                "group_by": [],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Lazer"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "followup_previous_month",
+      "id": "followup_previous_month_a",
       "text": "E no mês passado?",
-      "ok": false,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": "semantic_interpreter_v3_contract_invalid",
-        "llm_calls": 1
-      },
-      "turn": null,
-      "bridge": null
-    },
-    {
-      "id": "explicit_category_switch",
-      "text": "Nino, e em lazer? Quanto eu gastei esse mês?",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "sum",
-            "group_by": [],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Lazer",
-                  "source": "current_turn",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "este mês",
-                "source": "current_turn",
-                "source_span": null
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Quanto eu gastei em lazer neste mês?",
-          "inherit_focus": false,
-          "focus": {
-            "category": "Lazer",
-            "merchant": null,
-            "goal": null,
-            "period_expression": "este mês",
-            "period_expressions": [
-              "este mês"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "lookup",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "sum",
-                "group_by": [],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Lazer"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "implicit_merchant_distribution",
-      "text": "Em quais estabelecimentos?",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "breakdown",
-            "group_by": [
-              "merchant"
-            ],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Lazer",
-                  "source": "current_turn",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "este mês",
-                "source": "current_turn",
-                "source_span": null
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Quais estabelecimentos foram onde gastei em Lazer neste mês?",
-          "inherit_focus": true,
-          "focus": {
-            "category": "Lazer",
-            "merchant": null,
-            "goal": null,
-            "period_expression": "este mês",
-            "period_expressions": [
-              "este mês"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "lookup",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "breakdown",
-                "group_by": [
-                  "merchant"
-                ],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Lazer"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "typical_to_monthly_series",
-      "text": "Tá, mas me mostra mês a mês os últimos 5 meses.",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "trend",
-            "group_by": [
-              "month"
-            ],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Assinaturas",
-                  "source": "memory",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "últimos 5 meses",
-                "source": "current_turn",
-                "source_span": "últimos 5 meses"
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": [
-          {
-            "kind": "entity_reference",
-            "target": "category",
-            "expression": "Assinaturas",
-            "source": "memory"
-          }
-        ]
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Mostrar gasto mensal com a categoria Assinaturas nos últimos 5 meses, mês a mês.",
-          "inherit_focus": true,
-          "focus": {
-            "category": "Assinaturas",
-            "merchant": null,
-            "goal": null,
-            "period_expression": "últimos 5 meses",
-            "period_expressions": [
-              "últimos 5 meses"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "resolved",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "analyze",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "trend",
-                "group_by": [
-                  "month"
-                ],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Assinaturas"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "merchant_category_order_words",
-      "text": "Agora olha no Thales com Alimentação nos últimos sete meses, mês por mês.",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "trend",
-            "group_by": [
-              "month"
-            ],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Alimentação",
-                  "source": "current_turn",
-                  "source_span": "Alimentação"
-                }
-              },
-              {
-                "field": "merchant",
-                "entity": {
-                  "value": "Thales",
-                  "source": "current_turn",
-                  "source_span": "Thales"
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "últimos 7 meses",
-                "source": "current_turn",
-                "source_span": "últimos sete meses"
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Consultar gasto com Alimentação no estabelecimento Thales nos últimos sete meses, detalhado mês a mês.",
-          "inherit_focus": false,
-          "focus": {
-            "category": "Alimentação",
-            "merchant": "Thales",
-            "goal": null,
-            "period_expression": "últimos 7 meses",
-            "period_expressions": [
-              "últimos 7 meses"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "analyze",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "trend",
-                "group_by": [
-                  "month"
-                ],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Alimentação"
-                  },
-                  {
-                    "field": "merchant",
-                    "op": "eq",
-                    "value": "Thales"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "chart_followup",
-      "text": "Mostra isso em gráfico.",
       "ok": false,
       "violations": [],
       "telemetry": {
@@ -562,8 +16,8 @@
       "bridge": null
     },
     {
-      "id": "pronoun_reference",
-      "text": "E dela, quanto eu gastei no mês anterior?",
+      "id": "followup_previous_month_b",
+      "text": "E no mês anterior?",
       "ok": true,
       "violations": [],
       "telemetry": {
@@ -573,7 +27,20 @@
         "llm_calls": 1
       },
       "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "follow_up",
+        "canonical_request": "Quanto eu gastei com lazer no mês anterior?",
+        "inherit_topic": true,
+        "references": [
+          {
+            "kind": "entity_reference",
+            "target": "category",
+            "expression": "Lazer",
+            "source": "memory"
+          }
+        ],
         "kind": "task",
+        "response_intent": "execute",
         "tasks": [
           {
             "kind": "financial_query",
@@ -585,8 +52,8 @@
               {
                 "field": "category",
                 "entity": {
-                  "value": "Moradia",
-                  "source": "current_turn",
+                  "value": "Lazer",
+                  "source": "memory",
                   "source_span": null
                 }
               }
@@ -601,14 +68,6 @@
             "limit": null,
             "comparison": null
           }
-        ],
-        "references": [
-          {
-            "kind": "entity_reference",
-            "target": "category",
-            "expression": "dela",
-            "source": "current_turn"
-          }
         ]
       },
       "bridge": {
@@ -616,13 +75,13 @@
         "errors": [],
         "contract": {
           "version": "conversation_turn_contract.v2",
-          "act": "new_request",
+          "act": "follow_up",
           "mode": "read",
           "domain": "financial_read",
-          "canonical_request": "Quanto eu gastei na categoria Moradia no mês anterior?",
+          "canonical_request": "Quanto eu gastei com lazer no mês anterior?",
           "inherit_focus": true,
           "focus": {
-            "category": "Moradia",
+            "category": "Lazer",
             "merchant": null,
             "goal": null,
             "period_expression": "mês anterior",
@@ -652,106 +111,6 @@
                   {
                     "field": "category",
                     "op": "eq",
-                    "value": "Moradia"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "explicit_interval_total",
-      "text": "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período.",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "sum",
-            "group_by": [],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Lazer",
-                  "source": "current_turn",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "abril a setembro",
-                "source": "current_turn",
-                "source_span": null
-              }
-            ],
-            "limit": null,
-            "comparison": null
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período.",
-          "inherit_focus": true,
-          "focus": {
-            "category": "Lazer",
-            "merchant": null,
-            "goal": null,
-            "period_expression": "abril a setembro",
-            "period_expressions": [
-              "abril a setembro"
-            ]
-          },
-          "action": null,
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": {
-            "intent": "lookup",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "sum",
-                "group_by": [],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
                     "value": "Lazer"
                   }
                 ],
@@ -769,170 +128,18 @@
       }
     },
     {
-      "id": "emotional_nonfinancial",
-      "text": "Estou me sentindo atento hoje.",
-      "ok": true,
+      "id": "chart_followup_isolated",
+      "text": "Mostra isso em gráfico.",
+      "ok": false,
       "violations": [],
       "telemetry": {
         "model": "openai/gpt-oss-120b",
         "provider": "groq",
-        "error": null,
-        "llm_calls": 1
+        "error": "structured_call_gateway_429",
+        "llm_calls": 3
       },
-      "turn": {
-        "kind": "conversation",
-        "references": [],
-        "direct_reply": "Que bom que está atento! Como posso ajudar você a canalizar essa atenção nos seus objetivos financeiros hoje?"
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "converse",
-          "domain": "conversation",
-          "canonical_request": "Estou me sentindo atento hoje.",
-          "inherit_focus": false,
-          "focus": {
-            "category": null,
-            "merchant": null,
-            "goal": null,
-            "period_expression": null,
-            "period_expressions": []
-          },
-          "action": null,
-          "direct_reply": "Que bom que está atento! Como posso ajudar você a canalizar essa atenção nos seus objetivos financeiros hoje?",
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "not_applicable",
-            "entity": "not_applicable",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": null,
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "financial_write_complete",
-      "text": "Registre um gasto de R$ 50 no mercado hoje.",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "task",
-        "tasks": [
-          {
-            "kind": "financial_write",
-            "family": "financial.write",
-            "action": "transaction.create",
-            "slots": {
-              "amount": "50",
-              "merchant": "mercado",
-              "date": "hoje"
-            }
-          }
-        ],
-        "references": []
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "new_request",
-          "mode": "write",
-          "domain": "financial_write",
-          "canonical_request": "Registre um gasto de R$ 50 no mercado hoje.",
-          "inherit_focus": false,
-          "focus": {
-            "category": null,
-            "merchant": null,
-            "goal": null,
-            "period_expression": null,
-            "period_expressions": []
-          },
-          "action": {
-            "version": "action_ir.v1",
-            "action": "transaction.create",
-            "slots": {
-              "amount": "50",
-              "merchant": "mercado",
-              "date": "hoje"
-            }
-          },
-          "direct_reply": null,
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "not_applicable",
-            "entity": "not_applicable",
-            "action": "resolved"
-          },
-          "reference": null,
-          "financial_read": null,
-          "advisory_kind": null
-        }
-      }
-    },
-    {
-      "id": "human_summary_followup",
-      "text": "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários.",
-      "ok": true,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": null,
-        "llm_calls": 1
-      },
-      "turn": {
-        "kind": "conversation",
-        "references": [],
-        "direct_reply": "Até agora identificamos que você gastou com Lazer neste mês, comparado ao mês passado, e que seu gasto médio mensal com Assinaturas costuma ser um valor típico. Esses três pontos resumem seu padrão de despesas recentes, destacando variações entre períodos e categorias. Não foram fornecidos valores exatos, apenas a tendência geral de consumo."
-      },
-      "bridge": {
-        "ok": true,
-        "errors": [],
-        "contract": {
-          "version": "conversation_turn_contract.v2",
-          "act": "answer",
-          "mode": "converse",
-          "domain": "conversation",
-          "canonical_request": "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários.",
-          "inherit_focus": true,
-          "focus": {
-            "category": null,
-            "merchant": null,
-            "goal": null,
-            "period_expression": null,
-            "period_expressions": []
-          },
-          "action": null,
-          "direct_reply": "Até agora identificamos que você gastou com Lazer neste mês, comparado ao mês passado, e que seu gasto médio mensal com Assinaturas costuma ser um valor típico. Esses três pontos resumem seu padrão de despesas recentes, destacando variações entre períodos e categorias. Não foram fornecidos valores exatos, apenas a tendência geral de consumo.",
-          "clarification_question": null,
-          "resolution": {
-            "intent": "resolved",
-            "reference": "not_applicable",
-            "time": "not_applicable",
-            "entity": "not_applicable",
-            "action": "not_applicable"
-          },
-          "reference": null,
-          "financial_read": null,
-          "advisory_kind": null
-        }
-      }
+      "turn": null,
+      "bridge": null
     }
   ]
 }
