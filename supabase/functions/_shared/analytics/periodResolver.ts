@@ -136,6 +136,8 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
       return {
         // Janela móvel em MESES de calendário: preserva o dia do mês. Em
         // 18/09, "últimos 3 meses" começa em 18/06 — nunca em 01/06.
+        // A decomposição mensal é resolvida por resolveTimeAspectPt quando a
+        // intenção pede buckets mensais (ex.: gráfico dos últimos 4 meses).
         from: shiftMonthsClamped(today, -count), to: today,
         label: `últimos ${count} meses`, matched: lastMonths[0], complete: false, kind: "range",
       };
@@ -223,6 +225,8 @@ const PROJECTION_RX =
 const TREND_RX = /\b(evolu(cao|ção)|tendencia|trajetoria|ao longo do tempo|mes a mes|mes por mes|em cada mes|separad[oa] por mes|quebrad[oa] por mes|separ(e|a|ar) por mes|mostr(e|ar) por mes|trag(a|zer) por mes|list(e|ar) por mes|quebr(e|ar) por mes)\b/;
 const MONTHLY_RATE_RX = /\b(por mes|ao mes|cada mes)\b/;
 const FACTUAL_MONTHLY_VERB_RX = /\b(gastei|recebi|paguei|desembolsei|foi|ficou|deu|somei|somou|totalizei)\b/;
+const VISUAL_RX = /\b(grafico|graficos|chart|charts|visualizacao|visualizar|visualiza|plote|plotar|plota|barras?|colunas?)\b/;
+const DAILY_GRAIN_RX = /\b(dia a dia|por dia|diari[oa]s?|diariamente)\b/;
 
 export const HABITUAL_WINDOW_MONTHS = 6;
 
@@ -236,10 +240,18 @@ export function resolveTimeAspectPt(text: string, now: Date = new Date()): Resol
 
   const explicitMonthWindow = t.match(new RegExp(`\\bultimos?\\s+(${MONTH_COUNT_TOKEN})\\s+meses?\\b`));
   const explicitMonthCount = explicitMonthWindow ? parseMonthCount(explicitMonthWindow[1]) : null;
+  const visualMonthlyBuckets = Boolean(explicitMonthCount)
+    && VISUAL_RX.test(t)
+    && !DAILY_GRAIN_RX.test(t);
   // Historical/factual past + "por mês" + explicit N-month window means a
   // decomposition into N calendar buckets, not the habitual 6-month statistic.
+  // The same applies to an explicit chart over N months: absent an explicit
+  // daily grain, the natural visual grain is one calendar bucket per month.
   // Present-tense "quanto gasto por mês" remains habitual below.
-  if (explicitMonthCount && MONTHLY_RATE_RX.test(t) && FACTUAL_MONTHLY_VERB_RX.test(t)) {
+  if (explicitMonthCount && (
+    (MONTHLY_RATE_RX.test(t) && FACTUAL_MONTHLY_VERB_RX.test(t))
+    || visualMonthlyBuckets
+  )) {
     const wantsComplete = /\b(completos?|fechados?)\b/.test(t);
     if (wantsComplete) {
       const w = lastCompleteMonths(explicitMonthCount, now);
@@ -253,7 +265,7 @@ export function resolveTimeAspectPt(text: string, now: Date = new Date()): Resol
     return {
       aspect: "trend", from: shifted.slice(0, 7) + "-01", to: todaySP(now),
       n: explicitMonthCount, exclude_partial: false, grain: "month", reduce: "none",
-      label: `últimos ${explicitMonthCount} meses, por mês`, matched: explicitMonthWindow?.[0] ?? "",
+      label: `últimos ${explicitMonthCount} meses, mês a mês`, matched: explicitMonthWindow?.[0] ?? "",
       assumption: null, ambiguous: false,
     };
   }
