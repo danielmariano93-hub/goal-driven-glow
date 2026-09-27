@@ -1,0 +1,66 @@
+name: Temp Nino Human Simulation
+
+on:
+  push:
+    branches: [test/nino-human-sim-20260926]
+
+permissions:
+  contents: read
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
+      TEST_CONVERSATION_ID: 2b4d8c54-fd6c-4444-9ec0-b3c792ea3645
+      TEST_PHONE: '+5511000000000'
+      NINO_PHONE: '+5511000000001'
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate test credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo 'Missing SUPABASE_SERVICE_ROLE_KEY repository secret' && exit 2)
+          echo 'Credential available.'
+
+      - name: Run read-only human-like conversation
+        shell: bash
+        run: |
+          set -euo pipefail
+          REST="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1"
+          FN="https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/agent-run"
+          user_id="$(curl --silent --show-error --fail "$REST/conversations?id=eq.$TEST_CONVERSATION_ID&select=user_id" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);if(!x[0]?.user_id)process.exit(2);process.stdout.write(x[0].user_id)})')"
+          prompts=(
+            "Oi Nino, tudo bem? Antes de qualquer coisa, quanto eu gastei com lazer este mês?"
+            "E no mês passado?"
+            "Qual dos dois meses ficou mais alto e quanto a mais?"
+            "Agora ignora lazer. Quanto gasto por mês com assinaturas normalmente?"
+            "Tá, mas me mostra mês a mês os últimos 5 meses."
+            "Qual mês foi mais fora da curva? Me explica sem economês."
+            "Agora olha alimentação no Thales nos últimos sete meses, mês por mês."
+            "Mostra isso em gráfico."
+            "Mudando de assunto: qual foi minha maior categoria de gasto neste mês?"
+            "E dela, quanto eu gastei no mês anterior?"
+            "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período."
+            "Agora separa esse total por mês."
+            "Qual caiu mais de um mês pro outro?"
+            "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários."
+          )
+          i=0
+          for prompt in "${prompts[@]}"; do
+            i=$((i+1))
+            provider_id="human_sim_${GITHUB_RUN_ID}_${i}"
+            inbound_payload="$(node -e 'process.stdout.write(JSON.stringify({provider:"waha",provider_message_id:process.argv[1],from_phone:process.argv[2],to_phone:process.argv[3],body:process.argv[4]}))' "$provider_id" "$TEST_PHONE" "$NINO_PHONE" "$prompt")"
+            inbound_resp="$(curl --silent --show-error --fail -X POST "$REST/inbound_messages" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' -H 'Prefer: return=representation' --data "$inbound_payload")"
+            inbound_id="$(node -e 'const x=JSON.parse(process.argv[1]);const r=Array.isArray(x)?x[0]:x;if(!r?.id)process.exit(2);process.stdout.write(r.id)' "$inbound_resp")"
+            history_payload="$(node -e 'process.stdout.write(JSON.stringify({conversation_id:process.argv[1],user_id:process.argv[2],direction:"inbound",body_masked:process.argv[3]}))' "$TEST_CONVERSATION_ID" "$user_id" "$prompt")"
+            curl --silent --show-error --fail -X POST "$REST/conversation_messages" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' --data "$history_payload" >/dev/null
+            run_payload="$(node -e 'process.stdout.write(JSON.stringify({user_id:process.argv[1],conversation_id:process.argv[2],inbound_message_id:process.argv[3],text:process.argv[4],to_phone:process.argv[5],source:"simulator"}))' "$user_id" "$TEST_CONVERSATION_ID" "$inbound_id" "$prompt" "$TEST_PHONE")"
+            response="$(curl --silent --show-error -X POST "$FN" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' --data "$run_payload")"
+            node -e 'let x;try{x=JSON.parse(process.argv[2])}catch{x={raw:process.argv[2]}};console.log(JSON.stringify({turn:Number(process.argv[1]),ok:x?.ok??null,reply:x?.data?.reply??x?.reply??null,error:x?.error??null}))' "$i" "$response"
+            sleep 3
+          done
