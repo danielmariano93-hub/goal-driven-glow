@@ -5,12 +5,26 @@ import type { WriteWorkflowKind } from "./WriteWorkflowManager.ts";
 
 export const ACTION_KINDS = [
   "transaction.create",
+  "transaction.update",
+  "transaction.delete",
   "transfer.create",
   "goal.create",
   "goal.contribute",
+  "goal.update",
+  "goal.delete",
   "debt.create",
+  "debt.pay",
   "card_bill.pay",
+  "category.create",
+  "category.update",
+  "category.delete",
   "split.create",
+  "split.receive",
+  "split.update",
+  "split.delete",
+  "recurring.create",
+  "recurring.update",
+  "recurring.delete",
 ] as const;
 
 export type ActionKind = typeof ACTION_KINDS[number];
@@ -23,12 +37,26 @@ export type ActionIR = {
 
 const ACTION_TO_TOOL: Record<ActionKind, WriteWorkflowKind> = {
   "transaction.create": "create_transaction_draft",
+  "transaction.update": "lifecycle_transaction_update_draft",
+  "transaction.delete": "lifecycle_transaction_delete_draft",
   "transfer.create": "create_transfer_draft",
   "goal.create": "create_goal_draft",
   "goal.contribute": "add_goal_contribution_draft",
+  "goal.update": "lifecycle_goal_update_draft",
+  "goal.delete": "lifecycle_goal_delete_draft",
   "debt.create": "create_debt_draft",
+  "debt.pay": "lifecycle_debt_payment_draft",
   "card_bill.pay": "pay_credit_card_bill_draft",
+  "category.create": "lifecycle_category_create_draft",
+  "category.update": "lifecycle_category_update_draft",
+  "category.delete": "lifecycle_category_delete_draft",
   "split.create": "create_split_expense_draft",
+  "split.receive": "lifecycle_split_receive_draft",
+  "split.update": "lifecycle_split_update_draft",
+  "split.delete": "lifecycle_split_delete_draft",
+  "recurring.create": "lifecycle_recurring_create_draft",
+  "recurring.update": "lifecycle_recurring_update_draft",
+  "recurring.delete": "lifecycle_recurring_delete_draft",
 };
 
 export function toolForAction(action: ActionKind): WriteWorkflowKind {
