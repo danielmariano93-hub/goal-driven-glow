@@ -17,7 +17,7 @@ import {
   type TurnReference,
 } from "./ConversationTurnContract.ts";
 import { detectCategory } from "./ConversationMemory.ts";
-import { deterministicConversationFastPath } from "./DeterministicConversationFastPath.ts";
+import { compileDeterministicConversationTurn } from "./DeterministicConversationCompiler.ts";
 import { interpretSemanticTurnV3 } from "../v3/SemanticInterpreterV3.ts";
 import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
@@ -267,7 +267,7 @@ function humanCapacityFallback(input: AuthorityInput, reason: string): Conversat
     inherit_focus: false,
     focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
     action: null,
-    direct_reply: "Não consegui fechar esse pedido agora. Pode me mandar a mesma mensagem novamente daqui a pouco?",
+    direct_reply: "Não consegui fechar esse pedido agora. Pode me mandar a mesma mensagem novamente?",
     clarification_question: null,
     resolution: {
       intent: "resolved", reference: "not_applicable", time: "not_applicable",
@@ -304,11 +304,11 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
 
   // High-confidence CRUD/read/write requests are compiled locally before any
   // provider call. Ambiguous language still falls through to semantic AI.
-  const deterministic = deterministicConversationFastPath({ text: input.text, memory: input.memory });
+  const deterministic = compileDeterministicConversationTurn({ text: input.text, memory: input.memory });
   if (deterministic) {
     return {
       contract: deterministic,
-      telemetry: zeroCallTelemetry("deterministic:known-financial-intent.v1"),
+      telemetry: zeroCallTelemetry("deterministic:known-financial-intent.v2"),
     };
   }
 
