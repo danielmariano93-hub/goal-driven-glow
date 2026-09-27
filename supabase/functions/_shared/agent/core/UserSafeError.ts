@@ -22,7 +22,7 @@ export const USER_SAFE_MESSAGES: Readonly<Record<UserSafeErrorCode, string>> = {
   VALIDATION_ERROR:
     "Só preciso de mais um detalhe para fazer isso certinho. Pode me explicar um pouco melhor?",
   BUSINESS_RULE_ERROR:
-    "Desse jeito eu não consigo registrar com segurança. Quer que eu te ajude a ajustar?",
+    "Para fazer isso sem bagunçar seus dados, preciso ajustar um detalhe com você. Me diga como você quer que fique e eu sigo daqui.",
   NOT_FOUND:
     "Não encontrei isso nos seus dados. Pode me dar um pouco mais de contexto?",
   PERMISSION_ERROR:
@@ -79,7 +79,9 @@ export function classifyUserSafe(e: unknown): UserSafeErrorCode {
   if (/forbidden|unauthorized|not allowed|permission|rls/.test(s)) return "PERMISSION_ERROR";
   if (/not_found|no rows|does not exist/.test(s)) return "NOT_FOUND";
   if (/invalid|missing|schema|required|malformed|bad_json/.test(s)) return "VALIDATION_ERROR";
-  if (/not_owned|transfer_not_editable|expired|empty_patch|ambiguous/.test(s)) return "BUSINESS_RULE_ERROR";
+  if (/not_owned|transfer_not_editable|expired|empty_patch|ambiguous|exceeds_balance|requires_full_schedule|not_safely_reversible|already_reversed|specialized_reversal/.test(s)) {
+    return "BUSINESS_RULE_ERROR";
+  }
   return "INTERNAL_ERROR";
 }
 
