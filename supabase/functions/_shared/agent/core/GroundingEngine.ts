@@ -19,10 +19,20 @@ export type GroundedTurn = {
 
 function clarificationFor(turn: CanonicalConversationTurnContract): string {
   const expression = turn.reference?.expression?.trim();
+  const target = turn.reference?.target;
+  if (target === "debt") return expression
+    ? `Quando você diz “${expression}”, qual dívida você quer dizer?`
+    : "Qual dívida você quer usar?";
+  if (target === "goal") return expression
+    ? `Quando você diz “${expression}”, qual meta você quer dizer?`
+    : "Qual meta você quer usar?";
+  if (target === "category") return expression
+    ? `Quando você diz “${expression}”, qual categoria você quer dizer?`
+    : "Qual categoria você quer usar?";
   if (expression) {
-    return `Quando você diz “${expression}”, a referência anterior já não está clara para mim. Pode me dizer quais itens você quer comparar?`;
+    return `Quando você diz “${expression}”, não ficou claro para mim a que você está se referindo. Pode me dizer qual é?`;
   }
-  return "A referência anterior não está clara para mim. Pode me dizer quais itens você quer usar?";
+  return "Não ficou claro para mim a que você está se referindo. Pode me dizer qual é?";
 }
 
 function preferredEntity(turn: CanonicalConversationTurnContract, memory: ConversationMemory | null): string | null {
@@ -30,6 +40,38 @@ function preferredEntity(turn: CanonicalConversationTurnContract, memory: Conver
   if (target === "category") return turn.focus.category ?? memory?.active_category ?? null;
   if (target === "merchant") return turn.focus.merchant ?? memory?.active_merchant ?? null;
   return null;
+}
+
+const WRITE_REFERENCE_SLOT: Readonly<Record<string, string>> = {
+  category: "category",
+  merchant: "merchant",
+  card: "card",
+  account: "account",
+  goal: "goal",
+  debt: "debt",
+};
+
+/**
+ * A reference already proven by the store can fill an ABSENT write slot. It
+ * never overwrites a value explicitly interpreted from the current turn.
+ */
+function bindGroundedWriteReference(
+  turn: CanonicalConversationTurnContract,
+  grounded: GroundedReference,
+): CanonicalConversationTurnContract {
+  if (turn.mode !== "write" || !turn.action) return turn;
+  if (grounded.status !== "resolved" || grounded.entity_labels.length !== 1 || !grounded.target) return turn;
+  const slot = WRITE_REFERENCE_SLOT[grounded.target];
+  if (!slot) return turn;
+  const current = turn.action.slots?.[slot];
+  if (current != null && String(current).trim()) return turn;
+  return {
+    ...turn,
+    action: {
+      ...turn.action,
+      slots: { ...turn.action.slots, [slot]: grounded.entity_labels[0] },
+    },
+  };
 }
 
 export function groundTurnContract(
@@ -68,7 +110,20 @@ export function groundTurnContract(
       clarification: clarificationFor(turn),
     };
   }
-  return { turn, reference: grounded, ok: true, clarification: null };
+  if (turn.mode === "write" && grounded.entity_labels.length !== 1) {
+    return {
+      turn,
+      reference: { ...grounded, status: "ambiguous", reason: "write_reference_requires_single_entity" },
+      ok: false,
+      clarification: clarificationFor(turn),
+    };
+  }
+  return {
+    turn: bindGroundedWriteReference(turn, grounded),
+    reference: grounded,
+    ok: true,
+    clarification: null,
+  };
 }
 
 /**
