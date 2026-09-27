@@ -54,7 +54,7 @@ export const REFERENCE_KINDS = [
 export type ReferenceKind = typeof REFERENCE_KINDS[number];
 
 export const REFERENCE_TARGETS = [
-  "category", "merchant", "card", "account", "goal", "generic",
+  "category", "merchant", "card", "account", "goal", "debt", "generic",
 ] as const;
 export type ReferenceTarget = typeof REFERENCE_TARGETS[number];
 

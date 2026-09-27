@@ -8,6 +8,10 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { runAgentTurn, type LLMTurn } from "../llm.ts";
 import { toolByName, type ToolContext, type ToolResult } from "../tools.ts";
+import { lifecycleToolByName } from "./LifecycleTools.ts";
+import { recurringLifecycleToolByName } from "./RecurringLifecycleTools.ts";
+import { goalLifecycleToolByName } from "./GoalLifecycleTools.ts";
+import { undoLifecycleToolByName } from "./UndoLifecycleTools.ts";
 import type { HistoryTurn } from "./ConversationHistory.ts";
 import { isRetryable } from "./ErrorRecovery.ts";
 import type { TurnEvidenceCache } from "./TurnEvidenceCache.ts";
@@ -21,9 +25,7 @@ export type ToolRuntimeOptions = {
   history: HistoryTurn[];
   allowedTools?: readonly string[];
   requiredTool?: string | null;
-  /** `nino_efficiency.v1` — compressão de resultado de tool no prompt. */
   evidencePack?: boolean;
-  /** Ferramenta canônica já executada pelo planner (evidência pronta). */
   preExecuted?: Array<{
     tool_name: string; args: unknown; result: unknown; ok: boolean;
     duration_ms: number; error?: string | null;
@@ -53,8 +55,8 @@ export type ToolExecution = {
 };
 
 export type RunToolOptions = {
-  timeoutMs?: number;   // per-attempt timeout (default 10s)
-  maxRetries?: number;  // additional attempts on transient error (default 1)
+  timeoutMs?: number;
+  maxRetries?: number;
 };
 
 export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -71,8 +73,6 @@ export async function runTool(
   args: any,
   opts: RunToolOptions = {},
 ): Promise<ToolExecution> {
-  // `nino_turn_cache.v1`: uma ferramenta executa UMA vez por turno. O cache vive
-  // no ToolContext do turno; WRITE nunca é reexecutada.
   const cache = (ctx as any)?.evidenceCache as TurnEvidenceCache | undefined;
   if (cache) {
     const out = await cache.run(tool_name, args, () => runToolUncached(ctx, tool_name, args, opts));
@@ -89,7 +89,14 @@ async function runToolUncached(
 ): Promise<ToolExecution> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const maxRetries = Math.max(0, opts.maxRetries ?? 1);
-  const tool = toolByName(tool_name);
+  // Lifecycle adapters are intentionally NOT exposed as free-form LLM tools.
+  // Frequency-aware recurring adapters run before the legacy lifecycle map so
+  // a valid recurring command can never fall back to the older generic shape.
+  const tool = toolByName(tool_name)
+    ?? recurringLifecycleToolByName(tool_name)
+    ?? lifecycleToolByName(tool_name)
+    ?? goalLifecycleToolByName(tool_name)
+    ?? undoLifecycleToolByName(tool_name);
   const started = Date.now();
 
   if (!tool) {
@@ -104,11 +111,10 @@ async function runToolUncached(
       const r: ToolResult = await withTimeout(tool.execute(ctx, args), timeoutMs);
       const duration_ms = Date.now() - started;
       if (r.ok) return { tool_name, args, ok: true, result: r.result, error: null, duration_ms, retries: attempt };
-      // Tool returned {ok:false}: transient errors get one retry, others bubble up.
       const rError = (r as { error?: string }).error;
       lastErr = new Error(String(rError ?? "tool_error"));
       if (!isRetryable(lastErr) || attempt === maxRetries) {
-        return { tool_name, args, ok: false, result: null,
+        return { tool_name, args, ok: false, result: (r as any).result ?? null,
                  error: String(rError ?? "tool_error").slice(0, 200), duration_ms, retries: attempt };
       }
     } catch (e) {
@@ -120,14 +126,13 @@ async function runToolUncached(
       }
     }
     attempt++;
-    await new Promise(r => setTimeout(r, 100 * attempt)); // linear backoff
+    await new Promise(r => setTimeout(r, 100 * attempt));
   }
   return { tool_name, args, ok: false, result: null,
            error: String((lastErr as any)?.message ?? "tool_error").slice(0, 200),
            duration_ms: Date.now() - started, retries: attempt };
 }
 
-/** Deterministic dedupe key used by ActionPlanner. */
 export function dedupKey(tool_name: string, args: unknown): string {
   return tool_name + ":" + stableStringify(args);
 }

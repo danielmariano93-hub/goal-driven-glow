@@ -71,7 +71,7 @@ export type AnalyticalEvidence = ComparisonEvidence | MonthlySeriesEvidence;
 export type ReferenceObject = {
   id: string;
   type: ReferenceObjectType;
-  target: "category" | "merchant" | "card" | "account" | "goal" | "generic";
+  target: "category" | "merchant" | "card" | "account" | "goal" | "debt" | "generic";
   entity_labels: string[];
   topic_id?: string | null;
   created_at: string;
@@ -178,6 +178,14 @@ function labelsFromResult(toolName: string, result: unknown): string[] {
     // the evidence payload, but never publish it as a category label.
     return category ? [category] : merchant ? [merchant] : [];
   }
+  if (tool === "get_debt_status") {
+    const facts = (r.facts ?? {}) as Record<string, any>;
+    // DebtStatus intentionally exposes the debt the user actually saw in the
+    // headline (worst overdue first, otherwise next due). Publishing exactly
+    // that label lets "essa dívida" bind to a real owned debt on the next turn.
+    const visible = facts.worst?.name ?? facts.next_due?.name ?? null;
+    return visible ? uniqueLabels([visible]) : [];
+  }
   if (tool === "compare_periods" || tool === "compare_to_monthly_average") {
     const displayed = labelsFromRows(displayedComparisonRows(r));
     if (displayed.length) return displayed;
@@ -203,9 +211,10 @@ function targetFromCall(call: any): ReferenceObject["target"] | null {
     if (String(scope.merchant ?? "").trim()) return "merchant";
     return null;
   }
+  if (tool === "get_debt_status" || tool.includes("debt")) return "debt";
 
   const appliedTarget = String(call?.result?.applied_reference_scope?.target ?? "").toLowerCase();
-  if (["category", "merchant", "card", "account", "goal"].includes(appliedTarget)) {
+  if (["category", "merchant", "card", "account", "goal", "debt"].includes(appliedTarget)) {
     return appliedTarget as ReferenceObject["target"];
   }
   const group = String(

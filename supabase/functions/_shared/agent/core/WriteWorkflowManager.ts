@@ -1,53 +1,83 @@
-// WriteWorkflowManager (`nino_write_workflow.v1`)
-//
-// Fluxo de ESCRITA multi-turno durável. A causa-raiz: a continuação de escrita
-// era heurística (reconstrução de mensagens curtas pelo histórico) e o estado
-// vivia em `agent_sessions.state` (30 min) ou no draft (15 min). No WhatsApp,
-// onde o usuário responde horas depois, o fluxo morria e a resposta caía num
-// `transaction_entry` genérico — perdendo o que ele já tinha dito.
-//
-// Aqui o fluxo é um REGISTRO: intenção declarada, slots coletados, slots que
-// faltam e próxima pergunta. Um fluxo aberto por conversa (índice único
-// parcial). Confirmação continua idempotente em `pending_confirmations`; este
-// módulo não escreve dinheiro — só carrega a intenção até estar completa.
+// WriteWorkflowManager (`nino_write_workflow.v2`)
+// Durable multi-turn WRITE state. The workflow carries semantic intent/slots
+// until a safe draft can be prepared; financial state is changed only after
+// the canonical confirmation executor runs.
 // deno-lint-ignore-file no-explicit-any
 
-/** Nomes canônicos das tools de escrita — nada de rótulo inventado. */
 export const WRITE_WORKFLOW_KINDS = [
   "create_transaction_draft",
+  "lifecycle_transaction_update_draft",
+  "lifecycle_transaction_delete_draft",
   "create_transfer_draft",
   "pay_credit_card_bill_draft",
   "create_split_expense_draft",
+  "lifecycle_split_receive_draft",
+  "lifecycle_split_update_draft",
+  "lifecycle_split_delete_draft",
   "create_goal_draft",
+  "lifecycle_goal_create_draft",
   "add_goal_contribution_draft",
+  "lifecycle_goal_update_draft",
+  "lifecycle_goal_delete_draft",
   "create_debt_draft",
+  "lifecycle_debt_payment_draft",
+  "lifecycle_category_create_draft",
+  "lifecycle_category_update_draft",
+  "lifecycle_category_delete_draft",
+  "lifecycle_recurring_create_draft",
+  "lifecycle_recurring_update_draft",
+  "lifecycle_recurring_delete_draft",
+  "lifecycle_undo_last_draft",
 ] as const;
 export type WriteWorkflowKind = typeof WRITE_WORKFLOW_KINDS[number];
 
-/** Slots OBRIGATÓRIOS por fluxo — espelham o schema real de cada tool. */
 export const REQUIRED_SLOTS: Record<WriteWorkflowKind, string[]> = {
-  create_transaction_draft: ["type", "amount"],
+  create_transaction_draft: ["amount"],
+  lifecycle_transaction_update_draft: ["transaction"],
+  lifecycle_transaction_delete_draft: ["transaction"],
   create_transfer_draft: ["amount", "from_account", "to_account"],
   pay_credit_card_bill_draft: ["amount", "card"],
   create_split_expense_draft: ["title", "total", "participants"],
+  lifecycle_split_receive_draft: ["participant"],
+  lifecycle_split_update_draft: ["split"],
+  lifecycle_split_delete_draft: ["split"],
   create_goal_draft: ["name", "target_amount"],
+  lifecycle_goal_create_draft: ["name", "target_amount"],
   add_goal_contribution_draft: ["goal", "amount"],
+  lifecycle_goal_update_draft: ["goal"],
+  lifecycle_goal_delete_draft: ["goal"],
   create_debt_draft: ["name", "original_amount"],
+  lifecycle_debt_payment_draft: ["debt"],
+  lifecycle_category_create_draft: ["name"],
+  lifecycle_category_update_draft: ["category"],
+  lifecycle_category_delete_draft: ["category"],
+  // Name/amount are universally required. Daily/weekly/monthly/yearly schedule
+  // requirements are validated by the frequency-aware recurring adapter.
+  lifecycle_recurring_create_draft: ["name", "amount"],
+  lifecycle_recurring_update_draft: ["recurring"],
+  lifecycle_recurring_delete_draft: ["recurring"],
+  lifecycle_undo_last_draft: [],
 };
 
 const SLOT_QUESTION: Record<string, string> = {
-  type: "É entrada ou saída?",
   amount: "Qual foi o valor?",
   from_account: "Sai de qual conta?",
   to_account: "Vai para qual conta?",
   card: "Qual cartão?",
+  transaction: "Qual lançamento você quer alterar?",
   title: "Qual o nome desse rolê?",
   total: "Qual o valor total?",
   participants: "Quem participou?",
+  participant: "Quem fez o pagamento?",
+  split: "Qual divisão do rolê você quer alterar?",
   name: "Qual o nome?",
   target_amount: "Qual o valor da meta?",
   goal: "Para qual meta?",
   original_amount: "Qual o valor original da dívida?",
+  debt: "Qual dívida?",
+  category: "Qual categoria?",
+  recurring: "Qual recorrência?",
+  day_of_month: "Em qual dia do mês deve acontecer?",
 };
 
 export type WriteWorkflow = {
@@ -64,7 +94,6 @@ export type WorkflowStep =
   | { status: "needs_slot"; kind: WriteWorkflowKind; slot: string; question: string }
   | { status: "abandoned"; kind: WriteWorkflowKind; reason: string };
 
-/** Limite de idas e voltas: fluxo que não fecha não fica pedindo para sempre. */
 export const MAX_WORKFLOW_TURNS = 6;
 
 export function missingSlots(workflow: WriteWorkflow): string[] {
@@ -74,7 +103,6 @@ export function missingSlots(workflow: WriteWorkflow): string[] {
   });
 }
 
-/** Próximo passo determinístico do fluxo — nunca decidido pela LLM. */
 export function nextStep(workflow: WriteWorkflow): WorkflowStep {
   if (workflow.turns >= MAX_WORKFLOW_TURNS) {
     return { status: "abandoned", kind: workflow.kind, reason: "max_turns" };
@@ -92,7 +120,6 @@ export function nextStep(workflow: WriteWorkflow): WorkflowStep {
   };
 }
 
-/** Aplica a resposta do usuário no slot que o Nino perguntou. */
 export function applySlotAnswer(
   workflow: WriteWorkflow,
   value: unknown,
@@ -105,11 +132,6 @@ export function applySlotAnswer(
     turns: workflow.turns + 1,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Persistência (`pending_write_workflows`) — TTL de 24h, um fluxo aberto por
-// conversa. Fail-open na leitura: erro de banco não pode travar o turno.
-// ---------------------------------------------------------------------------
 
 export async function loadWorkflow(
   sb: any,

@@ -143,7 +143,7 @@ describe("Conversation V2 — golden conversations longas", () => {
       },
     });
     assertValid("goal.write", c);
-    expect(toolForAction(c.action!.action)).toBe("create_goal_draft");
+    expect(toolForAction(c.action!.action)).toBe("lifecycle_goal_create_draft");
     expect(toolForAction(c.action!.action)).not.toBe("create_transaction_draft");
   });
 });

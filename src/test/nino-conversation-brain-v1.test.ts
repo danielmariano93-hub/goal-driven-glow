@@ -28,10 +28,10 @@ function contract(over: Partial<ConversationTurnContract>): ConversationTurnCont
 
 describe("Conversation Architecture V2 — contratos duros", () => {
   it("ActionIR mapeia cada domínio para uma única draft tool", () => {
-    expect(toolForAction("goal.create")).toBe("create_goal_draft");
+    expect(toolForAction("goal.create")).toBe("lifecycle_goal_create_draft");
     expect(toolForAction("transaction.create")).toBe("create_transaction_draft");
     expect(toolForAction("transfer.create")).toBe("create_transfer_draft");
-    expect(actionForTool("create_goal_draft")).toBe("goal.create");
+    expect(actionForTool("lifecycle_goal_create_draft")).toBe("goal.create");
     expect(actionForTool("create_transaction_draft")).not.toBe("goal.create");
   });
 
@@ -176,7 +176,7 @@ describe("Golden conversation — 12 turnos sem falar com o sistema", () => {
   it("o turno de meta só pode produzir goal.create", () => {
     const goalTurn = turns.find((t) => t.user.startsWith("Cria uma meta"))!.expected;
     expect(goalTurn.action?.action).toBe("goal.create");
-    expect(toolForAction(goalTurn.action!.action)).toBe("create_goal_draft");
+    expect(toolForAction(goalTurn.action!.action)).toBe("lifecycle_goal_create_draft");
   });
 });
 
