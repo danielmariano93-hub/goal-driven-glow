@@ -13,7 +13,10 @@ describe("Nino provider smoke — model authority", () => {
     expect(smoke).toContain("v3_semantic_authority: model");
     expect(smoke).toContain("v2_circuit_breaker: model");
 
-    const v3Calls = smoke.match(/interpretSemanticTurnV3\(\{[\s\S]*?\n\}\);/g) ?? [];
+    // Each call can be indented inside a conditional block. The previous regex
+    // required `});` at column zero and therefore swallowed the later fast-model
+    // transport probe into the V3 call text, producing a false positive.
+    const v3Calls = smoke.match(/interpretSemanticTurnV3\(\{[\s\S]*?\n\s*\}\);/g) ?? [];
     expect(v3Calls.length).toBeGreaterThanOrEqual(2);
     for (const call of v3Calls) {
       expect(call).toContain("model,");
