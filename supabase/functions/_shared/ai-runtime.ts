@@ -16,20 +16,29 @@ function cleanBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+function envValue(name: string): string | undefined {
+  // Edge Functions run on Deno, while Vitest/Node validates the same shared
+  // module in CI. Keep environment access portable and side-effect free.
+  const denoEnv = (globalThis as any)?.Deno?.env;
+  if (denoEnv && typeof denoEnv.get === "function") return denoEnv.get(name) ?? undefined;
+  const processEnv = (globalThis as any)?.process?.env;
+  return processEnv ? processEnv[name] : undefined;
+}
+
 function envSnapshot(): Record<string, string | undefined> {
   return {
-    NINO_AI_PROVIDER: Deno.env.get("NINO_AI_PROVIDER"),
-    NINO_AI_BASE_URL: Deno.env.get("NINO_AI_BASE_URL"),
-    NINO_AI_MODEL: Deno.env.get("NINO_AI_MODEL"),
-    NINO_AI_FAILOVER_PROVIDER: Deno.env.get("NINO_AI_FAILOVER_PROVIDER"),
-    NINO_AI_FAILOVER_MODEL: Deno.env.get("NINO_AI_FAILOVER_MODEL"),
-    NINO_AI_FAILOVER_BASE_URL: Deno.env.get("NINO_AI_FAILOVER_BASE_URL"),
-    OPENAI_BASE_URL: Deno.env.get("OPENAI_BASE_URL"),
-    OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
-    GROQ_API_KEY: Deno.env.get("GROQ_API_KEY"),
-    GROQ_BASE_URL: Deno.env.get("GROQ_BASE_URL"),
-    OPENROUTER_API_KEY: Deno.env.get("OPENROUTER_API_KEY"),
-    OPENROUTER_BASE_URL: Deno.env.get("OPENROUTER_BASE_URL"),
+    NINO_AI_PROVIDER: envValue("NINO_AI_PROVIDER"),
+    NINO_AI_BASE_URL: envValue("NINO_AI_BASE_URL"),
+    NINO_AI_MODEL: envValue("NINO_AI_MODEL"),
+    NINO_AI_FAILOVER_PROVIDER: envValue("NINO_AI_FAILOVER_PROVIDER"),
+    NINO_AI_FAILOVER_MODEL: envValue("NINO_AI_FAILOVER_MODEL"),
+    NINO_AI_FAILOVER_BASE_URL: envValue("NINO_AI_FAILOVER_BASE_URL"),
+    OPENAI_BASE_URL: envValue("OPENAI_BASE_URL"),
+    OPENAI_API_KEY: envValue("OPENAI_API_KEY"),
+    GROQ_API_KEY: envValue("GROQ_API_KEY"),
+    GROQ_BASE_URL: envValue("GROQ_BASE_URL"),
+    OPENROUTER_API_KEY: envValue("OPENROUTER_API_KEY"),
+    OPENROUTER_BASE_URL: envValue("OPENROUTER_BASE_URL"),
   };
 }
 
