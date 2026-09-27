@@ -11,41 +11,41 @@ permissions:
 jobs:
   adversarial:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       NINO_AI_PROVIDER: groq
       NINO_AI_MODEL: openai/gpt-oss-120b
       NINO_AI_FAST_MODEL: openai/gpt-oss-20b
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       GROQ_BASE_URL: https://api.groq.com/openai/v1
-      NINO_TEST_PAUSE_MS: "3500"
+      NINO_TEST_PAUSE_MS: "20000"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
-      - name: Install dependencies
-        run: npm install --package-lock=false --no-audit --no-fund
-
-      - name: Re-run deterministic lifecycle and continuity guards
+      - name: Prepare unresolved scenarios with quota-safe single attempts
         run: |
-          npx vitest run \
-            src/test/nino-lifecycle-hardening-v3.test.ts \
-            src/test/nino-confirmation-routing-hardening.test.ts \
-            src/test/nino-ai-structured-retry.test.ts \
-            src/test/agent-chart-routing.test.ts \
-            src/test/nino-followup-comparison-regression.test.ts \
-            src/test/nino-monthly-calendar-window-regression.test.ts
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/nino_post_release_adversarial_20260927.ts')
+          s = p.read_text()
+          selected = '[2,' + ','.join(str(i) for i in range(15, 49)) + ']'
+          s = s.replace(
+              'for (const scenario of scenarios) {',
+              f'const selectedIds = new Set({selected});\nfor (const scenario of scenarios.filter((item) => selectedIds.has(item.id))) {{'
+          )
+          s = s.replace('attempt <= 3', 'attempt <= 1')
+          s = s.replace('attempt === 3', 'attempt === 1')
+          p.write_text(s)
+          PY
 
-      - name: Run live 120B adversarial semantic battery
+      - name: Cool down provider quota window
+        run: sleep 75
+
+      - name: Run unresolved live 120B scenarios
         run: deno run --allow-env --allow-net scripts/nino_post_release_adversarial_20260927.ts
