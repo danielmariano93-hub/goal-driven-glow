@@ -78,6 +78,7 @@ jobs:
           src/test/nino-conversation-memory-safety.test.ts
           src/test/nino-response-preference-learning.test.ts
           src/test/continuation-contract.test.ts
+          src/test/nino-deterministic-first-resilience.test.ts
 
       # Production is fail-closed on the complete repository suite. A PR can be
       # merged manually even if a required-check rule is absent; this prevents
@@ -151,7 +152,7 @@ jobs:
           NODE
           rm -f /tmp/auth-before.json /tmp/auth-patch.json /tmp/auth-after.json
 
-      - name: Validate Groq credential, models and exact Nino transports
+      - name: Validate Groq credential and required model catalog
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
@@ -184,12 +185,10 @@ jobs:
           NODE
           rm -f /tmp/groq-models.json
 
-          # Do not add generic provider calls here. The real smoke below exercises
-          # the exact two transports production uses (V2 tool call + V3 strict
-          # Structured Outputs). Additional sequential calls previously exhausted
-          # Groq TPM in CI and blocked healthy deployments with artificial 429s.
-          echo 'Running minimal real Nino provider smoke (V2 tool-call + V3 strict output).'
-          deno run --allow-env --allow-net scripts/nino_conversation_provider_smoke.ts
+          # Automatic deploys do not perform inference. Provider smoke remains an
+          # explicit manual diagnostic so CI/deploy never consumes scarce TPM or
+          # manufactures a 429 while the production runtime is using the provider.
+          echo 'Groq credential/model catalog validated without inference.'
 
       - name: Sync Groq runtime configuration to Supabase
         env:
