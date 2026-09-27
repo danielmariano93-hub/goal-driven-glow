@@ -1,6 +1,6 @@
-// ActionSlotResolver (`nino_conversation_brain.v1`)
+// ActionSlotResolver (`nino_conversation_brain.v2`)
 // Deterministic binding for ActionIR slots. The LLM preserves human temporal
-// expressions; this module turns them into executable dates without inventing.
+// expressions; this module turns them into executable fields without inventing.
 
 import type { ActionIR } from "./ActionIR.ts";
 import { isValidCalendarDate, todaySaoPaulo } from "../parser.ts";
@@ -39,7 +39,6 @@ export function resolveTargetDateExpression(expression: unknown, now: Date = new
   if (monthName) {
     const month = MONTHS[monthName];
     const explicitYear = Number(lower.match(/\b(20\d{2})\b/)?.[1] ?? 0);
-    // Para meta, mês futuro sem ano significa o próximo mês com esse nome.
     const targetYear = explicitYear || (month < currentMonth ? year + 1 : year);
     const dd = String(lastDay(targetYear, month)).padStart(2, "0");
     return `${targetYear}-${String(month).padStart(2, "0")}-${dd}`;
@@ -47,10 +46,28 @@ export function resolveTargetDateExpression(expression: unknown, now: Date = new
   return null;
 }
 
+function normalizeTransactionSlots(slots: Record<string, unknown>): void {
+  // Semantic V3 speaks in human concepts; the draft tool speaks in canonical
+  // persistence names. This translation is deterministic and carries no new meaning.
+  if (slots.description == null && slots.merchant != null) slots.description = slots.merchant;
+  if (slots.occurred_at == null && slots.date != null) slots.occurred_at = slots.date;
+
+  const account = String(slots.account ?? "").trim();
+  const payment = String(slots.payment_method ?? "").toLowerCase();
+  if (slots.credit_card == null && (payment === "credit_card" || /\bcart[aã]o\b/i.test(account))) {
+    if (account) slots.credit_card = account.replace(/^cart[aã]o\s*/i, "").trim() || account;
+    delete slots.account;
+    slots.payment_method = "credit_card";
+  }
+  if (slots.credit_card != null) slots.payment_method = "credit_card";
+}
+
 export function bindActionSlots(ir: ActionIR, now: Date = new Date()): Record<string, unknown> {
   const slots: Record<string, unknown> = { ...(ir.slots ?? {}) };
 
-  if (ir.action === "goal.create") {
+  if (ir.action.startsWith("transaction.")) normalizeTransactionSlots(slots);
+
+  if (ir.action === "goal.create" || ir.action === "goal.update") {
     if (slots.target_amount == null && slots.amount != null) slots.target_amount = slots.amount;
     if (!slots.target_date && slots.target_date_expression) {
       const resolved = resolveTargetDateExpression(slots.target_date_expression, now);
@@ -59,9 +76,16 @@ export function bindActionSlots(ir: ActionIR, now: Date = new Date()): Record<st
     delete slots.target_date_expression;
   }
 
-  // Tool schemas use original_amount for debt principal.
   if (ir.action === "debt.create" && slots.original_amount == null && slots.amount != null) {
     slots.original_amount = slots.amount;
+  }
+
+  if (ir.action === "debt.pay" && slots.paid_at == null && slots.date != null) slots.paid_at = slots.date;
+  if (ir.action === "split.receive" && slots.paid_at == null && slots.date != null) slots.paid_at = slots.date;
+
+  if (ir.action.startsWith("recurring.")) {
+    if (slots.day_of_month == null && slots.day != null) slots.day_of_month = slots.day;
+    if (slots.frequency == null && slots.day_of_month != null) slots.frequency = "monthly";
   }
 
   return slots;
