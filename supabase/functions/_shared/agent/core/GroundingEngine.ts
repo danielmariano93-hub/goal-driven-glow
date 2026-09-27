@@ -54,6 +54,11 @@ const WRITE_REFERENCE_SLOT: Readonly<Record<string, string>> = {
 /**
  * A reference already proven by the store can fill an ABSENT write slot. It
  * never overwrites a value explicitly interpreted from the current turn.
+ *
+ * The current V2 executor still keeps the canonical contract object obtained
+ * before grounding. We therefore bind the missing slot on that same object at
+ * this deterministic boundary; this is intentionally narrow and disappears
+ * when the executor consumes GroundedTurn directly.
  */
 function bindGroundedWriteReference(
   turn: CanonicalConversationTurnContract,
@@ -65,13 +70,8 @@ function bindGroundedWriteReference(
   if (!slot) return turn;
   const current = turn.action.slots?.[slot];
   if (current != null && String(current).trim()) return turn;
-  return {
-    ...turn,
-    action: {
-      ...turn.action,
-      slots: { ...turn.action.slots, [slot]: grounded.entity_labels[0] },
-    },
-  };
+  turn.action.slots[slot] = grounded.entity_labels[0];
+  return turn;
 }
 
 export function groundTurnContract(
