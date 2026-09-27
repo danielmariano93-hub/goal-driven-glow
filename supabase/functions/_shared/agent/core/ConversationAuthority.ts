@@ -135,8 +135,8 @@ function temporalExpenseFastPath(input: AuthorityInput): ConversationBrainOutcom
   const category = input.memory.active_category ?? null;
   const merchant = input.memory.active_merchant ?? null;
   const filters = [
-    ...(category ? [{ field: "category", op: "eq", value: category }] : []),
-    ...(merchant ? [{ field: "merchant", op: "eq", value: merchant }] : []),
+    ...(category ? [{ field: "category" as const, op: "eq" as const, value: category }] : []),
+    ...(merchant ? [{ field: "merchant" as const, op: "eq" as const, value: merchant }] : []),
   ];
   const subject = category ? ` com ${category}` : merchant ? ` em ${merchant}` : "";
   const contract = normalizeConversationTurnContract({
@@ -179,6 +179,31 @@ function temporalExpenseFastPath(input: AuthorityInput): ConversationBrainOutcom
     advisory_kind: null,
   });
   return contract ? { contract, telemetry: zeroCallTelemetry("deterministic:temporal-expense-followup.v1") } : null;
+}
+
+function safeUndoFastPath(input: AuthorityInput): ConversationBrainOutcome | null {
+  const text = String(input.text ?? "").trim();
+  if (!/^\s*(?:nino[,\s]+)?(?:desfaz(?:\s+isso|\s+o\s+[uú]ltimo|\s+a\s+[uú]ltima)?|desfa[cç]a(?:\s+isso)?|desfazer(?:\s+a\s+[uú]ltima\s+a[cç][aã]o)?|volta(?:r)?\s+atr[aá]s)\s*[?.!]*\s*$/i.test(text)) return null;
+  const contract = normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: "new_request",
+    mode: "write",
+    domain: "financial_write",
+    canonical_request: "Desfazer com segurança a última ação confirmada, se houver uma reversão exata suportada.",
+    inherit_focus: false,
+    focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
+    action: { action: "undo.last", slots: {} },
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved", reference: "not_applicable", time: "not_applicable",
+      entity: "not_applicable", action: "resolved",
+    },
+    reference: null,
+    financial_read: null,
+    advisory_kind: null,
+  });
+  return contract ? { contract, telemetry: zeroCallTelemetry("deterministic:safe-undo.v1") } : null;
 }
 
 function referenceFromV3(turn: TurnSpecV3): TurnReference | null {
@@ -227,17 +252,19 @@ function circuitBreakerTelemetry(
 }
 
 export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
-  const authorityEnabled = input.user_id
-    ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
-    : false;
-  if (!authorityEnabled) return await interpretConversationTurnV2(input);
-
-  // Deterministic no-LLM shortcuts are deliberately narrow and evidence/state
-  // backed. Anything outside these exact shapes continues through V3 authority.
+  // These shortcuts are independent of V3 rollout. They are narrow,
+  // deterministic and backed by stored evidence/state, so every user benefits.
   const chart = contextualMonthlyChartFastPath(input);
   if (chart) return chart;
   const temporal = temporalExpenseFastPath(input);
   if (temporal) return temporal;
+  const undo = safeUndoFastPath(input);
+  if (undo) return undo;
+
+  const authorityEnabled = input.user_id
+    ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
+    : false;
+  if (!authorityEnabled) return await interpretConversationTurnV2(input);
 
   const v3 = await interpretSemanticTurnV3({
     text: input.text,
