@@ -3,64 +3,142 @@ name: Temp Nino Human Simulation
 on:
   push:
     branches: [test/nino-human-sim-20260926]
+    paths-ignore:
+      - 'human-sim-results.json'
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  NINO_AI_PROVIDER: groq
+  NINO_AI_MODEL: openai/gpt-oss-120b
 
 jobs:
   simulate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      SUPABASE_PROJECT_REF: amjanjlvsatubxdreyep
-      TEST_CONVERSATION_ID: 2b4d8c54-fd6c-4444-9ec0-b3c792ea3645
-      TEST_PHONE: '+5511000000000'
-      NINO_PHONE: '+5511000000001'
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: test/nino-human-sim-20260926
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
-      - name: Validate test credential
+      - name: Run human-like semantic scenarios against the production model
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo 'Missing SUPABASE_SERVICE_ROLE_KEY repository secret' && exit 2)
-          echo 'Credential available.'
+          test -n "$GROQ_API_KEY"
+          cat > /tmp/human_sim.ts <<'TS'
+          import { interpretSemanticTurnV3 } from "./supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts";
+          import { bridgeTurnSpecV3ToRuntime } from "./supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts";
 
-      - name: Run read-only human-like conversation
+          const sleep = (ms:number) => new Promise(r => setTimeout(r, ms));
+          const scenarios = [
+            {
+              id: "compound_social_financial",
+              text: "Oi Nino, tudo bem? Antes de qualquer coisa, quanto eu gastei com lazer este mês?",
+              history: "",
+              context: { conversation_state: {} }
+            },
+            {
+              id: "followup_previous_month",
+              text: "E no mês passado?",
+              history: "Usuário: Quanto eu gastei com lazer este mês?\nNino: Você gastou R$ X em Lazer neste mês.",
+              context: { conversation_state: { current_topic: "gastos em Lazer", active_category: "Lazer", active_period: { from: "2026-09-01", to: "2026-09-26" } } }
+            },
+            {
+              id: "typical_to_monthly_series",
+              text: "Tá, mas me mostra mês a mês os últimos 5 meses.",
+              history: "Usuário: Quanto gasto por mês com assinaturas normalmente?\nNino: Seu gasto típico com Assinaturas é de R$ X por mês.",
+              context: { conversation_state: { current_topic: "gasto típico com Assinaturas", active_category: "Assinaturas" } }
+            },
+            {
+              id: "merchant_category_order_words",
+              text: "Agora olha no Thales com Alimentação nos últimos sete meses, mês por mês.",
+              history: "",
+              context: { conversation_state: {} }
+            },
+            {
+              id: "chart_followup",
+              text: "Mostra isso em gráfico.",
+              history: "Usuário: Quanto gastei com Alimentação no Thales mês a mês nos últimos 7 meses?\nNino: Aqui está a série mensal solicitada.",
+              context: { conversation_state: { current_topic: "série mensal de Alimentação no Thales", active_category: "Alimentação", active_merchant: "Thales", active_period: { from: "2026-03-01", to: "2026-09-26" }, active_references: [{ target: "resultado mensal anterior", entity_labels: ["Alimentação", "Thales"], source_tool: "spending_timeseries_monthly" }] } }
+            },
+            {
+              id: "pronoun_reference",
+              text: "E dela, quanto eu gastei no mês anterior?",
+              history: "Usuário: Qual foi minha maior categoria de gasto neste mês?\nNino: A maior categoria foi Moradia.",
+              context: { conversation_state: { current_topic: "maior categoria de gasto", active_category: "Moradia", active_references: [{ target: "Moradia", entity_labels: ["Moradia"], source_tool: "category_ranking" }] } }
+            },
+            {
+              id: "explicit_interval_total",
+              text: "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período.",
+              history: "",
+              context: { conversation_state: {} }
+            },
+            {
+              id: "emotional_nonfinancial",
+              text: "Estou me sentindo atento hoje.",
+              history: "",
+              context: { conversation_state: {} }
+            },
+            {
+              id: "financial_write_complete",
+              text: "Registre um gasto de R$ 50 no mercado hoje.",
+              history: "",
+              context: { conversation_state: {} }
+            },
+            {
+              id: "human_summary_followup",
+              text: "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários.",
+              history: "Usuário: Quanto gastei com Lazer este mês?\nNino: R$ X.\nUsuário: E no mês passado?\nNino: R$ Y.\nUsuário: Quanto gasto por mês com Assinaturas normalmente?\nNino: R$ Z.",
+              context: { conversation_state: { current_topic: "resumo da conversa" } }
+            }
+          ];
+
+          const results:any[] = [];
+          for (const s of scenarios) {
+            const out = await interpretSemanticTurnV3({
+              text: s.text,
+              history_text: s.history,
+              context_text: JSON.stringify(s.context),
+              model: Deno.env.get("NINO_AI_MODEL") || "openai/gpt-oss-120b",
+              provider_override: "groq",
+            });
+            let bridge:any = null;
+            if (out.turn) bridge = bridgeTurnSpecV3ToRuntime(out.turn);
+            results.push({
+              id: s.id,
+              text: s.text,
+              ok: Boolean(out.turn),
+              violations: out.violations,
+              telemetry: { model: out.telemetry.model, error: out.telemetry.error ?? null, llm_calls: out.telemetry.llm_calls },
+              turn: out.turn ? {
+                kind: out.turn.kind,
+                dialogue_act: out.turn.dialogue_act,
+                tasks: out.turn.tasks,
+                references: out.turn.references,
+                clarification: out.turn.clarification,
+                direct_reply: out.turn.direct_reply,
+              } : null,
+              bridge: bridge ? { ok: bridge.ok, errors: bridge.errors ?? [], contract: bridge.ok ? bridge.contract : null } : null,
+            });
+            await sleep(18000);
+          }
+          await Deno.writeTextFile("human-sim-results.json", JSON.stringify({ generated_at: new Date().toISOString(), results }, null, 2));
+          TS
+          deno run --allow-env --allow-net --allow-read --allow-write /tmp/human_sim.ts
+
+      - name: Commit simulation results to test branch
         shell: bash
         run: |
           set -euo pipefail
-          REST="https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1"
-          FN="https://$SUPABASE_PROJECT_REF.supabase.co/functions/v1/agent-run"
-          user_id="$(curl --silent --show-error --fail "$REST/conversations?id=eq.$TEST_CONVERSATION_ID&select=user_id" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{const x=JSON.parse(s);if(!x[0]?.user_id)process.exit(2);process.stdout.write(x[0].user_id)})')"
-          prompts=(
-            "Oi Nino, tudo bem? Antes de qualquer coisa, quanto eu gastei com lazer este mês?"
-            "E no mês passado?"
-            "Qual dos dois meses ficou mais alto e quanto a mais?"
-            "Agora ignora lazer. Quanto gasto por mês com assinaturas normalmente?"
-            "Tá, mas me mostra mês a mês os últimos 5 meses."
-            "Qual mês foi mais fora da curva? Me explica sem economês."
-            "Agora olha alimentação no Thales nos últimos sete meses, mês por mês."
-            "Mostra isso em gráfico."
-            "Mudando de assunto: qual foi minha maior categoria de gasto neste mês?"
-            "E dela, quanto eu gastei no mês anterior?"
-            "Quanto eu gastei entre abril e setembro com lazer? Não quero média, quero o total do período."
-            "Agora separa esse total por mês."
-            "Qual caiu mais de um mês pro outro?"
-            "Resume o que descobrimos até aqui em 5 linhas, sem repetir números desnecessários."
-          )
-          i=0
-          for prompt in "${prompts[@]}"; do
-            i=$((i+1))
-            provider_id="human_sim_${GITHUB_RUN_ID}_${i}"
-            inbound_payload="$(node -e 'process.stdout.write(JSON.stringify({provider:"waha",provider_message_id:process.argv[1],from_phone:process.argv[2],to_phone:process.argv[3],body:process.argv[4]}))' "$provider_id" "$TEST_PHONE" "$NINO_PHONE" "$prompt")"
-            inbound_resp="$(curl --silent --show-error --fail -X POST "$REST/inbound_messages" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' -H 'Prefer: return=representation' --data "$inbound_payload")"
-            inbound_id="$(node -e 'const x=JSON.parse(process.argv[1]);const r=Array.isArray(x)?x[0]:x;if(!r?.id)process.exit(2);process.stdout.write(r.id)' "$inbound_resp")"
-            history_payload="$(node -e 'process.stdout.write(JSON.stringify({conversation_id:process.argv[1],user_id:process.argv[2],direction:"inbound",body_masked:process.argv[3]}))' "$TEST_CONVERSATION_ID" "$user_id" "$prompt")"
-            curl --silent --show-error --fail -X POST "$REST/conversation_messages" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' --data "$history_payload" >/dev/null
-            run_payload="$(node -e 'process.stdout.write(JSON.stringify({user_id:process.argv[1],conversation_id:process.argv[2],inbound_message_id:process.argv[3],text:process.argv[4],to_phone:process.argv[5],source:"simulator"}))' "$user_id" "$TEST_CONVERSATION_ID" "$inbound_id" "$prompt" "$TEST_PHONE")"
-            response="$(curl --silent --show-error -X POST "$FN" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' --data "$run_payload")"
-            node -e 'let x;try{x=JSON.parse(process.argv[2])}catch{x={raw:process.argv[2]}};console.log(JSON.stringify({turn:Number(process.argv[1]),ok:x?.ok??null,reply:x?.data?.reply??x?.reply??null,error:x?.error??null}))' "$i" "$response"
-            sleep 3
-          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add human-sim-results.json
+          git commit -m "test: capture Nino human simulation results"
+          git push origin HEAD:test/nino-human-sim-20260926
