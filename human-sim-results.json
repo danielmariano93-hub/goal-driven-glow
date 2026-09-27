@@ -1,72 +1,36 @@
 {
-  "generated_at": "2026-09-27T00:53:39.169Z",
+  "generated_at": "2026-09-27T01:06:41.613Z",
   "results": [
     {
-      "id": "followup_previous_month_a",
-      "text": "E no mês passado?",
-      "ok": false,
-      "violations": [],
-      "telemetry": {
-        "model": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "error": "structured_call_gateway_429",
-        "llm_calls": 3
-      },
-      "turn": null,
-      "bridge": null
-    },
-    {
-      "id": "followup_previous_month_b",
-      "text": "E no mês anterior?",
+      "id": "create_goal",
+      "text": "Nino, cria uma meta chamada Viagem Japão de R$ 25 mil para dezembro de 2027.",
       "ok": true,
       "violations": [],
       "telemetry": {
         "model": "openai/gpt-oss-120b",
         "provider": "groq",
         "error": null,
-        "llm_calls": 1
+        "llm_calls": 1,
+        "latency_ms": 1891
       },
       "turn": {
         "version": "nino_turn_spec.v3",
-        "act": "follow_up",
-        "canonical_request": "Quanto eu gastei com lazer no mês anterior?",
+        "act": "new_request",
+        "canonical_request": "cria uma meta chamada Viagem Japão de R$ 25 mil para dezembro de 2027",
         "inherit_topic": true,
-        "references": [
-          {
-            "kind": "entity_reference",
-            "target": "category",
-            "expression": "Lazer",
-            "source": "memory"
-          }
-        ],
+        "references": [],
         "kind": "task",
         "response_intent": "execute",
         "tasks": [
           {
-            "kind": "financial_query",
-            "family": "financial.query",
-            "metric": "expense_amount",
-            "operation": "sum",
-            "group_by": [],
-            "filters": [
-              {
-                "field": "category",
-                "entity": {
-                  "value": "Lazer",
-                  "source": "memory",
-                  "source_span": null
-                }
-              }
-            ],
-            "periods": [
-              {
-                "value": "mês anterior",
-                "source": "current_turn",
-                "source_span": null
-              }
-            ],
-            "limit": null,
-            "comparison": null
+            "kind": "financial_write",
+            "family": "financial.write",
+            "action": "goal.create",
+            "slots": {
+              "name": "Viagem Japão",
+              "target_amount": "25000",
+              "target_date": "2027-12"
+            }
           }
         ]
       },
@@ -75,71 +39,659 @@
         "errors": [],
         "contract": {
           "version": "conversation_turn_contract.v2",
-          "act": "follow_up",
-          "mode": "read",
-          "domain": "financial_read",
-          "canonical_request": "Quanto eu gastei com lazer no mês anterior?",
+          "act": "new_request",
+          "mode": "write",
+          "domain": "financial_write",
+          "canonical_request": "cria uma meta chamada Viagem Japão de R$ 25 mil para dezembro de 2027",
           "inherit_focus": true,
           "focus": {
-            "category": "Lazer",
+            "category": null,
             "merchant": null,
             "goal": null,
-            "period_expression": "mês anterior",
-            "period_expressions": [
-              "mês anterior"
-            ]
+            "period_expression": null,
+            "period_expressions": []
           },
-          "action": null,
+          "action": {
+            "version": "action_ir.v1",
+            "action": "goal.create",
+            "slots": {
+              "name": "Viagem Japão",
+              "target_amount": "25000",
+              "target_date": "2027-12"
+            }
+          },
           "direct_reply": null,
           "clarification_question": null,
           "resolution": {
             "intent": "resolved",
-            "reference": "resolved",
-            "time": "resolved",
-            "entity": "resolved",
-            "action": "not_applicable"
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "resolved"
           },
           "reference": null,
-          "financial_read": {
-            "intent": "lookup",
-            "queries": [
-              {
-                "metric": "expense_amount",
-                "operation": "sum",
-                "group_by": [],
-                "filters": [
-                  {
-                    "field": "category",
-                    "op": "eq",
-                    "value": "Lazer"
-                  }
-                ],
-                "limit": null,
-                "comparison_direction": "any",
-                "comparison_baseline": "period",
-                "comparison_baseline_window": null,
-                "comparison_baseline_expression": null,
-                "comparison_target_expression": null
-              }
-            ]
-          },
+          "financial_read": null,
           "advisory_kind": null
         }
       }
     },
     {
-      "id": "chart_followup_isolated",
-      "text": "Mostra isso em gráfico.",
+      "id": "goal_contribute",
+      "text": "Coloca R$ 500 na meta Viagem Japão hoje.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_400",
+        "llm_calls": 3,
+        "latency_ms": 2771
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "create_split",
+      "text": "Dividi um jantar de R$ 480 com Ana, Lucas e Pedro. Divide igualmente entre os quatro e cria a divisão do rolê.",
       "ok": false,
       "violations": [],
       "telemetry": {
         "model": "openai/gpt-oss-120b",
         "provider": "groq",
         "error": "structured_call_gateway_429",
-        "llm_calls": 3
+        "llm_calls": 3,
+        "latency_ms": 11015
       },
       "turn": null,
       "bridge": null
+    },
+    {
+      "id": "create_transaction",
+      "text": "Registra R$ 89,90 de Uber hoje no cartão Itaú e coloca em Transporte.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 11146
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Registra R$ 89,90 de Uber hoje no cartão Itaú e coloca em Transporte.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "task",
+        "response_intent": "execute",
+        "tasks": [
+          {
+            "kind": "financial_write",
+            "family": "financial.write",
+            "action": "transaction.create",
+            "slots": {
+              "amount": "89.90",
+              "merchant": "Uber",
+              "date": "hoje",
+              "account": "cartão Itaú",
+              "category": "Transporte"
+            }
+          }
+        ]
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "write",
+          "domain": "financial_write",
+          "canonical_request": "Registra R$ 89,90 de Uber hoje no cartão Itaú e coloca em Transporte.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": {
+            "version": "action_ir.v1",
+            "action": "transaction.create",
+            "slots": {
+              "amount": "89.90",
+              "merchant": "Uber",
+              "date": "hoje",
+              "account": "cartão Itaú",
+              "category": "Transporte"
+            }
+          },
+          "direct_reply": null,
+          "clarification_question": null,
+          "resolution": {
+            "intent": "resolved",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "resolved"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "create_transfer",
+      "text": "Transfere R$ 300 da conta Nubank para a conta Itaú hoje.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 11252
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Transfere R$ 300 da conta Nubank para a conta Itaú hoje.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "task",
+        "response_intent": "execute",
+        "tasks": [
+          {
+            "kind": "financial_write",
+            "family": "financial.write",
+            "action": "transfer.create",
+            "slots": {
+              "amount": "300",
+              "from_account": "Nubank",
+              "to_account": "Itaú",
+              "date": "hoje"
+            }
+          }
+        ]
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "write",
+          "domain": "financial_write",
+          "canonical_request": "Transfere R$ 300 da conta Nubank para a conta Itaú hoje.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": {
+            "version": "action_ir.v1",
+            "action": "transfer.create",
+            "slots": {
+              "amount": "300",
+              "from_account": "Nubank",
+              "to_account": "Itaú",
+              "date": "hoje"
+            }
+          },
+          "direct_reply": null,
+          "clarification_question": null,
+          "resolution": {
+            "intent": "resolved",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "resolved"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "create_debt",
+      "text": "Registra uma dívida de R$ 1.200 que eu tenho com o Lucas, vencendo em 15 de outubro.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "structured_call_gateway_429",
+        "llm_calls": 1,
+        "latency_ms": 157
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "pay_card_bill",
+      "text": "Registra o pagamento de R$ 2.350 da fatura do cartão Itaú hoje.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 2773
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Registra o pagamento de R$ 2.350 da fatura do cartão Itaú hoje.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "task",
+        "response_intent": "execute",
+        "tasks": [
+          {
+            "kind": "financial_write",
+            "family": "financial.write",
+            "action": "card_bill.pay",
+            "slots": {
+              "amount": "2350",
+              "card": "Itaú",
+              "date": "today"
+            }
+          }
+        ]
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "write",
+          "domain": "financial_write",
+          "canonical_request": "Registra o pagamento de R$ 2.350 da fatura do cartão Itaú hoje.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": {
+            "version": "action_ir.v1",
+            "action": "card_bill.pay",
+            "slots": {
+              "amount": "2350",
+              "card": "Itaú",
+              "date": "today"
+            }
+          },
+          "direct_reply": null,
+          "clarification_question": null,
+          "resolution": {
+            "intent": "resolved",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "resolved"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "delete_transaction",
+      "text": "Apaga o lançamento de R$ 89,90 da Uber que eu acabei de registrar.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 1,
+        "latency_ms": 715
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Apaga o lançamento de R$ 89,90 da Uber que eu acabei de registrar.",
+        "inherit_topic": true,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você gostaria que eu removesse esse lançamento?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Apaga o lançamento de R$ 89,90 da Uber que eu acabei de registrar.",
+          "inherit_focus": true,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você gostaria que eu removesse esse lançamento?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "edit_goal",
+      "text": "Muda a meta Viagem Japão para R$ 30 mil e prazo junho de 2028.",
+      "ok": false,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": "semantic_interpreter_v3_contract_invalid",
+        "llm_calls": 1,
+        "latency_ms": 5255
+      },
+      "turn": null,
+      "bridge": null
+    },
+    {
+      "id": "delete_goal",
+      "text": "Exclui a meta Viagem Japão.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 11030
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Excluir a meta Viagem Japão.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você confirma que deseja excluir a meta \"Viagem Japão\"?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Excluir a meta Viagem Japão.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você confirma que deseja excluir a meta \"Viagem Japão\"?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "create_category",
+      "text": "Cria uma categoria chamada Pets com o emoji de cachorro.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 11305
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Cria uma categoria chamada Pets com o emoji de cachorro.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Em qual conta ou aplicativo você deseja criar a categoria Pets?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Cria uma categoria chamada Pets com o emoji de cachorro.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Em qual conta ou aplicativo você deseja criar a categoria Pets?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "edit_category",
+      "text": "Renomeia a categoria Pets para Pet e troca o emoji para um coração.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 1,
+        "latency_ms": 668
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Renomear a categoria \"Pets\" para \"Pet\" e mudar o emoji associado para um coração.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você gostaria de atualizar o nome e o emoji da categoria nos seus registros financeiros?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Renomear a categoria \"Pets\" para \"Pet\" e mudar o emoji associado para um coração.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você gostaria de atualizar o nome e o emoji da categoria nos seus registros financeiros?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "delete_category",
+      "text": "Exclui a categoria Pet.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 2,
+        "latency_ms": 3082
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Exclui a categoria Pet.",
+        "inherit_topic": false,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você gostaria de remover a categoria \"Pet\" de seus registros de despesas?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Exclui a categoria Pet.",
+          "inherit_focus": false,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você gostaria de remover a categoria \"Pet\" de seus registros de despesas?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
+    },
+    {
+      "id": "ambiguous_delete",
+      "text": "Apaga aquilo de ontem.",
+      "ok": true,
+      "violations": [],
+      "telemetry": {
+        "model": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "error": null,
+        "llm_calls": 1,
+        "latency_ms": 799
+      },
+      "turn": {
+        "version": "nino_turn_spec.v3",
+        "act": "new_request",
+        "canonical_request": "Apagar o lançamento de farmácia de ontem.",
+        "inherit_topic": true,
+        "references": [],
+        "kind": "clarification",
+        "response_intent": "clarification",
+        "question": "Você quer remover o gasto de R$ 45 da farmácia registrado ontem?"
+      },
+      "bridge": {
+        "ok": true,
+        "errors": [],
+        "contract": {
+          "version": "conversation_turn_contract.v2",
+          "act": "new_request",
+          "mode": "clarify",
+          "domain": "conversation",
+          "canonical_request": "Apagar o lançamento de farmácia de ontem.",
+          "inherit_focus": true,
+          "focus": {
+            "category": null,
+            "merchant": null,
+            "goal": null,
+            "period_expression": null,
+            "period_expressions": []
+          },
+          "action": null,
+          "direct_reply": null,
+          "clarification_question": "Você quer remover o gasto de R$ 45 da farmácia registrado ontem?",
+          "resolution": {
+            "intent": "ambiguous",
+            "reference": "not_applicable",
+            "time": "not_applicable",
+            "entity": "not_applicable",
+            "action": "not_applicable"
+          },
+          "reference": null,
+          "financial_read": null,
+          "advisory_kind": null
+        }
+      }
     }
   ]
 }
