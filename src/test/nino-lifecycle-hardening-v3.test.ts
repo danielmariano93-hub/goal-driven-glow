@@ -9,6 +9,7 @@ import {
 } from "../../supabase/functions/_shared/agent/core/ConversationReferenceStore";
 import { groundTurnContract } from "../../supabase/functions/_shared/agent/core/GroundingEngine";
 import { normalizeConversationTurnContract } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract";
+import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
 
 describe("Nino lifecycle hardening — linguagem humana", () => {
   it("bloqueia exatamente o tipo de resposta técnica que vazou no WhatsApp", () => {
@@ -83,5 +84,92 @@ describe("Nino lifecycle hardening — referência de dívida", () => {
     expect(grounded.ok).toBe(true);
     expect(grounded.turn.action?.slots.debt).toBe("Empréstimo Lucas");
     expect(grounded.turn.action?.slots.amount).toBe("300");
+  });
+
+  it("V3 não perde 'essa dívida' ao passar para a execução", () => {
+    const bridged = bridgeTurnSpecV3ToRuntime({
+      version: "turn_spec.v3",
+      kind: "task",
+      act: "follow_up",
+      response_intent: "execute",
+      canonical_request: "Pagar 300 reais dessa dívida",
+      inherit_topic: true,
+      references: [{
+        kind: "entity_reference",
+        target: "debt",
+        expression: "essa dívida",
+        source: "current_turn",
+      }],
+      tasks: [{
+        kind: "financial_write",
+        family: "financial.write",
+        action: "debt.pay",
+        slots: { amount: "300" },
+      }],
+    } as any);
+
+    expect(bridged.ok).toBe(true);
+    if (!bridged.ok) return;
+    expect(bridged.contract.reference).toMatchObject({
+      kind: "previous_entity",
+      target: "debt",
+      expression: "essa dívida",
+    });
+    expect(bridged.contract.action?.action).toBe("debt.pay");
+  });
+});
+
+describe("Nino lifecycle hardening — ações compostas", () => {
+  it("criar meta + aporte inicial vira uma única ação atômica", () => {
+    const bridged = bridgeTurnSpecV3ToRuntime({
+      version: "turn_spec.v3",
+      kind: "task",
+      act: "new_request",
+      response_intent: "execute",
+      canonical_request: "Criar meta Viagem de 20 mil e já colocar 500 nela",
+      inherit_topic: false,
+      references: [],
+      tasks: [
+        {
+          kind: "financial_write",
+          family: "financial.write",
+          action: "goal.create",
+          slots: { name: "Viagem", target_amount: "20000" },
+        },
+        {
+          kind: "financial_write",
+          family: "financial.write",
+          action: "goal.contribute",
+          slots: { goal: "Viagem", amount: "500" },
+        },
+      ],
+    } as any);
+
+    expect(bridged.ok).toBe(true);
+    if (!bridged.ok) return;
+    expect(bridged.contract.action?.action).toBe("goal.create");
+    expect(bridged.contract.action?.slots).toMatchObject({
+      name: "Viagem",
+      target_amount: "20000",
+      initial_contribution: "500",
+    });
+  });
+
+  it("não executa parcialmente duas escritas sem compilador atômico", () => {
+    const bridged = bridgeTurnSpecV3ToRuntime({
+      version: "turn_spec.v3",
+      kind: "task",
+      act: "new_request",
+      response_intent: "execute",
+      canonical_request: "Registrar um gasto e criar uma categoria",
+      inherit_topic: false,
+      references: [],
+      tasks: [
+        { kind: "financial_write", family: "financial.write", action: "transaction.create", slots: { amount: "50" } },
+        { kind: "financial_write", family: "financial.write", action: "category.create", slots: { name: "Teste" } },
+      ],
+    } as any);
+
+    expect(bridged.ok).toBe(false);
   });
 });
