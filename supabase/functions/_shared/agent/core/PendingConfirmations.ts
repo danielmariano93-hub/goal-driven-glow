@@ -16,7 +16,7 @@ export type PendingRow = {
 
 const LIFECYCLE_KINDS = new Set([
   "debt_payment",
-  "goal_create", "goal_update", "goal_delete",
+  "goal_update", "goal_delete",
   "category_create", "category_update", "category_delete",
   "split_receive", "split_update", "split_delete",
   "recurring_create", "recurring_update", "recurring_delete",
@@ -27,6 +27,7 @@ const LIFECYCLE_KINDS = new Set([
 export function confirmationExecutor(kind: string): string {
   if (kind === "shared_expense") return "agent_execute_shared_expense_confirmation";
   if (kind === "transaction") return "agent_execute_transaction_confirmation_v2";
+  if (kind === "goal_create") return "agent_execute_goal_create_confirmation_v1";
   if (LIFECYCLE_KINDS.has(kind)) return "agent_execute_lifecycle_confirmation_v1";
   return "agent_execute_confirmation";
 }
