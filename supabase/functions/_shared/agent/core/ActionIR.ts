@@ -25,6 +25,7 @@ export const ACTION_KINDS = [
   "recurring.create",
   "recurring.update",
   "recurring.delete",
+  "undo.last",
 ] as const;
 
 export type ActionKind = typeof ACTION_KINDS[number];
@@ -59,6 +60,7 @@ const ACTION_TO_TOOL: Record<ActionKind, WriteWorkflowKind> = {
   "recurring.create": "lifecycle_recurring_create_draft",
   "recurring.update": "lifecycle_recurring_update_draft",
   "recurring.delete": "lifecycle_recurring_delete_draft",
+  "undo.last": "lifecycle_undo_last_draft",
 };
 
 export function toolForAction(action: ActionKind): WriteWorkflowKind {
