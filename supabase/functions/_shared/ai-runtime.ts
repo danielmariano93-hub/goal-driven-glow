@@ -21,6 +21,9 @@ function envSnapshot(): Record<string, string | undefined> {
     NINO_AI_PROVIDER: Deno.env.get("NINO_AI_PROVIDER"),
     NINO_AI_BASE_URL: Deno.env.get("NINO_AI_BASE_URL"),
     NINO_AI_MODEL: Deno.env.get("NINO_AI_MODEL"),
+    NINO_AI_FAILOVER_PROVIDER: Deno.env.get("NINO_AI_FAILOVER_PROVIDER"),
+    NINO_AI_FAILOVER_MODEL: Deno.env.get("NINO_AI_FAILOVER_MODEL"),
+    NINO_AI_FAILOVER_BASE_URL: Deno.env.get("NINO_AI_FAILOVER_BASE_URL"),
     OPENAI_BASE_URL: Deno.env.get("OPENAI_BASE_URL"),
     OPENAI_API_KEY: Deno.env.get("OPENAI_API_KEY"),
     GROQ_API_KEY: Deno.env.get("GROQ_API_KEY"),
@@ -34,8 +37,6 @@ export function resolveAiProvider(
   env: Record<string, string | undefined> = envSnapshot(),
   options: ResolveAiProviderOptions = {},
 ): AiProviderConfig | null {
-  // Provider selection is explicit. Production sets NINO_AI_PROVIDER=groq;
-  // merely having another provider key in the environment must never reroute traffic.
   const requested = String(options.provider ?? env.NINO_AI_PROVIDER ?? "").trim().toLowerCase();
   const requestedModel = String(options.model ?? env.NINO_AI_MODEL ?? "").trim();
   const openAiKey = String(env.OPENAI_API_KEY ?? "").trim();
@@ -83,6 +84,33 @@ export function resolveAiProvider(
   };
 }
 
+/**
+ * Optional real provider failover. It is deliberately opt-in: merely having a
+ * second provider key never creates traffic/cost. Production must set both
+ * NINO_AI_FAILOVER_PROVIDER and NINO_AI_FAILOVER_MODEL.
+ */
+export function resolveAiFailoverProvider(
+  env: Record<string, string | undefined> = envSnapshot(),
+): AiProviderConfig | null {
+  const provider = String(env.NINO_AI_FAILOVER_PROVIDER ?? "").trim().toLowerCase();
+  const model = String(env.NINO_AI_FAILOVER_MODEL ?? "").trim();
+  if (!provider || !model) return null;
+  const failEnv = {
+    ...env,
+    NINO_AI_PROVIDER: provider,
+    NINO_AI_MODEL: model,
+    // Never leak the primary provider's custom base URL into the secondary.
+    NINO_AI_BASE_URL: env.NINO_AI_FAILOVER_BASE_URL || "",
+  };
+  const config = resolveAiProvider(failEnv, { provider, model });
+  if (!config) return null;
+  const primaryProvider = String(env.NINO_AI_PROVIDER ?? "").trim().toLowerCase();
+  const primaryModel = String(env.NINO_AI_MODEL ?? "").trim().replace(/^openai\//i, "");
+  const secondaryModel = String(config.modelOverride ?? "").trim().replace(/^openai\//i, "");
+  if (config.provider === primaryProvider && secondaryModel === primaryModel) return null;
+  return config;
+}
+
 export function aiEndpoint(config: AiProviderConfig, path: string): string {
   return `${config.baseUrl}/${String(path).replace(/^\/+/, "")}`;
 }
@@ -91,11 +119,6 @@ export function aiJsonHeaders(config: AiProviderConfig): Record<string, string> 
   return { "Content-Type": "application/json", ...config.headers };
 }
 
-/**
- * Resolves a caller model into the configured provider's model namespace.
- * Provider-native specialist models (vision/audio) are preserved; legacy model
- * ids from the old gateway are replaced by NINO_AI_MODEL.
- */
 export function normalizeAiModel(model: string, config: AiProviderConfig): string {
   const value = String(model ?? "").trim();
   if (config.provider === "groq") {
@@ -111,11 +134,6 @@ export function normalizeAiModel(model: string, config: AiProviderConfig): strin
   return String(config.modelOverride ?? value).trim();
 }
 
-/**
- * Normalizes an OpenAI Responses request for provider capability differences.
- * Keep provider conditionals isolated here instead of spreading them through
- * the Conversation Brain/Semantic Compiler.
- */
 export function adaptResponsesBody(
   config: AiProviderConfig,
   body: Record<string, unknown>,
