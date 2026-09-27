@@ -133,6 +133,11 @@ export async function callStructuredFunction(args: {
   const model = normalizeAiModel(args.model, args.provider);
   const nativeStructuredOutput = useNativeStructuredOutput(args);
   const conversationBrainOutput = nativeStructuredOutput && args.tool.name === CONVERSATION_BRAIN_TOOL;
+  const failover = args.disable_failover ? null : resolveAiFailoverProvider();
+  const hasDistinctFailover = Boolean(failover && (
+    failover.provider !== args.provider.provider
+    || String(failover.modelOverride ?? "") !== String(args.provider.modelOverride ?? "")
+  ));
   const body: Record<string, unknown> = {
     model,
     messages: [{ role: "system", content: args.system }, { role: "user", content: args.user }],
@@ -188,6 +193,11 @@ export async function callStructuredFunction(args: {
     json = null;
     try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
 
+    // A configured secondary provider is useful only if there is enough time to
+    // reach it. Rate limits usually persist longer than this turn's deadline, so
+    // do not burn the deadline retrying the same provider first.
+    if (!response.ok && response.status === 429 && hasDistinctFailover) break;
+
     if (!response.ok && attempts < MAX_STRUCTURED_ATTEMPTS) {
       const delay = boundedRetryDelayMs({ response, raw, attempt: attempts });
       if (delay !== null) {
@@ -202,18 +212,15 @@ export async function callStructuredFunction(args: {
     const status = response?.status ?? null;
     const errorCode = networkErrorCode ?? `structured_call_gateway_${status || "bad_json"}`;
     const detail = networkErrorDetail ?? safeAiErrorDetail(raw);
-    if (!args.disable_failover && !args.signal?.aborted && shouldFailover(status, detail, errorCode)) {
-      const fallback = resolveAiFailoverProvider();
-      if (fallback && (fallback.provider !== args.provider.provider
-        || String(fallback.modelOverride ?? "") !== String(args.provider.modelOverride ?? ""))) {
-        const secondary = await callStructuredFunction({ ...args, provider: fallback, disable_failover: true });
-        return {
-          ...secondary,
-          attempts: attempts + (secondary.attempts ?? 1),
-          latency_ms: Date.now() - started,
-          failover_from: args.provider.provider,
-        };
-      }
+    if (!args.disable_failover && !args.signal?.aborted && hasDistinctFailover && failover
+      && shouldFailover(status, detail, errorCode)) {
+      const secondary = await callStructuredFunction({ ...args, provider: failover, disable_failover: true });
+      return {
+        ...secondary,
+        attempts: attempts + (secondary.attempts ?? 1),
+        latency_ms: Date.now() - started,
+        failover_from: args.provider.provider,
+      };
     }
     return {
       ok: false, status, provider: args.provider.provider, model,
