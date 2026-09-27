@@ -26,21 +26,14 @@ begin
    where id = p_confirmation_id
    for update;
 
-  if not found then
-    return jsonb_build_object('ok', false, 'error', 'not_found');
-  end if;
-  if c.kind <> 'goal_create' then
-    return jsonb_build_object('ok', false, 'error', 'wrong_confirmation_kind');
-  end if;
+  if not found then return jsonb_build_object('ok', false, 'error', 'not_found'); end if;
+  if c.kind <> 'goal_create' then return jsonb_build_object('ok', false, 'error', 'wrong_confirmation_kind'); end if;
   if c.status = 'confirmed' and c.result_snapshot is not null then
     return jsonb_build_object('ok', true, 'idempotent', true, 'result', c.result_snapshot);
   end if;
-  if c.status = 'cancelled' then
-    return jsonb_build_object('ok', false, 'error', 'cancelled');
-  end if;
+  if c.status = 'cancelled' then return jsonb_build_object('ok', false, 'error', 'cancelled'); end if;
   if c.status = 'expired' or c.expires_at < now() then
-    update public.pending_confirmations set status = 'expired'
-     where id = c.id and status = 'pending';
+    update public.pending_confirmations set status = 'expired' where id = c.id and status = 'pending';
     return jsonb_build_object('ok', false, 'error', 'expired');
   end if;
 
@@ -50,27 +43,13 @@ begin
   v_initial := nullif(p->>'initial_contribution', '')::numeric;
   v_priority := coalesce(nullif(p->>'priority', '')::integer, 3);
 
-  if v_name is null then
-    return jsonb_build_object('ok', false, 'error', 'goal_name_required');
-  end if;
-  if v_target is null or v_target <= 0 then
-    return jsonb_build_object('ok', false, 'error', 'invalid_target_amount');
-  end if;
-  if v_priority not between 1 and 5 then
-    return jsonb_build_object('ok', false, 'error', 'invalid_priority');
-  end if;
-  if v_initial is not null and v_initial <= 0 then
-    return jsonb_build_object('ok', false, 'error', 'invalid_initial_contribution');
-  end if;
+  if v_name is null then return jsonb_build_object('ok', false, 'error', 'goal_name_required'); end if;
+  if v_target is null or v_target <= 0 then return jsonb_build_object('ok', false, 'error', 'invalid_target_amount'); end if;
+  if v_priority not between 1 and 5 then return jsonb_build_object('ok', false, 'error', 'invalid_priority'); end if;
+  if v_initial is not null and v_initial <= 0 then return jsonb_build_object('ok', false, 'error', 'invalid_initial_contribution'); end if;
 
   insert into public.goals(user_id, name, target_amount, target_date, priority)
-  values(
-    c.user_id,
-    v_name,
-    v_target,
-    nullif(p->>'target_date', '')::date,
-    v_priority::smallint
-  )
+  values(c.user_id, v_name, v_target, nullif(p->>'target_date', '')::date, v_priority::smallint)
   returning id into v_goal_id;
 
   if v_initial is not null then
@@ -80,7 +59,7 @@ begin
       v_goal_id,
       null,
       v_initial,
-      coalesce(nullif(p->>'contribution_date', '')::date, current_date),
+      coalesce(nullif(p->>'contribution_date', '')::date, (now() at time zone 'America/Sao_Paulo')::date),
       null
     )
     returning id into v_contribution_id;
