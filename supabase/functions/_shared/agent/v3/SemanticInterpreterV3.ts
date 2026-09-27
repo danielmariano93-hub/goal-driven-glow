@@ -73,7 +73,7 @@ const referenceSchema = {
   required: ["kind", "target", "expression", "source"],
   properties: {
     kind: { type: "string", enum: ["entity_reference", "result_set_reference"] },
-    target: { type: "string", enum: ["category", "merchant", "card", "account", "goal", "generic"] },
+    target: { type: "string", enum: ["category", "merchant", "card", "account", "goal", "debt", "generic"] },
     expression: { type: "string" },
     source: { type: "string", enum: ["current_turn", "quoted_turn", "workflow", "memory"] },
   },
@@ -223,8 +223,8 @@ Você NÃO executa ferramentas, NÃO calcula valores financeiros e NÃO inventa 
 PRINCÍPIOS OBRIGATÓRIOS:
 1. A mensagem atual tem precedência sobre memória/contexto. Se o usuário disser explicitamente "Lazer", contexto anterior "Alimentação" não pode substituir Lazer.
 2. Memória só preenche informação ausente. Nunca sobrescreve informação explícita do turno atual.
-3. Períodos são slots temporais. "esse mês", "mês passado", "hoje" e equivalentes NUNCA são referências a categoria/estabelecimento/meta.
-4. Referências só existem para anáforas reais: "ela", "essa categoria", "delas", "aquele estabelecimento", "essa meta", mensagem citada etc.
+3. Períodos são slots temporais. "esse mês", "mês passado", "hoje" e equivalentes NUNCA são referências a categoria/estabelecimento/meta/dívida.
+4. Referências só existem para anáforas reais: "ela", "essa categoria", "delas", "aquele estabelecimento", "essa meta", "essa dívida", mensagem citada etc.
 5. Não escolha nome de ferramenta/função. Escolha somente uma das famílias/tarefas semânticas permitidas pelo schema.
 6. Perguntas compostas devem gerar múltiplas tasks dentro do mesmo turno, preservando uma única interpretação.
 7. source informa de onde cada slot veio. Use current_turn para algo literalmente dito agora; memory/reference somente quando realmente herdado.
@@ -240,9 +240,16 @@ PRINCÍPIOS OBRIGATÓRIOS:
 17. "mês a mês", "mês por mês", "em cada mês", "evolução mensal" e equivalentes significam série histórica: operation=trend e group_by=[month], preservando filtros e período. Não use sum/breakdown para esse formato.
 18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.
 19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.
-20. direct_reply de conversation deve respeitar a identidade canônica do Nino e nunca citar arquitetura, modelo ou provedor.
+20. direct_reply de conversation deve respeitar a identidade canônica do Nino, falar de forma simples e humana e nunca citar arquitetura, modelo, provedor, ferramenta, runtime, erro HTTP ou detalhe interno.
 21. PROIBIDO emitir kind=task com tasks=[]. Se kind=task, tasks DEVE conter pelo menos uma tarefa completa. Para registrar/anotar/lançar gasto, emita exatamente uma financial_write: kind=financial_write, financial=null, goal=null, advisory=null, write.action=transaction.create e write.slots com os dados explicitamente informados.
 22. Para transaction.create, use slots textuais amount, merchant, date, account, category quando existirem. Campos ausentes serão resolvidos pelo workflow; não transforme o pedido em tasks=[].
+23. DÍVIDA é uma entidade própria, nunca uma meta. "Paguei R$ 300 da dívida do Lucas" = debt.pay com slots debt="Lucas" e amount="300". "Quite a dívida do Lucas"/"quitei a dívida do Lucas" = debt.pay com debt="Lucas" e full_payment="true".
+24. Em "paguei duas parcelas da dívida do Lucas", use debt.pay com debt="Lucas" e installments="2". Não invente amount se ele não foi dito.
+25. Quando o usuário disser "essa dívida", "ela" ou equivalente referindo-se a uma dívida anterior, emita entity_reference target=debt com a expressão literal e NÃO invente um nome de dívida. O grounding determinístico fará a ligação.
+26. Recorrência explícita nunca é um lançamento único. "Todo dia 10 pago Netflix"/"Netflix todo mês" = recurring.create; preserve amount, day/day_of_month, category e account quando forem ditos.
+27. Pedidos de editar/excluir lançamento, meta, categoria, divisão ou recorrência usam as actions update/delete correspondentes. Nunca degrade silenciosamente para create.
+28. "Recebi R$ X do João daquela divisão" = split.receive. Preserve participant, amount e date se existirem.
+29. Se o usuário pedir duas ações distintas na mesma frase, preserve ambas como tasks separadas. Não apague uma delas nem finja que são uma só.
 
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 
@@ -279,11 +286,11 @@ function references(raw: any): SemanticReferenceV3[] | null {
     const expression = String(item.expression ?? "").trim();
     const source = String(item.source ?? "");
     if (!expression || !["current_turn", "quoted_turn", "workflow", "memory"].includes(source)) return null;
-    if (kind === "entity_reference" && ["category", "merchant", "card", "account", "goal"].includes(target)) {
+    if (kind === "entity_reference" && ["category", "merchant", "card", "account", "goal", "debt"].includes(target)) {
       out.push({ kind, target: target as any, expression, source: source as any });
       continue;
     }
-    if (kind === "result_set_reference" && ["category", "merchant", "goal", "generic"].includes(target)) {
+    if (kind === "result_set_reference" && ["category", "merchant", "goal", "debt", "generic"].includes(target)) {
       out.push({ kind, target: target as any, expression, source: source as any });
       continue;
     }
