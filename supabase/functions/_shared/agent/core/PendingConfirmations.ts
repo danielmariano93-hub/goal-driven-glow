@@ -14,13 +14,20 @@ export type PendingRow = {
   conversation_id: string;
 };
 
+const LIFECYCLE_KINDS = new Set([
+  "debt_payment",
+  "goal_update", "goal_delete",
+  "category_create", "category_update", "category_delete",
+  "split_receive", "split_update", "split_delete",
+  "recurring_create", "recurring_update", "recurring_delete",
+]);
+
 /** Canonical executor selection used by text confirmation, app buttons and
- * tool-driven confirmation. Category Truth V2 routes transaction drafts to a
- * dedicated RPC that preserves explicit-category provenance instead of relying
- * on the legacy origin=manual heuristic. */
+ * tool-driven confirmation. */
 export function confirmationExecutor(kind: string): string {
   if (kind === "shared_expense") return "agent_execute_shared_expense_confirmation";
   if (kind === "transaction") return "agent_execute_transaction_confirmation_v2";
+  if (LIFECYCLE_KINDS.has(kind)) return "agent_execute_lifecycle_confirmation_v1";
   return "agent_execute_confirmation";
 }
 
@@ -60,15 +67,9 @@ export type ConfirmationExecution = {
   error: string | null;
   idempotent: boolean;
   result: any;
-  /** Prova de leitura pós-escrita (nino_agent.v1). */
   proof: PersistenceProof;
 };
 
-/**
- * Execução canônica de uma pendência. ÚNICO caminho autorizado para chamar os
- * RPCs de confirmação: centraliza os nomes de parâmetro (`p_confirmation_id`,
- * `p_source_message_id`) e sempre devolve prova de escrita lida de volta.
- */
 export async function executeConfirmation(
   sb: SupabaseClient,
   pending: Pick<PendingRow, "id" | "kind" | "user_id">,
