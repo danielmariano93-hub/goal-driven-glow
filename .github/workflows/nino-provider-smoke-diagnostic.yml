@@ -1,14 +1,12 @@
 name: Nino Provider Smoke Diagnostic
 
+# This workflow intentionally does NOT run on every push to main. The production
+# deploy already performs the provider gate; running both at the same time makes
+# the two workflows compete for the same Groq TPM quota and can manufacture a
+# false 429. Keep this one as an explicit fail-closed diagnostic when we actually
+# want to inspect provider capacity/transport independently of a deployment.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/nino-provider-smoke-diagnostic.yml'
-      - 'scripts/nino_conversation_provider_smoke.ts'
-      - 'supabase/functions/_shared/ai-structured.ts'
-      - 'supabase/functions/_shared/agent/core/ConversationBrain.ts'
+  workflow_dispatch:
 
 permissions:
   contents: read
