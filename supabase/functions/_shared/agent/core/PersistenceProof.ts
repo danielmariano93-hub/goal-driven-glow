@@ -17,6 +17,7 @@ const TABLE_BY_KIND: Record<string, string> = {
   transaction_delete: "transactions",
   transfer: "transactions",
   goal: "goals",
+  goal_create: "goals",
   goal_contribution: "goal_contributions",
   goal_update: "goals",
   goal_delete: "goals",
@@ -46,7 +47,7 @@ export function proofTarget(kind: string, result: unknown): ProofTarget {
   const r = (result ?? {}) as any;
   const preferred: Record<string, unknown[]> = {
     debt_payment: [r.payment_id],
-    goal_update: [r.goal_id], goal_delete: [r.goal_id],
+    goal_create: [r.goal_id], goal_update: [r.goal_id], goal_delete: [r.goal_id],
     category_create: [r.category_id], category_update: [r.category_id], category_delete: [r.category_id],
     split_receive: [r.participant_id], split_update: [r.shared_expense_id], split_delete: [r.shared_expense_id],
     recurring_create: [r.recurring_id], recurring_update: [r.recurring_id], recurring_delete: [r.recurring_id],
@@ -83,6 +84,24 @@ export async function verifyPersisted(
 
   try {
     const owner = ownerColumn(args.kind);
+
+    // Goal create may contain a dependent initial contribution. Success is only
+    // proven if every requested row exists and belongs to the same user/goal.
+    if (args.kind === "goal_create") {
+      const result = (args.result ?? {}) as any;
+      const { data: goal, error: goalError } = await (sb.from("goals") as any)
+        .select("id").eq("id", target.id).eq("user_id", args.user_id).maybeSingle();
+      if (goalError) return { proven: false, reason: `read_back_failed:${goalError.message}`, ...target };
+      if (!goal) return { proven: false, reason: "goal_row_not_found", ...target };
+      const contributionId = String(result.contribution_id ?? "").trim();
+      if (contributionId && UUID_RX.test(contributionId)) {
+        const { data: contribution, error: contributionError } = await (sb.from("goal_contributions") as any)
+          .select("id,goal_id").eq("id", contributionId).eq("user_id", args.user_id).eq("goal_id", target.id).maybeSingle();
+        if (contributionError) return { proven: false, reason: `read_back_failed:${contributionError.message}`, ...target };
+        if (!contribution) return { proven: false, reason: "initial_contribution_not_found", ...target };
+      }
+      return { proven: true, reason: null, ...target };
+    }
 
     // A delete is proven by absence, not by finding the old row. This also fixes
     // the long-standing transaction_delete false-negative proof.
