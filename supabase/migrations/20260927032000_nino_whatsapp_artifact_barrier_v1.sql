@@ -26,12 +26,13 @@ begin
      where i.id = new.inbound_message_id;
 
     -- Only explicit visual requests wait. Ordinary WhatsApp replies keep their
-    -- current latency. Twelve seconds is a maximum grace period, not a sleep:
-    -- attaching the artifact below releases the row immediately.
+    -- current latency. Twenty seconds is a maximum grace period, not a sleep:
+    -- attaching the artifact below releases the row immediately. This exceeds
+    -- the semantic-interpreter deadline and closes the race even on a slow turn.
     if coalesce(v_inbound_body, '') ~* '(gr[aá]fico|\mchart\M)' then
       new.next_attempt_at := greatest(
         coalesce(new.next_attempt_at, now()),
-        now() + interval '12 seconds'
+        now() + interval '20 seconds'
       );
     end if;
   end if;
