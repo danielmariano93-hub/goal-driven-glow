@@ -16,7 +16,7 @@ export type PendingRow = {
 
 const LIFECYCLE_KINDS = new Set([
   "debt_payment",
-  "goal_update", "goal_delete",
+  "goal_create", "goal_update", "goal_delete",
   "category_create", "category_update", "category_delete",
   "split_receive", "split_update", "split_delete",
   "recurring_create", "recurring_update", "recurring_delete",
