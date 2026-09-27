@@ -9,6 +9,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { runAgentTurn, type LLMTurn } from "../llm.ts";
 import { toolByName, type ToolContext, type ToolResult } from "../tools.ts";
 import { lifecycleToolByName } from "./LifecycleTools.ts";
+import { recurringLifecycleToolByName } from "./RecurringLifecycleTools.ts";
 import { goalLifecycleToolByName } from "./GoalLifecycleTools.ts";
 import { undoLifecycleToolByName } from "./UndoLifecycleTools.ts";
 import type { HistoryTurn } from "./ConversationHistory.ts";
@@ -89,8 +90,10 @@ async function runToolUncached(
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const maxRetries = Math.max(0, opts.maxRetries ?? 1);
   // Lifecycle adapters are intentionally NOT exposed as free-form LLM tools.
-  // They are reachable only after ActionIR validation and deterministic routing.
+  // Frequency-aware recurring adapters run before the legacy lifecycle map so
+  // a valid recurring command can never fall back to the older generic shape.
   const tool = toolByName(tool_name)
+    ?? recurringLifecycleToolByName(tool_name)
     ?? lifecycleToolByName(tool_name)
     ?? goalLifecycleToolByName(tool_name)
     ?? undoLifecycleToolByName(tool_name);
