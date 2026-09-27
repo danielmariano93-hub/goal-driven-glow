@@ -3,9 +3,6 @@
 // Core invariant: a turn is interpreted once. After TurnSpecV3 exists, no later
 // component is allowed to reinterpret user meaning; it may only validate,
 // ground, compile, execute and compose from typed semantics.
-//
-// Unlike ConversationTurnContract v2, mode/domain/financial_read are not
-// independent fields. Illegal combinations are unrepresentable by construction.
 
 export const TURN_SPEC_V3 = "nino_turn_spec.v3" as const;
 
@@ -16,7 +13,6 @@ export const SLOT_SOURCES_V3 = [
   "reference",
   "memory",
   "default",
-  // Transitional only: used while V2 is adapted into V3 shadow evaluation.
   "legacy_contract",
 ] as const;
 export type SlotSourceV3 = typeof SLOT_SOURCES_V3[number];
@@ -24,7 +20,6 @@ export type SlotSourceV3 = typeof SLOT_SOURCES_V3[number];
 export type SourcedValueV3<T> = {
   value: T;
   source: SlotSourceV3;
-  /** Literal span from the current/quoted message when one exists. */
   source_span: string | null;
 };
 
@@ -66,14 +61,8 @@ export type EntityFilterV3 = {
 export type ComparisonSpecV3 = {
   direction: "any" | "increase" | "decrease" | "both";
   baseline:
-    | {
-      kind: "period";
-      period: PeriodExpressionV3 | null;
-    }
-    | {
-      kind: "mean_previous_complete_months";
-      months: number;
-    };
+    | { kind: "period"; period: PeriodExpressionV3 | null }
+    | { kind: "mean_previous_complete_months"; months: number };
   target: PeriodExpressionV3 | null;
 };
 
@@ -106,7 +95,6 @@ export type AdvisoryTaskV3 = {
 export type FinancialWriteTaskV3 = {
   kind: "financial_write";
   family: "financial.write";
-  /** Domain action name. Never a tool/function name. */
   action: string;
   slots: Record<string, unknown>;
 };
@@ -116,13 +104,13 @@ export type SemanticTaskV3 = FinancialQueryTaskV3 | GoalQueryTaskV3 | AdvisoryTa
 export type SemanticReferenceV3 =
   | {
     kind: "entity_reference";
-    target: "category" | "merchant" | "card" | "account" | "goal";
+    target: "category" | "merchant" | "card" | "account" | "goal" | "debt";
     expression: string;
     source: "current_turn" | "quoted_turn" | "workflow" | "memory" | "legacy_contract";
   }
   | {
     kind: "result_set_reference";
-    target: "category" | "merchant" | "goal" | "generic";
+    target: "category" | "merchant" | "goal" | "debt" | "generic";
     expression: string;
     source: "current_turn" | "quoted_turn" | "workflow" | "memory" | "legacy_contract";
   };
@@ -155,14 +143,9 @@ export type TaskTurnSpecV3 = TurnSpecCommonV3 & {
 
 export type TurnSpecV3 = ConversationTurnSpecV3 | ClarificationTurnSpecV3 | TaskTurnSpecV3;
 
-export type TurnSpecValidationV3 = {
-  ok: boolean;
-  errors: string[];
-};
+export type TurnSpecValidationV3 = { ok: boolean; errors: string[] };
 
-function unique<T>(values: T[]): T[] {
-  return [...new Set(values)];
-}
+function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
 
 export function validateTurnSpecV3(turn: TurnSpecV3): TurnSpecValidationV3 {
   const errors: string[] = [];
