@@ -109,15 +109,14 @@ export function classifyProtectedAnalytical(args: {
  * de responder um agregado que ninguém pediu.
  */
 export const PROTECTED_SCOPE_MISSING_REPLY =
-  "Você está falando de um conjunto de categorias que eu não tenho mais em mãos nesta conversa, "
-  + "e eu não vou trocar isso por um total geral. Me diga quais categorias você quer comparar "
-  + "(ou peça o overview das suas metas primeiro) que eu refaço a comparação na sua base.";
+  "Quero ter certeza de que estou olhando as mesmas categorias que você. "
+  + "Pode me dizer quais são? Aí eu comparo certinho para você.";
 
 /**
  * Fail-closed quando a execução não consegue provar que preservou o contrato.
- * Não promete que tentar novamente depois vai resolver: incompatibilidade de
- * contrato é determinística e precisa ser corrigida no runtime.
+ * O detalhe técnico fica nos logs; para o usuário, a resposta é simples,
+ * humana e não transfere a complexidade interna do produto.
  */
 export const PROTECTED_ENGINE_FAILURE_REPLY =
-  "Não consegui validar com segurança que o cálculo executado preservou exatamente o recorte da sua pergunta. "
-  + "Para não te entregar um número de outra janela, categoria ou regra de comparação, bloqueei a resposta.";
+  "Não consegui fechar essa comparação com confiança suficiente para te passar um número. "
+  + "Prefiro não arriscar te mostrar algo errado. Me diga o período ou a categoria que você quer comparar e eu refaço certinho.";
