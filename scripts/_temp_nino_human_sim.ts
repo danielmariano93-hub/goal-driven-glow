@@ -17,6 +17,18 @@ const scenarios = [
     context: { conversation_state: { current_topic: "gastos em Lazer", active_category: "Lazer", active_period: { from: "2026-09-01", to: "2026-09-26" } } },
   },
   {
+    id: "explicit_category_switch",
+    text: "Nino, e em lazer? Quanto eu gastei esse mês?",
+    history: "Usuário: Quanto gastei em alimentação neste mês?\nNino: Você gastou R$ X em Alimentação.",
+    context: { conversation_state: { current_topic: "gastos em Alimentação", active_category: "Alimentação", active_period: { from: "2026-09-01", to: "2026-09-26" } } },
+  },
+  {
+    id: "implicit_merchant_distribution",
+    text: "Em quais estabelecimentos?",
+    history: "Usuário: Nino, quanto gastei em lazer este mês?\nNino: Você gastou R$ X em Lazer.",
+    context: { conversation_state: { current_topic: "gastos em Lazer", active_category: "Lazer", active_period: { from: "2026-09-01", to: "2026-09-26" }, active_references: [{ target: "gasto em Lazer deste mês", entity_labels: ["Lazer"], source_tool: "analyze_spending" }] } },
+  },
+  {
     id: "typical_to_monthly_series",
     text: "Tá, mas me mostra mês a mês os últimos 5 meses.",
     history: "Usuário: Quanto gasto por mês com assinaturas normalmente?\nNino: Seu gasto típico com Assinaturas é de R$ X por mês.",
@@ -73,7 +85,6 @@ for (const scenario of scenarios) {
     history_text: scenario.history,
     context_text: JSON.stringify(scenario.context),
     model: Deno.env.get("NINO_AI_MODEL") || "openai/gpt-oss-120b",
-    provider_override: "groq",
   });
   const bridge = out.turn ? bridgeTurnSpecV3ToRuntime(out.turn) : null;
   results.push({
@@ -81,7 +92,7 @@ for (const scenario of scenarios) {
     text: scenario.text,
     ok: Boolean(out.turn),
     violations: out.violations,
-    telemetry: { model: out.telemetry.model, error: out.telemetry.error ?? null, llm_calls: out.telemetry.llm_calls },
+    telemetry: { model: out.telemetry.model, provider: out.telemetry.provider, error: out.telemetry.error ?? null, llm_calls: out.telemetry.llm_calls },
     turn: out.turn ? {
       kind: out.turn.kind,
       dialogue_act: out.turn.dialogue_act,
