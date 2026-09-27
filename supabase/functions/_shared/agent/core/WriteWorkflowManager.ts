@@ -51,7 +51,9 @@ export const REQUIRED_SLOTS: Record<WriteWorkflowKind, string[]> = {
   lifecycle_category_create_draft: ["name"],
   lifecycle_category_update_draft: ["category"],
   lifecycle_category_delete_draft: ["category"],
-  lifecycle_recurring_create_draft: ["name", "amount", "day_of_month"],
+  // Name/amount are universally required. Daily/weekly/monthly/yearly schedule
+  // requirements are validated by the frequency-aware recurring adapter.
+  lifecycle_recurring_create_draft: ["name", "amount"],
   lifecycle_recurring_update_draft: ["recurring"],
   lifecycle_recurring_delete_draft: ["recurring"],
   lifecycle_undo_last_draft: [],
