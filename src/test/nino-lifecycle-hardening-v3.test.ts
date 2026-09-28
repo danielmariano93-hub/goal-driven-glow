@@ -175,8 +175,8 @@ describe("Nino lifecycle hardening — ações compostas", () => {
   });
 });
 
-describe("Nino lifecycle hardening — atalhos determinísticos", () => {
-  it("'mostra isso em gráfico' reutiliza a série mensal sem chamar IA", async () => {
+describe("Nino lifecycle hardening — continuidade semântica", () => {
+  it("'mostra isso em gráfico' é entendido semanticamente e continua reutilizando a evidência existente", async () => {
     const outcome = await interpretConversationTurn({
       text: "Me mostra isso em gráfico",
       history: [],
@@ -217,11 +217,13 @@ describe("Nino lifecycle hardening — atalhos determinísticos", () => {
       user_id: null,
     } as any);
 
-    expect(outcome.telemetry.llm_calls).toBe(0);
+    // Linguagem humana é entendida pelo cérebro; a reutilização da evidência e
+    // o renderer continuam determinísticos depois do contrato semântico.
+    expect(outcome.telemetry.llm_calls).toBeGreaterThan(0);
     expect(outcome.contract?.direct_reply).toContain("gráfico");
   });
 
-  it("'e no mês passado?' reaproveita uma análise de gastos sem chamar IA", async () => {
+  it("'e no mês passado?' usa contexto da conversa sem uma regex assumir a intenção", async () => {
     const outcome = await interpretConversationTurn({
       text: "E no mês passado?",
       history: [],
@@ -236,13 +238,13 @@ describe("Nino lifecycle hardening — atalhos determinísticos", () => {
       user_id: null,
     } as any);
 
-    expect(outcome.telemetry.llm_calls).toBe(0);
+    expect(outcome.telemetry.llm_calls).toBeGreaterThan(0);
     expect(outcome.contract?.mode).toBe("read");
     expect(outcome.contract?.focus.category).toBe("Alimentação");
     expect(outcome.contract?.focus.period_expression).toMatch(/mês passado/i);
   });
 
-  it("'desfaz isso' vira reversão segura sem depender da IA", async () => {
+  it("'desfaz isso' é compreendido pelo cérebro e a reversão permanece segura no executor", async () => {
     const outcome = await interpretConversationTurn({
       text: "Desfaz isso",
       history: [],
@@ -252,7 +254,7 @@ describe("Nino lifecycle hardening — atalhos determinísticos", () => {
       user_id: null,
     } as any);
 
-    expect(outcome.telemetry.llm_calls).toBe(0);
+    expect(outcome.telemetry.llm_calls).toBeGreaterThan(0);
     expect(outcome.contract?.mode).toBe("write");
     expect(outcome.contract?.action?.action).toBe("undo.last");
   });
