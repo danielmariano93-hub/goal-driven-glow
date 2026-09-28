@@ -152,6 +152,19 @@ period=<21..27>
 
 Tests should measure semantic invariants, execution scope preservation, conversation continuity and write safety rather than grow a phrase-to-action rulebook.
 
+## Rollout gates
+
+The authoritative migration is publishable only when all of these pass on the exact revision:
+
+- critical Nino conversation/V3 regressions;
+- strict typecheck of the semantic authority, structured transport, TurnSpec, invariants, comparator and bridge;
+- complete repository regression suite;
+- production build;
+- deployment contract tests;
+- Supabase function deployment and post-deploy verification.
+
+Production deployment validates provider credentials and the required model catalog without sending synthetic inference requests, so CI cannot consume the same TPM budget used by real conversations.
+
 ## Migration rule
 
 No new broad lexical semantic fast-paths are allowed. Existing lexical helpers may remain as legacy rollback utilities but must not be consulted before V3 for users under authoritative rollout.
