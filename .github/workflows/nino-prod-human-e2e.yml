@@ -1,0 +1,22 @@
+name: Nino Production Human E2E
+on:
+  push:
+    branches: [test/nino-prod-e2e-human-20260928]
+permissions:
+  contents: read
+jobs:
+  human-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Run 15 human-like turns through production orchestrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://amjanjlvsatubxdreyep.supabase.co/functions/v1/nino-e2e-human-temp'
+          for i in $(seq 1 15); do
+            echo "===== CASE $i ====="
+            curl --fail --silent --show-error --max-time 45 "$base?case=$i" > "/tmp/case-$i.json"
+            jq -c '{case,input,reply,reply_kind,path,draft_id,run_id}' "/tmp/case-$i.json"
+            if [ "$i" -lt 15 ]; then sleep 15; fi
+          done
