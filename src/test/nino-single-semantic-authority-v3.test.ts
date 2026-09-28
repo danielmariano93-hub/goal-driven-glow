@@ -153,6 +153,22 @@ describe("Nino V3 — single semantic authority", () => {
     expect(outcome.turn?.kind).toBe("task");
   });
 
+  it("considera 50 e 50,00 a mesma intenção financeira", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(groqStructured(writeTurn("50")))
+      .mockResolvedValueOnce(groqStructured(writeTurn("50,00")));
+
+    const outcome = await interpretWithSingleSemanticAuthorityV3({
+      text: "Registra R$50 no mercado",
+      deep_model: "openai/gpt-oss-120b",
+      provider_override: provider,
+    });
+
+    expect(outcome.turn?.kind).toBe("task");
+    expect(outcome.review_match).toBe(true);
+    expect(outcome.tier).toBe("reviewed");
+  });
+
   it("bloqueia escrita quando os modelos discordam no valor", async () => {
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(groqStructured(writeTurn("50")))
