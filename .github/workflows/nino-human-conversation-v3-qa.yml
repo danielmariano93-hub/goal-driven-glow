@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/nino_human_conversation_v3_qa.ts'
       - 'scripts/nino_debt_conversation_v3_qa.ts'
+      - 'scripts/nino_debt_400_diag.ts'
       - '.github/workflows/nino-human-conversation-v3-qa.yml'
 
 permissions:
@@ -18,13 +19,13 @@ env:
 jobs:
   conversation:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Run production-like debt conversation
+      - name: Capture debt structured-output diagnostic
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: deno run --allow-env --allow-net scripts/nino_debt_conversation_v3_qa.ts
+        run: deno run --allow-env --allow-net scripts/nino_debt_400_diag.ts
