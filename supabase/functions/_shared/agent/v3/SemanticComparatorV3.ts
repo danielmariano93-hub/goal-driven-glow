@@ -70,9 +70,35 @@ function periodValues(tasks: SemanticTaskV3[]): string[] {
   return sortedUnique(out);
 }
 
+/**
+ * Semantic review compares meaning, not serialization. Models may emit the same
+ * money as 50, 50.00, 50,00 or R$ 50,00. Canonicalize those spellings before
+ * deciding that the tiers disagree. Dates/IDs/names are intentionally left as
+ * normalized text so distinct entities cannot collapse accidentally.
+ */
+function normalizeSlotValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  const raw = String(value ?? "").trim();
+  const withoutCurrency = raw.replace(/^r\$\s*/i, "").trim();
+  let numeric: string | null = null;
+  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(withoutCurrency)) {
+    numeric = withoutCurrency.replace(/\./g, "").replace(",", ".");
+  } else if (/^-?\d+(?:,\d+)$/.test(withoutCurrency)) {
+    numeric = withoutCurrency.replace(",", ".");
+  } else if (/^-?\d+(?:\.\d+)?$/.test(withoutCurrency)) {
+    numeric = withoutCurrency;
+  }
+  if (numeric != null) {
+    const parsed = Number(numeric);
+    if (Number.isFinite(parsed)) return String(parsed);
+  }
+  return norm(raw);
+}
+
 function normalizedWriteSlots(slots: Record<string, unknown> | null | undefined): Array<[string, string]> {
   return Object.entries(slots ?? {})
-    .map(([key, value]) => [norm(key), norm(value)] as [string, string])
+    .map(([key, value]) => [norm(key), normalizeSlotValue(value)] as [string, string])
     .sort(([a], [b]) => a.localeCompare(b));
 }
 
