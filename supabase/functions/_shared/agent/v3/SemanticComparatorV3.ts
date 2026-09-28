@@ -1,7 +1,9 @@
-// Nino Runtime V3 — semantic comparator for V2 x V3 shadow observations.
+// Nino Runtime V3 — semantic comparator.
 //
 // Comparison deliberately ignores prose style and provenance labels. We compare
-// the semantic contract: turn kind/act, task families, entities and periods.
+// the semantic contract: turn kind/act, task families, entities, periods and
+// write payload meaning. This is used both by shadow evaluation and by the
+// independent deep-review gate for consequential turns.
 
 import type { TurnSpecV3, SemanticTaskV3 } from "./TurnSpecV3.ts";
 
@@ -68,6 +70,12 @@ function periodValues(tasks: SemanticTaskV3[]): string[] {
   return sortedUnique(out);
 }
 
+function normalizedWriteSlots(slots: Record<string, unknown> | null | undefined): Array<[string, string]> {
+  return Object.entries(slots ?? {})
+    .map(([key, value]) => [norm(key), norm(value)] as [string, string])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
 function taskShape(task: SemanticTaskV3): Record<string, unknown> {
   if (task.kind === "financial_query") {
     return {
@@ -100,7 +108,7 @@ function taskShape(task: SemanticTaskV3): Record<string, unknown> {
     kind: task.kind,
     family: task.family,
     action: task.action,
-    slot_keys: Object.keys(task.slots ?? {}).sort(),
+    slots: normalizedWriteSlots(task.slots),
   };
 }
 
