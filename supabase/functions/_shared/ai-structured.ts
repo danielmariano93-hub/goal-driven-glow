@@ -31,6 +31,7 @@ export type StructuredCallResult = {
 const MAX_STRUCTURED_ATTEMPTS = 3;
 const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
 const CONVERSATION_BRAIN_TOOL = "emit_conversation_turn_contract";
+const NINO_SEMANTIC_V3_TOOL = "emit_nino_turn_spec_v3";
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -169,7 +170,12 @@ export async function callStructuredFunction(args: {
     body.reasoning_effort = args.reasoning_effort ?? "low";
   }
 
-  const maxAttempts = Math.max(1, Math.min(MAX_STRUCTURED_ATTEMPTS, Number(args.max_attempts ?? MAX_STRUCTURED_ATTEMPTS) || 1));
+  // The V3 semantic brain does one attempt per model tier. A 429/5xx/contract
+  // transport failure should move to another tier/provider, not hammer the same
+  // model and consume the whole turn deadline. Other structured callers retain
+  // the historical retry budget unless they opt into a different value.
+  const defaultAttempts = args.tool.name === NINO_SEMANTIC_V3_TOOL ? 1 : MAX_STRUCTURED_ATTEMPTS;
+  const maxAttempts = Math.max(1, Math.min(MAX_STRUCTURED_ATTEMPTS, Number(args.max_attempts ?? defaultAttempts) || 1));
   let response: Response | null = null;
   let raw = "";
   let json: any = null;
@@ -196,9 +202,6 @@ export async function callStructuredFunction(args: {
     json = null;
     try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
 
-    // A configured secondary provider is useful only if there is enough time to
-    // reach it. Rate limits usually persist longer than this turn's deadline, so
-    // do not burn the deadline retrying the same provider first.
     if (!response.ok && response.status === 429 && hasDistinctFailover) break;
 
     if (!response.ok && attempts < maxAttempts) {
