@@ -77,9 +77,9 @@ function retryAfterMs(response: Response): number | null {
   return Math.max(0, at - Date.now());
 }
 
-function boundedRetryDelayMs(args: { response: Response; raw: string; attempt: number }): number | null {
-  const { response, raw, attempt } = args;
-  if (response.status === 400 && attempt < MAX_STRUCTURED_ATTEMPTS
+function boundedRetryDelayMs(args: { response: Response; raw: string; attempt: number; maxAttempts: number }): number | null {
+  const { response, raw, attempt, maxAttempts } = args;
+  if (response.status === 400 && attempt < maxAttempts
     && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match|json_validate_failed/i.test(raw)) return 0;
   if (response.status === 429) {
     const providerDelay = retryAfterMs(response);
@@ -126,6 +126,8 @@ export async function callStructuredFunction(args: {
   signal?: AbortSignal;
   temperature?: number;
   reasoning_effort?: "low" | "medium" | "high";
+  /** Override retry budget. Semantic authority uses 1 so it can change tier/provider instead of retrying blindly. */
+  max_attempts?: number;
   /** Internal guard: public callers should leave this unset. */
   disable_failover?: boolean;
 }): Promise<StructuredCallResult> {
@@ -167,6 +169,7 @@ export async function callStructuredFunction(args: {
     body.reasoning_effort = args.reasoning_effort ?? "low";
   }
 
+  const maxAttempts = Math.max(1, Math.min(MAX_STRUCTURED_ATTEMPTS, Number(args.max_attempts ?? MAX_STRUCTURED_ATTEMPTS) || 1));
   let response: Response | null = null;
   let raw = "";
   let json: any = null;
@@ -174,7 +177,7 @@ export async function callStructuredFunction(args: {
   let networkErrorCode: string | null = null;
   let networkErrorDetail: string | null = null;
 
-  while (attempts < MAX_STRUCTURED_ATTEMPTS) {
+  while (attempts < maxAttempts) {
     attempts += 1;
     try {
       response = await fetch(aiEndpoint(args.provider, "chat/completions"), {
@@ -198,8 +201,8 @@ export async function callStructuredFunction(args: {
     // do not burn the deadline retrying the same provider first.
     if (!response.ok && response.status === 429 && hasDistinctFailover) break;
 
-    if (!response.ok && attempts < MAX_STRUCTURED_ATTEMPTS) {
-      const delay = boundedRetryDelayMs({ response, raw, attempt: attempts });
+    if (!response.ok && attempts < maxAttempts) {
+      const delay = boundedRetryDelayMs({ response, raw, attempt: attempts, maxAttempts });
       if (delay !== null) {
         const mayRetry = await waitForRetry(delay, args.signal);
         if (mayRetry) continue;
