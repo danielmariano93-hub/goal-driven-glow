@@ -37,7 +37,11 @@ export type SemanticAuthorityV3Outcome = SemanticInterpreterV3Outcome & {
 };
 
 export function semanticFastModel(): string {
-  return String(envValue("NINO_SEMANTIC_FAST_MODEL") ?? "openai/gpt-oss-20b").trim();
+  return String(
+    envValue("NINO_SEMANTIC_FAST_MODEL")
+      ?? envValue("NINO_AI_FAST_MODEL")
+      ?? "openai/gpt-oss-20b",
+  ).trim();
 }
 
 export function semanticDeepModel(explicit?: string | null): string {
@@ -161,8 +165,6 @@ export async function interpretWithSingleSemanticAuthorityV3(
     provider_override: input.provider_override ?? null,
   });
   if (!deep.turn) {
-    // Reads/conversation can use the valid fast contract. Writes/compound turns
-    // fail closed when the independent semantic review is unavailable.
     return unavailable(
       fast,
       deep,
