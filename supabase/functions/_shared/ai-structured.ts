@@ -31,6 +31,7 @@ export type StructuredCallResult = {
 const MAX_STRUCTURED_ATTEMPTS = 3;
 const MAX_PROVIDER_RETRY_WAIT_MS = 10_000;
 const CONVERSATION_BRAIN_TOOL = "emit_conversation_turn_contract";
+const NINO_SEMANTIC_V3_TOOL = "emit_nino_turn_spec_v3";
 
 export function safeAiErrorDetail(raw: string): string | null {
   const text = String(raw ?? "").trim();
@@ -77,9 +78,9 @@ function retryAfterMs(response: Response): number | null {
   return Math.max(0, at - Date.now());
 }
 
-function boundedRetryDelayMs(args: { response: Response; raw: string; attempt: number }): number | null {
-  const { response, raw, attempt } = args;
-  if (response.status === 400 && attempt < MAX_STRUCTURED_ATTEMPTS
+function boundedRetryDelayMs(args: { response: Response; raw: string; attempt: number; maxAttempts: number }): number | null {
+  const { response, raw, attempt, maxAttempts } = args;
+  if (response.status === 400 && attempt < maxAttempts
     && /output_parse_failed|tool_use_failed|failed_generation|generated json does not match|json_validate_failed/i.test(raw)) return 0;
   if (response.status === 429) {
     const providerDelay = retryAfterMs(response);
@@ -126,6 +127,8 @@ export async function callStructuredFunction(args: {
   signal?: AbortSignal;
   temperature?: number;
   reasoning_effort?: "low" | "medium" | "high";
+  /** Override retry budget. Semantic authority uses 1 so it can change tier/provider instead of retrying blindly. */
+  max_attempts?: number;
   /** Internal guard: public callers should leave this unset. */
   disable_failover?: boolean;
 }): Promise<StructuredCallResult> {
@@ -167,6 +170,12 @@ export async function callStructuredFunction(args: {
     body.reasoning_effort = args.reasoning_effort ?? "low";
   }
 
+  // The V3 semantic brain does one attempt per model tier. A 429/5xx/contract
+  // transport failure should move to another tier/provider, not hammer the same
+  // model and consume the whole turn deadline. Other structured callers retain
+  // the historical retry budget unless they opt into a different value.
+  const defaultAttempts = args.tool.name === NINO_SEMANTIC_V3_TOOL ? 1 : MAX_STRUCTURED_ATTEMPTS;
+  const maxAttempts = Math.max(1, Math.min(MAX_STRUCTURED_ATTEMPTS, Number(args.max_attempts ?? defaultAttempts) || 1));
   let response: Response | null = null;
   let raw = "";
   let json: any = null;
@@ -174,7 +183,7 @@ export async function callStructuredFunction(args: {
   let networkErrorCode: string | null = null;
   let networkErrorDetail: string | null = null;
 
-  while (attempts < MAX_STRUCTURED_ATTEMPTS) {
+  while (attempts < maxAttempts) {
     attempts += 1;
     try {
       response = await fetch(aiEndpoint(args.provider, "chat/completions"), {
@@ -193,13 +202,10 @@ export async function callStructuredFunction(args: {
     json = null;
     try { json = raw ? JSON.parse(raw) : null; } catch { /* handled below */ }
 
-    // A configured secondary provider is useful only if there is enough time to
-    // reach it. Rate limits usually persist longer than this turn's deadline, so
-    // do not burn the deadline retrying the same provider first.
     if (!response.ok && response.status === 429 && hasDistinctFailover) break;
 
-    if (!response.ok && attempts < MAX_STRUCTURED_ATTEMPTS) {
-      const delay = boundedRetryDelayMs({ response, raw, attempt: attempts });
+    if (!response.ok && attempts < maxAttempts) {
+      const delay = boundedRetryDelayMs({ response, raw, attempt: attempts, maxAttempts });
       if (delay !== null) {
         const mayRetry = await waitForRetry(delay, args.signal);
         if (mayRetry) continue;

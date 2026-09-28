@@ -1,7 +1,9 @@
-// Nino Runtime V3 — semantic comparator for V2 x V3 shadow observations.
+// Nino Runtime V3 — semantic comparator.
 //
 // Comparison deliberately ignores prose style and provenance labels. We compare
-// the semantic contract: turn kind/act, task families, entities and periods.
+// the semantic contract: turn kind/act, task families, entities, periods and
+// write payload meaning. This is used both by shadow evaluation and by the
+// independent deep-review gate for consequential turns.
 
 import type { TurnSpecV3, SemanticTaskV3 } from "./TurnSpecV3.ts";
 
@@ -68,6 +70,38 @@ function periodValues(tasks: SemanticTaskV3[]): string[] {
   return sortedUnique(out);
 }
 
+/**
+ * Semantic review compares meaning, not serialization. Models may emit the same
+ * money as 50, 50.00, 50,00 or R$ 50,00. Canonicalize those spellings before
+ * deciding that the tiers disagree. Dates/IDs/names are intentionally left as
+ * normalized text so distinct entities cannot collapse accidentally.
+ */
+function normalizeSlotValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  const raw = String(value ?? "").trim();
+  const withoutCurrency = raw.replace(/^r\$\s*/i, "").trim();
+  let numeric: string | null = null;
+  if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(withoutCurrency)) {
+    numeric = withoutCurrency.replace(/\./g, "").replace(",", ".");
+  } else if (/^-?\d+(?:,\d+)$/.test(withoutCurrency)) {
+    numeric = withoutCurrency.replace(",", ".");
+  } else if (/^-?\d+(?:\.\d+)?$/.test(withoutCurrency)) {
+    numeric = withoutCurrency;
+  }
+  if (numeric != null) {
+    const parsed = Number(numeric);
+    if (Number.isFinite(parsed)) return String(parsed);
+  }
+  return norm(raw);
+}
+
+function normalizedWriteSlots(slots: Record<string, unknown> | null | undefined): Array<[string, string]> {
+  return Object.entries(slots ?? {})
+    .map(([key, value]) => [norm(key), normalizeSlotValue(value)] as [string, string])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
 function taskShape(task: SemanticTaskV3): Record<string, unknown> {
   if (task.kind === "financial_query") {
     return {
@@ -100,7 +134,7 @@ function taskShape(task: SemanticTaskV3): Record<string, unknown> {
     kind: task.kind,
     family: task.family,
     action: task.action,
-    slot_keys: Object.keys(task.slots ?? {}).sort(),
+    slots: normalizedWriteSlots(task.slots),
   };
 }
 

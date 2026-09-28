@@ -20,21 +20,25 @@ function baseTask(task: TaskTurnSpecV3["tasks"][number]): TaskTurnSpecV3 {
 }
 
 describe("Nino Runtime V3 production authority", () => {
-  it("routes normal semantic authority through V3 with a marked V2 circuit breaker", () => {
+  it("routes ordinary language through one V3 semantic authority without a V2 reinterpretation circuit breaker", () => {
     const authority = readFileSync("supabase/functions/_shared/agent/core/ConversationAuthority.ts", "utf8");
+    const semanticAuthority = readFileSync("supabase/functions/_shared/agent/v3/SemanticAuthorityV3.ts", "utf8");
     expect(authority).toContain('isEnabled("runtime_v3_authority_v1"');
-    expect(authority).toContain("interpretSemanticTurnV3");
+    expect(authority).toContain("interpretWithSingleSemanticAuthorityV3");
     expect(authority).toContain("bridgeTurnSpecV3ToRuntime");
-    expect(authority).toContain("v3-authority:");
-    expect(authority).toContain("v3-circuit-breaker:");
+    expect(authority).not.toContain("v3-circuit-breaker:");
+    expect(authority).not.toContain("compileDeterministicConversationTurn");
+    expect(semanticAuthority).toContain("interpretSemanticTurnV3");
+    expect(semanticAuthority).toContain("semanticFastModel");
+    expect(semanticAuthority).toContain("semanticDeepModel");
 
     const core = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
     expect(core).toContain('from "./ConversationAuthority.ts"');
     expect(core).toContain('v3AuthorityEnabled || await isEnabled("conversation_brain_v1"');
-    const narrow = core.indexOf("resolveNarrowDeterministicTurn(brainText)");
-    const authorityCall = core.indexOf("await interpretConversationTurn({", narrow);
-    expect(narrow).toBeGreaterThan(0);
-    expect(authorityCall).toBeGreaterThan(narrow);
+    expect(core).toContain("const groundedFollowupContract = v3AuthorityEnabled");
+    expect(core).toContain("const narrowContract = v3AuthorityEnabled");
+    const authorityCall = core.indexOf("await interpretConversationTurn({");
+    expect(authorityCall).toBeGreaterThan(0);
   });
 
   it("does not double-call V3 shadow once authority owns the turn", () => {

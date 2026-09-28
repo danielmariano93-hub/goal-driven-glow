@@ -73,6 +73,8 @@ jobs:
           src/test/nino-runtime-v3-bridge.test.ts
           src/test/nino-runtime-v3-authority.test.ts
           src/test/nino-provider-smoke-authority.test.ts
+          src/test/nino-single-semantic-authority-v3.test.ts
+          src/test/nino-lifecycle-hardening-v3.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
@@ -82,6 +84,7 @@ jobs:
         run: >-
           deno check --no-config
           supabase/functions/_shared/ai-runtime.ts
+          supabase/functions/_shared/ai-structured.ts
           supabase/functions/_shared/agent/core/ActionIR.ts
           supabase/functions/_shared/agent/core/ConversationTurnContract.ts
           supabase/functions/_shared/agent/core/ConversationReferenceStore.ts
@@ -102,6 +105,7 @@ jobs:
           supabase/functions/_shared/agent/v3/TurnSpecV3Adapter.ts
           supabase/functions/_shared/agent/v3/RuntimeV3Shadow.ts
           supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts
+          supabase/functions/_shared/agent/v3/SemanticAuthorityV3.ts
           supabase/functions/_shared/agent/v3/SemanticComparatorV3.ts
           supabase/functions/_shared/agent/v3/RuntimeV3ProductionShadow.ts
           supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts

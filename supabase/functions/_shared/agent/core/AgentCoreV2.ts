@@ -124,11 +124,6 @@ function runtimeFailureContract(reply: string): CanonicalConversationTurnContrac
   };
 }
 
-/**
- * Na V2, explicitness vem do contrato emitido pela autoridade conversacional.
- * O backend pode validar/bindar os slots, mas não chama outro classificador para
- * decidir novamente se o usuário mudou de assunto/entidade/período.
- */
 function constraintsFromContract(contract: ConversationTurnContract, _canonical: string) {
   const semanticQueries = contract.financial_read?.queries ?? [];
   return {
@@ -137,7 +132,6 @@ function constraintsFromContract(contract: ConversationTurnContract, _canonical:
       contract.focus.category || contract.focus.merchant || contract.focus.goal
       || semanticQueries.some((q) => q.filters.length > 0),
     ),
-    // Dimensão vem do Turn Contract, nunca de uma segunda leitura lexical.
     dimension: semanticQueries.some((q) => q.group_by.length > 0),
   };
 }
@@ -297,9 +291,6 @@ async function finishV2(args: {
 }): Promise<HandleTurnResult> {
   const body = safeReply(args.reply);
 
-  // Reference Store is working memory, not semantic inference. Repairs
-  // invalidate the previous referent; successful tool results can publish a
-  // new structured entity set for later "delas/essa categoria" follow-ups.
   let nextReferences = args.memory?.references ?? [];
   if (args.contract.act === "repair") nextReferences = invalidateReferences(nextReferences);
   const capturedReferences = captureReferenceObjects(args.tool_calls ?? []);
@@ -307,9 +298,6 @@ async function finishV2(args: {
     nextReferences = [...nextReferences, ...capturedReferences].slice(-8);
   }
 
-  // Durable topic continuity is updated for meaningful V2 topics. Pure social
-  // turns ("oi", "obrigado") must not replace the financial topic the user may
-  // resume a message later.
   const incidentalConversation = args.contract.mode === "converse"
     && args.contract.act === "conversational"
     && !args.contract.inherit_focus;
@@ -397,8 +385,6 @@ async function finishV2(args: {
     tools: args.tools, error: args.error, diagnostics: args.diagnostics,
   });
 
-  // V2 must learn too. Previously the 100% Conversation Brain rollout bypassed
-  // the legacy learning loop, so corrections/preferences stopped reinforcing.
   await learnFromTurn(args.sb, {
     user_id: args.input.user_id,
     intent: `brain:${args.contract.mode}`,
@@ -419,11 +405,6 @@ async function finishV2(args: {
   };
 }
 
-/**
- * Entry point V2. O rollout é fail-closed: flag ausente/desligada usa o Core
- * legado sem nenhum efeito colateral novo. O shadow é uma flag separada e
- * apenas compara interpretação: nunca executa tools/drafts da V2.
- */
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
   const v3AuthorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);
   const enabled = v3AuthorityEnabled || await isEnabled("conversation_brain_v1", input.user_id);
@@ -433,8 +414,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   if (!enabled && shadowEnabled) {
     const sb = service();
-    // Os dois caminhos veem o mesmo turno. O shadow só interpreta; o legado
-    // continua sendo o único responsável pela resposta e por qualquer side effect.
     const [legacy] = await Promise.all([
       handleLegacyTurn(input),
       evaluateConversationBrainShadow({
@@ -466,7 +445,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const sb = service();
   const started = Date.now();
 
-  // Retry de WhatsApp: devolve o outbound já criado antes de qualquer chamada de IA.
   if (input.channel !== "app") {
     const { data: existing } = await sb.from("outbound_messages")
       .select("body").eq("inbound_message_id", input.inbound_message_id).maybeSingle();
@@ -475,16 +453,12 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     }
   }
 
-  // Fast paths permitidos na V2 são estados/eventos inequívocos, não
-  // classificadores gerais de linguagem.
   const pending = await findPending(sb, input.conversation_id, input.user_id).catch(() => null);
   const confirmationAct = classifyConfirmationAct(input.text);
   if (pending && (confirmationAct === "confirm" || confirmationAct === "cancel" || confirmationAct === "ambiguous")) {
     return await handleLegacyTurn(input);
   }
 
-  // "Quero" confirma um draft somente quando existe ESTADO pendente. Fora
-  // desse estado ele segue para o Brain e responde à pergunta/oferta recente.
   if (pending && normalizeShort(input.text) === "quero") {
     const outcome = await confirmAndBuildReceipt(sb, pending, {
       source_message_id: input.inbound_message_id ?? null,
@@ -546,15 +520,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     ? { ...rawMemory, references: advanceReferences(rawMemory.references ?? []) }
     : rawMemory;
 
-  // WhatsApp persiste a mensagem antes do Core, mas o id técnico nem sempre é
-  // o id de conversation_messages. Remove por conteúdo para não duplicar o turno.
   const history = input.channel === "app"
     ? loadedHistory
     : withoutCurrentTurn(loadedHistory, input.text);
 
-  // A resposta curta "sim/quero/pode" primeiro tenta cumprir a oferta que o
-  // próprio Nino acabou de fazer. Sem isso, cada aceite precisa ser
-  // reinterpretado do zero pelo modelo.
   const continuation = resolveContinuation({
     text: input.text,
     action: memory?.pending_conversation_action ?? null,
@@ -578,8 +547,15 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
-  const groundedFollowupContract = resolveGroundedComparisonFollowup(brainText, memory);
-  const narrowContract = groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText);
+  // Once V3 is authoritative, ordinary language MUST reach the single semantic
+  // brain. These legacy lexical/evidence follow-up compilers stay available only
+  // outside V3 rollout as rollback compatibility; they may not preempt V3.
+  const groundedFollowupContract = v3AuthorityEnabled
+    ? null
+    : resolveGroundedComparisonFollowup(brainText, memory);
+  const narrowContract = v3AuthorityEnabled
+    ? null
+    : (groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText));
   const brain = narrowContract
     ? {
       contract: narrowContract,
@@ -606,9 +582,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       run_id: null,
     });
 
-  // Depois que a lane V2 assumiu o turno, nenhuma falha do Brain pode devolver
-  // autoridade ao parser/router legado. Falha de interpretação é fail-closed:
-  // não executa ferramenta, não alarga escopo e pede reformulação.
   if (!brain.contract) {
     const reply = "Não consegui interpretar essa mensagem com segurança. Pode reformular o pedido em uma frase?";
     const failureContract = runtimeFailureContract(reply);
@@ -626,8 +599,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     brainText,
   );
 
-  // Grounding only binds the reference already declared by the Turn Contract.
-  // Missing/expired referents fail closed instead of widening scope.
   const groundedTurn = groundTurnContract(contract, memory);
   if (!groundedTurn.ok) {
     return await finishV2({
@@ -701,10 +672,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     });
   }
 
-  // READ: Brain resolve significado/continuidade. Advisory intents with a
-  // dedicated canonical engine are bound here BEFORE FinancialQueryIR. This is
-  // not a second language classifier: the bridge only reads the canonical
-  // request emitted by the Conversation Brain.
   const canonical = String(contract.canonical_request ?? brainText).trim();
   const advisory = resolveBrainAdvisory(contract);
   if (advisory) {
@@ -742,13 +709,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     }
   }
 
-  // canonical_request já incorporou continuidade/elipse. O resolver temporal
-  // não recebe histórico, portanto não pode reclassificar o turno novamente.
   const plan = buildTurnPlan({ text: canonical, history: [] });
   const comparisonIntent = contract.financial_read?.queries.some((query) => query.operation === "compare") ?? false;
-  // Em comparação, o Brain declara baseline/target como papéis semânticos.
-  // O resolver abaixo só converte as expressões humanas em datas — ele não
-  // decide mais qual período é referência e qual é o avaliado.
   const comparisonExpressions = comparisonPeriodExpressions(contract);
   const statisticalTargetExpression = contract.financial_read?.queries.find((query) =>
     query.operation === "compare"
@@ -778,14 +740,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const constraints = constraintsFromContract(contract, canonical);
   const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
 
-  // O contrato já declara quantas subconsultas fazem parte do pedido. Uma flag
-  // antiga não pode truncar essa semântica depois do Brain.
   const contractQueryCount = Math.max(
     1,
     Math.min(MAX_IR_QUERIES, contract.financial_read?.queries.length ?? 1),
   );
-  // Replan semântico por LLM permanece disponível no pipeline legado, mas não
-  // na lane autoritativa: um IR revisado seria uma segunda interpretação.
   const authoritativeInvestigationEnabled = false;
 
   const semantic = await runSemanticTurn({
@@ -804,17 +762,12 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     topic_state: state?.semantic_topic_state ?? null,
     max_queries: contractQueryCount,
     investigation_enabled: authoritativeInvestigationEnabled,
-    // Segurança semântica é parte da V2, não uma otimização opcional.
     preservation_enforced: true,
-    // "por mês/costumo" jamais pode cair no MTD na arquitetura nova.
     typical_monthly_enabled: true,
     authoritative_contract: true,
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
     compile: async (args) => {
-      // Financial semantics come only from the canonical Turn Contract.
-      // Replan semântico por LLM é recusado nesta lane: evidência pode mudar a
-      // execução, nunca reescrever o significado já contratado.
       if (args.replan) return null;
       const compiled = compileFinancialReadFromTurn({
         turn: contract,
@@ -924,9 +877,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
-  // Hierarquia de contratos: Turn Contract -> financial_read_contract.v4.
-  // O contrato financeiro encapsula o IR v3 existente; ele não compete com a
-  // autoridade conversacional e é verificado contra a execução/evidência.
   const financialReadContract = semantic.ir_v3
     ? buildFinancialReadContract({
       turn: contract,
@@ -960,9 +910,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
 
-  // A lane autoritativa pode devolver a resposta protegida antes de executar
-  // qualquer engine. Isso é uma falha real do contrato, não um run "done".
-  // Sem este sinal, o incidente de produção aparecia saudável na telemetria.
   const semanticContractFailed = semantic.telemetry?.executed_by === "contract_failed_closed";
   const semanticUnsupported = semantic.status === "unsupported" && !semantic.turn;
   const successfulSemanticExecution = (semantic.turn?.toolCalls ?? []).some((call) => call?.ok === true);
@@ -989,9 +936,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
         ? `semantic_unsupported:${semantic.validation?.errors.join(",") || "no_engine"}`.slice(0, 300)
       : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
     memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    // Persist the period contract that was ACTUALLY executed. Using the
-    // pre-semantic planner period here stored July + an unrelated June window
-    // after a July/August turn, poisoning the next elliptical follow-up.
     active_period: successfulSemanticExecution && semantic.ir_v2?.period
       ? { from: semantic.ir_v2.period.from, to: semantic.ir_v2.period.to, label: semantic.ir_v2.period.label ?? null }
       : memory?.active_period ?? { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
