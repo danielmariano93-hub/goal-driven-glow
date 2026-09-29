@@ -98,3 +98,23 @@ describe("histórico da pessoa vira preferência (só o que ELA decidiu)", () =>
     ])).toEqual([]);
   });
 });
+
+import { counterpartyDisplayName, parseCounterpartyGroups } from "@/lib/categories/counterparties";
+
+describe("organizar por favorecido", () => {
+  it("nomeia o grupo do jeito que a pessoa reconhece", () => {
+    expect(counterpartyDisplayName("pamela", "PIX Pamela", "expense")).toBe("Pix para Pamela");
+    expect(counterpartyDisplayName("henriqu", "PIX Henriqu", "income")).toBe("Pix de Henriqu");
+    expect(counterpartyDisplayName("logoali mercado expres", "LOGOALI MERCADO EXPRES", "expense")).toBe("Logoali Mercado Expres");
+  });
+
+  it("descarta linhas inválidas do banco", () => {
+    const groups = parseCounterpartyGroups([
+      { counterparty_key: "pamela", label: "PIX Pamela", transaction_type: "expense", transactions: 11, total: "2090.00" },
+      { counterparty_key: "", transaction_type: "expense" },
+      { counterparty_key: "x", transaction_type: "transfer" },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ id: "expense:pamela", total: 2090, direction: "pago" });
+  });
+});

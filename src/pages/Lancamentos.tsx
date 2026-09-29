@@ -31,6 +31,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { CategorySelect } from "@/components/CategorySelect";
+import { CounterpartyCategorizer } from "@/components/transactions/CounterpartyCategorizer";
 import { EmptyState } from "@/components/ui/empty-state";
 import { notifySuccess, notifyError, notifyInfo, humanizeError } from "@/lib/ui/feedback";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
@@ -509,6 +510,8 @@ export default function Lancamentos() {
               </button>
             ) : null}
           </div>
+
+          {filters.uncategorized ? <CounterpartyCategorizer /> : null}
 
           {selectMode && (
             <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
