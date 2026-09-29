@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
 import type { TurnSpecV3 } from "../../supabase/functions/_shared/agent/v3/TurnSpecV3";
 
+const NOW = new Date("2026-09-28T15:00:00-03:00");
 const sourced = (value: string) => ({ value, source: "current_turn" as const, source_span: value });
 
 function financialTurn(): TurnSpecV3 {
@@ -28,14 +29,18 @@ function financialTurn(): TurnSpecV3 {
 }
 
 describe("Nino Runtime V3 -> existing runtime bridge", () => {
-  it("preserves explicit category and period without reinterpreting them", () => {
-    const result = bridgeTurnSpecV3ToRuntime(financialTurn());
+  it("preserves temporal provenance while grounding one canonical execution scope", () => {
+    const result = bridgeTurnSpecV3ToRuntime(financialTurn(), NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.contract).toMatchObject({
       mode: "read",
       domain: "financial_read",
-      focus: { category: "Lazer", period_expression: "esse mês" },
+      focus: {
+        category: "Lazer",
+        period_expression: "esse mês",
+        period_expressions: ["2026-09-01..2026-09-28"],
+      },
       financial_read: {
         queries: [{
           metric: "expense_amount",
@@ -57,7 +62,7 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
       references: [],
       tasks: [{ kind: "goal_query", family: "goals", operation: "overview", goal: null }],
     };
-    const result = bridgeTurnSpecV3ToRuntime(turn);
+    const result = bridgeTurnSpecV3ToRuntime(turn, NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.contract.financial_read?.queries[0]).toMatchObject({ metric: "goal_progress", operation: "value" });
@@ -68,7 +73,7 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
     if (base.kind !== "task") throw new Error("task expected");
     base.canonical_request = "Quanto gastei em Lazer e quais metas eu tenho?";
     base.tasks.push({ kind: "goal_query", family: "goals", operation: "overview", goal: null });
-    const result = bridgeTurnSpecV3ToRuntime(base);
+    const result = bridgeTurnSpecV3ToRuntime(base, NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.contract.financial_read?.queries).toHaveLength(2);
@@ -81,7 +86,7 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
       { field: "category", entity: sourced("Lazer") },
       { field: "merchant", entity: sourced("Thales") },
     ];
-    const result = bridgeTurnSpecV3ToRuntime(turn);
+    const result = bridgeTurnSpecV3ToRuntime(turn, NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.contract).toMatchObject({
@@ -108,7 +113,7 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
       references: [],
       tasks: [{ kind: "financial_write", family: "financial.write", action: "dangerous.arbitrary.action", slots: {} }],
     };
-    const result = bridgeTurnSpecV3ToRuntime(turn);
+    const result = bridgeTurnSpecV3ToRuntime(turn, NOW);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors.some((error) => error.startsWith("unsupported_financial_write_action:"))).toBe(true);
@@ -118,7 +123,7 @@ describe("Nino Runtime V3 -> existing runtime bridge", () => {
     const turn = financialTurn();
     if (turn.kind !== "task") throw new Error("task expected");
     turn.tasks.push({ kind: "advisory", family: "advisory", operation: "next_best_action", periods: [] });
-    const result = bridgeTurnSpecV3ToRuntime(turn);
+    const result = bridgeTurnSpecV3ToRuntime(turn, NOW);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors[0]).toContain("mixed_capability_families_not_executable");

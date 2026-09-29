@@ -1,15 +1,7 @@
 // ContractFulfillmentGate (`nino_contract_fulfillment.v1`)
 //
-// Generalizes the existing Preservation + Grounding gates without replacing
-// them. It answers one question: did execution satisfy the canonical contracts
-// that were requested?
-//
-// For financial reads:
-// Turn Contract -> Financial Read Contract v4 -> Execution/Evidence
-//                 \-> SemanticPreservation + GroundingGateV3
-//
-// This gate composes those existing guarantees and adds reference-scope
-// preservation. No new semantic classifier lives here.
+// End-to-end proof that the executed/evidenced answer still satisfies the
+// canonical request. Validators reject; they never reinterpret.
 
 import type { GroundingResult } from "./GroundingGateV3.ts";
 import type { PreservationResult } from "./SemanticPreservation.ts";
@@ -39,6 +31,12 @@ function sameSet(a: string[], b: string[]): boolean {
   return aa.length === bb.length && aa.every((value, index) => value === bb[index]);
 }
 
+function contractViolationCode(error: string): string {
+  if (error === "turn_period_vs_financial_ir_mismatch") return "requested_vs_ir_temporal_mismatch";
+  if (error === "turn_semantics_vs_financial_ir_mismatch") return "requested_vs_ir_semantic_mismatch";
+  return "financial_contract_invalid";
+}
+
 export function verifyFinancialFulfillment(args: {
   contract: FinancialReadContractV4 | null;
   preservation: PreservationResult | null;
@@ -51,7 +49,7 @@ export function verifyFinancialFulfillment(args: {
   const violations: ContractViolation[] = [];
 
   for (const error of validateFinancialReadContract(args.contract)) {
-    violations.push({ code: "financial_contract_invalid", detail: error });
+    violations.push({ code: contractViolationCode(error), detail: error });
   }
 
   if (args.preservation && !args.preservation.compatible) {

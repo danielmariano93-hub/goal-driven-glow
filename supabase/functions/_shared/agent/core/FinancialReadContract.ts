@@ -1,11 +1,8 @@
 // FinancialReadContract (`financial_read_contract.v4`)
 //
-// Domain-specific contract subordinated to ConversationTurnContract v2.
-// There is ONE conversational authority; this contract only canonicalizes the
-// already-understood financial READ into the existing FinancialQueryIR v3.
-//
-// This file deliberately does not classify language, choose tools or resolve
-// entities. It binds Turn Contract -> canonical financial IR + grounded scope.
+// Domain-specific contract subordinated to the conversational authority.
+// The v4 wire shape remains backward compatible; the additive semantic_periods
+// proof binds exact temporal windows emitted by Runtime V3 to Financial IR.
 
 import type {
   CanonicalConversationTurnContract,
@@ -15,14 +12,18 @@ import type {
 import type { FinancialQueryIRv3 } from "./FinancialIRv3.ts";
 import type { GroundedReference } from "./ConversationReferenceStore.ts";
 
+export type ContractPeriodWindow = { from: string; to: string };
+
 export type FinancialReadContractV4 = {
   version: "financial_read_contract.v4";
   source_turn_version: "conversation_turn_contract.v2";
   domain: "financial_read";
-  /** Semântica emitida pelo Conversation Brain; autoridade do domínio. */
   semantic_request: FinancialReadSemanticRequest | null;
-  /** IR executável produzido pelo adaptador/resolvers do backend. */
   requested: FinancialQueryIRv3;
+  /** Exact canonical windows that came from the authoritative V3 turn.
+   * Optional on the wire so contracts persisted before this additive proof
+   * remain valid during rollout. New contracts always populate the field. */
+  semantic_periods?: ContractPeriodWindow[];
   slots: {
     intent: ResolutionState;
     reference: ResolutionState;
@@ -35,6 +36,33 @@ export type FinancialReadContractV4 = {
     entity_labels: string[];
   } | null;
 };
+
+function canonicalWindow(expression: string | null | undefined): ContractPeriodWindow | null {
+  const match = String(expression ?? "").trim().match(/^(20\d{2}-\d{2}-\d{2})\.\.(20\d{2}-\d{2}-\d{2})$/);
+  if (!match || match[1] > match[2]) return null;
+  return { from: match[1], to: match[2] };
+}
+
+function semanticPeriodsOf(turn: CanonicalConversationTurnContract): ContractPeriodWindow[] {
+  // period_expressions is the canonical execution scope under V3. The singular
+  // period_expression may retain source wording for provenance/UI.
+  const raw = turn.focus.period_expressions?.length
+    ? turn.focus.period_expressions
+    : turn.focus.period_expression
+      ? [turn.focus.period_expression]
+      : [];
+  const seen = new Set<string>();
+  const out: ContractPeriodWindow[] = [];
+  for (const expression of raw) {
+    const period = canonicalWindow(expression);
+    if (!period) continue; // legacy V2/out-of-rollout remains source-compatible.
+    const key = `${period.from}..${period.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(period);
+  }
+  return out;
+}
 
 export function buildFinancialReadContract(args: {
   turn: CanonicalConversationTurnContract;
@@ -55,6 +83,7 @@ export function buildFinancialReadContract(args: {
     domain: "financial_read",
     semantic_request: args.turn.financial_read,
     requested: args.requested,
+    semantic_periods: semanticPeriodsOf(args.turn),
     slots: {
       intent: args.turn.resolution.intent,
       reference: refStatus,
@@ -74,7 +103,7 @@ export function buildFinancialReadContract(args: {
 }
 
 function normalizedFilterKey(field: string, value: string): string {
-  return `${field}=${value.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").trim()}`;
+  return `${field}=${value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()}`;
 }
 
 function semanticShapeOfExpected(query: FinancialReadSemanticRequest["queries"][number]): string {
@@ -109,13 +138,36 @@ function semanticRequestMatchesIR(
   semantic: FinancialReadSemanticRequest | null,
   ir: FinancialQueryIRv3,
 ): boolean {
-  if (!semantic) return true; // legacy v1 compatibility only.
+  if (!semantic) return true;
   if (semantic.intent !== ir.intent) return false;
   const expected = [...new Set(semantic.queries.map(semanticShapeOfExpected))].sort();
-  // Multi-period expansion legitimately duplicates the same semantic shape.
   const executed = [...new Set(ir.queries.map(semanticShapeOfExecuted))].sort();
   return expected.length === executed.length
     && expected.every((shape, index) => shape === executed[index]);
+}
+
+function financialIRWindows(ir: FinancialQueryIRv3): Set<string> {
+  const windows = new Set<string>();
+  const add = (period: { from?: string | null; to?: string | null } | null | undefined) => {
+    if (!period?.from || !period?.to) return;
+    windows.add(`${period.from}..${period.to}`);
+  };
+  add(ir.period);
+  add(ir.comparison_period);
+  for (const query of ir.queries) add(query.time);
+  return windows;
+}
+
+/**
+ * Every exact window emitted by V3 must still exist in the compiled IR.
+ * Additional IR windows are allowed only for deterministic derived baselines.
+ * Persisted v4 contracts created before semantic_periods existed remain valid.
+ */
+function semanticPeriodsMatchIR(contract: FinancialReadContractV4): boolean {
+  const semanticPeriods = contract.semantic_periods ?? [];
+  if (!semanticPeriods.length) return true;
+  const irWindows = financialIRWindows(contract.requested);
+  return semanticPeriods.every((p) => irWindows.has(`${p.from}..${p.to}`));
 }
 
 export function validateFinancialReadContract(contract: FinancialReadContractV4 | null): string[] {
@@ -134,6 +186,9 @@ export function validateFinancialReadContract(contract: FinancialReadContractV4 
   if (contract.grounded_reference?.entity_labels.length === 0) errors.push("grounded_reference_empty");
   if (!semanticRequestMatchesIR(contract.semantic_request, contract.requested)) {
     errors.push("turn_semantics_vs_financial_ir_mismatch");
+  }
+  if (!semanticPeriodsMatchIR(contract)) {
+    errors.push("turn_period_vs_financial_ir_mismatch");
   }
   return errors;
 }

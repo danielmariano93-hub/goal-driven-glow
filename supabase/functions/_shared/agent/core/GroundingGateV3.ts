@@ -1,13 +1,12 @@
 // GroundingGate V3 (`nino_semantic_ir.v3`)
 //
 // Gate #3: a RESPOSTA GERADA respeitou exatamente a evidência? Complementa o
-// TruthValidator (números/percentuais) com validação SEMÂNTICA: ranking trocado,
-// entidade que não está na evidência, direção invertida, ausência contrariada.
-// Trocar o #1 do ranking é bloqueado mesmo quando o número está certo.
+// TruthValidator com validação semântica de dinheiro, ranking, direção,
+// entidades e agora também do PERÍODO exibido ao usuário.
 import type { EvidenceClaimSet } from "./EvidenceClaims.ts";
 
 export type ClaimVerdict = {
-  kind: "money" | "percentage" | "rank" | "entity" | "direction" | "absence";
+  kind: "money" | "percentage" | "rank" | "entity" | "direction" | "absence" | "period";
   token: string;
   status: "exact" | "derived_allowed" | "unbacked" | "semantic_mismatch";
   detail: string | null;
@@ -40,11 +39,6 @@ function directionState(labels: string[]) {
 }
 
 function directionMentions(reply: string) {
-  // O formatter canônico pode dizer "Aumentaram: nenhuma" ou
-  // "Nenhuma dessas categorias diminuiu". Essas frases são evidência de AUSÊNCIA
-  // de uma direção, não uma afirmação positiva daquela direção. Removemos essas
-  // cláusulas antes de procurar verbos positivos para não transformar negação em
-  // direction_inverted.
   const noIncreasePatterns = [
     /\baumentaram\s*:\s*nenhuma\b/gi,
     /\bnenhuma(?:\s+dessas)?\s+categorias?\s+aumentou\b[^.!\n]*/gi,
@@ -83,6 +77,34 @@ function directionMentions(reply: string) {
   };
 }
 
+function brToIso(day: string, month: string, year: string): string | null {
+  const d = Number(day);
+  const m = Number(month);
+  const y = Number(year);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const iso = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const parsed = new Date(`${iso}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== iso) return null;
+  return iso;
+}
+
+/** Extract only explicit user-visible period labels, not arbitrary dates in rows. */
+function explicitPeriodMentions(reply: string): Array<{ token: string; from: string; to: string }> {
+  const mentions: Array<{ token: string; from: string; to: string }> = [];
+  const rangeRx = /\b(?:entre|de|do\s+per[ií]odo\s+de)\s*(\d{1,2})\/(\d{1,2})\/(20\d{2})\s*(?:e|a|at[eé])\s*(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/gi;
+  for (const match of reply.matchAll(rangeRx)) {
+    const from = brToIso(match[1], match[2], match[3]);
+    const to = brToIso(match[4], match[5], match[6]);
+    if (from && to) mentions.push({ token: match[0], from, to });
+  }
+  const singleRx = /\b(?:em|no\s+dia|dia)\s*(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/gi;
+  for (const match of reply.matchAll(singleRx)) {
+    const day = brToIso(match[1], match[2], match[3]);
+    if (day) mentions.push({ token: match[0], from: day, to: day });
+  }
+  return mentions;
+}
+
 export function groundReply(args: {
   reply: string;
   claims: EvidenceClaimSet;
@@ -99,9 +121,7 @@ export function groundReply(args: {
     const value = parseBrl(token);
     const exact = values.some((v) => cents(v) === cents(value));
     const derived = !exact && (
-      // rounded_money
       values.some((v) => Math.abs(v - value) < 0.5)
-      // difference
       || values.some((a) => values.some((b) => cents(Math.abs(a - b)) === cents(value)))
     );
     verdicts.push({
@@ -112,7 +132,6 @@ export function groundReply(args: {
     });
   }
 
-  // Percentual: exato, ratio ou percentage_share da evidência.
   for (const match of reply.matchAll(/(-?\d{1,3}(?:,\d{1,2})?)\s?%/g)) {
     const token = match[1];
     const value = Number(token.replace(",", "."));
@@ -129,7 +148,21 @@ export function groundReply(args: {
     });
   }
 
-  // Ranking: quem a resposta apresenta como maior tem de ser o #1 da evidência.
+  // User-visible date range must be the period proved by engine evidence.
+  const periodClaims = new Set(
+    claims.filter((c) => c.type === "period" && c.label).map((c) => String(c.label)),
+  );
+  for (const mention of explicitPeriodMentions(reply)) {
+    const label = `${mention.from}..${mention.to}`;
+    const exact = periodClaims.has(label);
+    verdicts.push({
+      kind: "period",
+      token: mention.token,
+      status: exact ? "exact" : "semantic_mismatch",
+      detail: exact ? null : `period_not_in_evidence:${label}`,
+    });
+  }
+
   const ranked = claims.filter((c) => c.type === "rank" && c.label && c.rank != null)
     .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
   if (ranked.length > 0) {
@@ -151,7 +184,6 @@ export function groundReply(args: {
     }
   }
 
-  // Ausência: evidência diz "sem dados", resposta não pode afirmar valor.
   const hasAbsence = claims.some((c) => c.type === "absence");
   if (hasAbsence && values.filter((v) => v > 0).length === 0) {
     const claimsMoney = verdicts.some((v) => v.kind === "money" && v.status !== "exact");
@@ -163,8 +195,6 @@ export function groundReply(args: {
     }
   }
 
-  // Direção: distingue afirmação positiva de negação/ausência. Ex.:
-  // "Diminuíram: nenhuma" NÃO significa que houve queda; significa no_decrease.
   const directionLabels = claims
     .filter((c) => c.type === "direction" && c.label)
     .map((c) => String(c.label).toLowerCase());

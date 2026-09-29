@@ -1,9 +1,9 @@
 // Runtime V3 semantic authority for Nino.
 //
-// When runtime_v3_authority_v1 is enabled, natural-language meaning is owned by
-// one semantic contract only: TurnSpecV3. Downstream components may validate,
-// ground and execute that meaning, but they never reinterpret the sentence.
-// Legacy V2 remains available only for users outside the V3 rollout.
+// Natural-language meaning is owned by TurnSpecV3. Downstream components may
+// validate, ground and execute that meaning, but they never reinterpret it.
+// no lexical fast-path, parser or V2 circuit breaker may decide meaning first
+// Legacy V2 remains only for users outside the V3 rollout.
 // deno-lint-ignore-file no-explicit-any
 
 import { isEnabled } from "./FeatureFlags.ts";
@@ -16,6 +16,7 @@ import {
   type CanonicalConversationTurnContract,
   type TurnReference,
 } from "./ConversationTurnContract.ts";
+import { trustedActivePeriod } from "./ConversationMemory.ts";
 import { interpretWithSingleSemanticAuthorityV3 } from "../v3/SemanticAuthorityV3.ts";
 import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
@@ -24,26 +25,36 @@ export { dialogueActsFromContract } from "./ConversationBrain.ts";
 export type { ConversationTurnContract } from "./ConversationBrain.ts";
 
 type AuthorityInput = Parameters<typeof interpretConversationTurnV2>[0];
-
 type SemanticTelemetry = ConversationBrainOutcome["telemetry"];
 
 function historyText(history: AuthorityInput["history"]): string {
-  return (history ?? []).slice(-14).map((turn) => {
+  // Recent dialogue is nuance, not truth. Keep only the latest turns; durable
+  // structured state below carries references and evidence-backed scope.
+  return (history ?? []).slice(-8).map((turn) => {
     const role = turn.role === "user" ? "Usuário" : "Nino";
-    return `${role}: ${String(turn.content ?? "").trim().slice(0, 650)}`;
-  }).join("\n").slice(0, 7200);
+    return `${role}: ${String(turn.content ?? "").trim().slice(0, 520)}`;
+  }).join("\n").slice(0, 4300);
 }
 
 /**
- * Context is evidence ABOUT the conversation, never a second semantic parser.
- * The brain receives enough state to resolve ellipsis/anaphora naturally while
- * financial truth still comes only from domain engines after grounding.
+ * Structured context supplied to the semantic authority. The precedence policy
+ * is explicit so the model never has to infer which memory source wins.
  */
 function typedContextText(input: AuthorityInput): string {
   const memory = input.memory;
   const workflow = input.workflow;
+  const trustedPeriod = trustedActivePeriod(memory);
   const context = {
-    relationship_context: input.user_context ? String(input.user_context).slice(0, 4200) : null,
+    precedence_policy: [
+      "current_turn",
+      "quoted_turn",
+      "pending_workflow",
+      "active_reference",
+      "evidence_backed_state",
+      "conversation_state",
+      "relationship_memory",
+    ],
+    relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
       conversation_summary: memory.conversation_summary ?? null,
@@ -51,7 +62,9 @@ function typedContextText(input: AuthorityInput): string {
       previous_intent: memory.previous_intent ?? null,
       active_category: memory.active_category ?? null,
       active_merchant: memory.active_merchant ?? null,
-      active_period: memory.active_period ?? null,
+      active_period: trustedPeriod.period,
+      active_period_source: trustedPeriod.source,
+      active_period_evidence_backed: trustedPeriod.evidence_backed,
       comparison_period: memory.comparison_period ?? null,
       awaiting: memory.awaiting ?? null,
       pending_conversation_action: memory.pending_conversation_action ?? null,
@@ -67,13 +80,13 @@ function typedContextText(input: AuthorityInput): string {
           query_id: ref.source?.query_id ?? null,
         })),
     } : null,
-    workflow: workflow ? {
+    pending_workflow: workflow ? {
       kind: (workflow as any).kind ?? null,
       status: (workflow as any).status ?? null,
       slots: (workflow as any).slots ?? null,
     } : null,
   };
-  return JSON.stringify(context).slice(0, 9000);
+  return JSON.stringify(context).slice(0, 7200);
 }
 
 function referenceFromV3(turn: TurnSpecV3): TurnReference | null {
@@ -92,7 +105,6 @@ function referenceFromV3(turn: TurnSpecV3): TurnReference | null {
   };
 }
 
-/** Preserve V3 structured anaphora through the transitional V2 executor. */
 export function attachV3ReferenceToContract(
   turn: TurnSpecV3,
   contract: CanonicalConversationTurnContract,
@@ -111,6 +123,14 @@ export function isProviderCapacityFailure(reason: unknown): boolean {
     .test(String(reason ?? ""));
 }
 
+/** 400 from structured generation is technical unless the model itself emitted
+ * an explicit clarification TurnSpec. Never blame the user for provider/schema
+ * generation failure. */
+export function isProviderStructuredFailure(reason: unknown): boolean {
+  return /(?:structured_call_gateway_400|output_parse_failed|tool_use_failed|failed_generation|json_validate_failed|generated json does not match)/i
+    .test(String(reason ?? ""));
+}
+
 function fallbackTelemetry(base: SemanticTelemetry | null, reason: string): SemanticTelemetry {
   return {
     model: String(base?.model ?? "v3-semantic-unavailable").slice(0, 180),
@@ -124,7 +144,7 @@ function fallbackTelemetry(base: SemanticTelemetry | null, reason: string): Sema
   };
 }
 
-function humanCapacityFallback(
+function humanTechnicalFallback(
   input: AuthorityInput,
   reason: string,
   telemetry: SemanticTelemetry | null,
@@ -144,7 +164,7 @@ function humanCapacityFallback(
       period_expressions: [],
     },
     action: null,
-    direct_reply: "Não consegui fechar isso agora. Me manda a mesma mensagem de novo daqui a pouco?",
+    direct_reply: "Não consegui processar isso com segurança agora. Pode tentar de novo em instantes?",
     clarification_question: null,
     resolution: {
       intent: "resolved", reference: "not_applicable", time: "not_applicable",
@@ -178,10 +198,10 @@ function humanSemanticClarification(
     },
     action: null,
     direct_reply: null,
-    clarification_question: "Quero ter certeza de que entendi antes de seguir. Pode me dizer em uma frase o que você quer que eu faça?",
+    clarification_question: "Quero confirmar só um ponto antes de seguir. Qual período ou item você quer considerar?",
     resolution: {
-      intent: "ambiguous", reference: "not_applicable", time: "not_applicable",
-      entity: "not_applicable", action: "ambiguous",
+      intent: "ambiguous", reference: "not_applicable", time: "ambiguous",
+      entity: "not_applicable", action: "not_applicable",
     },
     reference: null,
     financial_read: null,
@@ -195,8 +215,6 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
     ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
     : false;
 
-  // Users outside the rollout keep the legacy brain. Once V3 is authoritative,
-  // no lexical fast-path, parser or V2 circuit breaker may decide meaning first.
   if (!authorityEnabled) return await interpretConversationTurnV2(input);
 
   const semantic = await interpretWithSingleSemanticAuthorityV3({
@@ -219,11 +237,14 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
       };
     }
 
-    // Bridge failure means execution cannot represent the meaning safely. Do
-    // not invoke another language interpreter to invent a different meaning.
     const reason = `v3_bridge_rejected:${bridged.errors.join("+")}`.slice(0, 220);
     console.warn("[ConversationAuthority] semantic contract cannot be represented", reason);
-    return humanSemanticClarification(input, reason, semantic.telemetry);
+    // Unresolved temporal expression is a genuine missing/ambiguous slot. Other
+    // bridge failures are internal capability/contract failures and must not be
+    // presented as if the user phrased the request badly.
+    return bridged.errors.some((e) => e.startsWith("temporal_expression_unresolved:"))
+      ? humanSemanticClarification(input, reason, semantic.telemetry)
+      : humanTechnicalFallback(input, reason, semantic.telemetry);
   }
 
   const reason = String(
@@ -234,8 +255,8 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   ).slice(0, 220);
   console.warn("[ConversationAuthority] semantic authority unavailable", reason);
 
-  if (isProviderCapacityFailure(reason)) {
-    return humanCapacityFallback(input, reason, semantic.telemetry);
+  if (isProviderCapacityFailure(reason) || isProviderStructuredFailure(reason)) {
+    return humanTechnicalFallback(input, reason, semantic.telemetry);
   }
-  return humanSemanticClarification(input, reason, semantic.telemetry);
+  return humanTechnicalFallback(input, reason, semantic.telemetry);
 }

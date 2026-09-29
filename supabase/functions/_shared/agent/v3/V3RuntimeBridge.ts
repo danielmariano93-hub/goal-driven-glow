@@ -1,13 +1,16 @@
 // Nino Runtime V3 — deterministic bridge into the existing execution runtime.
 //
-// This bridge does NOT interpret language. It translates an already validated
-// TurnSpecV3 into the current ConversationTurnContract so the mature financial
-// engines/draft workflows can be reused during canary. Unsupported mixed shapes
-// fail closed instead of being approximated.
+// Transitional compatibility only. TurnSpecV3 remains the single semantic
+// authority. Time is grounded HERE, once, before entering the mature V2
+// execution engines. `period_expression` preserves the user's source wording
+// for provenance/UI only; `period_expressions` carries canonical date windows
+// used by execution and fulfillment. The V2 normalizer may validate this
+// contract but may not rewrite the final V3 temporal scope.
 
 import { isActionKind } from "../core/ActionIR.ts";
 import {
   normalizeConversationTurnContract,
+  type BrainFocus,
   type CanonicalConversationTurnContract,
   type FinancialReadSemanticQuery,
   type TurnReference,
@@ -16,10 +19,15 @@ import type {
   FinancialQueryTaskV3,
   FinancialWriteTaskV3,
   GoalQueryTaskV3,
+  PeriodExpressionV3,
   SemanticTaskV3,
   TurnSpecV3,
 } from "./TurnSpecV3.ts";
 import { verifySemanticInvariantsV3 } from "./SemanticInvariantsV3.ts";
+import {
+  buildTemporalContractV3,
+  canonicalizePeriodExpressionV3,
+} from "./TemporalContractV3.ts";
 
 export type V3RuntimeBridgeResult =
   | { ok: true; contract: CanonicalConversationTurnContract; errors: [] }
@@ -34,19 +42,51 @@ function normalized(value: unknown): string {
     .replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function periodExpressions(tasks: SemanticTaskV3[]): string[] {
+function canonicalPeriod(period: PeriodExpressionV3 | null | undefined, now: Date): string | null {
+  const canonical = canonicalizePeriodExpressionV3(period, now);
+  return canonical?.value ?? null;
+}
+
+/** Canonical windows only. These are authoritative for execution. */
+function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
   const values: string[] = [];
   for (const task of tasks) {
     if (task.kind === "financial_query") {
-      values.push(...task.periods.map((p) => p.value));
-      if (task.comparison?.baseline.kind === "period" && task.comparison.baseline.period?.value) {
-        values.push(task.comparison.baseline.period.value);
+      for (const period of task.periods) {
+        const canonical = canonicalPeriod(period, now);
+        if (canonical) values.push(canonical);
       }
-      if (task.comparison?.target?.value) values.push(task.comparison.target.value);
+      if (task.comparison?.baseline.kind === "period") {
+        const canonical = canonicalPeriod(task.comparison.baseline.period, now);
+        if (canonical) values.push(canonical);
+      }
+      const target = canonicalPeriod(task.comparison?.target, now);
+      if (target) values.push(target);
     }
-    if (task.kind === "advisory") values.push(...task.periods.map((p) => p.value));
+    if (task.kind === "advisory") {
+      for (const period of task.periods) {
+        const canonical = canonicalPeriod(period, now);
+        if (canonical) values.push(canonical);
+      }
+    }
   }
   return unique(values.map((value) => value.trim()).filter(Boolean));
+}
+
+/** Original semantic expressions only for provenance/presentation. */
+function sourcePeriodExpressions(tasks: SemanticTaskV3[]): string[] {
+  const values: string[] = [];
+  for (const task of tasks) {
+    if (task.kind === "financial_query") {
+      values.push(...task.periods.map((period) => period.value));
+      if (task.comparison?.baseline.kind === "period" && task.comparison.baseline.period) {
+        values.push(task.comparison.baseline.period.value);
+      }
+      if (task.comparison?.target) values.push(task.comparison.target.value);
+    }
+    if (task.kind === "advisory") values.push(...task.periods.map((period) => period.value));
+  }
+  return unique(values.map((value) => String(value ?? "").trim()).filter(Boolean));
 }
 
 function runtimeReference(turn: TurnSpecV3): TurnReference | null {
@@ -57,14 +97,16 @@ function runtimeReference(turn: TurnSpecV3): TurnReference | null {
     kind: ref.kind === "entity_reference" ? "previous_entity" : "previous_result_set",
     target: ref.target,
     expression: ref.expression,
-    // "resolved" here means semantic shape is known. GroundingEngine still
-    // proves the referenced entity/result exists before execution.
     status: "resolved",
   };
 }
 
-function financialQuery(task: FinancialQueryTaskV3): FinancialReadSemanticQuery | null {
+function financialQuery(task: FinancialQueryTaskV3, now: Date): FinancialReadSemanticQuery | null {
   const comparison = task.comparison;
+  const baselineExpression = comparison?.baseline.kind === "period"
+    ? canonicalPeriod(comparison.baseline.period, now)
+    : null;
+  const targetExpression = canonicalPeriod(comparison?.target, now);
   return {
     metric: task.metric,
     operation: task.operation,
@@ -80,19 +122,13 @@ function financialQuery(task: FinancialQueryTaskV3): FinancialReadSemanticQuery 
     comparison_baseline_window: comparison?.baseline.kind === "mean_previous_complete_months"
       ? comparison.baseline.months
       : null,
-    comparison_baseline_expression: comparison?.baseline.kind === "period"
-      ? comparison.baseline.period?.value ?? null
-      : null,
-    comparison_target_expression: comparison?.target?.value ?? null,
+    comparison_baseline_expression: baselineExpression,
+    comparison_target_expression: targetExpression,
   };
 }
 
 function goalQuery(task: GoalQueryTaskV3): FinancialReadSemanticQuery | null {
-  if (task.operation === "projection") {
-    // Existing generic IR maps goal_progress value/sum; projection needs its
-    // own canonical executor before V3 authority may expose it.
-    return null;
-  }
+  if (task.operation === "projection") return null;
   return {
     metric: "goal_progress",
     operation: "value",
@@ -122,11 +158,18 @@ function explicitFocus(tasks: SemanticTaskV3[]) {
 }
 
 /**
- * Compile the common dependent command
- *   goal.create + goal.contribute(newly-created goal)
- * into ONE confirmation. The database executor commits both in one transaction.
- * Arbitrary multi-writes remain unsupported rather than partially executing.
+ * V2 normalization is retained as structural validation only. It historically
+ * merged/reordered period_expression + period_expressions; after validation we
+ * restore the V3 temporal focus exactly so no downstream compatibility layer
+ * can acquire semantic authority by rewriting it.
  */
+function preserveV3TemporalFocus(
+  contract: CanonicalConversationTurnContract | null,
+  temporalFocus: BrainFocus,
+): CanonicalConversationTurnContract | null {
+  return contract ? { ...contract, focus: temporalFocus } : null;
+}
+
 function compileAtomicGoalCreate(tasks: SemanticTaskV3[]): FinancialWriteTaskV3 | null {
   if (tasks.length !== 2 || tasks.some((task) => task.kind !== "financial_write")) return null;
   const writes = tasks as FinancialWriteTaskV3[];
@@ -159,12 +202,16 @@ function compileAtomicGoalCreate(tasks: SemanticTaskV3[]): FinancialWriteTaskV3 
   };
 }
 
-export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResult {
+export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date()): V3RuntimeBridgeResult {
   const invariant = verifySemanticInvariantsV3(turn);
   if (!invariant.ok) return { ok: false, contract: null, errors: invariant.violations };
   if (turn.references.length > 1) {
     return { ok: false, contract: null, errors: ["multiple_references_not_executable"] };
   }
+
+  const temporal = buildTemporalContractV3(turn, now);
+  if (!temporal.ok) return { ok: false, contract: null, errors: temporal.errors };
+
   const reference = runtimeReference(turn);
 
   if (turn.kind === "conversation") {
@@ -208,8 +255,14 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
   }
 
   const families = unique(turn.tasks.map((task) => task.family));
-  const periods = periodExpressions(turn.tasks);
+  const periods = periodExpressions(turn.tasks, now);
+  const sourcePeriods = sourcePeriodExpressions(turn.tasks);
   const focus = explicitFocus(turn.tasks);
+  const temporalFocus: BrainFocus = {
+    ...focus,
+    period_expression: sourcePeriods[0] ?? null,
+    period_expressions: periods,
+  };
 
   if (families.length === 1 && families[0] === "financial.write") {
     const compiledGoal = compileAtomicGoalCreate(turn.tasks);
@@ -221,14 +274,14 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
     if (!task || !isActionKind(task.action)) {
       return { ok: false, contract: null, errors: ["write_shape_not_executable"] };
     }
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "write",
       domain: "financial_write",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: { action: task.action, slots: task.slots },
       direct_reply: null,
       clarification_question: null,
@@ -236,7 +289,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       reference,
       financial_read: null,
       advisory_kind: null,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["write_bridge_rejected"] };
   }
 
@@ -245,14 +298,14 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       return { ok: false, contract: null, errors: ["advisory_shape_not_executable"] };
     }
     const task = turn.tasks[0];
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "read",
       domain: "advisory",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: null,
       direct_reply: null,
       clarification_question: null,
@@ -260,31 +313,30 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       reference,
       financial_read: null,
       advisory_kind: task.operation,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["advisory_bridge_rejected"] };
   }
 
-  // Financial reads + goal reads can share the existing multi-query financial IR.
   if (families.every((family) => family === "financial.query" || family === "goals")) {
     if (turn.tasks.length > 4) return { ok: false, contract: null, errors: ["too_many_runtime_queries"] };
     const queries: FinancialReadSemanticQuery[] = [];
     for (const task of turn.tasks) {
       const query = task.kind === "financial_query"
-        ? financialQuery(task)
+        ? financialQuery(task, now)
         : task.kind === "goal_query"
           ? goalQuery(task)
           : null;
       if (!query) return { ok: false, contract: null, errors: [`task_not_executable:${task.kind}`] };
       queries.push(query);
     }
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "read",
       domain: "financial_read",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: null,
       direct_reply: null,
       clarification_question: null,
@@ -292,7 +344,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3): V3RuntimeBridgeResu
       reference,
       financial_read: { intent: queries.some((query) => ["compare", "trend", "explain"].includes(query.operation)) ? "analyze" : "lookup", queries },
       advisory_kind: null,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["financial_bridge_rejected"] };
   }
 
