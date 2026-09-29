@@ -2,7 +2,7 @@
 // proactive_multifinance.v1 — ranking determinístico e orçamento de atenção.
 // A cota de interrupção é escassa: fala quem tem maior impacto material,
 // urgência real, confiança suficiente e ação executável.
-import { insightValue, materialityFloor } from "../intelligence/insightValue.ts";
+import { insightValue, isAppTaskKind, materialityFloor } from "../intelligence/insightValue.ts";
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
 import { repeatedKind, type RecentDelivery } from "./repetition.ts";
 
@@ -150,6 +150,12 @@ export function allocateAttention(input: BudgetInput): {
       } as ProactiveDecision & Record<string, unknown>;
       if (input.alreadyDelivered?.has(situation.fingerprint)) {
         decisions.push({ ...base, decision: "suppress", reason: "already_communicated_no_material_change" });
+        continue;
+      }
+      // Tarefa de revisão (pedido de dado, categorização) é do app: não gasta
+      // a única vaga de interrupção do WhatsApp.
+      if (channel === "whatsapp" && isAppTaskKind(situation.communication_kind)) {
+        decisions.push({ ...base, decision: "suppress", reason: "app_only_kind" });
         continue;
       }
       const repeat = repeatedKind(situation, channel, input.recentDeliveries ?? [], input.now ?? new Date());

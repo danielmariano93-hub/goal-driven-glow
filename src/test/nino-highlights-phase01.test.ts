@@ -259,8 +259,10 @@ describe("ajustes da simulação com dados reais", () => {
     const blocked = applyDataQuality([sit({ communication_kind: "cash_flow_imbalance", fingerprint: "c" })], dq);
     const request = incomeDataRequest(dq, blocked, "2026-09-29")!;
     expect(dq.income_status).toBe("unknown");
-    const { decisions } = allocateAttention({ situations: [...blocked, request], ctx: ctx(), channels: ["app"] });
-    expect(decisions.find((d) => d.fingerprint === request.fingerprint)?.decision).toBe("deliver");
+    const { decisions } = allocateAttention({ situations: [...blocked, request], ctx: ctx(), channels: ["app", "whatsapp"] });
+    const forRequest = decisions.filter((d) => d.fingerprint === request.fingerprint);
+    expect(forRequest.find((d) => d.channel === "app")?.decision).toBe("deliver");
+    expect(forRequest.find((d) => d.channel === "whatsapp")?.reason).toBe("app_only_kind");
   });
 
   it("sem histórico, renda ínfima contra muito gasto é renda incompleta", () => {
