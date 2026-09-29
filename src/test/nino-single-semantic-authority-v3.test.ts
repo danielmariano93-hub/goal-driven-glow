@@ -215,10 +215,12 @@ describe("Nino V3 — single semantic authority", () => {
     expect(source).toContain("no lexical fast-path, parser or V2 circuit breaker may decide meaning first");
   });
 
-  it("AgentCore não deixa gates semânticos legados preemptarem o V3", () => {
+  it("AgentCore limita a preempção a contratos fechados e envia o restante ao V3", () => {
     const source = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
     expect(source).toContain("const groundedFollowupContract = v3AuthorityEnabled");
     expect(source).toContain("const narrowContract = v3AuthorityEnabled");
-    expect(source).toContain("ordinary language MUST reach the single semantic");
+    expect(source).toContain("compileDeterministicConversationTurn({ text: brainText, memory })");
+    expect(source).toContain(": await interpretConversationTurn({");
+    expect(source).toContain("fail-closed deterministic authority");
   });
 });

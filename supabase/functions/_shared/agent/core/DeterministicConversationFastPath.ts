@@ -179,7 +179,7 @@ function debtFastPath(input: DeterministicFastPathInput): CanonicalConversationT
   const t = norm(text);
   const money = amounts(text)[0] ?? null;
   const debtName = namedAfter(text, /d[ií]vida\s+(?:do|da|com)\s+(.+?)(?:\s+(?:inteira|inteiro|toda|todo|hoje))?[?.!]*$/i);
-  const anaphora = /\b(?:essa|dessa|nessa|nesta|aquela|dela|ela)\b/i.test(text) && activeReference(input.memory, "debt");
+  const anaphora = /\b(?:essa|dessa|nessa|nesta|aquela|dela|nela|ela|nele)\b/i.test(text) && activeReference(input.memory, "debt");
 
   if (/\b(?:quita|quitar|quitei)\b/.test(t) && /\bdivida\b/.test(t)) {
     if (!debtName && !anaphora) return null;
@@ -192,7 +192,7 @@ function debtFastPath(input: DeterministicFastPathInput): CanonicalConversationT
     });
   }
 
-  if (/\b(?:paguei|paga|pague|registre|registrar)\b/.test(t)
+  if (/\b(?:paguei|paga|pague|registra|registre|registrar)\b/.test(t)
     && (t.includes("divida") || anaphora) && money != null && money > 0) {
     if (!debtName && !anaphora) return null;
     return actionContract({
