@@ -102,8 +102,10 @@ export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): R
   if (!t) return null;
   const today = todaySP(now);
 
-  // Canonical internal form emitted by V3 temporal grounding.
-  const canonical = t.match(/\b(20\d{2}-\d{2}-\d{2})\s*(?:\.\.|a|ate)\s*(20\d{2}-\d{2}-\d{2})\b/);
+  // Canonical/near-canonical ISO forms may be emitted by the semantic authority.
+  // Accept separator variants only; the dates themselves are still validated
+  // deterministically here. This is normalization, never semantic reinterpretation.
+  const canonical = t.match(/\b(20\d{2}-\d{2}-\d{2})\s*(?:\.\.|a|ate|ao|to|through|until|-)\s*(20\d{2}-\d{2}-\d{2})\b/);
   if (canonical) return range(canonical[1], canonical[2], raw);
 
   // ISO single day.
