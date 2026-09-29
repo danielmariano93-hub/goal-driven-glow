@@ -120,6 +120,20 @@ function runtimeReference(turn: TurnSpecV3): TurnReference | null {
   };
 }
 
+/**
+ * A reading that asks for ONE number while also grouping it ("em quais
+ * categorias eu gastei esse valor?" read as value + group_by=category) has a
+ * single coherent meaning: split that amount by the dimension. Monthly grouping
+ * is a series. Repairing the shape here keeps the user's meaning executable
+ * instead of failing the turn on a structural technicality.
+ */
+export function coherentOperation(operation: string, groupBy: readonly string[]): string {
+  if ((operation === "value" || operation === "sum") && groupBy.length > 0) {
+    return groupBy.includes("month") ? "trend" : "breakdown";
+  }
+  return operation;
+}
+
 function financialQuery(task: FinancialQueryTaskV3, now: Date): FinancialReadSemanticQuery | null {
   const comparison = task.comparison;
   const baselineExpression = comparison?.baseline.kind === "period"
@@ -128,7 +142,7 @@ function financialQuery(task: FinancialQueryTaskV3, now: Date): FinancialReadSem
   const targetExpression = comparisonTargetPeriod(task, now);
   return {
     metric: task.metric,
-    operation: task.operation,
+    operation: coherentOperation(task.operation, task.group_by) as FinancialQueryTaskV3["operation"],
     group_by: [...task.group_by],
     filters: task.filters.map((filter) => ({
       field: filter.field as "category" | "merchant" | "card" | "account" | "payment_method",
@@ -233,6 +247,7 @@ export type V3RuntimeBridgeOptions = {
 const LEGACY_ADVISORY_FALLBACK: Record<string, string> = {
   scenario: "financial_plan",
   decision: "next_best_action",
+  period_review: "current_insight",
 };
 
 function advisoryParamsOf(task: SemanticTaskV3): Record<string, unknown> | null {

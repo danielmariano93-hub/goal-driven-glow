@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AssessorAttachButton, getIngestionStatus, ingestDocument, resumeIngestion, type PreparedAttachment, type IngestResult } from "./AssessorAttachButton";
 import { ReviewSheet } from "./ReviewSheet";
 import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
+import { NinoMessageText } from "./NinoMessageText";
 import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
 import type { ChartArtifact } from "@/types/artifacts";
 import { useAuth } from "@/context/AuthContext";
@@ -379,7 +380,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                 {m.role === "assistant" && (m.doc?.status === "processing" || m.doc?.status === "uploaded") && (
                   <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
                 )}
-                {m.content}
+                {m.role === "assistant" ? <NinoMessageText text={m.content} /> : m.content}
               </div>
               {m.createdAt ? <time dateTime={m.createdAt} className="px-1 text-[9px] tabular-nums text-muted-foreground">{messageTime(m.createdAt)}</time> : null}
               {m.role === "assistant" && m.pending && (

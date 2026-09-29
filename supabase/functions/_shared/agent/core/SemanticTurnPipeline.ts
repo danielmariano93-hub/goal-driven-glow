@@ -843,18 +843,19 @@ function ontologyGaps(
   return [...new Set(gaps)].slice(0, 6);
 }
 
-function unsupportedReply(gaps: string[], periodKnown = false): string {
+export function unsupportedReply(gaps: string[], periodKnown = false): string {
+  // Nunca "tente mais tarde": não é falha passageira, e repetir daria o mesmo
+  // resultado. Diz o que dá para fazer agora, em linguagem de gente.
   if (gaps.length) {
-    return "Entendi o recorte, mas não consegui executar essa análise com segurança agora. "
-      + "Não vou substituir por outro cálculo, porque isso responderia uma pergunta diferente.";
+    return "Esse recorte exato eu ainda não consigo montar, e prefiro não te dar um número que responda outra pergunta.\n\n"
+      + "Posso te mostrar *onde você mais gastou* nesse período ou *quanto foi em uma categoria específica*. Qual prefere?";
   }
   // Período já dito NUNCA é pedido de novo: foi exatamente assim que o Nino
   // respondeu "me diga o período" para quem tinha escrito "julho e agosto".
   if (periodKnown) {
-    return "Entendi o período e o recorte que você pediu, mas essa forma de cálculo "
-      + "eu ainda não fecho com número confiável. Posso te trazer o total desse mesmo "
-      + "recorte — quer que eu vá por aí?";
+    return "Entendi o período, mas essa conta do jeito que você pediu eu ainda não fecho com número confiável.\n\n"
+      + "Posso te trazer o *total* desse período ou *onde mais pesou*. Quer que eu vá por aí?";
   }
-  return "Essa eu não consigo responder com número confiável agora. "
-    + "Se você me disser o período e o que quer comparar, eu monto a leitura certa.";
+  return "Essa eu ainda não consigo responder com número confiável.\n\n"
+    + "Me diga o período e o que você quer ver (um total, uma categoria ou uma comparação) que eu monto certinho.";
 }
