@@ -24,10 +24,24 @@ function activeDebtMemory() {
 
 function activeSpendingMemory() {
   return {
+    current_topic: "read",
+    previous_intent: "read",
     active_category: "Alimentação",
     active_merchant: null,
     references: [],
     last_tool_context: { tool: "analyze_spending", period: null },
+  } as any;
+}
+
+function activeOverallSpendingMemory() {
+  return {
+    current_topic: "read",
+    previous_intent: "read",
+    active_category: null,
+    active_merchant: null,
+    active_period: { from: "2026-09-21", to: "2026-09-27", label: "21/09 a 27/09" },
+    conversation_summary: "Quero saber do dia 21/09 ao dia 27/09 quanto eu gastei",
+    references: [],
   } as any;
 }
 
@@ -122,6 +136,42 @@ describe("Nino deterministic-first — sem gastar quota em intenção inequívoc
   it("série mês a mês reutiliza categoria ativa", () => {
     const turn = compile("Mostra mês a mês os últimos 5 meses", activeSpendingMemory());
     expect(turn?.financial_read?.queries[0]).toMatchObject({ metric: "expense_amount", operation: "trend", group_by: ["month"] });
+  });
+
+  it("recupera troca contextual de categoria com o período executado quando o provider falha", () => {
+    const turn = compile("Tá. Agora olha só Lazer pra mim.", activeOverallSpendingMemory());
+    expect(turn).toMatchObject({
+      mode: "read",
+      inherit_focus: false,
+      focus: {
+        category: "Lazer",
+        merchant: null,
+        period_expressions: ["2026-09-21..2026-09-27"],
+      },
+      financial_read: {
+        queries: [{
+          metric: "expense_amount",
+          operation: "sum",
+          filters: [{ field: "category", value: "Lazer", op: "eq" }],
+        }],
+      },
+    });
+  });
+
+  it("recupera continuação temporal inequívoca sem inventar assunto", () => {
+    const memory = { ...activeSpendingMemory(), conversation_summary: "Quanto gastei com alimentação?", active_period: null };
+    const turn = compile("E no mês passado?", memory as any);
+    expect(turn).toMatchObject({
+      mode: "read",
+      inherit_focus: true,
+      focus: { category: "Alimentação", period_expressions: ["mês passado"] },
+      financial_read: { queries: [{ metric: "expense_amount", operation: "sum" }] },
+    });
+  });
+
+  it("não converte continuação temporal de dívida em gasto", () => {
+    const memory = { ...activeOverallSpendingMemory(), current_topic: "dívidas", conversation_summary: "Quais dívidas eu tenho?", active_category: null };
+    expect(compile("E no mês passado?", memory as any)).toBeNull();
   });
 });
 
