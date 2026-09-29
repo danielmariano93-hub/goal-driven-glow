@@ -99,7 +99,7 @@ function rubric(turn, out) {
   if (e.answer) add("responde_com_dado", MONEY.test(reply));
   if (e.noMoney) add("nao_inventa_numero", !MONEY.test(reply));
   if (e.warm) add("acolhe_sentimento", /entendo|imagino|normal|calma|tranquil|junt|preocupa|compreens/i.test(reply));
-  if (e.draft) add("rascunho_para_confirmar", /confirm|posso registrar|registro\?/i.test(reply));
+  if (e.draft) add("rascunho_para_confirmar", /confirm|posso registrar|registro\?|pode salvar|salvo\?/i.test(reply));
   if (e.recall) add("lembra_contexto", e.recall.test(reply));
   const diag = out.run?.diagnostics ?? {};
   if (e.plan) add(`plano_${e.plan}_etapas`, (diag.plan_steps ?? []).length >= e.plan, JSON.stringify(diag.plan_steps ?? []));
