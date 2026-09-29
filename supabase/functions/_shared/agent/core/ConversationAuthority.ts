@@ -110,7 +110,22 @@ export function attachV3ReferenceToContract(
   contract: CanonicalConversationTurnContract,
 ): CanonicalConversationTurnContract {
   const reference = referenceFromV3(turn);
-  if (!reference) return contract;
+  // Explicit current-turn slots outrank inherited context: when this step
+  // already names the category/merchant, a category/merchant reference (from
+  // memory or another clause of a compound turn) must not narrow it.
+  const explicitlyNamed = (target: string | null | undefined) =>
+    (target === "category" && !!contract.focus.category)
+    || (target === "merchant" && !!contract.focus.merchant);
+  if (!reference || explicitlyNamed(reference.target)) {
+    if (contract.reference && explicitlyNamed(contract.reference.target)) {
+      return {
+        ...contract,
+        reference: null,
+        resolution: { ...contract.resolution, reference: "not_applicable" },
+      };
+    }
+    return contract;
+  }
   return {
     ...contract,
     reference,

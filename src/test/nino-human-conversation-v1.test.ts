@@ -444,3 +444,20 @@ describe("explicit category outranks an inherited reference scope", () => {
     expect(applyGroundedReferenceScope("analyze_spending", {}, grounded)).toEqual({ category_scope: ["Lazer"] });
   });
 });
+
+describe("explicit slot drops an inherited reference of the same target", () => {
+  it("removes a category reference when the step names the category", async () => {
+    const { attachV3ReferenceToContract } = await import("../../supabase/functions/_shared/agent/core/ConversationAuthority");
+    const turn = {
+      ...task([lazerQuery]),
+      references: [{ kind: "result_set_reference", target: "category", expression: "delas", source: "memory" }],
+    } as TurnSpecV3;
+    const bridged = bridgeTurnSpecV3ToRuntime({ ...turn, references: [] } as TurnSpecV3, NOW);
+    expect(bridged.ok).toBe(true);
+    if (!bridged.ok) return;
+    const withRef = { ...bridged.contract, reference: { kind: "previous_result_set", target: "category", expression: "delas", status: "resolved" } } as any;
+    const out = attachV3ReferenceToContract(turn, withRef);
+    expect(out.reference).toBeNull();
+    expect(out.focus.category).toBe("Lazer");
+  });
+});
