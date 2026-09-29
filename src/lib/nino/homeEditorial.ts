@@ -559,12 +559,14 @@ function supportingFromPriority(priority: NinoPriority): NinoSupportingItem {
 function buildEditorialFromPriorities(priorities: NinoPriority[]): NinoHomeEditorialView {
   const ordered = [...priorities].sort((a, b) => a.rank - b.rank);
   const [first, ...rest] = ordered;
-  const supporting = rest.slice(0, NINO_SUPPORTING_LIMIT).map(supportingFromPriority);
+  const supportingPool = rest.slice(0, NINO_SUPPORTING_LIMIT).map(supportingFromPriority);
   return {
     primary: spotlightFromPriority(first),
-    supporting,
+    // A Home mostra só o destaque: os itens seguintes da fila ficam disponíveis
+    // para "Outra orientação" em vez de bloqueados como leituras de apoio.
+    supporting: [],
     primaryPool: ordered.map(spotlightFromPriority),
-    supportingPool: supporting,
+    supportingPool,
     totalAvailable: ordered.length,
     lastUpdatedAt: first.computed_at || first.as_of || null,
   };

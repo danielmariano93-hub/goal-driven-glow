@@ -110,3 +110,10 @@ export async function loadPriorityEvents(sb: SupabaseClient, userId: string, day
     created_at: String(row.created_at ?? ""),
   }));
 }
+
+/** Assuntos dispensados pela pessoa (regra única no banco: `nino_dismissed_topics`). */
+export async function loadDismissedTopics(sb: SupabaseClient, userId: string): Promise<string[]> {
+  const { data, error } = await sb.rpc("nino_dismissed_topics", { _user_id: userId });
+  if (error) throw new Error(`nino_dismissed_topics:${error.message}`);
+  return Array.isArray(data) ? (data as unknown[]).map(String) : [];
+}

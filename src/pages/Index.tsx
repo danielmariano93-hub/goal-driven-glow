@@ -36,8 +36,10 @@ export default function Index() {
 
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
-  const homeIntelligence = useNinoHomeContext();
   const priorities = useNinoPriorities();
+  // O recálculo pesado do diagnóstico só roda quando a fila não tem o que mostrar.
+  const feedEmpty = priorities.isError || (priorities.isFetched && !(priorities.data?.length));
+  const homeIntelligence = useNinoHomeContext({ enabled: feedEmpty });
   const diagnosisContext = homeIntelligence.data?.context ?? null;
   const homeDiagnosis = useMemo(
     () => diagnosisContext ? toHomeDiagnosisView(diagnosisContext) : null,
@@ -91,7 +93,7 @@ export default function Index() {
         context={diagnosisContext}
         nextStep={homeIntelligence.data?.nextStep ?? null}
         priorities={priorities.data ?? null}
-        loading={priorities.isLoading || (homeIntelligence.isLoading && !priorities.data?.length)}
+        loading={priorities.isLoading || (feedEmpty && homeIntelligence.isLoading)}
         error={homeIntelligence.error}
         retrying={homeIntelligence.isFetching}
         onRetry={() => void homeIntelligence.refetch()}

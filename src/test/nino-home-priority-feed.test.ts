@@ -20,7 +20,9 @@ describe("Home a partir da fila de prioridades", () => {
     expect(view.primary?.tone).toBe("critical");
     expect(view.primary?.primaryAction).toEqual({ kind: "link", label: "Ver dívida", route: "/app/dividas" });
     expect(view.primary?.mainValue).toBeNull();
-    expect(view.supporting.map((s) => s.title)).toEqual(["Sua meta Viagem pede aporte", "Sua renda do mês ainda não apareceu"]);
+    expect(view.supporting).toEqual([]);
+    expect(view.supportingPool.map((s) => s.title)).toEqual(["Sua meta Viagem pede aporte", "Sua renda do mês ainda não apareceu"]);
+    expect(view.primaryPool.map((s) => s.headline)).toEqual(["Parcela de Celular venceu ontem", "Sua meta Viagem pede aporte", "Sua renda do mês ainda não apareceu"]);
     expect(view.totalAvailable).toBe(3);
   });
 
@@ -33,5 +35,14 @@ describe("Home a partir da fila de prioridades", () => {
   it("fila vazia mantém o diagnóstico como reserva", () => {
     const view = buildNinoHomeEditorialView({ context: null, diagnosis: null, nextStep: null, priorities: [] });
     expect(view.primary).toBeNull();
+  });
+});
+
+import { hasEditorialAlternative } from "@/lib/nino/homeEditorial";
+
+describe("Outra orientação com a fila", () => {
+  it("os próximos itens da fila ficam disponíveis como alternativa", () => {
+    const view = buildNinoHomeEditorialView({ context: null, diagnosis: null, nextStep: null, priorities: feed });
+    expect(hasEditorialAlternative({ pool: view.primaryPool, current: view.primary!, displayed: view.supporting, seenIds: new Set() })).toBe(true);
   });
 });
