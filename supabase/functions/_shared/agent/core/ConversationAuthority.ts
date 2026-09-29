@@ -54,6 +54,7 @@ function typedContextText(input: AuthorityInput): string {
       "conversation_state",
       "relationship_memory",
     ],
+    semantic_follow_up_policy: "Pronomes elípticos como 'isso/esse valor' que apontam para o escopo financeiro ativo NÃO são referência de entidade. Use inherit_topic=true e o active_period comprovado por evidência. Se o usuário perguntar se o valor anterior foi alto/muito e também o que mais pesou, permaneça kind=task/act=follow_up, references=[], e emita duas financial_query: (1) expense_amount/compare usando comparison_period como baseline e active_period como target; (2) expense_amount/rank, group_by=[category], limit=1, no active_period. Períodos herdados usam source=memory e source_span=null. Se active_period/comparison_period necessários não existirem, então esclareça.",
     relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
@@ -149,16 +150,20 @@ function humanTechnicalFallback(
   reason: string,
   telemetry: SemanticTelemetry | null,
 ): ConversationBrainOutcome {
+  // A technical/provider failure is not a new conversational meaning. Mark it
+  // as incidental conversation so AgentCore preserves the previously verified
+  // topic, summary, references and financial scope instead of poisoning memory
+  // with the failed turn.
   const contract = normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
-    act: "answer",
+    act: "conversational",
     mode: "converse",
     domain: "conversation",
     canonical_request: String(input.text ?? "").trim() || null,
-    inherit_focus: true,
+    inherit_focus: false,
     focus: {
-      category: input.memory?.active_category ?? null,
-      merchant: input.memory?.active_merchant ?? null,
+      category: null,
+      merchant: null,
       goal: null,
       period_expression: null,
       period_expressions: [],
