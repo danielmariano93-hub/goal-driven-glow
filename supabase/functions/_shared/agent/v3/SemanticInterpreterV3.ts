@@ -275,6 +275,11 @@ PRINCÍPIOS OBRIGATÓRIOS:
 34. Pedido composto de fato + conselho ("quanto gastei com lazer e o que você me sugere?") = duas tasks no mesmo turno: financial_query + advisory. Registro + consulta ("anota 50 no mercado e me diz quanto já foi no mês") = financial_write + financial_query.
 35. Desabafo, preocupação, planos de vida ou conversa pessoal sem pedido de dado ("tô preocupado com dinheiro", "vou viajar em dezembro") = kind=conversation com direct_reply acolhedor, curto e sem inventar números.
 
+36. FORMATO DE CADA ITEM DE tasks (sempre o envelope completo, nunca o payload solto):
+- hipótese: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"scenario","periods":[],"scenario":{"lever":"cut_category","category":"Delivery","amount":null,"percent":50,"goal":null},"options":[]}}
+- decisão: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"decision","periods":[],"scenario":null,"options":["quitar o empréstimo","guardar para a viagem"]}}
+- projeção de meta: {"kind":"goal_query","financial":null,"advisory":null,"write":null,"goal":{"operation":"projection","goal":{"value":"Viagem","source":"current_turn","source_span":"meta da viagem"}}}
+- conselho geral: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"next_best_action","periods":[],"scenario":null,"options":[]}}
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 
 function sourced(raw: any): { value: string; source: any; source_span: string | null } | null {
