@@ -33,9 +33,10 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadDataQuality, loadDismissedTopics, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadDataQuality, loadDismissedTopics, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
+import { detectWeekdayPattern, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -272,7 +273,7 @@ export async function runMultiFinanceProactive(
   // de dado incompleto perdem confiança (e viram um pedido de dado), e o que
   // toca meta/plano da pessoa ganha relevância com a conta feita aqui.
   const cash = (ctx.domains.cash ?? {}) as Record<string, unknown>;
-  const [dataQuality, userModel, recentDeliveries, priorityEvents, dismissedTopics] = await Promise.all([
+  const [dataQuality, userModel, recentDeliveries, priorityEvents, dismissedTopics, nudgeTransactions] = await Promise.all([
     loadDataQuality(sb, userId, {
       today: ctx.as_of,
       current_month_income: Number(cash.current_month_income ?? 0),
@@ -284,6 +285,8 @@ export async function runMultiFinanceProactive(
     loadRecentDeliveries(sb, userId).catch(() => []),
     loadPriorityEvents(sb, userId).catch(() => []),
     loadDismissedTopics(sb, userId).catch(() => [] as string[]),
+    // Aviso matinal só é avaliado de manhã (economiza a leitura no resto do dia).
+    isWeekdayNudgeWindow(new Date()) ? loadNudgeTransactions(sb, userId, ctx.as_of).catch(() => []) : Promise.resolve([]),
   ]);
   // nino_priority_learning.v1 — o que a pessoa fez com os destaques.
   const priorityLearning = learnFromPriorityEvents(priorityEvents);
@@ -299,6 +302,14 @@ export async function runMultiFinanceProactive(
     const request = incomeDataRequest(dataQuality, refined, ctx.as_of);
     if (request) refined.push(request);
   }
+  // nino_weekday_nudge.v1 — antes do gasto: "às quartas você costuma gastar mais com X".
+  const nudge = weekdayNudgeSituation(
+    detectWeekdayPattern(nudgeTransactions, ctx.as_of),
+    ctx,
+    new Date(),
+    userModel?.focus_goal ?? null,
+  );
+  if (nudge) refined.push(nudge);
   if (userModel) refined = applyUserModel(refined, userModel);
   refined = applyLearningAdjustment(refined, priorityLearning);
   refined = withoutDismissed(refined, dismissedTopics);
