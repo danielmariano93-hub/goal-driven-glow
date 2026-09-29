@@ -28,18 +28,12 @@ type AuthorityInput = Parameters<typeof interpretConversationTurnV2>[0];
 type SemanticTelemetry = ConversationBrainOutcome["telemetry"];
 
 function historyText(history: AuthorityInput["history"]): string {
-  // Recent dialogue is nuance, not truth. Keep only the latest turns; durable
-  // structured state below carries references and evidence-backed scope.
   return (history ?? []).slice(-8).map((turn) => {
     const role = turn.role === "user" ? "Usuário" : "Nino";
     return `${role}: ${String(turn.content ?? "").trim().slice(0, 520)}`;
   }).join("\n").slice(0, 4300);
 }
 
-/**
- * Structured context supplied to the semantic authority. The precedence policy
- * is explicit so the model never has to infer which memory source wins.
- */
 function typedContextText(input: AuthorityInput): string {
   const memory = input.memory;
   const workflow = input.workflow;
@@ -119,14 +113,31 @@ export function attachV3ReferenceToContract(
   };
 }
 
+/**
+ * V3 kind is the semantic authority. `act`/`inherit_topic` are conversational
+ * metadata, and provider variation in those two fields must not make a valid
+ * non-task turn unrepresentable in the transitional V2 runtime.
+ *
+ * - conversation => incidental/data-free conversation; preserves verified
+ *   financial memory rather than replacing it.
+ * - clarification => repair that keeps current context while asking one slot.
+ * - task => untouched; no semantic repair is allowed for executable work.
+ */
+export function runtimeCompatibleV3Turn(turn: TurnSpecV3): TurnSpecV3 {
+  if (turn.kind === "conversation") {
+    return { ...turn, act: "conversational", inherit_topic: false };
+  }
+  if (turn.kind === "clarification") {
+    return { ...turn, act: "repair", inherit_topic: true };
+  }
+  return turn;
+}
+
 export function isProviderCapacityFailure(reason: unknown): boolean {
   return /(?:structured_call_gateway_429|\b429\b|rate\s*limit|too\s+many\s+requests|structured_call_network|gateway_(?:500|502|503|504))/i
     .test(String(reason ?? ""));
 }
 
-/** 400 from structured generation is technical unless the model itself emitted
- * an explicit clarification TurnSpec. Never blame the user for provider/schema
- * generation failure. */
 export function isProviderStructuredFailure(reason: unknown): boolean {
   return /(?:structured_call_gateway_400|output_parse_failed|tool_use_failed|failed_generation|json_validate_failed|generated json does not match)/i
     .test(String(reason ?? ""));
@@ -150,10 +161,6 @@ function humanTechnicalFallback(
   reason: string,
   telemetry: SemanticTelemetry | null,
 ): ConversationBrainOutcome {
-  // A technical/provider failure is not a new conversational meaning. Mark it
-  // as incidental conversation so AgentCore preserves the previously verified
-  // topic, summary, references and financial scope instead of poisoning memory
-  // with the failed turn.
   const contract = normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
     act: "conversational",
@@ -231,10 +238,11 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   });
 
   if (semantic.turn) {
-    const bridged = bridgeTurnSpecV3ToRuntime(semantic.turn);
+    const runtimeTurn = runtimeCompatibleV3Turn(semantic.turn);
+    const bridged = bridgeTurnSpecV3ToRuntime(runtimeTurn);
     if (bridged.ok) {
       return {
-        contract: attachV3ReferenceToContract(semantic.turn, bridged.contract),
+        contract: attachV3ReferenceToContract(runtimeTurn, bridged.contract),
         telemetry: {
           ...semantic.telemetry,
           model: `v3-${semantic.tier}:${semantic.telemetry.model}`.slice(0, 180),
@@ -244,9 +252,6 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
 
     const reason = `v3_bridge_rejected:${bridged.errors.join("+")}`.slice(0, 220);
     console.warn("[ConversationAuthority] semantic contract cannot be represented", reason);
-    // Unresolved temporal expression is a genuine missing/ambiguous slot. Other
-    // bridge failures are internal capability/contract failures and must not be
-    // presented as if the user phrased the request badly.
     return bridged.errors.some((e) => e.startsWith("temporal_expression_unresolved:"))
       ? humanSemanticClarification(input, reason, semantic.telemetry)
       : humanTechnicalFallback(input, reason, semantic.telemetry);
