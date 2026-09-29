@@ -4,11 +4,13 @@
 // authority. Time is grounded HERE, once, before entering the mature V2
 // execution engines. `period_expression` preserves the user's source wording
 // for provenance/UI only; `period_expressions` carries canonical date windows
-// used by execution and fulfillment.
+// used by execution and fulfillment. The V2 normalizer may validate this
+// contract but may not rewrite the final V3 temporal scope.
 
 import { isActionKind } from "../core/ActionIR.ts";
 import {
   normalizeConversationTurnContract,
+  type BrainFocus,
   type CanonicalConversationTurnContract,
   type FinancialReadSemanticQuery,
   type TurnReference,
@@ -155,6 +157,19 @@ function explicitFocus(tasks: SemanticTaskV3[]) {
   return { category, merchant, goal };
 }
 
+/**
+ * V2 normalization is retained as structural validation only. It historically
+ * merged/reordered period_expression + period_expressions; after validation we
+ * restore the V3 temporal focus exactly so no downstream compatibility layer
+ * can acquire semantic authority by rewriting it.
+ */
+function preserveV3TemporalFocus(
+  contract: CanonicalConversationTurnContract | null,
+  temporalFocus: BrainFocus,
+): CanonicalConversationTurnContract | null {
+  return contract ? { ...contract, focus: temporalFocus } : null;
+}
+
 function compileAtomicGoalCreate(tasks: SemanticTaskV3[]): FinancialWriteTaskV3 | null {
   if (tasks.length !== 2 || tasks.some((task) => task.kind !== "financial_write")) return null;
   const writes = tasks as FinancialWriteTaskV3[];
@@ -194,9 +209,6 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
     return { ok: false, contract: null, errors: ["multiple_references_not_executable"] };
   }
 
-  // First-class temporal grounding. If V3 said there is a period but code cannot
-  // prove its dates, fail closed HERE. Never let V2/raw-text defaults substitute
-  // another period.
   const temporal = buildTemporalContractV3(turn, now);
   if (!temporal.ok) return { ok: false, contract: null, errors: temporal.errors };
 
@@ -246,9 +258,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
   const periods = periodExpressions(turn.tasks, now);
   const sourcePeriods = sourcePeriodExpressions(turn.tasks);
   const focus = explicitFocus(turn.tasks);
-  const temporalFocus = {
+  const temporalFocus: BrainFocus = {
     ...focus,
-    // source wording is provenance only; canonical list below is authoritative.
     period_expression: sourcePeriods[0] ?? null,
     period_expressions: periods,
   };
@@ -263,7 +274,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
     if (!task || !isActionKind(task.action)) {
       return { ok: false, contract: null, errors: ["write_shape_not_executable"] };
     }
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "write",
@@ -278,7 +289,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       reference,
       financial_read: null,
       advisory_kind: null,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["write_bridge_rejected"] };
   }
 
@@ -287,7 +298,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       return { ok: false, contract: null, errors: ["advisory_shape_not_executable"] };
     }
     const task = turn.tasks[0];
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "read",
@@ -302,7 +313,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       reference,
       financial_read: null,
       advisory_kind: task.operation,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["advisory_bridge_rejected"] };
   }
 
@@ -318,7 +329,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       if (!query) return { ok: false, contract: null, errors: [`task_not_executable:${task.kind}`] };
       queries.push(query);
     }
-    const contract = normalizeConversationTurnContract({
+    const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "read",
@@ -333,7 +344,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       reference,
       financial_read: { intent: queries.some((query) => ["compare", "trend", "explain"].includes(query.operation)) ? "analyze" : "lookup", queries },
       advisory_kind: null,
-    });
+    }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["financial_bridge_rejected"] };
   }
 
