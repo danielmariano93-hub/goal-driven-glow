@@ -19,6 +19,7 @@ import { diagnosisActionLabel, diagnosisRouteForSituation } from "@/lib/nino/act
 import { buildNinoReadingQueue, type NinoReading } from "@/lib/nino/rotation";
 import type { FinancialSituation, HomeDiagnosisView, NinoDiagnosisContext } from "@/lib/nino/diagnosis";
 import type { NinoNextStep } from "@/lib/nino/nextStep";
+import type { NinoPriority } from "@/lib/nino/priorities";
 
 export type NinoEditorialTone = "critical" | "attention" | "decision" | "opportunity" | "progress" | "neutral";
 
@@ -345,8 +346,11 @@ export function buildNinoHomeEditorialView(input: {
   context: NinoDiagnosisContext | null;
   diagnosis: HomeDiagnosisView | null;
   nextStep: NinoNextStep | null;
+  /** nino_priority_feed.v1 — quando existe, é a fonte da Home (mesma do chat e do WhatsApp). */
+  priorities?: NinoPriority[] | null;
   now?: number;
 }): NinoHomeEditorialView {
+  if (input.priorities?.length) return buildEditorialFromPriorities(input.priorities);
   const { context, diagnosis, nextStep } = input;
   const spotlight = buildSpotlight(diagnosis, nextStep ?? null);
 
@@ -470,4 +474,98 @@ export function hasEditorialAlternative<T extends RotatableItem>(input: {
   seenIds?: Iterable<string>;
 }): boolean {
   return pickNextEditorialItem(input) !== null;
+}
+
+
+// ---------------------------------------------------------------------------
+// nino_priority_feed.v1 — Home a partir da fila única de prioridades.
+// A ordem já vem decidida (qualidade do dado, relevância pessoal, aprendizado);
+// aqui só traduzimos para o formato editorial, sem novo ranking nem número novo.
+// ---------------------------------------------------------------------------
+const PROGRESS_KINDS = new Set(["goal_progress", "debt_progress", "performance_improvement", "behavior_reinforcement"]);
+const OPPORTUNITY_KINDS = new Set(["wealth_building_action", "saving_opportunity", "underused_subscription"]);
+
+function toneForPriority(priority: NinoPriority): NinoEditorialTone {
+  if (priority.severity === "critical") return "critical";
+  if (PROGRESS_KINDS.has(priority.kind)) return "progress";
+  if (priority.severity === "attention") return "attention";
+  if (OPPORTUNITY_KINDS.has(priority.kind)) return "opportunity";
+  return "neutral";
+}
+
+function editorialPriorityFor(priority: NinoPriority, tone: NinoEditorialTone): number {
+  if (tone === "critical") return NINO_EDITORIAL_PRIORITY.critical_risk;
+  if (tone === "attention") return NINO_EDITORIAL_PRIORITY.high_attention;
+  if (tone === "opportunity") return NINO_EDITORIAL_PRIORITY.opportunity;
+  if (tone === "progress") return NINO_EDITORIAL_PRIORITY.progress;
+  return NINO_EDITORIAL_PRIORITY.action_window + priority.rank / 10;
+}
+
+function actionLabelForPriority(priority: NinoPriority): string {
+  const kind = priority.kind;
+  if (kind === "data_quality") return "Registrar agora";
+  if (kind.startsWith("goal_") || kind === "wealth_building_action") return "Ver meta";
+  if (kind.startsWith("debt_")) return "Ver dívida";
+  if (kind.startsWith("card_")) return "Ver cartões";
+  if (kind === "cash_flow_imbalance" || kind === "upcoming_cash_pressure") return "Ver planejamento";
+  if (kind.includes("commitment") || kind === "expected_recurring_payment") return "Ver compromissos";
+  return "Ver detalhes";
+}
+
+function priorityRoute(priority: NinoPriority): string | null {
+  const route = String(priority.route ?? "").trim();
+  return route.startsWith("/app/") && !route.startsWith("//") ? route : null;
+}
+
+function spotlightFromPriority(priority: NinoPriority): NinoSpotlightItem {
+  const tone = toneForPriority(priority);
+  const route = priorityRoute(priority);
+  const headline = compactSentence(priority.title, HEADLINE_MAX) ?? priority.title;
+  return {
+    id: `feed:${priority.fingerprint}`,
+    situationId: null,
+    semanticType: priority.kind,
+    eyebrow: priority.kind === "data_quality" ? "Falta um dado" : eyebrowFor(tone, false),
+    headline,
+    contextText: humanizeSupportingText(compactSentence(priority.body, SPOTLIGHT_CONTEXT_MAX)),
+    recommendation: null,
+    supportingText: null,
+    mainValue: null,
+    mainValueSuffix: null,
+    tone,
+    priority: editorialPriorityFor(priority, tone),
+    primaryAction: route ? { kind: "link", label: actionLabelForPriority(priority), route } : null,
+    secondaryAction: null,
+    subject: `feed:${priority.kind}`,
+  };
+}
+
+function supportingFromPriority(priority: NinoPriority): NinoSupportingItem {
+  const tone = toneForPriority(priority);
+  const title = compactSentence(priority.title, SUPPORTING_TITLE_MAX) ?? priority.title;
+  return {
+    id: `feed:${priority.fingerprint}`,
+    situationId: `feed:${priority.fingerprint}`,
+    semanticType: priority.kind,
+    title,
+    supportingText: humanizeSupportingText(compactSentence(priority.body, SUPPORTING_BODY_MAX)),
+    tone,
+    route: priorityRoute(priority) ?? "/app/nino",
+    priority: editorialPriorityFor(priority, tone),
+    subject: `feed:${priority.kind}`,
+  };
+}
+
+function buildEditorialFromPriorities(priorities: NinoPriority[]): NinoHomeEditorialView {
+  const ordered = [...priorities].sort((a, b) => a.rank - b.rank);
+  const [first, ...rest] = ordered;
+  const supporting = rest.slice(0, NINO_SUPPORTING_LIMIT).map(supportingFromPriority);
+  return {
+    primary: spotlightFromPriority(first),
+    supporting,
+    primaryPool: ordered.map(spotlightFromPriority),
+    supportingPool: supporting,
+    totalAvailable: ordered.length,
+    lastUpdatedAt: first.computed_at || first.as_of || null,
+  };
 }
