@@ -14,24 +14,11 @@ describe("Nino AI provider shadow v1", () => {
     })).toBe(false);
   });
 
-  it("never changes the authoritative Conversation Brain contract", () => {
+  it("the removed Conversation Brain no longer runs a provider shadow in the hot path", () => {
     const brain = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
-    expect(brain).toContain('isEnabled("ai_provider_shadow_v1"');
-    expect(brain).toContain("provider_override");
-    expect(brain).toContain("scheduleProviderShadow");
-    expect(brain).toContain("EdgeRuntime");
-    expect(brain).toContain("waitUntil");
-    expect(brain).toContain("if (!input.provider_override");
+    expect(brain).not.toContain("scheduleProviderShadow");
+    expect(brain).not.toContain("ai_provider_shadow_v1");
     expect(brain).not.toContain("runTool(");
-    expect(brain).not.toContain("executeBrainWriteTurn(");
-  });
-
-  it("restricts the free-provider experiment to Groq/OpenRouter", () => {
-    const brain = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
-    expect(brain).toContain('NINO_SHADOW_AI_PROVIDER');
-    expect(brain).toContain('NINO_SHADOW_AI_MODEL');
-    expect(brain).toContain('["groq", "openrouter"]');
-    expect(brain).toContain("shadow_provider_key_missing");
   });
 
   it("stores provider comparison telemetry as service-role-only operational data", () => {
