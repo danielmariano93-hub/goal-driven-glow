@@ -54,6 +54,25 @@ export const CURATED_MERCHANTS: CuratedMerchant[] = [
   { canonical_name: "Sympla", semantic_category: "Lazer", patterns: [/\bsympla\b/i] },
   { canonical_name: "Shotgun", semantic_category: "Lazer", patterns: [/\bshotgun\b/i] },
   { canonical_name: "TotalPass", semantic_category: "Saúde", patterns: [/\btotal\s*pass\b/i] },
+  // Marcas inequívocas vistas sem categoria em produção (set/2026).
+  { canonical_name: "KFC", semantic_category: "Alimentação", patterns: [/\bkfc\b/i] },
+  { canonical_name: "McDonald's", semantic_category: "Alimentação", patterns: [/\bmc\s*donald'?s?\b/i, /\bmcdonalds\b/i] },
+  { canonical_name: "Burger King", semantic_category: "Alimentação", patterns: [/\bburger\s*king\b/i] },
+  { canonical_name: "Panvel", semantic_category: "Saúde", patterns: [/\bpanvel\b/i] },
+  { canonical_name: "Drogaria São Paulo", semantic_category: "Saúde", patterns: [/\bdrogaria\s*s[aã]o\s*paulo\b/i] },
+  { canonical_name: "Pague Menos", semantic_category: "Saúde", patterns: [/\bpague\s*menos\b/i] },
+  { canonical_name: "C&A", semantic_category: "Vestuário", patterns: [/\bc\s*&\s*a\b/i, /\bcea\s+agt\b/i] },
+  { canonical_name: "Renner", semantic_category: "Vestuário", patterns: [/\brenner\b/i] },
+  { canonical_name: "Riachuelo", semantic_category: "Vestuário", patterns: [/\briachuelo\b/i] },
+  { canonical_name: "Havaianas", semantic_category: "Vestuário", patterns: [/\bhavaianas\b/i] },
+  { canonical_name: "Sabesp", semantic_category: "Moradia", patterns: [/\bsabesp\b/i] },
+  { canonical_name: "Eletropaulo", semantic_category: "Moradia", patterns: [/\beletropaulo\b/i] },
+  { canonical_name: "Comgás", semantic_category: "Moradia", patterns: [/\bcomg[aá]s\b/i] },
+  { canonical_name: "Telha Norte", semantic_category: "Moradia", patterns: [/\btelha\s*norte\b/i] },
+  { canonical_name: "Leroy Merlin", semantic_category: "Moradia", patterns: [/\bleroy\s*merlin\b/i] },
+  { canonical_name: "Extra", semantic_category: "Mercado", patterns: [/\bmini\s*extra\b/i, /\bextra\s*hiper\b/i, /\bhiper\s*extra\b/i] },
+  { canonical_name: "Oxxo", semantic_category: "Mercado", patterns: [/\boxxo\b/i] },
+  { canonical_name: "Wet'n Wild", semantic_category: "Lazer", patterns: [/\bwet\s*'?\s*n\s*wild\b/i] },
 ];
 
 export function matchCuratedMerchant(raw: string | null | undefined): CuratedMerchant | null {

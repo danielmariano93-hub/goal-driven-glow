@@ -7,7 +7,7 @@ const NOISE_TOKENS = new Set([
   "deb", "cartao", "boleto", "transf", "transferencia", "recebimento",
   "redecard", "stone", "cielo", "getnet", "rede", "pagseguro", "pagbank",
   "mercpago", "mercadopago", "picpay", "de", "do", "da", "em", "no", "na",
-  "atm", "tmob",
+  "atm", "tmob", "qrs", "qrcode", "whats", "int",
   "ltda", "me", "sa", "eireli", "mei", "epp",
 ]);
 
@@ -22,8 +22,17 @@ export function storageMerchantKey(raw: string | null | undefined): string {
     .slice(0, 120);
 }
 
+/**
+ * Datas coladas no nome ("PIX TRANSF VERA LU26/01", "SHPP BRASIL18/03") viram
+ * ruído antes da tokenização: sem isso, cada mês do mesmo favorecido gerava
+ * uma chave diferente e o histórico nunca casava.
+ */
+export function stripGluedDates(raw: string): string {
+  return raw.replace(/\d{2}\/\d{2}(?:\/\d{2,4})?/g, " ");
+}
+
 export function normalizeDescription(raw: string | null | undefined): string {
-  const key = storageMerchantKey(raw)
+  const key = storageMerchantKey(stripGluedDates(String(raw ?? "")))
     .replace(/\b\d{2}[ -]\d{2}(?:[ -]\d{2,4})?\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();

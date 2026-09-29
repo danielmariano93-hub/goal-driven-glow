@@ -1,4 +1,4 @@
-import { normalizedPattern, storageMerchantKey } from "./normalize.ts";
+import { normalizedPattern, storageMerchantKey, stripGluedDates } from "./normalize.ts";
 import { isPassThroughDescriptor, matchAuthoritativeMerchant, matchCuratedMerchant } from "./merchantCatalog.ts";
 
 export type CategorySource = "user" | "personal" | "alias" | "history" | "global" | "rule" | "llm" | "none";
@@ -50,19 +50,32 @@ export async function loadEffectiveThresholds(sb: any): Promise<EffectiveThresho
   } catch { return DEFAULT_THRESHOLDS; }
 }
 
-const RULES: Array<{ pattern: RegExp; category: string }> = [
+/**
+ * Regras por TIPO de estabelecimento. `strong` = a palavra define o comércio
+ * sem ambiguidade ("supermercado", "drogaria", "posto", "churrascaria") e a
+ * regra aplica sozinha; as demais viram sugestão para revisão. Sempre com
+ * fronteira de palavra ("Rio Praia" não é "Raia"; "Mercado Pago" não é mercado).
+ * `categories` é uma lista de preferência: vale a primeira que o usuário tiver.
+ */
+const RULES: Array<{ pattern: RegExp; category: string; categories?: string[]; strong?: boolean }> = [
   { pattern: /\b(uber|99|cabify|indriver)\b/, category: "transporte" },
-  { pattern: /\b(restaurante|lanchonete|padaria|caf[eé]|pizza|burger|mcdonald|outback)\b/, category: "alimentacao" },
-  { pattern: /\b(drogaria|farmacia|pacheco|panvel)\b/, category: "saude" },
-  { pattern: /\b(supermerc|mercado|extra|atacadao|hortifruti|sams?\s*club|oxxo)\b/, category: "mercado" },
-  { pattern: /\b(bar|boteco|pub|balada|cervejaria|choperia|cinema|teatro|show|ingresso|festival|parque)\b/, category: "lazer" },
+  { pattern: /\b(restaurante|lanchonete|padaria|panificadora|churrascaria|churrasco|pizzaria|hamburgueria|grill|rotisseria|marmitaria)\b/, category: "alimentacao", strong: true },
+  { pattern: /\b(caf[eé]|pizza|burger|mcdonald|outback|snack|sucos?|doces|a[cç]ai|sorveteria|coco verde)\b/, category: "alimentacao" },
+  { pattern: /\b(drogarias?|farm[aá]cias?|pacheco)\b/, category: "saude", strong: true },
+  { pattern: /\b(supermercado|supermerc|hipermercado|mercado(?!\s*(?:livre|pago))|mercearia|hortifruti|sacol[aã]o|atacad[aã]o|atacado|emp[oó]rio)\b/, category: "mercado", strong: true },
+  { pattern: /\b(extra|sams?\s*club|oxxo)\b/, category: "mercado" },
+  { pattern: /\b(igreja|d[ií]zimo|ofertas?\s+(?:igreja|culto)|par[oó]quia)\b/, category: "dizimo", categories: ["dízimo", "doações", "doacao"], strong: true },
+  { pattern: /\b(bar|boteco|pub|balada|cervejaria|choperia|cinema|teatro|show|ingresso|festival|parque|bilheteria|eventos?|adega)\b/, category: "lazer" },
+  { pattern: /(drinks?|bar)\b/, category: "lazer" },
   { pattern: /\b(disney|hbo|max\.com|youtube\s*premium|apple\.com\/bill|google\s*one|icloud)\b/, category: "assinaturas" },
-  { pattern: /\b(posto|gasolina|combustivel|shell|petrobras|ipiranga)\b/, category: "transporte" },
+  { pattern: /\b(posto|gasolina|combust[ií]vel|shell|petrobras|ipiranga)\b/, category: "transporte", strong: true },
+  { pattern: /\b(metr[oô]|sptrans|cptm|bilhete\s*[uú]nico|estacionamento)\b/, category: "transporte", strong: true },
   { pattern: /\b(escola|faculdade|curso|udemy|alura|livraria)\b/, category: "educacao" },
-  { pattern: /\b(aluguel|condominio|energia|sabesp|copasa|internet|vivo\s*fibra|claro\s*net)\b/, category: "moradia" },
-  { pattern: /\b(hospital|clinica|laboratorio|consulta|dentista|odonto)\b/, category: "saude" },
-  { pattern: /\b(petshop|veterinar)\b/, category: "pets" },
+  { pattern: /\b(aluguel|condom[ií]nio|imobili[aá]ria|energia|sabesp|copasa|internet|vivo\s*fibra|claro\s*net)\b/, category: "moradia" },
+  { pattern: /\b(hospital|cl[ií]nica|laborat[oó]rio|consulta|dentista|odonto)\b/, category: "saude" },
+  { pattern: /\b(petshop|pet\s*shop|veterin[aá]r)/, category: "pets", strong: true },
   { pattern: /\b(renner|riachuelo|cea\b|c&a|zara|shein|roupa|calcados|calçados)\b/, category: "vestuario" },
+  { pattern: /(massage[mn]s?|piercing|barbearia|manicure)|\b(sal[aã]o\s+de\s+beleza|est[eé]tica)\b/, category: "beleza", categories: ["beleza", "cuidados pessoais", "servicos"] },
   { pattern: /\b(iof|tarifa|anuidade|juros|multa|imposto|ipva|iptu)\b/, category: "impostos e taxas" },
   { pattern: /(lovable(?:\.dev)?|openai|chatgpt|canva|adobe|github|hostinger|dominio|domínio)/, category: "servicos" },
 ];
@@ -138,7 +151,14 @@ export function isPassThroughOnly(raw: string | null | undefined): boolean {
   return isPassThroughDescriptor(raw);
 }
 export function decideByRule(description: string, candidates: CategoryCandidate[]): CategoryDecision | null {
-  const target=description.toLowerCase(); for (const r of RULES) if (r.pattern.test(target)) { const id=matchByName(candidates,r.category); if (id) return { category_id:id, category_source:"rule", category_confidence:0.75, category_reason:`regra: ${r.category}` }; } return null;
+  const target=description.toLowerCase();
+  for (const r of RULES) {
+    if (!r.pattern.test(target)) continue;
+    const names=r.categories?.length ? r.categories : [r.category];
+    const id=names.map((name)=>matchByName(candidates,name)).find(Boolean) ?? null;
+    if (id) return { category_id:id, category_source:"rule", category_confidence:r.strong?0.9:0.75, category_reason:`regra${r.strong?" forte":""}: ${r.category}` };
+  }
+  return null;
 }
 const REFUND_MARKERS=/\b(estorno|estornado|reembolso|reembolsado|devolucao|devolução|refund|cancelamento|chargeback)\b/i;
 export function looksLikeRefund(description:string){return REFUND_MARKERS.test(description.normalize("NFC"));}
@@ -146,7 +166,9 @@ export function decideByRefundOrigin(input:{description:string;candidates:Catego
   if(!looksLikeRefund(input.description))return null; const stripped=input.description.replace(new RegExp(REFUND_MARKERS.source,"gi")," ").replace(/\s+/g," ").trim(); if(stripped.length<3)return null;
   const pattern=normalizedPattern(stripped); const inherited=decideByAlias(pattern,input.aliases)??decideByFuzzyAlias(pattern,input.aliases)??decideByHistory(pattern,input.history)??decideByRule(stripped,input.candidates); return inherited?{...inherited,category_reason:`estorno herda a categoria do gasto original — ${inherited.category_reason}`}:null;
 }
-export function decideCategoryDeterministic(input:{explicit?:string|null;description:string;candidates:CategoryCandidate[];aliases:AliasRow[];history:HistoryRow[];preferences?:PersonalPreferenceRow[];globalKnowledge?:GlobalKnowledgeRow[]}):CategoryDecision|null{
+export function decideCategoryDeterministic(raw:{explicit?:string|null;description:string;candidates:CategoryCandidate[];aliases:AliasRow[];history:HistoryRow[];preferences?:PersonalPreferenceRow[];globalKnowledge?:GlobalKnowledgeRow[]}):CategoryDecision|null{
+  // Data colada no nome ("SABESP23/04") não pode esconder a marca.
+  const input={...raw,description:stripGluedDates(String(raw.description??""))};
   const pattern=normalizedPattern(input.description);
   const explicit=decideExplicit(input.explicit,input.candidates);
   if(explicit)return explicit;
