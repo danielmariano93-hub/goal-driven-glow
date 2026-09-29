@@ -11,6 +11,8 @@ function norm(text: string): string {
     .replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim();
 }
 
+const RANGE_SEP = "(?:\\.\\.|/|a|ate|ao|to|through|until|-)";
+
 function lastDayOfMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
@@ -76,15 +78,10 @@ function inferDayOnlyRange(startDay: number, endDay: number, text: string, today
     }
     const end = ymd(endYear, endMonth, endDay);
     if (!start || !end) return null;
-    // The anchor is authoritative: day-only range must overlap the named week.
     if (end < week.from || start > week.to) return null;
     return range(start, end, text);
   }
 
-  // Without an explicit calendar anchor, choose the most recent plausible
-  // same-month interval. This makes "do dia 21 ao 27" on the 28th mean the
-  // current month, and on the 2nd mean the previous month rather than a future
-  // interval. Cross-month day-only ranges require an explicit month/year.
   if (endDay < startDay) return null;
   const base = endDay <= todayDay ? { year, month } : shiftMonth(year, month, -1);
   const start = ymd(base.year, base.month, startDay);
@@ -92,28 +89,23 @@ function inferDayOnlyRange(startDay: number, endDay: number, text: string, today
   return start && end ? range(start, end, text) : null;
 }
 
-/**
- * Resolve only EXPLICIT absolute/date-range expressions. Relative language
- * ("mês passado", "últimos 30 dias") remains in PeriodResolver.
- */
 export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): ResolvedPeriod | null {
   const raw = String(text ?? "").trim();
   const t = norm(raw);
   if (!t) return null;
   const today = todaySP(now);
 
-  // Canonical/near-canonical ISO forms may be emitted by the semantic authority.
-  // Accept separator variants only; the dates themselves are still validated
-  // deterministically here. This is normalization, never semantic reinterpretation.
-  const canonical = t.match(/\b(20\d{2}-\d{2}-\d{2})\s*(?:\.\.|a|ate|ao|to|through|until|-)\s*(20\d{2}-\d{2}-\d{2})\b/);
+  // Canonical/near-canonical ISO forms emitted by the semantic authority.
+  // Separator normalization is deterministic: the date tokens themselves are
+  // still validated here and no meaning is inferred from prose.
+  const canonical = t.match(new RegExp(`\\b(20\\d{2}-\\d{2}-\\d{2})\\s*${RANGE_SEP}\\s*(20\\d{2}-\\d{2}-\\d{2})\\b`));
   if (canonical) return range(canonical[1], canonical[2], raw);
 
-  // ISO single day.
   const isoDay = t.match(/^\s*(20\d{2}-\d{2}-\d{2})\s*$/);
   if (isoDay) return range(isoDay[1], isoDay[1], raw);
 
-  // 21/09/2026 a 27/09/2026, year optional on either side.
-  const slashRange = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\s*(?:a|ate|ao|-)\s*(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\b/);
+  // DD/MM[/YYYY] ranges with the same separator vocabulary accepted above.
+  const slashRange = t.match(new RegExp(`\\b(\\d{1,2})/(\\d{1,2})(?:/(20\\d{2}))?\\s*${RANGE_SEP}\\s*(?:dia\\s*)?(\\d{1,2})/(\\d{1,2})(?:/(20\\d{2}))?\\b`));
   if (slashRange) {
     const from = parseSlashDate(slashRange[1], slashRange[2], slashRange[3], today);
     let to = parseSlashDate(slashRange[4], slashRange[5], slashRange[6] ?? slashRange[3], today);
@@ -125,7 +117,7 @@ export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): R
   }
 
   // 21/09 ao dia 27: second month inherited from first.
-  const inheritedMonth = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\s*(?:a|ate|ao|-)\s*(?:dia\s*)?(\d{1,2})\b/);
+  const inheritedMonth = t.match(new RegExp(`\\b(\\d{1,2})/(\\d{1,2})(?:/(20\\d{2}))?\\s*${RANGE_SEP}\\s*(?:dia\\s*)?(\\d{1,2})\\b`));
   if (inheritedMonth) {
     const from = parseSlashDate(inheritedMonth[1], inheritedMonth[2], inheritedMonth[3], today);
     if (!from) return null;
@@ -135,11 +127,10 @@ export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): R
   }
 
   // Day-only ranges: "do dia 21 ao dia 27", "21 a 27", semantic "21-27".
-  const dayRange = t.match(/(?:\bdo\s+)?\bdia\s*(\d{1,2})\s*(?:ao|a|ate|-)\s*(?:dia\s*)?(\d{1,2})\b/)
-    ?? (/^(?:dia\s*)?(\d{1,2})\s*(?:a|ate|ao|-)\s*(?:dia\s*)?(\d{1,2})$/.exec(t));
+  const dayRange = t.match(new RegExp(`(?:\\bdo\\s+)?\\bdia\\s*(\\d{1,2})\\s*${RANGE_SEP}\\s*(?:dia\\s*)?(\\d{1,2})\\b`))
+    ?? (new RegExp(`^(?:dia\\s*)?(\\d{1,2})\\s*${RANGE_SEP}\\s*(?:dia\\s*)?(\\d{1,2})$`).exec(t));
   if (dayRange) return inferDayOnlyRange(Number(dayRange[1]), Number(dayRange[2]), raw, today);
 
-  // Single dd/mm[/yyyy].
   const singleSlash = t.match(/^\s*(?:dia\s*)?(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?\s*$/);
   if (singleSlash) {
     const day = parseSlashDate(singleSlash[1], singleSlash[2], singleSlash[3], today);
