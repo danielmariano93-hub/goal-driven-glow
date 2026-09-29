@@ -74,7 +74,7 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
       periods: [explicit],
       comparison_intent: COMPARISON_RX.test(t),
       matched: [explicit.matched],
-      source: "text",
+      source: "single",
     };
   }
 
@@ -96,7 +96,7 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
       periods: [hits[0].period],
       comparison_intent: false,
       matched: [hits[0].matched],
-      source: "text",
+      source: "single",
     };
   }
 
@@ -122,7 +122,7 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
       periods: [uniqueHits[0]?.period ?? hits[0].period],
       comparison_intent: false,
       matched: [uniqueHits[0]?.matched ?? hits[0].matched],
-      source: "text",
+      source: "single",
     };
   }
 
