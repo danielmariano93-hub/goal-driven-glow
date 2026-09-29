@@ -113,7 +113,7 @@ describe("Nino V3 single-route hardening", () => {
     const bridge = bridgeTurnSpecV3ToRuntime(turn, NOW);
     expect(bridge.ok).toBe(true);
     if (!bridge.ok) return;
-    expect(bridge.contract.focus.period_expression).toBe("2026-09-21..2026-09-27");
+    expect(bridge.contract.focus.period_expression).toBe("semana passada do dia 21 ao dia 27");
     expect(bridge.contract.focus.period_expressions).toEqual(["2026-09-21..2026-09-27"]);
   });
 
