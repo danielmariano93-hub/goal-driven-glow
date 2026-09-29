@@ -52,3 +52,40 @@ describe("nino_priority_feed.v1", () => {
     expect(formatDailyPriorities({ items: [] })).toMatch(/nenhum ponto novo/);
   });
 });
+
+import { learnFromPriorityEvents, applyLearningAdjustment, mergeLearning } from "../../supabase/functions/_shared/proactive/priorityLearning";
+
+describe("nino_priority_learning.v1", () => {
+  const now = new Date("2026-09-29T12:00:00Z");
+  const ev = (kind: string, event: string, day = 25, fp = `${kind}-${event}-${day}`) =>
+    ({ kind, event, fingerprint: fp, created_at: `2026-09-${day}T10:00:00Z` });
+
+  it("explícito vira ação/dispensa; implícito vira só penalidade limitada", () => {
+    const learned = learnFromPriorityEvents([
+      ev("goal_at_risk", "acted"), ev("growing_category", "dismissed"),
+      ...Array.from({ length: 10 }, (_, i) => ev("emotional_spending", "next_requested", 10 + i)),
+    ], now);
+    expect(learned.explicit.goal_at_risk).toEqual({ dismissals: 0, actions: 1 });
+    expect(learned.explicit.growing_category).toEqual({ dismissals: 1, actions: 0 });
+    expect(learned.adjustment.emotional_spending).toBe(-30);
+    expect(mergeLearning({ goal_at_risk: { dismissals: 0, actions: 2, false_positives: 0 } }, learned).goal_at_risk.actions).toBe(3);
+  });
+
+  it("ver muitas vezes sem agir penaliza; agir anula; eventos antigos não contam", () => {
+    const ignored = Array.from({ length: 5 }, (_, i) => ev("spending_pace_change", "impression", 20 + i, `p${i}`));
+    expect(learnFromPriorityEvents(ignored, now).adjustment.spending_pace_change).toBe(-10);
+    expect(learnFromPriorityEvents([...ignored, ev("spending_pace_change", "acted")], now).adjustment.spending_pace_change).toBeUndefined();
+    const old = [{ kind: "x", event: "dismissed", fingerprint: "o", created_at: "2026-06-01T10:00:00Z" }];
+    expect(learnFromPriorityEvents(old, now).explicit.x).toBeUndefined();
+  });
+
+  it("penalidade implícita nunca atinge risco crítico", () => {
+    const learned = { explicit: {}, adjustment: { debt_overdue: -30, growing_category: -10 } };
+    const [critical, other] = applyLearningAdjustment([
+      sit({ communication_kind: "debt_overdue", severity: "critical" }),
+      sit({ communication_kind: "growing_category" }),
+    ], learned);
+    expect((critical.evidence as any).learning_adjustment).toBeUndefined();
+    expect((other.evidence as any).learning_adjustment).toBe(-10);
+  });
+});

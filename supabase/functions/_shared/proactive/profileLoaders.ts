@@ -93,3 +93,20 @@ export async function loadRecentDeliveries(sb: SupabaseClient, userId: string, d
     impact_amount: Number((row.evidence as any)?.impact_amount ?? 0) || null,
   }));
 }
+
+/** Interações com a fila de prioridades (Home/Nino), para o aprendizado. */
+export async function loadPriorityEvents(sb: SupabaseClient, userId: string, days = 45) {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data } = await sb.from("nino_priority_events")
+    .select("kind,fingerprint,event,created_at")
+    .eq("user_id", userId)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  return (((data as any[]) ?? [])).map((row) => ({
+    kind: String(row.kind ?? ""),
+    fingerprint: String(row.fingerprint ?? ""),
+    event: String(row.event ?? ""),
+    created_at: String(row.created_at ?? ""),
+  }));
+}

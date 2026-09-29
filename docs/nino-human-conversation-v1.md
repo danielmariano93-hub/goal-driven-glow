@@ -69,3 +69,27 @@ old fast→deep order mostly paid for a failed call before the real one.
 - Task order is ignored when comparing readings.
 - The composer falls back to the reviewer model on capacity errors.
 - The advisor pre-computes trade-off arithmetic (`derived`) so the composer never needs to calculate.
+
+## Highlights (2026-09-29)
+
+One ranked queue decides what matters for each user; every surface reads it.
+
+```text
+signals -> situations -> presentation (pt-BR money, no jargon)
+  -> data quality (incomplete income / short history lower confidence; a data request replaces the false alarm)
+  -> user model (goals + relationship memory: relevance boost, code-computed goal link)
+  -> learning (explicit acted/dismissed; implicit next/ignored = bounded penalty, never on critical)
+  -> ranking -> allocateAttention (channel budget, repeat window per kind, one kind per round, app-only kinds)
+             -> nino_priority_feed (top 5, one per kind)  => Home spotlight, chat "o que importa agora?"
+```
+
+| Module | Responsibility |
+|---|---|
+| `proactive/presentation.ts` | Money normalization, vocabulary, methodology to evidence, diagnosis kind by topic. |
+| `proactive/dataQuality.ts` | Income completeness vs own history, history depth, recency; income data request. |
+| `proactive/userModel.ts` | Savings goals + `life:*` notes; goal relevance and "X% do que a meta precisa por mês". |
+| `proactive/repetition.ts` | Same kind per channel waits 2–7 days unless impact grows ≥ 1.5×. |
+| `proactive/priorityFeed.ts` | Writes/reads `nino_priority_feed`; `my_nino_priorities()` for the app. |
+| `proactive/priorityLearning.ts` | Learns from `nino_priority_events` (`my_nino_priority_event()` from the Home). |
+
+Quality gate: `src/test/nino-highlights-eval.test.ts` (scenarios + aggregate limits: zero false alarms from incomplete data, zero repeats inside the window, critical risk never silenced, zero money/jargon violations, ≤ 1 WhatsApp interruption per round, goal linkage ≥ 50%). Production metrics: `v_nino_highlight_quality_daily` (service role only).
