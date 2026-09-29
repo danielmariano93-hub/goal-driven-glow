@@ -1,4 +1,4 @@
-// ContractFulfillmentGate (`nino_contract_fulfillment.v2`)
+// ContractFulfillmentGate (`nino_contract_fulfillment.v1`)
 //
 // End-to-end proof that the executed/evidenced answer still satisfies the
 // canonical request. Validators reject; they never reinterpret.
@@ -16,7 +16,7 @@ export type ContractViolation = {
 };
 
 export type ContractFulfillmentResult = {
-  version: "nino_contract_fulfillment.v2";
+  version: "nino_contract_fulfillment.v1";
   ok: boolean;
   violations: ContractViolation[];
 };
@@ -52,7 +52,6 @@ export function verifyFinancialFulfillment(args: {
     violations.push({ code: contractViolationCode(error), detail: error });
   }
 
-  // IR -> actual engine execution.
   if (args.preservation && !args.preservation.compatible) {
     for (const mismatch of args.preservation.mismatches) {
       violations.push({
@@ -62,7 +61,6 @@ export function verifyFinancialFulfillment(args: {
     }
   }
 
-  // Execution -> evidence/claim grounding.
   if (args.grounding && !args.grounding.ok) {
     for (const violation of args.grounding.violations) {
       violations.push({
@@ -90,7 +88,7 @@ export function verifyFinancialFulfillment(args: {
   }
 
   return {
-    version: "nino_contract_fulfillment.v2",
+    version: "nino_contract_fulfillment.v1",
     ok: violations.length === 0,
     violations,
   };
