@@ -61,6 +61,7 @@ import { detectExpectation } from "./ConversationExpectation.ts";
 import { learnFromTurn } from "./LearningLoop.ts";
 import { loadBrainUserContext } from "./BrainUserContext.ts";
 import { resolveNarrowDeterministicTurn } from "./NarrowDeterministicGate.ts";
+import { compileDeterministicConversationTurn } from "./DeterministicConversationCompiler.ts";
 import {
   advanceReferences, captureReferenceObjects, invalidateReferences,
 } from "./ConversationReferenceStore.ts";
@@ -556,7 +557,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const narrowContract = v3AuthorityEnabled
     ? null
     : (groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText));
-  const brain = narrowContract
+  let brain = narrowContract
     ? {
       contract: narrowContract,
       telemetry: {
@@ -581,6 +582,31 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       user_id: input.user_id,
       run_id: null,
     });
+
+  // V3 remains the sole semantic authority during healthy operation. If both
+  // model tiers fail at the provider/structured-output boundary, recover only
+  // closed, fail-safe contracts already covered by the deterministic compiler.
+  // This prevents a transient 400/429 from turning an unequivocal read or a
+  // confirmation-gated write into "não consegui processar". Ambiguous language
+  // still returns null from the compiler and keeps the honest technical reply.
+  let semanticProviderRecovery: string | null = null;
+  if (v3AuthorityEnabled && !narrowContract && brain.telemetry.ok === false) {
+    const recovered = compileDeterministicConversationTurn({ text: brainText, memory });
+    if (recovered) {
+      semanticProviderRecovery = String(brain.telemetry.error ?? "semantic_authority_unavailable").slice(0, 220);
+      brain = {
+        contract: recovered,
+        telemetry: {
+          ...brain.telemetry,
+          model: `deterministic:provider_recovery:${brain.telemetry.model}`.slice(0, 180),
+          ok: true,
+        },
+      };
+    }
+  }
+  const semanticResolutionPath: HandleTurnResult["path"] = semanticProviderRecovery
+    ? "deterministic_tool"
+    : "llm";
 
   if (!brain.contract) {
     const reply = "Não consegui interpretar essa mensagem com segurança. Pode reformular o pedido em uma frase?";
@@ -613,7 +639,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   if (contract.mode === "converse") {
     return await finishV2({
-      sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: "llm",
+      sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: semanticResolutionPath,
       started_at: started, tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
@@ -623,7 +649,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   if (contract.mode === "clarify") {
     return await finishV2({
       sb, input, contract, reply: contract.clarification_question!,
-      reply_kind: "question", path: "llm", started_at: started,
+      reply_kind: "question", path: semanticResolutionPath, started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
@@ -656,7 +682,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     return await finishV2({
       sb, input, contract, reply: write.reply,
       reply_kind: write.reply_kind === "draft" ? "draft" : write.reply_kind === "question" ? "question" : "info",
-      path: "llm", started_at: started,
+      path: semanticResolutionPath, started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       draft_id: write.draft_id, result: write.tool_result, session_id,
@@ -916,7 +942,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   return await finishV2({
     sb, input, contract, reply, reply_kind: replyKind,
-    path: "llm", started_at: started,
+    path: semanticResolutionPath, started_at: started,
     tokens_in: brain.telemetry.tokens_in,
     tokens_out: brain.telemetry.tokens_out,
     model: brain.telemetry.model, provider: brain.telemetry.provider,
@@ -943,6 +969,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? { from: semantic.ir_v2.comparison_period.from, to: semantic.ir_v2.comparison_period.to }
       : memory?.comparison_period ?? null,
     diagnostics: {
+      semantic_provider_recovery: semanticProviderRecovery,
       semantic_status: semantic.status,
       executed_by: semantic.telemetry?.executed_by ?? null,
       mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],

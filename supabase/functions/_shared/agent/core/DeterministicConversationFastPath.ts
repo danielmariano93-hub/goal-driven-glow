@@ -149,6 +149,25 @@ function activeReference(memory: ConversationMemory | null, target: string): boo
   return !!memory?.references?.some((ref) => ref.status === "active" && ref.target === target);
 }
 
+function regexEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasSpendingContext(memory: ConversationMemory | null): boolean {
+  if (!memory || memory.previous_intent !== "read") return false;
+  const summary = norm(memory.conversation_summary);
+  const topic = norm(memory.current_topic);
+  return /\b(?:gast|despes|consumo)\w*\b/.test(`${summary} ${topic}`)
+    || Boolean(memory.active_category || memory.active_merchant);
+}
+
+function activePeriodExpression(memory: ConversationMemory | null): string | null {
+  const from = String(memory?.active_period?.from ?? "");
+  const to = String(memory?.active_period?.to ?? "");
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(from) || !/^20\d{2}-\d{2}-\d{2}$/.test(to) || from > to) return null;
+  return `${from}..${to}`;
+}
+
 function namedAfter(text: string, pattern: RegExp): string | null {
   const match = pattern.exec(text);
   const value = match?.[1]?.trim().replace(/[?.!,;]+$/, "") ?? "";
@@ -331,6 +350,49 @@ function simpleReadFastPath(input: DeterministicFastPathInput): CanonicalConvers
   const category = detectCategory(text) ?? null;
   const periodMatch = text.match(/\b(m[eê]s passado|m[eê]s anterior|este m[eê]s|esse m[eê]s|hoje|ontem|[uú]ltimos?\s+(?:\d+|cinco|sete|seis|quatro|tr[eê]s|dois|oito|nove|dez|doze)\s+meses|de\s+(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+a\s+(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\b/i);
   const period = periodMatch?.[1] ?? null;
+
+  // Provider-failure recovery for a closed, contextual category switch such
+  // as "Tá. Agora olha só Lazer pra mim" or "E em Alimentação?". The current
+  // turn supplies the category, while the exact previously executed period is
+  // copied as a canonical window. Merchant scope is deliberately cleared: an
+  // explicit category switch must not silently retain an older establishment.
+  if (category && hasSpendingContext(memory)) {
+    const categoryToken = regexEscape(norm(category));
+    const categoryOnly = new RegExp(
+      `^(?:(?:ta|ok|beleza|certo)[\\s.,!?]+)?(?:agora\\s+)?(?:` +
+        `(?:olha|ve|veja|mostra|mostre)\\s+(?:so\\s+)?(?:a\\s+categoria\\s+)?${categoryToken}(?:\\s+(?:pra|para)\\s+mim)?` +
+        `|(?:e\\s+)?(?:so\\s+|apenas\\s+)?(?:em\\s+)?${categoryToken}` +
+      `)[\\s.,!?]*$`,
+    );
+    if (categoryOnly.test(t)) {
+      return readContract({
+        text,
+        metric: "expense_amount",
+        operation: "sum",
+        filters: [{ field: "category", value: category }],
+        period: activePeriodExpression(memory),
+        inherit: false,
+      });
+    }
+  }
+
+  // Same availability boundary for an unambiguous temporal continuation. It
+  // is only legal after a proven spending read; debt/goal conversations cannot
+  // be coerced into an expense query by the phrase "e no mês passado?".
+  const periodOnly = /^(?:e\s+)?(?:no|do|em|para)?\s*(m[eê]s\s+(?:passado|anterior)|este\s+m[eê]s|esse\s+m[eê]s|hoje|ontem)[\s?.!]*$/i.exec(text);
+  if (periodOnly && hasSpendingContext(memory)) {
+    return readContract({
+      text,
+      metric: "expense_amount",
+      operation: "sum",
+      filters: [
+        ...(memory?.active_category ? [{ field: "category" as const, value: memory.active_category }] : []),
+        ...(memory?.active_merchant ? [{ field: "merchant" as const, value: memory.active_merchant }] : []),
+      ],
+      period: periodOnly[1],
+      inherit: true,
+    });
+  }
 
   if (/\bquanto\b.*\bgastei\b/.test(t) && (category || memory?.active_category)) {
     const inherited = !category && !!memory?.active_category;
