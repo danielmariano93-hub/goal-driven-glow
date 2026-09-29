@@ -99,3 +99,21 @@ describe("ordem da fila", () => {
     expect(feed.map((i) => i.fingerprint)).toEqual(["crit", "goal"]);
   });
 });
+
+import { topicOf, withoutDismissed } from "../../supabase/functions/_shared/proactive/priorityLearning";
+
+describe("dispensado não volta em nenhum canal", () => {
+  it("o assunto é o mesmo entre fila e página do Nino", () => {
+    expect(topicOf("proactive_multifinance.v1:behavioral_pattern:situation:future:goal:b97d")).toBe("future:goal:b97d");
+    expect(topicOf("proactive_data_quality.v1:income_request:2026-09")).toBe("proactive_data_quality.v1:income_request:2026-09");
+  });
+
+  it("remove pelo fingerprint ou pelo assunto dispensado", () => {
+    const kept = withoutDismissed([
+      sit({ fingerprint: "proactive_multifinance.v1:behavioral_pattern:situation:future:goal:g1" }),
+      sit({ fingerprint: "proactive_multifinance.v1:category_goal_pressure:lazer" }),
+      sit({ fingerprint: "x:situation:goal_feasibility:g1" }),
+    ], ["future:goal:g1", "goal_feasibility:g1"]);
+    expect(kept.map((s) => s.fingerprint)).toEqual(["proactive_multifinance.v1:category_goal_pressure:lazer"]);
+  });
+});

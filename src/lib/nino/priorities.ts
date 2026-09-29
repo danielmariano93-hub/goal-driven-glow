@@ -63,11 +63,16 @@ export function priorityFingerprintOf(itemId: string | null | undefined): string
  * nino_priority_learning.v1 — registra a interação (fire-and-forget). Falha de
  * rede nunca afeta a Home; o banco valida que o item é do próprio usuário.
  */
-export function recordNinoPriorityEvent(fingerprint: string, event: NinoPriorityEvent, surface = "home"): void {
+export function recordNinoPriorityEvent(
+  fingerprint: string,
+  event: NinoPriorityEvent,
+  surface = "home",
+  onSaved?: () => void,
+): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   void (supabase.rpc as any).call(supabase, "my_nino_priority_event", {
     _fingerprint: fingerprint,
     _event: event,
     _surface: surface,
-  }).then(() => undefined, () => undefined);
+  }).then(() => onSaved?.(), () => undefined);
 }

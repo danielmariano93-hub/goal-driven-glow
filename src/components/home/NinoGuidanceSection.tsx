@@ -2,6 +2,7 @@
 // UMA orientação principal (Spotlight) + acesso à superfície completa.
 // Diagnóstico e próximo passo chegam do MESMO bundle realtime da Home.
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { NinoErrorBlock } from "@/components/nino/NinoStateBlocks";
@@ -31,10 +32,17 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
   const decision = useNinoNextStepDecision();
   const [accepted, setAccepted] = useState<string | null>(null);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  // Dispensado some na hora e o próximo item da fila assume o destaque.
+  const [dismissedFingerprints, setDismissedFingerprints] = useState<string[]>([]);
+  const queryClient = useQueryClient();
+  const visiblePriorities = useMemo(
+    () => (priorities ?? []).filter((item) => !dismissedFingerprints.includes(item.fingerprint)),
+    [priorities, dismissedFingerprints],
+  );
 
   const view = useMemo(
-    () => buildNinoHomeEditorialView({ context, diagnosis, nextStep, priorities }),
-    [context, diagnosis, nextStep, priorities],
+    () => buildNinoHomeEditorialView({ context, diagnosis, nextStep, priorities: visiblePriorities }),
+    [context, diagnosis, nextStep, visiblePriorities],
   );
 
   const rotation = useNinoEditorialRotation(view);
@@ -42,7 +50,7 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
   if (loading) return <NinoEditorialSkeleton />;
 
   // Com a fila disponível, uma falha do diagnóstico (reserva) não bloqueia a Home.
-  if (error && !priorities?.length) {
+  if (error && !visiblePriorities.length) {
     return (
       <section aria-label="Orientação do Nino" className="rounded-[20px] border border-border bg-card p-4">
         <NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} />
@@ -66,9 +74,11 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
         requestNextNotice={rotation.primaryNotice}
         onInteraction={feedFingerprint ? (event) => recordNinoPriorityEvent(feedFingerprint, event) : undefined}
         onDismiss={feedFingerprint ? () => {
-          recordNinoPriorityEvent(feedFingerprint, "dismissed");
-          const replacement = rotation.replacePrimary();
-          if (!replacement) setDismissedIds((ids) => [...ids, primary.id]);
+          recordNinoPriorityEvent(feedFingerprint, "dismissed", "home", () => {
+            void queryClient.invalidateQueries({ queryKey: ["nino-priorities"] });
+          });
+          setDismissedFingerprints((items) => [...items, feedFingerprint]);
+          setDismissedIds((ids) => [...ids, primary.id]);
         } : undefined}
         onRequestNext={() => {
           const replacement = rotation.replacePrimary();

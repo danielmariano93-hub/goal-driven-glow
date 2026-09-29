@@ -83,3 +83,20 @@ export function applyLearningAdjustment(situations: FinancialSituation[], learne
     };
   });
 }
+
+/** Assunto canônico de um fingerprint ("...:situation:<chave>" → "<chave>"). Espelha `nino_topic_of`. */
+export function topicOf(fingerprint: string): string {
+  const value = String(fingerprint ?? "");
+  const index = value.indexOf("situation:");
+  return index >= 0 ? value.slice(index + "situation:".length) : value;
+}
+
+/**
+ * O que a pessoa dispensou (na Home ou na página do Nino) não volta em nenhum
+ * canal dentro da janela; as janelas (crítico 3 dias, resto 90) vêm do banco.
+ */
+export function withoutDismissed(situations: FinancialSituation[], dismissedKeys: string[]): FinancialSituation[] {
+  if (!dismissedKeys.length) return situations;
+  const keys = new Set(dismissedKeys);
+  return situations.filter((situation) => !keys.has(situation.fingerprint) && !keys.has(topicOf(situation.fingerprint)));
+}

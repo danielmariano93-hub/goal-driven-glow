@@ -283,12 +283,15 @@ async function fetchHomeState(): Promise<NinoHomeState> {
 }
 
 /** Hot path da Home: diagnóstico + próximo passo, atualizados como um bundle. */
-export function useNinoHomeContext() {
+export function useNinoHomeContext(options: { enabled?: boolean } = {}) {
   const { user } = useAuth();
+  // Recalcula diagnóstico + próximo passo no servidor (3–10 s). Com a fila de
+  // prioridades como fonte da Home, isto é só reserva: a Home só habilita esta
+  // leitura quando a fila está vazia (e aí ela revalida ao voltar do background).
   return useQuery<NinoHomeState>({
     queryKey: [...qk.ninoHomeIntelligence, user?.id],
-    enabled: !!user,
-    staleTime: 0,
+    enabled: !!user && options.enabled !== false,
+    staleTime: 2 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: "always",
     refetchOnReconnect: "always",
