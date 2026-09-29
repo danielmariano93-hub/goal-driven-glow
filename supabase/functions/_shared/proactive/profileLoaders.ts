@@ -17,7 +17,7 @@ function ymShift(ym: string, delta: number): string {
 export async function loadDataQuality(
   sb: SupabaseClient,
   userId: string,
-  facts: { today: string; current_month_income: number; expected_income_rest_of_month: number },
+  facts: { today: string; current_month_income: number; expected_income_rest_of_month: number; current_month_expense?: number },
 ): Promise<DataQuality> {
   const ym = facts.today.slice(0, 7);
   const fromYm = ymShift(ym, -3);
@@ -39,6 +39,7 @@ export async function loadDataQuality(
     today: facts.today,
     current_month_income: facts.current_month_income,
     expected_income_rest_of_month: facts.expected_income_rest_of_month,
+    current_month_expense: facts.current_month_expense,
     previous_months_income: previous,
     first_entry_date: ((firstRes as any)?.data?.[0]?.occurred_at ?? null) as string | null,
     last_entry_date: ((lastRes as any)?.data?.[0]?.occurred_at ?? null) as string | null,

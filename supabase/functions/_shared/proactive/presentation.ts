@@ -115,10 +115,14 @@ export function presentSituation(situation: FinancialSituation): FinancialSituat
  * cooldown e aprendizado por tipo.
  */
 export function diagnosisCommunicationKind(kind: string, topicKey: string): string {
-  const topic = String(topicKey ?? "").split(":")[1] ?? "";
+  const [, topic = "", subject = ""] = String(topicKey ?? "").split(":");
   if (kind === "achievement") return topic === "debt_progress" ? "debt_progress" : "goal_progress";
+  if (topic === "future") {
+    if (subject === "debt") return "debt_due_soon";
+    if (subject === "bill") return "expected_recurring_payment";
+    return "goal_at_risk";
+  }
   switch (topic) {
-    case "future":
     case "goal_feasibility":
     case "goal_pace":
       return "goal_at_risk";
@@ -132,7 +136,7 @@ export function diagnosisCommunicationKind(kind: string, topicKey: string): stri
     case "category_growth":
       return "growing_category";
     case "anticipation":
-      return "expected_recurring_payment";
+      return "small_spend_acceleration";
     default:
       return "emotional_spending";
   }
@@ -140,6 +144,7 @@ export function diagnosisCommunicationKind(kind: string, topicKey: string): stri
 
 /** Tópicos do diagnóstico que outro motor já cobre com a fonte canônica. */
 export function diagnosisTopicOwnedElsewhere(topicKey: string, ctx: { debtObligationsAvailable: boolean }): boolean {
-  const topic = String(topicKey ?? "").split(":")[1] ?? "";
-  return ctx.debtObligationsAvailable && (topic === "debt_overdue" || topic === "debt_due_soon");
+  const [, topic = "", subject = ""] = String(topicKey ?? "").split(":");
+  return ctx.debtObligationsAvailable
+    && (topic === "debt_overdue" || topic === "debt_due_soon" || (topic === "future" && subject === "debt"));
 }

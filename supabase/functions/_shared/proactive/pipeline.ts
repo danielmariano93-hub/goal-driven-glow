@@ -275,6 +275,7 @@ export async function runMultiFinanceProactive(
       today: ctx.as_of,
       current_month_income: Number(cash.current_month_income ?? 0),
       expected_income_rest_of_month: Number(cash.expected_income_rest_of_month ?? 0),
+      current_month_expense: Number(cash.current_month_expense ?? 0),
     }).catch(() => null),
     loadUserModel(sb, userId, ctx.as_of).catch(() => null),
     // Leitura apenas: a simulação (persist=false) também respeita a janela.

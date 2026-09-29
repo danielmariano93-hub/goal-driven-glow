@@ -96,6 +96,8 @@ export function meetsSituationMateriality(
   ctx: MultiFinanceProactiveContext,
 ): boolean {
   if (situation.severity === "critical") return true;
+  // Pedido de dado não tem valor em R$: vale pelo que destrava nas leituras.
+  if (situation.communication_kind === "data_quality") return true;
   // Urgência dispensa o piso apenas quando há risco: contexto informativo de
   // valor pequeno nunca vale uma interrupção, mesmo vencendo amanhã.
   if (situation.severity !== "info" && (situation.days_until ?? 99) <= 3) return true;
@@ -131,6 +133,8 @@ export function allocateAttention(input: BudgetInput): {
 
   for (const channel of input.channels) {
     let remaining = channel === "whatsapp" ? budget.whatsapp : budget.app;
+    // Diversidade: um assunto (tipo) por canal por rodada.
+    const kindsThisRound = new Set<string>();
     for (const situation of ranked) {
       const timing = (situation.evidence as any)?.behavioral_timing ?? null;
       const timingOwned = (situation.evidence as any)?.behavioral_timing_owned === true;
@@ -176,11 +180,16 @@ export function allocateAttention(input: BudgetInput): {
         continue;
       }
 
+      if (kindsThisRound.has(situation.communication_kind) && situation.severity !== "critical") {
+        decisions.push({ ...base, decision: "suppress", reason: "same_kind_in_round" });
+        continue;
+      }
       if (remaining <= 0) {
         decisions.push({ ...base, decision: "suppress", reason: "attention_budget_exhausted" });
         continue;
       }
       remaining -= 1;
+      kindsThisRound.add(situation.communication_kind);
       selected.set(situation.fingerprint, situation);
       decisions.push({ ...base, decision: "deliver", reason: "top_ranked_material_situation" });
     }

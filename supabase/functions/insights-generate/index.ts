@@ -489,6 +489,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
   const dataQuality = assessDataQuality({
     today: todayIsoSP,
     current_month_income: behavioral.income,
+    current_month_expense: behavioral.expense,
     expected_income_rest_of_month: (canonicalSnapshot.estimated_income_events ?? [])
       .filter((event) => String(event.date) > todayIsoSP && String(event.date) <= monthEnd)
       .reduce((sum, event) => sum + Number(event.amount ?? 0), 0),

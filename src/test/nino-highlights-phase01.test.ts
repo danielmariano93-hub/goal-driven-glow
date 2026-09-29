@@ -249,3 +249,42 @@ describe("motor de dicas (catálogo)", () => {
     expect(decision.reason).toBe("repeat_cooldown");
   });
 });
+
+describe("ajustes da simulação com dados reais", () => {
+  it("pedido de renda passa pelo piso de valor", () => {
+    const dq = assessDataQuality({
+      today: "2026-09-29", current_month_income: 0, expected_income_rest_of_month: 0,
+      previous_months_income: [], first_entry_date: "2026-08-01", last_entry_date: "2026-09-20",
+    });
+    const blocked = applyDataQuality([sit({ communication_kind: "cash_flow_imbalance", fingerprint: "c" })], dq);
+    const request = incomeDataRequest(dq, blocked, "2026-09-29")!;
+    expect(dq.income_status).toBe("unknown");
+    const { decisions } = allocateAttention({ situations: [...blocked, request], ctx: ctx(), channels: ["app"] });
+    expect(decisions.find((d) => d.fingerprint === request.fingerprint)?.decision).toBe("deliver");
+  });
+
+  it("sem histórico, renda ínfima contra muito gasto é renda incompleta", () => {
+    const dq = assessDataQuality({
+      today: "2026-09-29", current_month_income: 300, current_month_expense: 3000, expected_income_rest_of_month: 0,
+      previous_months_income: [], first_entry_date: "2026-08-01", last_entry_date: "2026-09-28",
+    });
+    expect(dq.income_status).toBe("partial");
+  });
+
+  it("um assunto por canal por rodada", () => {
+    const { decisions } = allocateAttention({
+      situations: [
+        sit({ fingerprint: "a", communication_kind: "cash_flow_imbalance", impact_amount: 2000 }),
+        sit({ fingerprint: "b", communication_kind: "cash_flow_imbalance", impact_amount: 1500 }),
+      ],
+      ctx: ctx(), channels: ["app"],
+    });
+    expect(decisions.map((d) => d.reason)).toEqual(["top_ranked_material_situation", "same_kind_in_round"]);
+  });
+
+  it("parcela de dívida do diagnóstico não vira 'meta' e não duplica a fonte canônica", () => {
+    expect(diagnosisCommunicationKind("opportunity", "situation:future:debt:x")).toBe("debt_due_soon");
+    expect(diagnosisCommunicationKind("risk", "situation:future:goal:x")).toBe("goal_at_risk");
+    expect(diagnosisCommunicationKind("opportunity", "situation:anticipation:x")).toBe("small_spend_acceleration");
+  });
+});

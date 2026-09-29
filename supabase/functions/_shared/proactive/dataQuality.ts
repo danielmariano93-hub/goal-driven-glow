@@ -16,6 +16,8 @@ export type DataQualityInput = {
   current_month_income: number;
   /** Entradas ainda previstas no mês (recorrências/estimativas confirmadas). */
   expected_income_rest_of_month: number;
+  /** Consumo do mês até hoje (só usado quando não há histórico de renda). */
+  current_month_expense?: number;
   /** Renda operacional dos meses completos anteriores, mais recente primeiro. */
   previous_months_income: number[];
   /** Primeiro e último lançamento confirmados (YYYY-MM-DD). */
@@ -63,7 +65,11 @@ export function assessDataQuality(input: DataQualityInput): DataQuality {
     coverage = Math.round((covered / typical) * 100) / 100;
     status = current <= 0 && expected <= 0 ? "missing" : coverage < 0.5 ? "partial" : "complete";
   } else {
-    status = current > 0 ? "complete" : "unknown";
+    // Sem histórico de renda, a renda do mês só é plausível se cobre ao menos
+    // uma fração do consumo; uma entrada de R$ 21 contra R$ 3.000 de gastos é
+    // registro incompleto, não a vida financeira da pessoa.
+    const expense = Math.max(0, Number(input.current_month_expense ?? 0));
+    status = covered <= 0 ? "unknown" : expense > 0 && covered < expense * 0.25 ? "partial" : "complete";
   }
   if (status !== "complete") reasons.push(`income_${status}`);
 
