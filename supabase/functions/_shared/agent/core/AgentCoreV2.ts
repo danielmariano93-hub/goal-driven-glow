@@ -946,52 +946,57 @@ async function executeContract(
   const canonical = String(contract.canonical_request ?? brainText).trim();
 
   // Advisor reasoning: scenario / decision / goal projection.
-  if (contract.domain === "advisory" && isAdvisorReasoningKind(contract.advisory_kind)) {
-    if (ctx.advisorEnabled) {
-      const toolCtx = {
-        sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
-      } as any;
-      const outcome = await executeAdvisorReasoning(contract, {
-        runTool: async (tool, toolArgs) => {
-          const exec = await runTool(toolCtx, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
-          return { ok: exec.ok, result: exec.result, error: exec.error };
-        },
-        loadCategoryBaseline: async (category, window) => {
-          const ids = await resolveCategoryIdsByName(sb, input.user_id, category);
-          if (!ids.length) return { category, error: "category_not_found" as const };
-          if (ids.length > 1) return { category, error: "category_ambiguous" as const };
-          const buckets = await loadMonthlyExpenseBuckets(sb, {
-            user_id: input.user_id, from: window.from, to: window.to, category_ids: ids,
-          });
-          const typical = typicalMonthlyPolicy({ buckets, window, preferred: "mean" });
-          return { category, typical_monthly: typical.headline, months_with_data: typical.months_with_data, window };
-        },
-      }).catch((error) => {
-        console.warn("[AgentCoreV2] advisor reasoning failed", String((error as Error)?.message ?? error).slice(0, 160));
-        return null;
-      });
-      if (outcome) {
-        const calls = outcome.tool_calls.map((call) => ({
-          tool_name: call.tool_name, args: call.args, result: call.result, ok: call.ok,
-        }));
-        const asksQuestion = !outcome.ok && /\?\s*$/.test(outcome.reply.trim());
-        return {
-          contract, reply: outcome.reply,
-          reply_kind: asksQuestion ? "question" : "info",
-          path: "deterministic_tool",
-          compose_kind: outcome.ok ? (outcome.kind === "decision" ? "decision" : "advisory") : null,
-          evidence: [{ [outcome.kind]: outcome.facts }],
-          tools: calls.map((call) => call.tool_name),
-          tool_calls: calls,
-          error: outcome.ok || asksQuestion ? null : outcome.error,
-          diagnostics: { advisor_reasoning: { version: outcome.version, kind: outcome.kind, ok: outcome.ok, error: outcome.error } },
-        };
-      }
+  const runAdvisor = async (target: CanonicalConversationTurnContract): Promise<TurnExecution> => {
+    const toolCtx = {
+      sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
+    } as any;
+    const outcome = await executeAdvisorReasoning(target, {
+      runTool: async (tool, toolArgs) => {
+        const exec = await runTool(toolCtx, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
+        return { ok: exec.ok, result: exec.result, error: exec.error };
+      },
+      loadCategoryBaseline: async (category, window) => {
+        const ids = await resolveCategoryIdsByName(sb, input.user_id, category);
+        if (!ids.length) return { category, error: "category_not_found" as const };
+        if (ids.length > 1) return { category, error: "category_ambiguous" as const };
+        const buckets = await loadMonthlyExpenseBuckets(sb, {
+          user_id: input.user_id, from: window.from, to: window.to, category_ids: ids,
+        });
+        const typical = typicalMonthlyPolicy({ buckets, window, preferred: "mean" });
+        return { category, typical_monthly: typical.headline, months_with_data: typical.months_with_data, window };
+      },
+    }).catch((error) => {
+      console.warn("[AgentCoreV2] advisor reasoning failed", String((error as Error)?.message ?? error).slice(0, 160));
+      return null;
+    });
+    if (!outcome) {
       return {
-        contract, reply: PROTECTED_ENGINE_FAILURE_REPLY, reply_kind: "info", path: "deterministic_fallback",
+        contract: target, reply: PROTECTED_ENGINE_FAILURE_REPLY, reply_kind: "info", path: "deterministic_fallback",
         compose_kind: null, evidence: [], error: "advisor_reasoning_failed",
       };
     }
+    const calls = outcome.tool_calls.map((call) => ({
+      tool_name: call.tool_name, args: call.args, result: call.result, ok: call.ok,
+    }));
+    const asksQuestion = !outcome.ok && /\?\s*$/.test(outcome.reply.trim());
+    return {
+      contract: target, reply: outcome.reply,
+      reply_kind: asksQuestion ? "question" : "info",
+      path: "deterministic_tool",
+      compose_kind: outcome.ok ? (outcome.kind === "decision" ? "decision" : "advisory") : null,
+      evidence: [{ [outcome.kind]: outcome.facts }],
+      tools: calls.map((call) => call.tool_name),
+      tool_calls: calls,
+      error: outcome.ok || asksQuestion ? null : outcome.error,
+      diagnostics: { advisor_reasoning: { version: outcome.version, kind: outcome.kind, ok: outcome.ok, error: outcome.error } },
+    };
+  };
+  // Grounded advice over the user's owned evidence, used when a legacy
+  // advisory engine cannot answer (instead of the misleading generic failure).
+  const groundedAdvice = () => runAdvisor({ ...contract, advisory_kind: "decision", advisory_params: contract.advisory_params ?? null });
+
+  if (contract.domain === "advisory" && isAdvisorReasoningKind(contract.advisory_kind)) {
+    if (ctx.advisorEnabled) return await runAdvisor(contract);
     contract = { ...contract, advisory_kind: LEGACY_ADVISORY_FOR[contract.advisory_kind!] ?? "next_best_action" };
   }
 
@@ -1005,6 +1010,9 @@ async function executeContract(
       evidenceCache,
     }).catch(() => null);
 
+    const legacyFailed = !advisoryTurn || advisoryTurn.finish === "tool_error"
+      || !(advisoryTurn.toolCalls ?? []).some((call: any) => call.ok === true);
+    if (legacyFailed && ctx.advisorEnabled) return await groundedAdvice();
     if (advisoryTurn) {
       const toolCalls = advisoryTurn.toolCalls ?? [];
       const asksQuestion = /\?\s*$/.test(String(advisoryTurn.reply ?? "").trim())
@@ -1029,6 +1037,7 @@ async function executeContract(
       };
     }
   }
+  if (contract.domain === "advisory" && ctx.advisorEnabled) return await groundedAdvice();
 
   const plan = buildTurnPlan({ text: canonical, history: [] });
   const comparisonIntent = contract.financial_read?.queries.some((query) => query.operation === "compare") ?? false;

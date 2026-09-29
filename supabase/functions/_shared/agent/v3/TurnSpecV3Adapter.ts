@@ -180,6 +180,19 @@ export function adaptConversationTurnContractToV3(
           tasks: compiled.tasks as [SemanticTaskV3, ...SemanticTaskV3[]],
         };
       }
+    } else if (contract.domain === "advisory" && contract.advisory_kind === "goal_projection") {
+      const goal = contract.advisory_params?.goal ?? contract.focus.goal ?? null;
+      turn = {
+        ...common,
+        kind: "task",
+        response_intent: "execute",
+        tasks: [{
+          kind: "goal_query",
+          family: "goals",
+          operation: "projection",
+          goal: goal ? { value: goal, source: "legacy_contract", source_span: null } : null,
+        }],
+      };
     } else if (contract.domain === "advisory" && contract.advisory_kind) {
       turn = {
         ...common,
@@ -188,8 +201,10 @@ export function adaptConversationTurnContractToV3(
         tasks: [{
           kind: "advisory",
           family: "advisory",
-          operation: contract.advisory_kind,
+          operation: contract.advisory_kind as Exclude<typeof contract.advisory_kind, "goal_projection" | null>,
           periods: normalizePeriodExpressions(contract.focus).map(period),
+          scenario: contract.advisory_params?.scenario ?? null,
+          options: contract.advisory_params?.options ?? [],
         }],
       };
     } else {

@@ -89,6 +89,24 @@ export function composerModel(explicit?: string | null): string {
   ).trim();
 }
 
+/**
+ * Voice quality first, availability second: the primary composer model, then
+ * the fast tier. Rate limits are per model, so a 429 on the primary (shared
+ * with deep semantic review) moves to a different quota instead of dropping
+ * straight to the deterministic body.
+ */
+export function composerModelChain(explicit?: string | null): string[] {
+  const chain = [
+    composerModel(explicit),
+    String(envValue("NINO_COMPOSER_FALLBACK_MODEL") ?? envValue("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b").trim(),
+  ].filter(Boolean);
+  return [...new Set(chain)];
+}
+
+function capacityFailure(code: string | null | undefined): boolean {
+  return /structured_call_gateway_(?:429|413|5\d\d)|structured_call_network/.test(String(code ?? ""));
+}
+
 function composerTool() {
   return {
     name: "emit_nino_reply",
@@ -121,7 +139,7 @@ function composerTool() {
 }
 
 const KIND_GUIDANCE: Record<ComposeKind, string> = {
-  conversation: "Turno de conversa sem pedido de dado. Responda como uma pessoa: acolha, dê continuidade ao assunto e, se fizer sentido, conecte com o que você já sabe da vida financeira dele. Não traga números novos.",
+  conversation: "Turno de conversa sem pedido de dado. Responda como uma pessoa ao que ele ACABOU de dizer: comente o conteúdo concreto da mensagem (o plano, o sentimento, a novidade, o agradecimento) com uma frase específica antes de qualquer oferta. Nunca responda só com uma pergunta ou só com uma oferta genérica. Se fizer sentido, conecte com o que você já sabe dele. Não traga números novos.",
   answer: "O usuário pediu um dado. Responda a pergunta logo na primeira frase com o número principal, depois dê UMA leitura útil (o que chama atenção, comparação ou padrão presente nos fatos).",
   advisory: "O usuário quer orientação/simulação. Explique o resultado da simulação em linguagem simples, diga o que isso significa na prática e sugira um próximo passo concreto baseado nos fatos.",
   decision: "O usuário está pesando uma decisão. Raciocine como um assessor: pese as alternativas com princípios financeiros sólidos (reserva de emergência, custo de dívida costuma superar rendimento de aplicação conservadora, liquidez, metas), usando SOMENTE os números dos fatos. Dê uma recomendação clara condicionada ao quadro dele e diga qual informação mudaria a recomendação.",
@@ -356,34 +374,45 @@ export async function composeConversationalReply(input: ComposeInput): Promise<C
   const prompt = buildComposerPrompt(input);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), COMPOSER_DEADLINE_MS);
-  let result;
+  let result: Awaited<ReturnType<typeof callStructuredFunction>> | null = null;
+  let calls = 0;
+  let tokensIn = 0;
+  let tokensOut = 0;
+  const startedAt = Date.now();
   try {
-    result = await callStructuredFunction({
-      provider,
-      model,
-      system: prompt.system,
-      user: prompt.user,
-      tool: composerTool(),
-      signal: controller.signal,
-      temperature: 0.6,
-      reasoning_effort: input.kind === "decision" ? "medium" : "low",
-      max_attempts: 1,
-    });
+    for (const candidate of composerModelChain(input.model)) {
+      calls += 1;
+      result = await callStructuredFunction({
+        provider,
+        model: candidate,
+        system: prompt.system,
+        user: prompt.user,
+        tool: composerTool(),
+        signal: controller.signal,
+        temperature: 0.6,
+        reasoning_effort: input.kind === "decision" ? "medium" : "low",
+        max_attempts: 1,
+      });
+      tokensIn += result.input_tokens;
+      tokensOut += result.output_tokens;
+      if (result.ok || !capacityFailure(result.error_code) || controller.signal.aborted) break;
+    }
   } catch (error) {
     clearTimeout(timer);
     return deterministic(input, `composer_exception:${String((error as Error)?.message ?? error).slice(0, 80)}`, {
-      ...empty, llm_calls: 1, error: "composer_exception",
+      ...empty, llm_calls: Math.max(1, calls), error: "composer_exception",
     });
   }
   clearTimeout(timer);
+  if (!result) return deterministic(input, "composer_not_called", empty);
 
   const telemetry: ComposeTelemetry = {
     model: result.model,
     provider: result.provider,
-    llm_calls: Math.max(1, Number(result.attempts ?? 1)),
-    tokens_in: result.input_tokens,
-    tokens_out: result.output_tokens,
-    latency_ms: result.latency_ms,
+    llm_calls: Math.max(1, calls),
+    tokens_in: tokensIn,
+    tokens_out: tokensOut,
+    latency_ms: Date.now() - startedAt,
     ok: result.ok,
     error: result.ok ? null : result.error_code,
   };

@@ -536,6 +536,13 @@ export async function interpretSemanticTurnV3(
       reasoning_effort: "low",
     });
     if (!structured.ok) {
+      // Sanitized provider detail (no user text) makes 400 structured-output
+      // rejections diagnosable instead of an opaque "gateway_400".
+      console.warn("[SemanticInterpreterV3] structured call failed", JSON.stringify({
+        model: structured.model,
+        code: structured.error_code,
+        detail: String(structured.error_detail ?? "").slice(0, 300),
+      }));
       return {
         turn: null,
         violations: [],
