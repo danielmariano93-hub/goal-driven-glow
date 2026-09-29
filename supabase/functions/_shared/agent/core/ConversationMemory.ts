@@ -1,10 +1,8 @@
-// ConversationMemory (`nino_brain.v2`) — estado conversacional persistente.
+// ConversationMemory (`nino_brain.v3`) — persistent conversational pointers.
 //
-// Separado da verdade financeira: aqui vivem apenas PONTEIROS de conversa
-// (tópico, intenção, categoria/estabelecimento/período ativos, slots pendentes).
-// Nenhum valor financeiro é tratado como fato: quando um número aparece, ele
-// vem do resultado da ferramenta canônica e é armazenado apenas como contexto
-// da última consulta (`last_tool_context`).
+// Memory is context, never financial truth. For period continuity, evidence-
+// backed execution context outranks the generic active_period pointer; this
+// prevents a stale/incorrect display period from poisoning the next turn.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { getState, patchState } from "./StateManager.ts";
@@ -12,27 +10,21 @@ import type { ConversationExpectation } from "./ConversationExpectation.ts";
 import type { PendingConversationAction } from "./ContinuationContract.ts";
 import type { ReferenceObject } from "./ConversationReferenceStore.ts";
 
+export type ConversationPeriod = { from: string; to: string; label?: string | null };
+
 export type ConversationMemory = {
   current_topic: string | null;
-  /** Tópico durável de nino_threads.v1 atualmente ativo. */
   active_topic_id: string | null;
   previous_intent: string | null;
   active_category: string | null;
   active_merchant: string | null;
-  active_period: { from: string; to: string; label?: string | null } | null;
+  active_period: ConversationPeriod | null;
   comparison_period: { from: string; to: string } | null;
   pending_action: string | null;
   pending_slots: string[];
-  /** Pergunta que o Nino fez e ainda espera resposta (TTL próprio). */
   awaiting: ConversationExpectation | null;
-  /** Análise que o Nino OFERECEU fazer e aguarda um "ok" (nino_continuation.v1). */
   pending_conversation_action: PendingConversationAction | null;
   last_tool_context: { tool: string; period?: { from: string; to: string } | null } | null;
-  /**
-   * Última análise composta (`nino_composite.v1`): escopo, entidades, períodos
-   * e estados já calculados. Permite follow-up ("e nessas mesmas?") sem
-   * recomeçar do zero nem trocar o escopo por "tudo".
-   */
   last_analysis: {
     scope: unknown;
     entity_ids: string[];
@@ -43,12 +35,10 @@ export type ConversationMemory = {
     engines: string[];
   } | null;
   conversation_summary: string | null;
-  /** Referências estruturadas a conjuntos/entidades exibidos recentemente. */
   references: ReferenceObject[];
   updated_at: string;
 };
 
-/** Memória conversacional expira em 6h para não contaminar turnos futuros. */
 export const MEMORY_TTL_MS = 6 * 60 * 60 * 1000;
 
 export function emptyMemory(): ConversationMemory {
@@ -60,12 +50,50 @@ export function emptyMemory(): ConversationMemory {
   };
 }
 
-
 export function isExpired(memory: ConversationMemory | null, now: Date = new Date()): boolean {
   if (!memory?.updated_at) return true;
   const at = Date.parse(memory.updated_at);
   if (!Number.isFinite(at)) return true;
   return now.getTime() - at > MEMORY_TTL_MS;
+}
+
+function validPeriod(period: { from?: string | null; to?: string | null } | null | undefined): period is { from: string; to: string } {
+  if (!period?.from || !period?.to) return false;
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(period.from) || !/^20\d{2}-\d{2}-\d{2}$/.test(period.to)) return false;
+  return period.from <= period.to;
+}
+
+export type TrustedMemoryPeriod = {
+  period: ConversationPeriod | null;
+  source: "last_analysis" | "last_tool_context" | "active_period" | "none";
+  evidence_backed: boolean;
+};
+
+/**
+ * Structured precedence for temporal continuity:
+ * executed analysis > executed tool context > generic conversational pointer.
+ * The current user turn still outranks all of these in SemanticInterpreterV3.
+ */
+export function trustedActivePeriod(memory: ConversationMemory | null | undefined): TrustedMemoryPeriod {
+  if (!memory) return { period: null, source: "none", evidence_backed: false };
+  if (validPeriod(memory.last_analysis?.period)) {
+    return {
+      period: { ...memory.last_analysis!.period!, label: memory.active_period?.label ?? null },
+      source: "last_analysis",
+      evidence_backed: true,
+    };
+  }
+  if (validPeriod(memory.last_tool_context?.period)) {
+    return {
+      period: { ...memory.last_tool_context!.period!, label: memory.active_period?.label ?? null },
+      source: "last_tool_context",
+      evidence_backed: true,
+    };
+  }
+  if (validPeriod(memory.active_period)) {
+    return { period: memory.active_period, source: "active_period", evidence_backed: false };
+  }
+  return { period: null, source: "none", evidence_backed: false };
 }
 
 export async function loadConversationMemory(
@@ -103,7 +131,6 @@ export async function clearConversationMemory(sb: SupabaseClient, sessionId: str
   await patchState(sb, sessionId, { conversation: emptyMemory() });
 }
 
-/** Categoria citada explicitamente na mensagem (nomes canônicos do produto). */
 const CATEGORY_HINTS: Array<[RegExp, string]> = [
   [/\balimenta[cç][aã]o|comida|restaurante|delivery|ifood\b/i, "Alimentação"],
   [/\btransporte|uber|corrida|combust[ií]vel|gasolina|[oô]nibus|metr[oô]\b/i, "Transporte"],
@@ -121,18 +148,12 @@ export function detectCategory(text: string): string | null {
   return null;
 }
 
-/** Retomada explícita de assunto: "voltando para alimentação", "sobre transporte". */
 const RESUME_RX = /\b(voltando|retomando|sobre|falando de|em rela[cç][aã]o a)\b/i;
 
 export function wantsTopicResume(text: string): boolean {
   return RESUME_RX.test(String(text ?? ""));
 }
 
-/**
- * Enriquecimento determinístico do texto do turno com o tópico ativo da
- * memória. Só age quando a mensagem atual não traz assunto próprio (follow-up)
- * ou quando o usuário pede explicitamente para retomar um assunto.
- */
 export function applyMemoryToText(
   text: string,
   memory: ConversationMemory | null,
@@ -148,4 +169,3 @@ export function applyMemoryToText(
   if (!topic) return { text: raw, used: false };
   return { text: `${raw} (assunto: ${topic})`, used: true };
 }
-
