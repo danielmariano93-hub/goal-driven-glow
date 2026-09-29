@@ -863,9 +863,11 @@ function mergeExecutions(executions: TurnExecution[]): TurnExecution & {
   const question = executions.find((execution) => execution.reply_kind === "question");
   const errors = executions.map((execution) => execution.error).filter(Boolean) as string[];
   const lastRead = [...executions].reverse().find((execution) => execution.active_period);
-  const composeKind: ComposeKind | null = composable.length
-    ? (composable.some((execution) => execution.compose_kind === "decision") ? "decision" : "compound")
-    : null;
+  const composeKind: ComposeKind | null = !composable.length
+    ? null
+    : composable.every((execution) => execution.compose_kind === "recovery")
+      ? "recovery"
+      : composable.some((execution) => execution.compose_kind === "decision") ? "decision" : "compound";
   return {
     contract: (lastRead ?? primary).contract,
     reply,
@@ -902,7 +904,7 @@ async function executeContract(
     // persisted evidence numbers) are delivered verbatim.
     return {
       contract, reply: contract.direct_reply!, reply_kind: "info", path: ctx.semanticResolutionPath,
-      compose_kind: ctx.brainOk && !ctx.fromClosedCompiler ? "conversation" : null,
+      compose_kind: ctx.fromClosedCompiler ? null : ctx.brainOk ? "conversation" : "recovery",
       evidence: [],
     };
   }
@@ -1200,7 +1202,7 @@ async function executeContract(
   if (!semantic) {
     return {
       contract, reply: PROTECTED_ENGINE_FAILURE_REPLY, reply_kind: "info", path: "deterministic_fallback",
-      compose_kind: null, evidence: [], error: "authoritative_semantic_pipeline_failed",
+      compose_kind: "recovery", evidence: [], error: "authoritative_semantic_pipeline_failed",
     };
   }
   if (ctx.session_id) {
@@ -1255,7 +1257,11 @@ async function executeContract(
     path: ctx.semanticResolutionPath,
     compose_kind: replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
       ? "answer"
-      : null,
+      // Honest failure (blocked, unsupported, no data): keep it honest but
+      // human, answering the conversational part without any amount.
+      : replyKind === "info" && (fulfillmentBlocked || !successfulSemanticExecution)
+        ? "recovery"
+        : null,
     evidence: toolCalls.filter((call) => call.ok).map((call) => call.result),
     tools: semantic.engines,
     tool_calls: toolCalls,

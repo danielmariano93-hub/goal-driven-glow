@@ -96,10 +96,75 @@ function normalizeSlotValue(value: unknown): string {
   return norm(raw);
 }
 
+const SLOT_KEY_ALIASES: Record<string, string> = {
+  occurred_at: "date",
+  data: "date",
+  valor: "amount",
+  value: "amount",
+};
+
+/** Free text varies between readings and is reviewed by the user in the draft. */
+const FREE_TEXT_SLOTS = new Set(["description", "notes", "note", "descricao", "observacao"]);
+
+/** Slots whose value changes what money moves: both readings must state them identically. */
+export const CRITICAL_WRITE_SLOTS = new Set(["amount", "installments", "full_payment", "initial_contribution", "target_amount"]);
+
+const RELATIVE_DATES: Record<string, string> = {
+  hoje: "today", today: "today", agora: "today", now: "today",
+  ontem: "yesterday", yesterday: "yesterday",
+  anteontem: "day_before_yesterday",
+};
+
+function normalizeWriteSlotValue(key: string, value: unknown): string {
+  const normalized = normalizeSlotValue(value);
+  if (key === "date") return RELATIVE_DATES[normalized] ?? normalized;
+  return normalized;
+}
+
 function normalizedWriteSlots(slots: Record<string, unknown> | null | undefined): Array<[string, string]> {
-  return Object.entries(slots ?? {})
-    .map(([key, value]) => [norm(key), normalizeSlotValue(value)] as [string, string])
-    .sort(([a], [b]) => a.localeCompare(b));
+  const out = new Map<string, string>();
+  for (const [rawKey, value] of Object.entries(slots ?? {})) {
+    const key = SLOT_KEY_ALIASES[norm(rawKey)] ?? norm(rawKey);
+    if (FREE_TEXT_SLOTS.has(key)) continue;
+    if (value == null || String(value).trim() === "") continue;
+    out.set(key, normalizeWriteSlotValue(key, value));
+  }
+  return [...out.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
+/**
+ * Two write readings are compatible when the action matches, every critical
+ * slot is present in both with the same value, and no optional slot stated by
+ * BOTH readings carries different values. An optional slot filled by only one
+ * reading is not a contradiction (the draft shows it for user confirmation).
+ */
+function compatibleWriteShapes(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  if (a.kind !== "financial_write" || b.kind !== "financial_write") return false;
+  if (a.action !== b.action) return false;
+  const slotsA = new Map(a.slots as Array<[string, string]>);
+  const slotsB = new Map(b.slots as Array<[string, string]>);
+  for (const key of CRITICAL_WRITE_SLOTS) {
+    if (slotsA.has(key) !== slotsB.has(key)) return false;
+    if (slotsA.has(key) && slotsA.get(key) !== slotsB.get(key)) return false;
+  }
+  for (const [key, value] of slotsA) {
+    if (slotsB.has(key) && slotsB.get(key) !== value) return false;
+  }
+  return true;
+}
+
+function compatibleTaskLists(a: Array<Record<string, unknown>>, b: Array<Record<string, unknown>>): boolean {
+  if (a.length !== b.length) return false;
+  const reads = (list: Array<Record<string, unknown>>) => list.filter((t) => t.kind !== "financial_write").map((t) => JSON.stringify(t));
+  if (JSON.stringify(reads(a)) !== JSON.stringify(reads(b))) return false;
+  const writesA = a.filter((t) => t.kind === "financial_write");
+  const writesB = [...b.filter((t) => t.kind === "financial_write")];
+  for (const write of writesA) {
+    const index = writesB.findIndex((candidate) => compatibleWriteShapes(write, candidate));
+    if (index < 0) return false;
+    writesB.splice(index, 1);
+  }
+  return writesB.length === 0;
 }
 
 function taskShape(task: SemanticTaskV3): Record<string, unknown> {
@@ -177,7 +242,8 @@ export function compareSemanticSignaturesV3(
   const sameFamilies = stable(official.task_families) === stable(candidate.task_families);
   const sameEntities = stable(official.entities) === stable(candidate.entities);
   const samePeriods = stable(official.periods) === stable(candidate.periods);
-  const sameTasks = stable(official.tasks) === stable(candidate.tasks);
+  const sameTasks = stable(official.tasks) === stable(candidate.tasks)
+    || compatibleTaskLists(official.tasks, candidate.tasks);
   const reasons: string[] = [];
   if (!sameKind) reasons.push("turn_kind_mismatch");
   if (!sameAct) reasons.push("act_mismatch");

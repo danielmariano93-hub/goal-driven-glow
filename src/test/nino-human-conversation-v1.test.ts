@@ -471,3 +471,46 @@ describe("explicit slot drops an inherited reference of the same target", () => 
     expect(out.focus.category).toBe("Lazer");
   });
 });
+
+describe("write review tolerates wording, never money", () => {
+  const write = (slots: Record<string, unknown>): SemanticTaskV3 => ({
+    kind: "financial_write", family: "financial.write", action: "transaction.create", slots,
+  });
+  const sig = (slots: Record<string, unknown>) => semanticSignatureV3(task([write(slots)]));
+
+  it("accepts equivalent relative dates, casing and one-sided optional slots", () => {
+    const a = sig({ amount: "45", merchant: "iFood", date: "hoje", category: "Delivery", description: "ifood hoje" });
+    const b = sig({ amount: "45,00", merchant: "ifood", occurred_at: "today" });
+    expect(compareSemanticSignaturesV3(a, b).semantic_match).toBe(true);
+  });
+
+  it("still blocks different amounts, a missing amount or conflicting optional slots", () => {
+    const base = sig({ amount: "45", merchant: "iFood" });
+    expect(compareSemanticSignaturesV3(base, sig({ amount: "54", merchant: "iFood" })).semantic_match).toBe(false);
+    expect(compareSemanticSignaturesV3(base, sig({ merchant: "iFood" })).semantic_match).toBe(false);
+    expect(compareSemanticSignaturesV3(base, sig({ amount: "45", merchant: "Rappi" })).semantic_match).toBe(false);
+  });
+});
+
+describe("recovery composition", () => {
+  const input = composeInput({
+    kind: "recovery",
+    user_text: "lembra do que eu te falei de dezembro? como eu to em relação a isso?",
+    deterministic_body: "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.",
+    evidence: [{ total: 2075 }],
+    history: [{ role: "assistant", content: "Você gastou R$ 2.075,00 esse mês." }],
+  });
+
+  it("answers the human part honestly without any amount", () => {
+    expect(guardComposedReply({
+      text: "Lembro sim: a viagem ao Nordeste em dezembro! Não consegui calcular sua situação agora — se quiser, me pergunta quanto falta para a meta da viagem.",
+      input,
+    }).ok).toBe(true);
+  });
+
+  it("rejects amounts even when they exist in evidence or history", () => {
+    const out = guardComposedReply({ text: "Lembro sim! Você gastou R$ 2.075,00 esse mês.", input });
+    expect(out.ok).toBe(false);
+    expect(out.violations.join(",")).toContain("number_not_in_evidence");
+  });
+});

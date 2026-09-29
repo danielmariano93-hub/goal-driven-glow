@@ -20,7 +20,7 @@ import { citedNumbers, matchesEvidence } from "../narrative/NarrativeGuard.ts";
 export const COMPOSER_VERSION = "nino_conversational_composer.v1";
 export const COMPOSER_DEADLINE_MS = 10_000;
 
-export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound";
+export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery";
 
 export type ComposeHistoryTurn = { role: "user" | "assistant"; content: string };
 
@@ -145,6 +145,7 @@ const KIND_GUIDANCE: Record<ComposeKind, string> = {
   answer: "O usuário pediu um dado. Responda a pergunta logo na primeira frase com o número principal, depois dê UMA leitura útil (o que chama atenção, comparação ou padrão presente nos fatos).",
   advisory: "O usuário quer orientação/simulação. Explique o resultado da simulação em linguagem simples, diga o que isso significa na prática e sugira um próximo passo concreto baseado nos fatos.",
   decision: "O usuário está pesando uma decisão. Raciocine como um assessor: pese as alternativas com princípios financeiros sólidos (reserva de emergência, custo de dívida costuma superar rendimento de aplicação conservadora, liquidez, metas), usando SOMENTE os números dos fatos. Dê uma recomendação clara condicionada ao quadro dele e diga qual informação mudaria a recomendação.",
+  recovery: "Você NÃO conseguiu calcular ou consultar com segurança o que foi pedido (o RASCUNHO explica). Diga isso com honestidade e leveza, SEM citar nenhum valor, número ou data. Responda a parte humana da mensagem (se ele pediu para você lembrar de algo, use a MEMÓRIA DE RELACIONAMENTO) e sugira, em uma frase, como ele pode pedir o dado de forma direta.",
   compound: "O usuário fez mais de um pedido na mesma mensagem. Responda cada parte na ordem, conectando-as numa conversa só (por exemplo: o dado e, em seguida, o conselho que decorre dele).",
 };
 
@@ -191,7 +192,7 @@ export function buildComposerPrompt(input: ComposeInput): { system: string; user
     history ? `HISTÓRICO RECENTE:\n${history}` : "HISTÓRICO RECENTE: início da conversa.",
     `MENSAGEM ATUAL DO USUÁRIO: ${input.user_text}`,
     "",
-    input.kind === "conversation"
+    input.kind === "conversation" || input.kind === "recovery"
       ? `RASCUNHO DE RESPOSTA (pode reescrever livremente, mantendo o sentido): ${input.deterministic_body}`
       : `FATOS (fonte de verdade calculada; reescreva com naturalidade sem perder o número principal):\n${input.deterministic_body}`,
     evidence ? `DADOS ESTRUTURADOS DE APOIO (mesma verdade, não cite nomes de campos):\n${evidence}` : "",
@@ -290,11 +291,13 @@ export function guardComposedReply(args: {
     push("truncated_text");
   }
 
-  const sourceTexts = [input.deterministic_body, input.user_text];
+  // Recovery replies may not carry any amount: only what the user wrote.
+  const recovery = input.kind === "recovery";
+  const sourceTexts = recovery ? [input.user_text] : [input.deterministic_body, input.user_text];
   if (input.kind === "conversation") {
     for (const turn of input.history.slice(-8)) sourceTexts.push(String(turn.content ?? ""));
   }
-  const allowed = allowedNumbersFrom(sourceTexts, input.evidence);
+  const allowed = allowedNumbersFrom(sourceTexts, recovery ? [] : input.evidence);
   for (const cited of citedNumbers(text)) {
     if (!matchesEvidence(cited.value, allowed)) push(`number_not_in_evidence:${cited.raw}`);
   }
@@ -302,7 +305,7 @@ export function guardComposedReply(args: {
     const value = Number(`${m[1].replace(/\./g, "")}${m[2] ? `.${m[2]}` : ""}`);
     if (Number.isFinite(value) && !matchesEvidence(value, allowed)) push(`number_not_in_evidence:${m[0]}`);
   }
-  const dates = allowedDateKeys(sourceTexts, input.evidence);
+  const dates = allowedDateKeys(sourceTexts, recovery ? [] : input.evidence);
   for (const key of citedDateKeys(text)) {
     if (!dates.has(key)) push(`date_not_in_evidence:${key}`);
   }
@@ -313,7 +316,7 @@ export function guardComposedReply(args: {
     if (headline != null && !citedNumbers(text).some((n) => n.kind === "money" && matchesEvidence(n.value, [headline]))) {
       push("headline_number_missing");
     }
-  } else if (input.kind !== "conversation") {
+  } else if (input.kind !== "conversation" && input.kind !== "recovery") {
     // Advice, simulations, decisions and compound turns may lead with the most
     // relevant result (e.g. the saving, not the baseline), but must still be
     // anchored in at least one computed amount when the facts carry money.
