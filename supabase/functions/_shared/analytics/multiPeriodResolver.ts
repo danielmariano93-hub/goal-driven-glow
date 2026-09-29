@@ -1,30 +1,22 @@
-// MultiPeriodResolver (`period_truth.v2`)
+// MultiPeriodResolver (`period_truth.v3`)
 //
-// Resolução DETERMINÍSTICA de MÚLTIPLOS períodos em pt-BR.
-//
-// Causa-raiz que este módulo fecha: `resolvePeriodPt` sempre devolveu UM
-// período. Então "quanto gastei em alimentação no mês de julho e agosto?"
-// perdia um dos recortes antes de chegar ao IR, o plano ficava incoerente com o
-// pedido e o turno terminava em falha honesta genérica pedindo… o período que o
-// usuário já tinha dado.
-//
-// Regras:
-// - a LLM nunca inventa datas: quem transforma expressão em intervalo é aqui;
-// - a ORDEM das expressões é preservada (julho antes de agosto);
-// - só existe multi-período quando as expressões estão realmente enumeradas
-//   (conector curto entre elas: "e", ",", "ou", "vs", "comparado a");
-// - intenção de COMPARAÇÃO é sinal separado da lista de períodos.
+// Deterministic resolution of one or many period expressions. When the
+// conversation authority already emitted an explicit period slot, that slot is
+// resolved directly and is never discarded in favour of reparsing the raw user
+// sentence. This closes the class of bugs where V3 understood 21–27 but V2
+// later fell back to "este mês".
 import { resolvePeriodPt, type ResolvedPeriod } from "./periodResolver.ts";
+import { resolveExplicitPeriodPt } from "./explicitPeriodResolver.ts";
 
 export type MultiPeriodResolution = {
-  version: "period_truth.v2";
+  version: "period_truth.v3";
   /** Períodos resolvidos, na ordem em que aparecem na frase. */
   periods: ResolvedPeriod[];
   /** O usuário pediu explicitamente uma comparação entre os períodos? */
   comparison_intent: boolean;
   /** Trechos reconhecidos, na mesma ordem de `periods`. */
   matched: string[];
-  source: "enumeration" | "single" | "none";
+  source: "enumeration" | "single" | "text" | "none" | "unresolved_authoritative";
 };
 
 const MONTHS = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
@@ -52,12 +44,9 @@ const TOKEN_RX = new RegExp(
   "g",
 );
 
-// Comparação pode ser explícita ("comparando") ou estar implícita numa
-// pergunta de variação entre dois períodos ("qual piorou/aumentou mais?").
 const COMPARISON_RX =
   /\b(vs|versus|comparad\w*|comparando|em relacao a|contra|aument\w*|cres\w*|subi\w*|cai\w*|reduz\w*|diminu\w*|pior\w*|melhor\w*|mud\w*|vari\w*|diferen\w*)\b/;
 
-/** Palavras que podem ficar entre duas expressões sem quebrar a enumeração. */
 const CONNECTOR_RX =
   /^[\s,;:.]*(?:e|ou|x|vs|versus|com|de|do|da|no|na|em|ao|para|contra|comparado|comparada|comparados|comparando|relacao|a|o|mes|meses|tambem)?(?:[\s,;:.]+(?:e|ou|com|de|do|da|no|na|em|ao|a|o|mes|meses|relacao)?)*[\s,;:.]*$/;
 
@@ -70,21 +59,38 @@ function key(period: ResolvedPeriod): string {
   return `${period.from}..${period.to}`;
 }
 
+function resolveExpression(expression: string, now: Date): ResolvedPeriod | null {
+  return resolveExplicitPeriodPt(expression, now) ?? resolvePeriodPt(expression, now);
+}
+
 /**
- * Lê a frase e devolve TODAS as expressões temporais enumeradas.
- * `periods.length <= 1` significa: nada mudou em relação ao comportamento antigo.
+ * Raw-text discovery remains available only when there is NO authoritative
+ * period slot. It is compatibility for legacy V2/out-of-rollout turns, not a
+ * second authority after TurnSpecV3.
  */
 export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): MultiPeriodResolution {
   const t = norm(text);
   const empty: MultiPeriodResolution = {
-    version: "period_truth.v2", periods: [], comparison_intent: false, matched: [], source: "none",
+    version: "period_truth.v3", periods: [], comparison_intent: false, matched: [], source: "none",
   };
   if (!t) return empty;
+
+  // Explicit absolute range has priority over relative anchors contained in the
+  // same sentence ("semana passada do dia 21 ao dia 27").
+  const explicit = resolveExplicitPeriodPt(text, now);
+  if (explicit) {
+    return {
+      version: "period_truth.v3",
+      periods: [explicit],
+      comparison_intent: COMPARISON_RX.test(t),
+      matched: [explicit.matched],
+      source: "text",
+    };
+  }
 
   const hits: Array<{ matched: string; start: number; end: number; period: ResolvedPeriod }> = [];
   for (const match of t.matchAll(TOKEN_RX)) {
     const matched = match[0];
-    // "mesmo período do mês passado" é base de comparação, não item de lista.
     if (matched.startsWith("mesmo periodo")) continue;
     const period = resolvePeriodPt(matched, now);
     if (!period) continue;
@@ -92,20 +98,18 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
   }
 
   if (!hits.length) return empty;
-
   const comparison = COMPARISON_RX.test(t);
 
   if (hits.length === 1) {
     return {
-      version: "period_truth.v2",
+      version: "period_truth.v3",
       periods: [hits[0].period],
       comparison_intent: false,
       matched: [hits[0].matched],
-      source: "single",
+      source: "text",
     };
   }
 
-  // Enumeração só vale com conector curto entre expressões consecutivas.
   const chain: typeof hits = [hits[0]];
   for (let i = 1; i < hits.length; i += 1) {
     const between = t.slice(hits[i - 1].end, hits[i].start);
@@ -124,16 +128,16 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
 
   if (unique.length < 2) {
     return {
-      version: "period_truth.v2",
+      version: "period_truth.v3",
       periods: [unique[0]?.period ?? hits[0].period],
       comparison_intent: false,
       matched: [unique[0]?.matched ?? hits[0].matched],
-      source: "single",
+      source: "text",
     };
   }
 
   return {
-    version: "period_truth.v2",
+    version: "period_truth.v3",
     periods: unique.map((h) => h.period),
     comparison_intent: comparison,
     matched: unique.map((h) => h.matched),
@@ -142,8 +146,11 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
 }
 
 /**
- * Mesmo contrato, mas a partir das expressões que a autoridade conversacional
- * preservou ("julho", "agosto"). Sem expressão utilizável, cai para o texto.
+ * Resolve the period slots emitted by the semantic authority.
+ *
+ * CRITICAL INVARIANT: one authoritative expression is still authoritative.
+ * The old implementation ignored lists with length < 2 and reparsed `text`,
+ * which is how an exact 21–27 interval became the current month.
  */
 export function resolvePeriodExpressions(
   expressions: string[] | null | undefined,
@@ -151,24 +158,41 @@ export function resolvePeriodExpressions(
   now: Date = new Date(),
 ): MultiPeriodResolution {
   const list = (expressions ?? []).map((e) => String(e ?? "").trim()).filter(Boolean);
-  if (list.length < 2) return resolveMultiPeriodsPt(text, now);
+  if (!list.length) return resolveMultiPeriodsPt(text, now);
 
   const periods: ResolvedPeriod[] = [];
   const matched: string[] = [];
   const seen = new Set<string>();
+  const unresolved: string[] = [];
   for (const expression of list) {
-    const period = resolvePeriodPt(expression, now);
-    if (!period || seen.has(key(period))) continue;
+    const period = resolveExpression(expression, now);
+    if (!period) {
+      unresolved.push(expression);
+      continue;
+    }
+    if (seen.has(key(period))) continue;
     seen.add(key(period));
     periods.push(period);
     matched.push(expression);
   }
-  if (periods.length < 2) return resolveMultiPeriodsPt(text, now);
+
+  // An authoritative slot that cannot be grounded must never silently turn
+  // into a different raw-text/default period. The caller can fail closed.
+  if (unresolved.length) {
+    return {
+      version: "period_truth.v3",
+      periods: [],
+      comparison_intent: COMPARISON_RX.test(norm(text)),
+      matched: unresolved,
+      source: "unresolved_authoritative",
+    };
+  }
+
   return {
-    version: "period_truth.v2",
+    version: "period_truth.v3",
     periods,
     comparison_intent: COMPARISON_RX.test(norm(text)),
     matched,
-    source: "enumeration",
+    source: periods.length > 1 ? "enumeration" : "single",
   };
 }
