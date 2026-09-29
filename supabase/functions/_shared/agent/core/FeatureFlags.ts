@@ -47,7 +47,12 @@ export type FlagName =
   | "conversation_brain_shadow_v1"
   | "ai_provider_shadow_v1"
   | "runtime_v3_shadow"
-  | "runtime_v3_authority_v1";
+  | "runtime_v3_authority_v1"
+  | "conversational_composer_v1"
+  | "relationship_memory_v1"
+  | "compound_turns_v1"
+  | "advisor_reasoning_v1"
+  | "v3_first_authority_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -84,6 +89,11 @@ const DEFAULTS: Record<FlagName, boolean> = {
   ai_provider_shadow_v1: false,
   runtime_v3_shadow: false,
   runtime_v3_authority_v1: false,
+  conversational_composer_v1: false,
+  relationship_memory_v1: false,
+  compound_turns_v1: false,
+  advisor_reasoning_v1: false,
+  v3_first_authority_v1: false,
 };
 
 const ROLLOUT_FLAGS = new Set<FlagName>([
@@ -104,6 +114,11 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "ai_provider_shadow_v1",
   "runtime_v3_shadow",
   "runtime_v3_authority_v1",
+  "conversational_composer_v1",
+  "relationship_memory_v1",
+  "compound_turns_v1",
+  "advisor_reasoning_v1",
+  "v3_first_authority_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
