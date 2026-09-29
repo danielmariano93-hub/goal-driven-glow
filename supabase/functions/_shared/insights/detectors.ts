@@ -37,7 +37,7 @@ export interface DeterministicSignals {
   /** Categoria que mais cresceu contra o mês anterior. */
   categoryGrowth?: { name: string; current: number; previous: number; growthPct: number } | null;
   /** Gasto muito acima do ticket típico do usuário. */
-  amountAnomaly?: { description: string; amount: number; typicalAmount: number; occurredAt: string } | null;
+  amountAnomaly?: { description: string; amount: number; typicalAmount: number; occurredAt: string; category?: string } | null;
   /** Ritmo diário e projeção de fechamento do mês. */
   rhythm?: { dailyTypical: number; daysLeft: number; projectedExpense: number } | null;
   /** Comerciante repetido no período. */
@@ -48,6 +48,13 @@ export interface DeterministicSignals {
   daysWithoutEntry?: number;
   /** Lançamentos sem categoria. */
   uncategorizedCount?: number;
+  /**
+   * proactive_data_quality.v1 — a renda do mês está completa? Sem renda
+   * completa, comparações "gasto × entrada" viram falso alarme. Padrão: true.
+   */
+  incomeReliable?: boolean;
+  /** Consumo comportamental do mês anterior (base do alerta de ritmo). */
+  previousMonthExpense?: number;
 }
 
 
@@ -67,6 +74,7 @@ const brl = (n: number) =>
  */
 export function deterministicCandidates(s: DeterministicSignals): DeterministicCandidate[] {
   const out: DeterministicCandidate[] = [];
+  const incomeReliable = s.incomeReliable !== false;
 
   const due = [...s.statementsDueIn7d].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   if (due && due.amount > 0) {
@@ -82,7 +90,7 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     });
   }
 
-  if (s.cardDebtToday > 0 && s.incomeMonth > 0 && s.cardDebtToday > s.incomeMonth * 0.4) {
+  if (incomeReliable && s.cardDebtToday > 0 && s.incomeMonth > 0 && s.cardDebtToday > s.incomeMonth * 0.4) {
     out.push({
       detector: "card_debt_vs_income",
       type: "alert",
@@ -121,7 +129,7 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     });
   }
 
-  if (s.activeDebtTotal > 0 && s.incomeMonth > 0 && s.activeDebtTotal > s.incomeMonth) {
+  if (incomeReliable && s.activeDebtTotal > 0 && s.incomeMonth > 0 && s.activeDebtTotal > s.incomeMonth) {
     out.push({
       detector: "debt_above_income",
       type: "alert",
@@ -134,7 +142,7 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     });
   }
 
-  if (s.upcomingCommitments7d > 0 && s.incomeMonth > 0 && s.upcomingCommitments7d > s.incomeMonth * 0.3) {
+  if (incomeReliable && s.upcomingCommitments7d > 0 && s.incomeMonth > 0 && s.upcomingCommitments7d > s.incomeMonth * 0.3) {
     out.push({
       detector: "commitments_next_7d",
       type: "alert",
@@ -149,7 +157,7 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
 
   // ---------- novos detectores (insights_catalog.v1) ----------
 
-  if (s.expenseMonth > 0 && s.incomeMonth > 0 && s.expenseMonth > s.incomeMonth) {
+  if (incomeReliable && s.expenseMonth > 0 && s.incomeMonth > 0 && s.expenseMonth > s.incomeMonth) {
     out.push({
       detector: "financial_risk",
       type: "alert",
@@ -183,11 +191,13 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
       detector: "amount_anomaly",
       type: "alert",
       title: "Gasto fora do padrão",
-      body: `${anomaly.description || "Um lançamento"} de ${brl(anomaly.amount)} ficou muito acima do seu ticket típico de ${brl(anomaly.typicalAmount)}. Confirma se está certo?`,
+      body: anomaly.category
+        ? `${anomaly.description || "Um lançamento"} de ${brl(anomaly.amount)} ficou bem acima do que você costuma gastar em ${anomaly.category} (${brl(anomaly.typicalAmount)}). Confirma se está certo?`
+        : `${anomaly.description || "Um lançamento"} de ${brl(anomaly.amount)} ficou muito acima do seu ticket típico de ${brl(anomaly.typicalAmount)}. Confirma se está certo?`,
       cta_label: "Ver lançamento",
       cta_route: "/app/lancamentos",
       model: "deterministic",
-      evidence: { amount: anomaly.amount, typical_amount: anomaly.typicalAmount, occurred_at: anomaly.occurredAt, description: anomaly.description },
+      evidence: { amount: anomaly.amount, typical_amount: anomaly.typicalAmount, occurred_at: anomaly.occurredAt, description: anomaly.description, category: anomaly.category ?? null },
     });
   }
 
@@ -220,7 +230,9 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
   }
 
   const merchant = s.recurringMerchant;
-  if (merchant && merchant.occurrences >= 4 && merchant.total > 0) {
+  // Hábito só vira dica quando pesa no mês (piso de materialidade).
+  const merchantFloor = Math.max(50, Number(s.expenseMonth || 0) * 0.05);
+  if (merchant && merchant.occurrences >= 4 && merchant.total >= merchantFloor) {
     out.push({
       detector: "recurring_merchant",
       type: "habit",
@@ -233,17 +245,26 @@ export function deterministicCandidates(s: DeterministicSignals): DeterministicC
     });
   }
 
+  // Ritmo só é notícia quando o mês caminha para fechar acima do anterior
+  // (antes disparava todo dia, para qualquer gasto).
   const rhythm = s.rhythm;
-  if (rhythm && rhythm.dailyTypical > 0 && rhythm.daysLeft > 0 && rhythm.projectedExpense > 0) {
+  const previousExpense = Number(s.previousMonthExpense ?? 0);
+  if (
+    rhythm && rhythm.dailyTypical > 0 && rhythm.daysLeft > 0 && rhythm.projectedExpense > 0
+    && previousExpense > 0 && rhythm.projectedExpense > previousExpense * 1.1
+  ) {
     out.push({
       detector: "spending_rhythm",
       type: "habit",
-      title: "Seu ritmo atual merece atenção",
-      body: `Se nada mudar, o mês pode chegar perto de ${brl(rhythm.projectedExpense)} em gastos. Ainda dá tempo de ajustar os próximos dias.`,
+      title: "O mês caminha para fechar acima do anterior",
+      body: `No ritmo atual, os gastos do mês devem chegar perto de ${brl(rhythm.projectedExpense)}, contra ${brl(previousExpense)} no mês passado. Ainda dá tempo de ajustar os próximos dias.`,
       cta_label: "Ver ritmo",
       cta_route: "/app/relatorios",
       model: "deterministic",
-      evidence: { daily_typical: rhythm.dailyTypical, days_left: rhythm.daysLeft, projected_expense: rhythm.projectedExpense },
+      evidence: {
+        daily_typical: rhythm.dailyTypical, days_left: rhythm.daysLeft,
+        projected_expense: rhythm.projectedExpense, previous_month_expense: previousExpense,
+      },
     });
   }
 

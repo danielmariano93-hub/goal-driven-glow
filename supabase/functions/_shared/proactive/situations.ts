@@ -11,10 +11,9 @@ import type {
   SituationSeverity,
 } from "./contracts.ts";
 import { PROACTIVE_MULTIFINANCE_VERSION } from "./contracts.ts";
+import { brlPt, diagnosisCommunicationKind, diagnosisTopicOwnedElsewhere } from "./presentation.ts";
 
-function brl(value: number): string {
-  return `R$ ${Math.abs(value).toFixed(2).replace(".", ",")}`;
-}
+const brl = brlPt;
 
 function pick(signals: FinancialSignal[], key: string): FinancialSignal | undefined {
   return signals.find((signal) => signal.key === key);
@@ -139,7 +138,7 @@ export function composeFinancialSituations(
       type: "month_end_shortfall",
       communication_kind: "cash_flow_imbalance",
       severity: "attention",
-      title: `O mês deve fechar ${brl(monthEnd.amount)} no vermelho`,
+      title: `O mês deve fechar ${brl(monthEnd.amount)} negativo`,
       body: `Considerando entradas previstas e compromissos conhecidos, a projeção de fechamento é ${brl(monthEnd.amount)} negativa.${pace ? ` O ritmo atual está acima do típico.` : ""}`,
       primary_domain: "cash",
       signals: group,
@@ -244,10 +243,12 @@ export function composeFinancialSituations(
     if (used.has(signal.key) || !signal.key.startsWith("diagnosis:")) continue;
     used.add(signal.key);
     const kind = String((signal.evidence as any)?.kind ?? "pattern");
+    const topicKey = String((signal.evidence as any)?.logical_topic_key ?? "");
+    if (diagnosisTopicOwnedElsewhere(topicKey, { debtObligationsAvailable: ctx.domains.debt_obligations_available })) continue;
     out.push(situation({
       ctx,
       type: kind === "achievement" ? "achievement" : "behavioral_pattern",
-      communication_kind: kind === "achievement" ? "goal_progress" : "emotional_spending",
+      communication_kind: diagnosisCommunicationKind(kind, topicKey),
       severity: kind === "achievement" ? "info" : "attention",
       title: signal.label,
       body: String((signal.evidence as any)?.summary ?? signal.label),

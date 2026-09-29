@@ -4,6 +4,7 @@
 // urgência real, confiança suficiente e ação executável.
 import { insightValue, materialityFloor } from "../intelligence/insightValue.ts";
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
+import { repeatedKind, type RecentDelivery } from "./repetition.ts";
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -47,9 +48,13 @@ export function scoreSituations(
         actions: learning.actions,
         falsePositives: learning.false_positives,
       });
-      const boost = crossDomainBoost(situation);
-      const reasons = [...value.reasons];
-      if (boost > 0) reasons.push(`cross_domain:${boost}`);
+      const crossBoost = crossDomainBoost(situation);
+      // proactive_user_model.v1 — situação que toca meta/plano da pessoa.
+      const relevanceBoost = Math.max(0, Number((situation.evidence as any)?.relevance_boost ?? 0));
+      const boost = crossBoost + relevanceBoost;
+      const reasons = [...situation.score_reasons.filter((r) => r.startsWith("data_quality:")), ...value.reasons];
+      if (crossBoost > 0) reasons.push(`cross_domain:${crossBoost}`);
+      if (relevanceBoost > 0) reasons.push(`user_relevance:${relevanceBoost}`);
       if (value.muted) reasons.push("muted_by_learning");
 
       // Preferência aprendida ordena o que é OPCIONAL (± 25%). Situação
@@ -105,6 +110,9 @@ export type BudgetInput = {
   budget?: AttentionBudget;
   /** Fingerprints já comunicados sem mudança material desde então. */
   alreadyDelivered?: Set<string>;
+  /** Entregas recentes por tipo/canal (janela anti-repetição por assunto). */
+  recentDeliveries?: RecentDelivery[];
+  now?: Date;
   minConfidence?: number;
 };
 
@@ -138,6 +146,11 @@ export function allocateAttention(input: BudgetInput): {
       } as ProactiveDecision & Record<string, unknown>;
       if (input.alreadyDelivered?.has(situation.fingerprint)) {
         decisions.push({ ...base, decision: "suppress", reason: "already_communicated_no_material_change" });
+        continue;
+      }
+      const repeat = repeatedKind(situation, channel, input.recentDeliveries ?? [], input.now ?? new Date());
+      if (repeat) {
+        decisions.push({ ...base, decision: "suppress", reason: repeat });
         continue;
       }
       if (situation.score_reasons.includes("muted_by_learning")) {

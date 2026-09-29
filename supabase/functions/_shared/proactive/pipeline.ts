@@ -16,7 +16,7 @@ import {
   persistNextActionRecommendation,
 } from "../agent/changeLoop.ts";
 import { resolveBehavioralIntervention } from "../agent/behavioralPrinciples.ts";
-import { composeChangeMessage } from "../agent/changeMessage.ts";
+import { composeChangeMessage, REMIND_CLOSING } from "../agent/changeMessage.ts";
 import {
   attachTimingSignal,
   buildTimingContext,
@@ -30,6 +30,10 @@ import {
 } from "./behavioralTimingRuntime.ts";
 
 
+import { presentSituation } from "./presentation.ts";
+import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
+import { applyUserModel } from "./userModel.ts";
+import { loadDataQuality, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -39,6 +43,8 @@ import {
 } from "./contracts.ts";
 
 export type MultiFinanceRunResult = {
+  /** Presente só em simulação (persist=false). */
+  preview?: Record<string, unknown>;
   version: string;
   user_id: string;
   as_of: string;
@@ -259,7 +265,35 @@ export async function runMultiFinanceProactive(
   situations.push(...timingBuild.situations);
   // Timing também é sinal de ordem para os detectores que já existiam — nunca
   // bloqueio: quem já falava continua podendo falar.
-  const timedSituations = attachTimingSignal(situations, timingCtx, windows);
+  // ---- Fase 0/1: apresentação, qualidade do dado e modelo do usuário -------
+  // Texto padronizado (moeda pt-BR, sem metodologia), situações que dependem
+  // de dado incompleto perdem confiança (e viram um pedido de dado), e o que
+  // toca meta/plano da pessoa ganha relevância com a conta feita aqui.
+  const cash = (ctx.domains.cash ?? {}) as Record<string, unknown>;
+  const [dataQuality, userModel, recentDeliveries] = await Promise.all([
+    loadDataQuality(sb, userId, {
+      today: ctx.as_of,
+      current_month_income: Number(cash.current_month_income ?? 0),
+      expected_income_rest_of_month: Number(cash.expected_income_rest_of_month ?? 0),
+    }).catch(() => null),
+    loadUserModel(sb, userId, ctx.as_of).catch(() => null),
+    // Leitura apenas: a simulação (persist=false) também respeita a janela.
+    loadRecentDeliveries(sb, userId).catch(() => []),
+  ]);
+  // "Retomar de onde combinamos" só é verdade quando existe um combinado.
+  const withoutUnfoundedRemind = (situation: FinancialSituation): FinancialSituation =>
+    timingState.commitment_pending || !situation.body.includes(REMIND_CLOSING)
+      ? situation
+      : { ...situation, body: situation.body.replace(REMIND_CLOSING, "").trim() };
+  let refined = situations.map(withoutUnfoundedRemind).map(presentSituation);
+  if (dataQuality) {
+    refined = applyDataQuality(refined, dataQuality);
+    const request = incomeDataRequest(dataQuality, refined, ctx.as_of);
+    if (request) refined.push(request);
+  }
+  if (userModel) refined = applyUserModel(refined, userModel);
+
+  const timedSituations = attachTimingSignal(refined, timingCtx, windows);
 
   const alreadyDelivered = persist
     ? await loadAlreadyDelivered(sb, userId, opts.repeatWindowDays ?? 5)
@@ -271,6 +305,7 @@ export async function runMultiFinanceProactive(
     channels,
     budget: opts.budget ?? DEFAULT_ATTENTION_BUDGET,
     alreadyDelivered,
+    recentDeliveries,
   });
 
   const suppressionReasons: Record<string, number> = {};
@@ -319,6 +354,28 @@ export async function runMultiFinanceProactive(
       impact: situation.impact_amount,
       domains: situation.domains,
     })),
+    // Simulação (persist=false): o que seria dito e por quê, para avaliação.
+    ...(persist ? {} : {
+      preview: {
+        data_quality: dataQuality,
+        user_model: userModel
+          ? { focus_goal: userModel.focus_goal?.name ?? null, goals: userModel.goals.length, notes: userModel.life_notes.length }
+          : null,
+        situations: ranked.map((situation) => ({
+          fingerprint: situation.fingerprint,
+          kind: situation.communication_kind,
+          severity: situation.severity,
+          title: situation.title,
+          body: situation.body,
+          confidence: situation.confidence,
+          score: situation.priority_score,
+          reasons: situation.score_reasons,
+          decisions: decisions
+            .filter((decision) => decision.fingerprint === situation.fingerprint)
+            .map((decision) => `${decision.channel}:${decision.decision}:${decision.reason}`),
+        })),
+      },
+    }),
   };
 }
 

@@ -12,7 +12,6 @@ import { fail, respond } from "../_shared/http.ts";
 const FN = "insights-generate";
 import {
   InsightSchema,
-  parseInsightResponse,
   type InsightFacts,
 } from "../_shared/insights/fallbacks.ts";
 import { computeBehavioralSignals } from "../_shared/insights/facts.ts";
@@ -36,9 +35,7 @@ import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { insightLogicalKey } from "../_shared/intelligence/logicalDedup.ts";
-import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
-import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
-import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
+import { assessDataQuality } from "../_shared/proactive/dataQuality.ts";
 
 
 
@@ -48,11 +45,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CRON_SECRET = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
 
-const PROMPT_VERSION = "v7-catalog-only";
+const PROMPT_VERSION = "v8-catalog-deterministic";
 const ACCOUNTING_SCOPE = "behavioral_v1";
-// Insights exigem raciocínio e síntese; extração continua no modelo rápido.
-// O modelo é configurável para permitir troca controlada e rollback sem deploy.
-const MODEL = Deno.env.get("AI_MODEL_REASONING") ?? "openai/gpt-5.6-sol";
 /** Quantas dicas o lote entrega por vez (carrossel do app). */
 const BATCH_SIZE = 5;
 
@@ -169,10 +163,14 @@ async function activeUserIds(supa: SupabaseClient, only: string | null): Promise
 }
 
 async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Promise<RunResult> {
-  const aiBlocked = await getAiBlock(supa);
-  const aiProvider = resolveAiProvider();
-  const aiModel = aiProvider ? normalizeAiModel(MODEL, aiProvider) : MODEL;
   const nowIso = new Date().toISOString();
+
+  // Dica vencida não é dica ativa: fecha o ciclo para não inflar o histórico.
+  await supa.from("user_insights")
+    .update({ status: "expired" })
+    .eq("user_id", uid)
+    .eq("status", "active")
+    .lt("expires_at", nowIso);
 
   // Dicas ativas (cache e controle de janela mínima).
   const { data: activeRows } = await supa
@@ -392,11 +390,6 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     const d = new Date(now0.getFullYear(), now0.getMonth() - 1, 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   })();
-  const monthExpenses = allTx.filter((t) =>
-    (t as unknown as { type?: string }).type === "expense" &&
-    String((t as unknown as { occurred_at?: string }).occurred_at ?? "").slice(0, 7) === ym
-  ) as Array<Record<string, unknown>>;
-
   let categoryGrowth: { name: string; current: number; previous: number; growthPct: number } | null = null;
   if (signals.category_growth) {
     const target = signals.category_growth.name;
@@ -420,19 +413,47 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     }
   }
 
-  let amountAnomaly: { description: string; amount: number; typicalAmount: number; occurredAt: string } | null = null;
-  if (monthExpenses.length >= 5) {
-    const values = monthExpenses.map((r) => Math.abs(Number(r.amount ?? 0))).sort((a, b) => a - b);
-    const median = values[Math.floor(values.length / 2)] ?? 0;
-    const top = monthExpenses.reduce((best, r) =>
-      Math.abs(Number(r.amount ?? 0)) > Math.abs(Number(best.amount ?? 0)) ? r : best, monthExpenses[0]);
-    const topAmount = Number(Math.abs(Number(top.amount ?? 0)).toFixed(2));
-    if (median > 0 && topAmount >= median * 3) {
+  // Anomalia de valor: compara cada gasto RECENTE com o típico da PRÓPRIA
+  // categoria (nunca com o ticket geral), ignora contas fixas (categoria com
+  // recorrência ativa ou valor parecido no mês anterior) e exige materialidade.
+  // Antes, "aluguel de R$ 1.200 acima do seu ticket típico de R$ 120" era alarme.
+  let amountAnomaly: { description: string; amount: number; typicalAmount: number; occurredAt: string; category?: string } | null = null;
+  {
+    type Row = { id?: string; type?: string; amount?: number | string; category_id?: string | null; occurred_at?: string; description?: string | null };
+    const expenses = (allTx as unknown as Row[]).filter((t) => t.type === "expense" && Number(t.amount ?? 0) !== 0);
+    const recurringCategories = new Set(
+      ((recurringRules ?? []) as Array<{ category_id?: string | null; kind?: string }>)
+        .filter((rule) => rule.kind !== "income" && rule.category_id)
+        .map((rule) => String(rule.category_id)),
+    );
+    const recentCutoff = shift(todayIsoSP, -7);
+    const floor = Math.max(50, behavioral.income > 0 ? behavioral.income * 0.02 : 0);
+    let best: { row: Row; typical: number; ratio: number } | null = null;
+    for (const row of expenses) {
+      const occurred = String(row.occurred_at ?? "");
+      const categoryId = String(row.category_id ?? "");
+      if (occurred < recentCutoff || !categoryId || recurringCategories.has(categoryId)) continue;
+      const amount = Math.abs(Number(row.amount ?? 0));
+      if (amount < floor) continue;
+      const peers = expenses.filter((t) => t !== row && String(t.category_id ?? "") === categoryId);
+      if (peers.length < 3) continue;
+      const fixedBill = peers.some((t) =>
+        String(t.occurred_at ?? "").slice(0, 7) === prevYm
+        && Math.abs(Math.abs(Number(t.amount ?? 0)) - amount) <= amount * 0.15);
+      if (fixedBill) continue;
+      const values = peers.map((t) => Math.abs(Number(t.amount ?? 0))).sort((a, b) => a - b);
+      const typical = values[Math.floor(values.length / 2)] ?? 0;
+      if (typical <= 0) continue;
+      const ratio = amount / typical;
+      if (ratio >= 3 && (!best || ratio > best.ratio)) best = { row, typical, ratio };
+    }
+    if (best) {
       amountAnomaly = {
-        description: String(top.description ?? "Um lançamento"),
-        amount: topAmount,
-        typicalAmount: Number(median.toFixed(2)),
-        occurredAt: String(top.occurred_at ?? todayIsoSP),
+        description: String(best.row.description ?? "Um lançamento"),
+        amount: Number(Math.abs(Number(best.row.amount ?? 0)).toFixed(2)),
+        typicalAmount: Number(best.typical.toFixed(2)),
+        occurredAt: String(best.row.occurred_at ?? todayIsoSP),
+        category: catNames.get(String(best.row.category_id ?? "")) ?? undefined,
       };
     }
   }
@@ -463,6 +484,19 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     }
     : null;
 
+  // proactive_data_quality.v1 — sem renda completa, "gasto × entrada" é falso alarme.
+  const previousTotals = computeMonthlyTotals((prevMonthTx ?? []) as unknown as TransactionRow[], prevYm);
+  const dataQuality = assessDataQuality({
+    today: todayIsoSP,
+    current_month_income: behavioral.income,
+    expected_income_rest_of_month: (canonicalSnapshot.estimated_income_events ?? [])
+      .filter((event) => String(event.date) > todayIsoSP && String(event.date) <= monthEnd)
+      .reduce((sum, event) => sum + Number(event.amount ?? 0), 0),
+    previous_months_income: [previousTotals.income],
+    first_entry_date: null,
+    last_entry_date: null,
+  });
+
   const availableToday = Number(canonicalSnapshot.available_today.toFixed(2));
   const projectedBalance = Number(canonicalSnapshot.projected_month_end_available.toFixed(2));
 
@@ -477,6 +511,7 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     available_today: availableToday,
     projected_balance: projectedBalance,
     commitments_next_30d: Number(commitments30d.totalExpense ?? 0),
+    data_quality: dataQuality,
   };
 
   const deterministic = deterministicCandidates({
@@ -504,6 +539,8 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     subscriptions,
     daysWithoutEntry: signals.days_without_entry,
     uncategorizedCount: categorizable.length,
+    incomeReliable: dataQuality.income_reliable,
+    previousMonthExpense: previousTotals.expense,
   });
 
   // ------- seleção pela política única (motor único, sem pool genérico) -------
@@ -529,85 +566,11 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
     if (!chosen) break;
     remaining = remaining.filter((c) => dedupKeyForTip(c) !== chosen.dedup_key);
 
+    // Texto 100% determinístico do catálogo. A reescrita por IA foi removida:
+    // não passava pela mesma guarda do chat e introduzia prazos inventados
+    // ("em até 10 minutos") e redação confusa. A voz fica com o compositor.
     let payload = { ...chosen.candidate };
-    let fallbackReason: string | null = null;
-    // A IA só reescreve a dica principal do lote (custo e latência controlados).
-    const allowAi = !!aiProvider && !aiBlocked && chosen.family !== "categorizacao" && slot === 0;
-
-    if (allowAi) {
-      const system = `Você é o assistente do MeuNino. Reescreva UMA dica curta em português brasileiro, mantendo EXATAMENTE o mesmo assunto da dica base. Regras rígidas:
-- Métricas em income_month/expense_month/balance_month são COMPORTAMENTAIS: já excluem transferências internas, aplicações/resgates/rendimentos, pagamento de fatura e crédito de empréstimo. Se balance_month >= 0, não é déficit.
-- VOCABULÁRIO PROIBIDO: "fechou negativo", "fechou no negativo", "déficit", "no vermelho", "saldo negativo do mês". Quando os gastos superam as receitas, escreva "você gastou R$ X acima do que recebeu" (valor absoluto). Quando sobra, escreva "sobraram R$ X".
-- Patrimônio líquido JÁ desconta fatura de cartão em aberto e outras dívidas. Nunca diga que ele ignora dívidas.
-- Não mude o assunto nem o cta_route da dica base. Transforme o fato em uma leitura específica e uma ação realizável em até 10 minutos.
-- Evite frases genéricas como "acompanhe seus gastos", "continue assim" e "reveja seu orçamento". Cite a evidência mais relevante e diga por que ela importa agora.
-- Nunca invente valores fora dos fatos.
-- title: 4 a 80 caracteres. body: 10 a 240 caracteres. cta_label: 2 a 40 caracteres.
-- type deve ser "${payload.type}".
-- Tom caloroso, direto, aliado. Sem julgamento, sem promessa de retorno e sem conselho de investimento regulado.
-Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
-      const userMsg = `Dica base: ${JSON.stringify(payload)}. Fatos: ${JSON.stringify(facts)}.`;
-
-      const aiStarted = Date.now();
-      try {
-        const resp = await fetch(aiEndpoint(aiProvider!, "chat/completions"), {
-          method: "POST",
-          headers: aiJsonHeaders(aiProvider!),
-          body: JSON.stringify({
-            model: aiModel,
-            // Redação curta não precisa de raciocínio: sem isso a chamada roda
-            // por minutos, é cancelada pela plataforma e ainda é cobrada.
-            reasoning_effort: aiProvider?.provider === "groq" && aiModel.includes("gpt-oss") ? "low" : "none",
-            messages: [{ role: "system", content: system }, { role: "user", content: userMsg }],
-            response_format: { type: "json_object" },
-          }),
-        });
-        if (!resp.ok) {
-          const raw = await resp.text().catch(() => "");
-          if (resp.status === 402 || resp.status === 403) await pauseAiCircuit(supa, resp.status, raw);
-          fallbackReason = `ai_status_${resp.status}`;
-          await recordGatewayCall(supa, {
-            workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-            user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: false,
-            http_status: resp.status, error_code: `gateway_${resp.status}`,
-            latency_ms: Date.now() - aiStarted, reason_for_ai_call: "insight_copy_rewrite",
-          }, null);
-        } else {
-          const j = await resp.json();
-          await recordGatewayCall(supa, {
-            workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-            user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: true,
-            http_status: 200, latency_ms: Date.now() - aiStarted,
-            reason_for_ai_call: "insight_copy_rewrite",
-          }, j);
-          const content = j?.choices?.[0]?.message?.content;
-          const parsed = typeof content === "string" ? safeJson(content) : content;
-          const validated = parseInsightResponse(parsed);
-          if (!validated) {
-            fallbackReason = "ai_invalid_schema";
-          } else {
-            payload = {
-              ...payload,
-              title: validated.title,
-              body: validated.body,
-              cta_label: validated.cta_label ?? payload.cta_label,
-              model: aiModel,
-            };
-          }
-        }
-      } catch (_e) {
-        fallbackReason = "ai_error";
-        await recordGatewayCall(supa, {
-          workload: "INSIGHTS", function_name: "insights-generate", operation: "rewrite_tip",
-          user_id: uid, model: aiModel, provider: aiProvider!.provider, operation_type: "chat", success: false,
-          error_code: "network_error", latency_ms: Date.now() - aiStarted,
-          reason_for_ai_call: "insight_copy_rewrite",
-        }, null);
-      }
-
-    } else {
-      fallbackReason = aiProvider ? "deterministic_only" : "no_api_provider";
-    }
+    let fallbackReason: string | null = "deterministic_only";
 
     const finalCheck = InsightSchema.safeParse(payload);
     if (!finalCheck.success) {
@@ -684,6 +647,3 @@ Responda SOMENTE em JSON com chaves type, title, body, cta_label, cta_route.`;
   };
 }
 
-function safeJson(s: string): unknown {
-  try { return JSON.parse(s); } catch { return null; }
-}

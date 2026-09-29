@@ -44,6 +44,8 @@ export type TipPolicyConfig = {
   familyCooldownHours: number;
   /** intervalo mínimo entre duas dicas quaisquer geradas. */
   minGapMinutes: number;
+  /** a MESMA dica (dedup_key) não volta antes de N horas, mesmo sem feedback. */
+  repeatCooldownHours: number;
 };
 
 export const DEFAULT_TIP_POLICY: TipPolicyConfig = {
@@ -51,6 +53,7 @@ export const DEFAULT_TIP_POLICY: TipPolicyConfig = {
   notUsefulCooldownDays: 30,
   familyCooldownHours: 72,
   minGapMinutes: 30,
+  repeatCooldownHours: 72,
 };
 
 const HOUR = 3_600_000;
@@ -131,6 +134,7 @@ export function evaluateTips(
   const notUsefulUntil = new Map<string, number>();
   const familyLast = new Map<string, number>();
   const resolvedKeys = new Set<string>();
+  const lastShown = new Map<string, number>();
 
   for (const row of ledger) {
     const at = ms(row.created_at);
@@ -142,6 +146,7 @@ export function evaluateTips(
       dismissedUntil.set(key, Math.max(dismissedUntil.get(key) ?? 0, at + cfg.dismissCooldownDays * DAY));
     }
     if (key && row.status === "resolved") resolvedKeys.add(key);
+    if (key) lastShown.set(key, Math.max(lastShown.get(key) ?? 0, at));
     const fam = row.family ?? "geral";
     familyLast.set(fam, Math.max(familyLast.get(fam) ?? 0, at));
   }
@@ -162,6 +167,9 @@ export function evaluateTips(
     } else if ((notUsefulUntil.get(candidate.type) ?? 0) > now) {
       eligible = false;
       reason = "not_useful_cooldown";
+    } else if (now - (lastShown.get(dedup_key) ?? 0) < cfg.repeatCooldownHours * HOUR) {
+      eligible = false;
+      reason = "repeat_cooldown";
     } else {
       const last = familyLast.get(family) ?? 0;
       const elapsed = now - last;
