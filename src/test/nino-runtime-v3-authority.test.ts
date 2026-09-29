@@ -48,7 +48,7 @@ describe("Nino Runtime V3 production authority", () => {
     expect(entry).toContain("const shadowEnabled = !authorityEnabled");
   });
 
-  it("bridges canonical historical monthly semantics into the mature financial runtime", () => {
+  it("bridges historical monthly semantics with provenance plus canonical execution scope", () => {
     const turn = baseTask({
       kind: "financial_query",
       family: "financial.query",
@@ -66,7 +66,11 @@ describe("Nino Runtime V3 production authority", () => {
     expect(result.contract).toMatchObject({
       mode: "read",
       domain: "financial_read",
-      focus: { category: "Lazer", period_expression: "2026-04-28..2026-09-28" },
+      focus: {
+        category: "Lazer",
+        period_expression: "últimos 5 meses",
+        period_expressions: ["2026-04-28..2026-09-28"],
+      },
       financial_read: { queries: [{ metric: "expense_amount", operation: "trend", group_by: ["month"] }] },
     });
   });
