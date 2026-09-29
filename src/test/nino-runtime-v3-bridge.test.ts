@@ -29,14 +29,18 @@ function financialTurn(): TurnSpecV3 {
 }
 
 describe("Nino Runtime V3 -> existing runtime bridge", () => {
-  it("preserves explicit category and grounds period once before execution", () => {
+  it("preserves temporal provenance while grounding one canonical execution scope", () => {
     const result = bridgeTurnSpecV3ToRuntime(financialTurn(), NOW);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.contract).toMatchObject({
       mode: "read",
       domain: "financial_read",
-      focus: { category: "Lazer", period_expression: "2026-09-01..2026-09-28" },
+      focus: {
+        category: "Lazer",
+        period_expression: "esse mês",
+        period_expressions: ["2026-09-01..2026-09-28"],
+      },
       financial_read: {
         queries: [{
           metric: "expense_amount",
