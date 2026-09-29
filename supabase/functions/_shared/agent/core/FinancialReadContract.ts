@@ -20,8 +20,10 @@ export type FinancialReadContractV4 = {
   domain: "financial_read";
   semantic_request: FinancialReadSemanticRequest | null;
   requested: FinancialQueryIRv3;
-  /** Exact canonical windows that came from the authoritative V3 turn. */
-  semantic_periods: ContractPeriodWindow[];
+  /** Exact canonical windows that came from the authoritative V3 turn.
+   * Optional on the wire so contracts persisted before this additive proof
+   * remain valid during rollout. New contracts always populate the field. */
+  semantic_periods?: ContractPeriodWindow[];
   slots: {
     intent: ResolutionState;
     reference: ResolutionState;
@@ -101,7 +103,7 @@ export function buildFinancialReadContract(args: {
 }
 
 function normalizedFilterKey(field: string, value: string): string {
-  return `${field}=${value.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").trim()}`;
+  return `${field}=${value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()}`;
 }
 
 function semanticShapeOfExpected(query: FinancialReadSemanticRequest["queries"][number]): string {
@@ -159,11 +161,13 @@ function financialIRWindows(ir: FinancialQueryIRv3): Set<string> {
 /**
  * Every exact window emitted by V3 must still exist in the compiled IR.
  * Additional IR windows are allowed only for deterministic derived baselines.
+ * Persisted v4 contracts created before semantic_periods existed remain valid.
  */
 function semanticPeriodsMatchIR(contract: FinancialReadContractV4): boolean {
-  if (!contract.semantic_periods.length) return true;
+  const semanticPeriods = contract.semantic_periods ?? [];
+  if (!semanticPeriods.length) return true;
   const irWindows = financialIRWindows(contract.requested);
-  return contract.semantic_periods.every((p) => irWindows.has(`${p.from}..${p.to}`));
+  return semanticPeriods.every((p) => irWindows.has(`${p.from}..${p.to}`));
 }
 
 export function validateFinancialReadContract(contract: FinancialReadContractV4 | null): string[] {
