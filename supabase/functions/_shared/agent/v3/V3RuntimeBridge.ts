@@ -224,6 +224,25 @@ function advisoryParamsOf(task: SemanticTaskV3): Record<string, unknown> | null 
   return Object.keys(params).length ? params : null;
 }
 
+/**
+ * The dialogue act is the semantic signal; `inherit_topic` is a redundant flag
+ * models sometimes leave inconsistent (e.g. follow_up + false). Deriving it
+ * from the act keeps a coherent reading executable instead of rejecting it.
+ */
+function coherentInheritFocus(turn: TurnSpecV3): boolean {
+  const act = String(turn.act);
+  if (act === "follow_up" || act === "answer" || act === "repair") return true;
+  if (act === "topic_switch") return false;
+  return Boolean(turn.inherit_topic);
+}
+
+/**
+ * Data-free body for a conversation turn whose model-written reply asserted a
+ * personal financial fact without evidence. The composer writes the voice from
+ * history; this is only delivered if composition is unavailable.
+ */
+export const V3_DATA_FREE_CONVERSATION_REPLY = "Tô por aqui com você. Se quiser, é só me pedir para olhar algum número.";
+
 export function bridgeTurnSpecV3ToRuntime(
   turn: TurnSpecV3,
   now: Date = new Date(),
@@ -241,22 +260,25 @@ export function bridgeTurnSpecV3ToRuntime(
   const reference = runtimeReference(turn);
 
   if (turn.kind === "conversation") {
-    const contract = normalizeConversationTurnContract({
+    const conversationContract = (directReply: string) => normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
       mode: "converse",
       domain: "conversation",
       canonical_request: turn.canonical_request || null,
-      inherit_focus: turn.inherit_topic,
+      inherit_focus: coherentInheritFocus(turn),
       focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
       action: null,
-      direct_reply: turn.direct_reply,
+      direct_reply: directReply,
       clarification_question: null,
       resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: "not_applicable", entity: "not_applicable", action: "not_applicable" },
       reference,
       financial_read: null,
       advisory_kind: null,
     });
+    // A reply that asserts an unevidenced personal number is dropped, not the
+    // conversation: the turn stays conversational with a data-free body.
+    const contract = conversationContract(turn.direct_reply) ?? conversationContract(V3_DATA_FREE_CONVERSATION_REPLY);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["conversation_bridge_rejected"] };
   }
 
@@ -267,7 +289,7 @@ export function bridgeTurnSpecV3ToRuntime(
       mode: "clarify",
       domain: "conversation",
       canonical_request: turn.canonical_request || null,
-      inherit_focus: turn.inherit_topic,
+      inherit_focus: coherentInheritFocus(turn),
       focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
       action: null,
       direct_reply: null,
@@ -306,7 +328,7 @@ export function bridgeTurnSpecV3ToRuntime(
       mode: "write",
       domain: "financial_write",
       canonical_request: turn.canonical_request,
-      inherit_focus: turn.inherit_topic,
+      inherit_focus: coherentInheritFocus(turn),
       focus: temporalFocus,
       action: { action: task.action, slots: task.slots },
       direct_reply: null,
@@ -333,7 +355,7 @@ export function bridgeTurnSpecV3ToRuntime(
       mode: "read",
       domain: "advisory",
       canonical_request: turn.canonical_request,
-      inherit_focus: turn.inherit_topic,
+      inherit_focus: coherentInheritFocus(turn),
       focus: temporalFocus,
       action: null,
       direct_reply: null,
@@ -365,7 +387,7 @@ export function bridgeTurnSpecV3ToRuntime(
       mode: "read",
       domain: "financial_read",
       canonical_request: turn.canonical_request,
-      inherit_focus: turn.inherit_topic,
+      inherit_focus: coherentInheritFocus(turn),
       focus: temporalFocus,
       action: null,
       direct_reply: null,
@@ -399,7 +421,7 @@ function goalProjectionContract(
     mode: "read",
     domain: "advisory",
     canonical_request: turn.canonical_request,
-    inherit_focus: turn.inherit_topic,
+    inherit_focus: coherentInheritFocus(turn),
     focus: { category: null, merchant: null, goal, period_expression: null, period_expressions: [] },
     action: null,
     direct_reply: null,

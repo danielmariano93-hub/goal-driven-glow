@@ -530,3 +530,23 @@ describe("semantic review compares meaning, not wording", () => {
     expect(compareSemanticSignaturesV3(chat("new_request"), chat("conversational")).semantic_match).toBe(true);
   });
 });
+
+describe("bridge tolerates redundant-flag inconsistencies", () => {
+  it("derives inherit_focus from the act instead of rejecting a follow-up", () => {
+    const followUp = { ...task([lazerQuery]), act: "follow_up", inherit_topic: false } as TurnSpecV3;
+    const bridged = bridgeTurnSpecV3ToRuntime(followUp, NOW);
+    expect(bridged.ok).toBe(true);
+    if (bridged.ok) expect(bridged.contract.inherit_focus).toBe(true);
+  });
+
+  it("keeps a thanks conversational when the model reply asserts an unevidenced number", () => {
+    const thanks = {
+      version: "nino_turn_spec.v3", kind: "conversation", response_intent: "conversation",
+      act: "conversational", canonical_request: "agradecimento", inherit_topic: false, references: [],
+      direct_reply: "Que bom! Seu gasto com lazer foi R$ 450,00 este mês.",
+    } as TurnSpecV3;
+    const bridged = bridgeTurnSpecV3ToRuntime(thanks, NOW);
+    expect(bridged.ok).toBe(true);
+    if (bridged.ok) expect(bridged.contract.direct_reply).not.toMatch(/R\$/);
+  });
+});
