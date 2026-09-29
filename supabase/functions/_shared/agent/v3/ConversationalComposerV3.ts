@@ -91,14 +91,16 @@ export function composerModel(explicit?: string | null): string {
 
 /**
  * Voice quality first, availability second: the primary composer model, then
- * the fast tier. Rate limits are per model, so a 429 on the primary (shared
+ * an independent model family. Rate limits are per model, so a 429 on the primary (shared
  * with deep semantic review) moves to a different quota instead of dropping
  * straight to the deterministic body.
  */
 export function composerModelChain(explicit?: string | null): string[] {
   const chain = [
     composerModel(explicit),
-    String(envValue("NINO_COMPOSER_FALLBACK_MODEL") ?? envValue("NINO_AI_FAST_MODEL") ?? "openai/gpt-oss-20b").trim(),
+    // Different model family with its own quota and 10/10 strict-schema
+    // reliability in the 2026-09-29 benchmark (gpt-oss-20b: 6/10).
+    String(envValue("NINO_COMPOSER_FALLBACK_MODEL") ?? envValue("NINO_SEMANTIC_REVIEW_MODEL") ?? "qwen/qwen3.8-27b").trim(),
   ].filter(Boolean);
   return [...new Set(chain)];
 }
@@ -154,6 +156,7 @@ export function buildComposerPrompt(input: ComposeInput): { system: string; user
     "REGRAS INVIOLÁVEIS:",
     "- Cite SOMENTE números, valores, percentuais e datas que aparecem em FATOS ou na mensagem do usuário. Não calcule, não some, não estime, não arredonde para valores diferentes (pode escrever R$ 1,2 mil para R$ 1.234,00).",
     "- Se FATOS trazem uma resposta numérica, ela tem que aparecer na sua resposta.",
+    "- Nunca faça contas (somar, subtrair, dividir, porcentagem). Se quiser falar de uma sobra, diferença ou total, use só as contas que já vêm prontas em FATOS; se não houver, fale de forma qualitativa, sem número.",
     "- Não invente fatos pessoais, taxas de juros, rendimentos de mercado ou datas.",
     "- Nunca julgue moralmente o usuário, nunca dê bronca, nunca use tom de cobrança.",
     "- Nunca mencione modelo, IA, sistema, ferramenta, motor, banco de dados ou qualquer detalhe interno.",

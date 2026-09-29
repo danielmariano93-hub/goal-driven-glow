@@ -11,10 +11,11 @@ describe("Nino provider smoke — model authority", () => {
     expect(core).toContain('const BRAIN_MODEL = "openai/gpt-oss-120b"');
     expect(authority).toContain("interpretWithSingleSemanticAuthorityV3");
     expect(authority).not.toContain("v3-circuit-breaker:");
-    expect(semanticAuthority).toContain('envValue("NINO_AI_FAST_MODEL")');
+    expect(semanticAuthority).toContain('envValue("NINO_SEMANTIC_PRIMARY_MODEL")');
     expect(semanticAuthority).toContain('envValue("NINO_AI_MODEL")');
-    expect(semanticAuthority).toContain('"openai/gpt-oss-20b"');
+    expect(semanticAuthority).toContain('envValue("NINO_SEMANTIC_REVIEW_MODEL")');
     expect(semanticAuthority).toContain('"openai/gpt-oss-120b"');
+    expect(semanticAuthority).toContain('"qwen/qwen3.8-27b"');
     expect(smoke).toContain('const model = Deno.env.get("NINO_AI_MODEL")');
     expect(smoke).toContain("v3_semantic_authority: model");
 

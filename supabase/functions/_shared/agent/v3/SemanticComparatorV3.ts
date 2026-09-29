@@ -158,7 +158,9 @@ export function semanticSignatureV3(turn: TurnSpecV3): SemanticSignatureV3 {
     task_families: tasks.map((task) => task.family).sort(),
     entities: entityPairs(tasks),
     periods: periodValues(tasks),
-    tasks: tasks.map(taskShape),
+    // A compound request is a set of tasks; two readings that list the same
+    // tasks in a different order mean the same thing.
+    tasks: tasks.map(taskShape).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   };
 }
 

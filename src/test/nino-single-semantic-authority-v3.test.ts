@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   interpretWithSingleSemanticAuthorityV3,
@@ -83,8 +83,14 @@ function writeTurn(amount: string) {
   };
 }
 
+beforeEach(() => {
+  // Sequence-level assertions below exercise the tier logic one call at a time.
+  process.env.NINO_SEMANTIC_SPECULATIVE_REVIEW = "false";
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  delete process.env.NINO_SEMANTIC_SPECULATIVE_REVIEW;
 });
 
 describe("Nino V3 — single semantic authority", () => {
@@ -100,7 +106,7 @@ describe("Nino V3 — single semantic authority", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(outcome.tier).toBe("fast");
+    expect(outcome.tier).toBe("primary");
     expect(outcome.turn?.kind).toBe("task");
     const task = outcome.turn?.kind === "task" ? outcome.turn.tasks[0] : null;
     expect(task?.kind).toBe("financial_query");
@@ -199,9 +205,69 @@ describe("Nino V3 — single semantic authority", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const models = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body ?? "{}")).model);
-    expect(models).toEqual(["openai/gpt-oss-20b", "openai/gpt-oss-120b"]);
+    expect(models).toEqual(["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]);
     expect(outcome.turn?.kind).toBe("task");
-    expect(outcome.tier).toBe("deep");
+    expect(outcome.tier).toBe("fallback");
+  });
+
+  it("dispara a revisão em paralelo com o primário (latência = máximo, não soma)", async () => {
+    delete process.env.NINO_SEMANTIC_SPECULATIVE_REVIEW;
+    const started: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      started.push(JSON.parse(String((init as RequestInit)?.body ?? "{}")).model);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return groqStructured(writeTurn("50"));
+    });
+
+    const outcome = await interpretWithSingleSemanticAuthorityV3({
+      text: "Registra R$50 no mercado",
+      deep_model: "openai/gpt-oss-120b",
+      provider_override: provider,
+    });
+
+    expect(started).toEqual(["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]);
+    expect(outcome.tier).toBe("reviewed");
+    expect(outcome.review_match).toBe(true);
+  });
+
+  it("revisor sem contrato válido não bloqueia o primário (escrita segue para confirmação)", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(groqStructured(writeTurn("50")))
+      .mockResolvedValueOnce(response({ error: { message: "json_validate_failed" } }, 400));
+
+    const outcome = await interpretWithSingleSemanticAuthorityV3({
+      text: "Registra R$50 no mercado",
+      deep_model: "openai/gpt-oss-120b",
+      provider_override: provider,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(outcome.turn?.kind).toBe("task");
+    expect(outcome.tier).toBe("primary_unreviewed");
+    expect(outcome.review_match).toBeNull();
+  });
+
+  it("leituras compostas iguais em ordem diferente contam como concordância", async () => {
+    const compound = (order: "ab" | "ba") => {
+      const base = readTurn("este mês") as any;
+      const advisory = {
+        kind: "advisory", financial: null, goal: null, write: null,
+        advisory: { operation: "next_best_action", periods: [], scenario: null, options: [] },
+      };
+      return { ...base, tasks: order === "ab" ? [base.tasks[0], advisory] : [advisory, base.tasks[0]] };
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(groqStructured(compound("ab")))
+      .mockResolvedValueOnce(groqStructured(compound("ba")));
+
+    const outcome = await interpretWithSingleSemanticAuthorityV3({
+      text: "Quanto gastei este mês e o que você sugere?",
+      deep_model: "openai/gpt-oss-120b",
+      provider_override: provider,
+    });
+
+    expect(outcome.tier).toBe("reviewed");
+    expect(outcome.review_match).toBe(true);
   });
 
   it("ConversationAuthority não possui mais parser/compilador lexical antes do V3", () => {

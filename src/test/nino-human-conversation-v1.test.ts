@@ -248,8 +248,18 @@ describe("advisor reasoning", () => {
     const contract = advisoryContract("decision", { options: ["quitar o empréstimo", "investir"] });
     const out = await executeAdvisorReasoning(contract, deps());
     expect(out?.ok).toBe(true);
-    expect(out?.facts).toMatchObject({ total_debt: 5000, available_today: 4200 });
+    expect(out?.facts).toMatchObject({
+      total_debt: 5000,
+      available_today: 4200,
+      derived: {
+        available_after_paying_all_debts: -800,
+        available_after_paying_biggest_debt: -800,
+        monthly_installments_freed_by_payoff: 400,
+        goal_remaining_if_debt_amount_went_to_goal: 1000,
+      },
+    });
     expect(out?.reply).not.toMatch(/%/);
+    expect(String(out?.reply).replace(/\u00a0/g, " ")).toContain("não cobre a quitação total: faltariam R$ 800,00");
   });
 
   it("projects a goal from the observed pace", async () => {

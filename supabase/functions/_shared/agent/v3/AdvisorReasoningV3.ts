@@ -297,6 +297,22 @@ async function executeDecision(
     scenario: scenario?.facts ?? null,
   };
 
+  // Pre-computed trade-off arithmetic. The composer must never subtract or add
+  // on its own (the guard rejects any amount not in evidence), so the numbers a
+  // human advisor would naturally mention are computed here, deterministically.
+  const available = s ? Number(s.available_today ?? 0) : null;
+  const monthlyInstallments = round2(debts.reduce((acc: number, d: any) => acc + Number(d.installment_amount ?? 0), 0));
+  const goalRemaining = goal.ok && goal.result ? Number(goal.result.remaining ?? 0) : null;
+  const derived = {
+    available_after_paying_all_debts: available != null && totalDebt > 0 ? round2(available - totalDebt) : null,
+    available_after_paying_biggest_debt: available != null && biggest
+      ? round2(available - Number(biggest.outstanding_balance ?? 0)) : null,
+    monthly_installments_freed_by_payoff: monthlyInstallments > 0 ? monthlyInstallments : null,
+    goal_remaining_if_debt_amount_went_to_goal: goalRemaining != null && totalDebt > 0
+      ? round2(Math.max(0, goalRemaining - totalDebt)) : null,
+  };
+  facts.derived = derived;
+
   const lines: string[] = [];
   if (s) {
     lines.push(`Seu quadro hoje: ${money(Number(s.available_today ?? 0))} disponível e projeção de ${money(Number(s.projected_month_end_available ?? 0))} no fim do mês.`);
@@ -310,6 +326,18 @@ async function executeDecision(
   }
   const g = facts.goal as any;
   if (g?.name && Number(g.remaining ?? 0) > 0) lines.push(`Meta ${g.name}: faltam ${money(Number(g.remaining))}.`);
+  if (derived.available_after_paying_all_debts != null) {
+    const freed = derived.monthly_installments_freed_by_payoff != null
+      ? ` e ${money(derived.monthly_installments_freed_by_payoff)} por mês deixariam de sair em parcelas`
+      : "";
+    const after = derived.available_after_paying_all_debts;
+    lines.push(after >= 0
+      ? `Se quitar as dívidas hoje, sobrariam ${money(after)} disponíveis${freed}.`
+      : `O disponível de hoje não cobre a quitação total: faltariam ${money(Math.abs(after))}.`);
+  }
+  if (derived.goal_remaining_if_debt_amount_went_to_goal != null && g?.name) {
+    lines.push(`Se esse mesmo valor fosse para a meta ${g.name}, faltariam ${money(derived.goal_remaining_if_debt_amount_went_to_goal)}.`);
+  }
   if (scenario?.ok) lines.push(scenario.reply);
   if (!lines.length) {
     return {

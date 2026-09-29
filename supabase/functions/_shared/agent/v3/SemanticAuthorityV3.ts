@@ -1,8 +1,15 @@
-// Nino Runtime V3 — single semantic authority with model tiering.
+// Nino Runtime V3 — single semantic authority with a primary interpreter and
+// an independent reviewer.
 //
-// Natural-language meaning is interpreted only by V3. We may change MODEL TIER
-// when a turn is complex or a provider/model is unavailable, but we never fall
-// back to a regex/router/legacy brain that can reinterpret the same sentence.
+// Natural-language meaning is interpreted only by V3. We may change MODEL when
+// a turn is consequential or a model is unavailable, but we never fall back to
+// a regex/router/legacy brain that can reinterpret the same sentence.
+//
+// Tiering (measured in production, 2026-09-29): gpt-oss-20b violated the strict
+// TurnSpec schema in >60% of turns while gpt-oss-120b and qwen3.8-27b produced
+// valid contracts 10/10. The primary is therefore the most reliable model and
+// the reviewer is a DIFFERENT model family, so a review is an independent
+// second reading instead of the same model agreeing with itself.
 // deno-lint-ignore-file no-explicit-any
 
 import type { AiProviderConfig } from "../../ai-runtime.ts";
@@ -25,38 +32,45 @@ export type SemanticAuthorityV3Input = {
   text: string;
   history_text?: string | null;
   context_text?: string | null;
+  /** Explicit primary model (callers historically passed it as the "deep" model). */
   deep_model?: string | null;
   provider_override?: AiProviderConfig | null;
 };
 
+export type SemanticAuthorityV3Tier =
+  | "primary"
+  | "reviewed"
+  | "primary_unreviewed"
+  | "fallback"
+  | "unavailable";
+
 export type SemanticAuthorityV3Outcome = SemanticInterpreterV3Outcome & {
-  tier: "fast" | "deep" | "reviewed" | "unavailable";
+  tier: SemanticAuthorityV3Tier;
   review_required: boolean;
   review_match: boolean | null;
   review_reasons: string[];
 };
 
-export function semanticFastModel(): string {
+export function semanticPrimaryModel(explicit?: string | null): string {
   return String(
-    envValue("NINO_SEMANTIC_FAST_MODEL")
-      ?? envValue("NINO_AI_FAST_MODEL")
-      ?? "openai/gpt-oss-20b",
+    explicit
+      ?? envValue("NINO_SEMANTIC_PRIMARY_MODEL")
+      ?? envValue("NINO_AI_MODEL")
+      ?? "openai/gpt-oss-120b",
   ).trim();
 }
 
-export function semanticDeepModel(explicit?: string | null): string {
+export function semanticReviewModel(): string {
   return String(
-    explicit
-      ?? envValue("NINO_SEMANTIC_DEEP_MODEL")
-      ?? envValue("NINO_AI_MODEL")
-      ?? "openai/gpt-oss-120b",
+    envValue("NINO_SEMANTIC_REVIEW_MODEL")
+      ?? "qwen/qwen3.8-27b",
   ).trim();
 }
 
 /**
  * Review is selected from the STRUCTURED meaning, never from lexical rules.
  * Writes, compound turns, advisory reasoning and contextual references carry
- * more consequence/ambiguity and therefore get a second semantic opinion.
+ * more consequence/ambiguity and therefore get an independent second reading.
  */
 export function requiresDeepSemanticReview(turn: TurnSpecV3): boolean {
   if (turn.kind !== "task") return false;
@@ -65,19 +79,23 @@ export function requiresDeepSemanticReview(turn: TurnSpecV3): boolean {
   return turn.tasks.some((task) => task.kind === "financial_write" || task.kind === "advisory");
 }
 
+function proposesWrite(turn: TurnSpecV3 | null): boolean {
+  return !!turn && turn.kind === "task" && turn.tasks.some((task) => task.kind === "financial_write");
+}
+
 function aggregateTelemetry(
-  fast: SemanticInterpreterV3Telemetry,
-  deep: SemanticInterpreterV3Telemetry,
+  first: SemanticInterpreterV3Telemetry,
+  second: SemanticInterpreterV3Telemetry,
   ok: boolean,
   error: string | null,
 ): SemanticInterpreterV3Telemetry {
   return {
-    model: `${fast.model}->${deep.model}`.slice(0, 180),
-    provider: deep.provider ?? fast.provider,
-    llm_calls: Number(fast.llm_calls ?? 0) + Number(deep.llm_calls ?? 0),
-    tokens_in: Number(fast.tokens_in ?? 0) + Number(deep.tokens_in ?? 0),
-    tokens_out: Number(fast.tokens_out ?? 0) + Number(deep.tokens_out ?? 0),
-    latency_ms: Number(fast.latency_ms ?? 0) + Number(deep.latency_ms ?? 0),
+    model: `${first.model}->${second.model}`.slice(0, 180),
+    provider: first.provider ?? second.provider,
+    llm_calls: Number(first.llm_calls ?? 0) + Number(second.llm_calls ?? 0),
+    tokens_in: Number(first.tokens_in ?? 0) + Number(second.tokens_in ?? 0),
+    tokens_out: Number(first.tokens_out ?? 0) + Number(second.tokens_out ?? 0),
+    latency_ms: Number(first.latency_ms ?? 0) + Number(second.latency_ms ?? 0),
     ok,
     error,
   };
@@ -105,97 +123,106 @@ function unavailable(
 export async function interpretWithSingleSemanticAuthorityV3(
   input: SemanticAuthorityV3Input,
 ): Promise<SemanticAuthorityV3Outcome> {
-  const fastModel = semanticFastModel();
-  const deepModel = semanticDeepModel(input.deep_model);
-
-  const fast = await interpretSemanticTurnV3({
+  const primaryModel = semanticPrimaryModel(input.deep_model);
+  const reviewModel = semanticReviewModel();
+  const distinctReviewer = !!reviewModel && reviewModel !== primaryModel;
+  const interpret = (model: string) => interpretSemanticTurnV3({
     text: input.text,
     history_text: input.history_text,
     context_text: input.context_text,
-    model: fastModel,
+    model,
     provider_override: input.provider_override ?? null,
   });
 
-  // If the fast semantic tier cannot produce a valid contract, change MODEL
-  // tier. This is not semantic fallback: both tiers emit the same TurnSpecV3.
-  if (!fast.turn) {
-    if (!deepModel || deepModel === fastModel) {
-      return unavailable(fast, null, String(fast.telemetry.error ?? "semantic_authority_unavailable"));
+  const primaryPromise = interpret(primaryModel);
+  // Latency: the independent reading is started speculatively alongside the
+  // primary. Consequential turns wait for max(primary, review) instead of the
+  // sum, and a primary failure has its fallback ready without a second wait.
+  // Non-consequential turns simply ignore the speculative result.
+  const speculativeReview = distinctReviewer && envValue("NINO_SEMANTIC_SPECULATIVE_REVIEW") !== "false"
+    ? interpret(reviewModel).catch((error) => ({
+      turn: null,
+      violations: [],
+      telemetry: {
+        model: reviewModel, provider: null, llm_calls: 1, tokens_in: 0, tokens_out: 0, latency_ms: 0,
+        ok: false, error: `review_exception:${String((error as Error)?.message ?? error).slice(0, 80)}`,
+      },
+    } as SemanticInterpreterV3Outcome))
+    : null;
+  const reviewOnce = () => speculativeReview ?? interpret(reviewModel);
+
+  const primary = await primaryPromise;
+
+  // Primary unavailable/invalid: change MODEL, not semantics. The reviewer
+  // emits the same strict TurnSpecV3 and is subject to the same invariants.
+  if (!primary.turn) {
+    if (!distinctReviewer) {
+      return unavailable(primary, null, String(primary.telemetry.error ?? "semantic_authority_unavailable"));
     }
-    const deep = await interpretSemanticTurnV3({
-      text: input.text,
-      history_text: input.history_text,
-      context_text: input.context_text,
-      model: deepModel,
-      provider_override: input.provider_override ?? null,
-    });
-    if (!deep.turn) {
+    const fallback = await reviewOnce();
+    if (!fallback.turn) {
       return unavailable(
-        fast,
-        deep,
-        `semantic_tiers_unavailable:${String(fast.telemetry.error ?? "fast")}:${String(deep.telemetry.error ?? "deep")}`.slice(0, 220),
+        primary,
+        fallback,
+        `semantic_tiers_unavailable:${String(primary.telemetry.error ?? "primary")}:${String(fallback.telemetry.error ?? "review")}`.slice(0, 220),
       );
     }
     return {
-      ...deep,
-      telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, true, null),
-      tier: "deep",
-      review_required: false,
+      ...fallback,
+      telemetry: aggregateTelemetry(primary.telemetry, fallback.telemetry, true, null),
+      tier: "fallback",
+      review_required: requiresDeepSemanticReview(fallback.turn),
       review_match: null,
       review_reasons: [],
     };
   }
 
-  const reviewRequired = requiresDeepSemanticReview(fast.turn);
-  if (!reviewRequired || !deepModel || deepModel === fastModel) {
+  const reviewRequired = requiresDeepSemanticReview(primary.turn);
+  if (!reviewRequired || !distinctReviewer) {
     return {
-      ...fast,
-      tier: "fast",
+      ...primary,
+      tier: "primary",
       review_required: reviewRequired,
-      review_match: reviewRequired ? true : null,
+      review_match: null,
       review_reasons: [],
     };
   }
 
-  const deep = await interpretSemanticTurnV3({
-    text: input.text,
-    history_text: input.history_text,
-    context_text: input.context_text,
-    model: deepModel,
-    provider_override: input.provider_override ?? null,
-  });
-  if (!deep.turn) {
-    return unavailable(
-      fast,
-      deep,
-      `semantic_review_unavailable:${String(deep.telemetry.error ?? "deep")}`.slice(0, 220),
-    );
+  const review = await reviewOnce();
+  if (!review.turn) {
+    // A reviewer that cannot produce a valid contract gives no second opinion;
+    // it is not evidence against the primary reading. Writes remain gated by
+    // the explicit user confirmation of the resulting draft.
+    return {
+      ...primary,
+      telemetry: aggregateTelemetry(primary.telemetry, review.telemetry, true, null),
+      tier: "primary_unreviewed",
+      review_required: true,
+      review_match: null,
+      review_reasons: [`review_unavailable:${String(review.telemetry.error ?? "unknown")}`.slice(0, 120)],
+    };
   }
 
   const comparison = compareSemanticSignaturesV3(
-    semanticSignatureV3(fast.turn),
-    semanticSignatureV3(deep.turn),
+    semanticSignatureV3(primary.turn),
+    semanticSignatureV3(review.turn),
   );
-  if (!comparison.semantic_match) {
-    // Writes are consequential: they execute only when both tiers agree.
-    // Read/advice turns cannot mutate anything and still pass grounding and
-    // the contract fulfillment gate, so the deep tier's reading is used
-    // instead of failing the whole turn.
-    const proposesWrite = (turn: TurnSpecV3) =>
-      turn.kind === "task" && turn.tasks.some((task) => task.kind === "financial_write");
-    if (!proposesWrite(fast.turn) && !proposesWrite(deep.turn)) {
-      return {
-        ...deep,
-        telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, true, null),
-        tier: "deep",
-        review_required: true,
-        review_match: false,
-        review_reasons: comparison.divergence_reasons,
-      };
-    }
+  if (comparison.semantic_match) {
+    return {
+      ...primary,
+      telemetry: aggregateTelemetry(primary.telemetry, review.telemetry, true, null),
+      tier: "reviewed",
+      review_required: true,
+      review_match: true,
+      review_reasons: [],
+    };
+  }
+
+  // Writes are consequential: they execute only when both readings agree.
+  if (proposesWrite(primary.turn) || proposesWrite(review.turn)) {
     return {
       turn: null,
-      telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, false, "semantic_tier_disagreement"),
+      telemetry: aggregateTelemetry(primary.telemetry, review.telemetry, false, "semantic_tier_disagreement"),
       violations: comparison.divergence_reasons,
       tier: "unavailable",
       review_required: true,
@@ -204,12 +231,14 @@ export async function interpretWithSingleSemanticAuthorityV3(
     };
   }
 
+  // Read/advice turns cannot mutate anything and still pass grounding and the
+  // contract fulfillment gate; the primary (strongest) reading is used.
   return {
-    ...deep,
-    telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, true, null),
+    ...primary,
+    telemetry: aggregateTelemetry(primary.telemetry, review.telemetry, true, null),
     tier: "reviewed",
     review_required: true,
-    review_match: true,
-    review_reasons: [],
+    review_match: false,
+    review_reasons: comparison.divergence_reasons,
   };
 }

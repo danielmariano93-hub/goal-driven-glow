@@ -30,8 +30,8 @@ describe("Nino Runtime V3 production authority", () => {
     expect(authority).not.toContain("v3-circuit-breaker:");
     expect(authority).not.toContain("compileDeterministicConversationTurn");
     expect(semanticAuthority).toContain("interpretSemanticTurnV3");
-    expect(semanticAuthority).toContain("semanticFastModel");
-    expect(semanticAuthority).toContain("semanticDeepModel");
+    expect(semanticAuthority).toContain("semanticPrimaryModel");
+    expect(semanticAuthority).toContain("semanticReviewModel");
 
     const core = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
     expect(core).toContain('from "./ConversationAuthority.ts"');
