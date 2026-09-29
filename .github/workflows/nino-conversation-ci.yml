@@ -61,7 +61,6 @@ jobs:
           src/test/nino-conversation-v2-golden-scenarios.test.ts
           src/test/nino-cognitive-runtime-v1.test.ts
           src/test/nino-advisory-bridge.test.ts
-          src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
           src/test/nino-ai-provider-admin-benchmark.test.ts
@@ -69,7 +68,6 @@ jobs:
           src/test/nino-v2-goals-overview-safety.test.ts
           src/test/nino-runtime-v3-foundation.test.ts
           src/test/nino-runtime-v3-interpreter.test.ts
-          src/test/nino-runtime-v3-production-shadow.test.ts
           src/test/nino-runtime-v3-bridge.test.ts
           src/test/nino-runtime-v3-authority.test.ts
           src/test/nino-provider-smoke-authority.test.ts
@@ -98,17 +96,14 @@ jobs:
           supabase/functions/_shared/agent/core/ActionSlotResolver.ts
           supabase/functions/_shared/agent/core/ConversationBrain.ts
           supabase/functions/_shared/agent/core/ConversationAuthority.ts
-          supabase/functions/_shared/agent/core/ConversationBrainShadow.ts
           supabase/functions/_shared/agent/v3/TurnSpecV3.ts
           supabase/functions/_shared/agent/v3/SemanticInvariantsV3.ts
           supabase/functions/_shared/agent/v3/CapabilityRegistryV3.ts
           supabase/functions/_shared/agent/v3/EvidenceEnvelopeV3.ts
           supabase/functions/_shared/agent/v3/TurnSpecV3Adapter.ts
-          supabase/functions/_shared/agent/v3/RuntimeV3Shadow.ts
           supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts
           supabase/functions/_shared/agent/v3/SemanticAuthorityV3.ts
           supabase/functions/_shared/agent/v3/SemanticComparatorV3.ts
-          supabase/functions/_shared/agent/v3/RuntimeV3ProductionShadow.ts
           supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts
           supabase/functions/_shared/agent/v3/AdvisorReasoningV3.ts
           supabase/functions/_shared/agent/v3/ConversationalComposerV3.ts

@@ -44,7 +44,6 @@ jobs:
           src/test/nino-action-slot-resolver.test.ts
           src/test/nino-advisory-bridge.test.ts
           src/test/nino-conversation-v2-golden-scenarios.test.ts
-          src/test/nino-conversation-shadow-v1.test.ts
           src/test/nino-ai-provider-independence.test.ts
           src/test/nino-ai-provider-shadow-v1.test.ts
           src/test/nino-semantic-ir-v2.test.ts
