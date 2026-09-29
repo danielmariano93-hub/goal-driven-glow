@@ -39,9 +39,12 @@ export function instructionFromEvidence(evidence: unknown): CommunicationInstruc
 // ---------------------------------------------------------------------------
 // Fechamento por estratégia. Texto de abordagem, nunca de cálculo.
 // ---------------------------------------------------------------------------
+/** Fechamento que pressupõe um combinado anterior com a pessoa. */
+export const REMIND_CLOSING = "Sem cobrança: é só retomar de onde combinamos.";
+
 const STRATEGY_CLOSING: Record<string, string> = {
   reinforce: "Isso é evidência do que você já consegue repetir — não precisa de esforço novo.",
-  remind: "Sem cobrança: é só retomar de onde combinamos.",
+  remind: REMIND_CLOSING,
   reframe: "Em vez de repetir o mesmo pedido, vale começar por um passo menor e com menos fricção.",
   pause: "Fico à disposição quando você quiser retomar.",
 };

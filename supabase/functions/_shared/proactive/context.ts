@@ -105,6 +105,11 @@ export async function buildMultiFinanceProactiveContext(
         estimated_fixed_income: snapshot.estimated_fixed_income,
         confirmed_future_income: snapshot.confirmed_future_income,
         period_performance: snapshot.period_performance,
+        current_month_income: num(snapshot.current_month_income),
+        current_month_expense: num(snapshot.current_month_expense),
+        expected_income_rest_of_month: round2((snapshot.estimated_income_events ?? [])
+          .filter((event: any) => String(event.date) > snapshot.today && String(event.date) <= snapshot.month_end)
+          .reduce((sum: number, event: any) => sum + num(event.amount), 0)),
       },
       cards: {
         cards_owed: snapshot.cards_owed,

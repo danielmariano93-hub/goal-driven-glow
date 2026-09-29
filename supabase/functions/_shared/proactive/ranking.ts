@@ -2,8 +2,9 @@
 // proactive_multifinance.v1 — ranking determinístico e orçamento de atenção.
 // A cota de interrupção é escassa: fala quem tem maior impacto material,
 // urgência real, confiança suficiente e ação executável.
-import { insightValue, materialityFloor } from "../intelligence/insightValue.ts";
+import { insightValue, isAppTaskKind, materialityFloor } from "../intelligence/insightValue.ts";
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
+import { repeatedKind, type RecentDelivery } from "./repetition.ts";
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -47,9 +48,13 @@ export function scoreSituations(
         actions: learning.actions,
         falsePositives: learning.false_positives,
       });
-      const boost = crossDomainBoost(situation);
-      const reasons = [...value.reasons];
-      if (boost > 0) reasons.push(`cross_domain:${boost}`);
+      const crossBoost = crossDomainBoost(situation);
+      // proactive_user_model.v1 — situação que toca meta/plano da pessoa.
+      const relevanceBoost = Math.max(0, Number((situation.evidence as any)?.relevance_boost ?? 0));
+      const boost = crossBoost + relevanceBoost;
+      const reasons = [...situation.score_reasons.filter((r) => r.startsWith("data_quality:")), ...value.reasons];
+      if (crossBoost > 0) reasons.push(`cross_domain:${crossBoost}`);
+      if (relevanceBoost > 0) reasons.push(`user_relevance:${relevanceBoost}`);
       if (value.muted) reasons.push("muted_by_learning");
 
       // Preferência aprendida ordena o que é OPCIONAL (± 25%). Situação
@@ -91,6 +96,8 @@ export function meetsSituationMateriality(
   ctx: MultiFinanceProactiveContext,
 ): boolean {
   if (situation.severity === "critical") return true;
+  // Pedido de dado não tem valor em R$: vale pelo que destrava nas leituras.
+  if (situation.communication_kind === "data_quality") return true;
   // Urgência dispensa o piso apenas quando há risco: contexto informativo de
   // valor pequeno nunca vale uma interrupção, mesmo vencendo amanhã.
   if (situation.severity !== "info" && (situation.days_until ?? 99) <= 3) return true;
@@ -105,6 +112,9 @@ export type BudgetInput = {
   budget?: AttentionBudget;
   /** Fingerprints já comunicados sem mudança material desde então. */
   alreadyDelivered?: Set<string>;
+  /** Entregas recentes por tipo/canal (janela anti-repetição por assunto). */
+  recentDeliveries?: RecentDelivery[];
+  now?: Date;
   minConfidence?: number;
 };
 
@@ -123,6 +133,8 @@ export function allocateAttention(input: BudgetInput): {
 
   for (const channel of input.channels) {
     let remaining = channel === "whatsapp" ? budget.whatsapp : budget.app;
+    // Diversidade: um assunto (tipo) por canal por rodada.
+    const kindsThisRound = new Set<string>();
     for (const situation of ranked) {
       const timing = (situation.evidence as any)?.behavioral_timing ?? null;
       const timingOwned = (situation.evidence as any)?.behavioral_timing_owned === true;
@@ -138,6 +150,17 @@ export function allocateAttention(input: BudgetInput): {
       } as ProactiveDecision & Record<string, unknown>;
       if (input.alreadyDelivered?.has(situation.fingerprint)) {
         decisions.push({ ...base, decision: "suppress", reason: "already_communicated_no_material_change" });
+        continue;
+      }
+      // Tarefa de revisão (pedido de dado, categorização) é do app: não gasta
+      // a única vaga de interrupção do WhatsApp.
+      if (channel === "whatsapp" && isAppTaskKind(situation.communication_kind)) {
+        decisions.push({ ...base, decision: "suppress", reason: "app_only_kind" });
+        continue;
+      }
+      const repeat = repeatedKind(situation, channel, input.recentDeliveries ?? [], input.now ?? new Date());
+      if (repeat) {
+        decisions.push({ ...base, decision: "suppress", reason: repeat });
         continue;
       }
       if (situation.score_reasons.includes("muted_by_learning")) {
@@ -163,11 +186,16 @@ export function allocateAttention(input: BudgetInput): {
         continue;
       }
 
+      if (kindsThisRound.has(situation.communication_kind) && situation.severity !== "critical") {
+        decisions.push({ ...base, decision: "suppress", reason: "same_kind_in_round" });
+        continue;
+      }
       if (remaining <= 0) {
         decisions.push({ ...base, decision: "suppress", reason: "attention_budget_exhausted" });
         continue;
       }
       remaining -= 1;
+      kindsThisRound.add(situation.communication_kind);
       selected.set(situation.fingerprint, situation);
       decisions.push({ ...base, decision: "deliver", reason: "top_ranked_material_situation" });
     }
