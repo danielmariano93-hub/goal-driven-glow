@@ -16,6 +16,7 @@ import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts"
 import type { ComparisonEvidence, MonthlySeriesEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
 import { isEnabled } from "./FeatureFlags.ts";
+import { runTool } from "./ToolRuntime.ts";
 import { resolveTimeAspectPt } from "../../analytics/periodResolver.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
@@ -353,8 +354,21 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // never depend on the Conversation Brain contract. This is intentionally
   // narrow: the allowlist lives in V2DeterministicHumanGate and currently
   // restores only emotional check-ins already handled safely by the legacy core.
-  if (resolveV2DeterministicHumanCapability(input.text)) {
-    return await handleLegacyTurn(input);
+  const humanCapability = resolveV2DeterministicHumanCapability(input.text);
+  if (humanCapability) {
+    // Under V3-first authority the language turn belongs to V3 (which answers
+    // with empathy through the conversational composer). The emotional
+    // check-in is still recorded deterministically, off the reply path, so the
+    // lexical gate no longer decides what the user meant.
+    const v3First = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
+      && await isEnabled("v3_first_authority_v1", input.user_id).catch(() => false);
+    if (!v3First) return await handleLegacyTurn(input);
+    if (humanCapability.required_tool) {
+      await runTool({
+        sb: service(), user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text,
+      } as any, humanCapability.required_tool, humanCapability.tool_args ?? {}, { timeoutMs: 6_000, maxRetries: 0 })
+        .catch(() => undefined);
+    }
   }
 
   // Shadow snapshot is captured before the official turn can mutate memory.

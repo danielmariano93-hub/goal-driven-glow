@@ -374,3 +374,21 @@ describe("conversational composer runtime", () => {
     expect(out.telemetry.ok).toBe(false);
   });
 });
+
+describe("category resolution with personal copies of global categories", () => {
+  it("a personal category shadows the same-named global one instead of looking ambiguous", async () => {
+    const { resolveCategoryIdsByName } = await import("../../supabase/functions/_shared/agent/core/handlers/TypicalMonthlyHandler");
+    const rows = [
+      { id: "global-lazer", name: "Lazer", user_id: null, type: "expense" },
+      { id: "user-lazer", name: "Lazer", user_id: "u1", type: "expense" },
+      { id: "global-saude", name: "Saúde", user_id: null, type: "expense" },
+    ];
+    const chain: any = {
+      select: () => chain, or: () => chain, is: () => chain,
+      eq: async () => ({ data: rows, error: null }),
+    };
+    const sb = { from: () => chain };
+    expect(await resolveCategoryIdsByName(sb, "u1", "lazer")).toEqual(["user-lazer"]);
+    expect(await resolveCategoryIdsByName(sb, "u1", "saude")).toEqual(["global-saude"]);
+  });
+});

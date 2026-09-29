@@ -346,8 +346,12 @@ export async function resolveCategoryIdsByName(
     .is("archived_at", null)
     .eq("type", "expense");
   if (error) return [];
-  const rows = (data ?? []) as Array<{ id: string; name: string }>;
   const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  // Personal categories shadow same-named global ones; otherwise a user copy of
+  // "Lazer" plus the global "Lazer" looked ambiguous and the read failed.
+  const all = (data ?? []) as Array<{ id: string; name: string; user_id: string | null }>;
+  const personalNames = new Set(all.filter((r) => r.user_id).map((r) => norm(r.name)));
+  const rows = all.filter((r) => r.user_id || !personalNames.has(norm(r.name)));
   const target = norm(wanted);
   const exact = rows.filter((r) => norm(r.name) === target);
   if (exact.length) return exact.map((r) => r.id);
