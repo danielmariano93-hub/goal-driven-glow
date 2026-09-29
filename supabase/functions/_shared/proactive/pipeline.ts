@@ -33,9 +33,11 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadDataQuality, loadDismissedTopics, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
+import { reminderSituations, isReminderHour } from "./reminders.ts";
+import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { detectWeekdayPattern, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -273,7 +275,7 @@ export async function runMultiFinanceProactive(
   // de dado incompleto perdem confiança (e viram um pedido de dado), e o que
   // toca meta/plano da pessoa ganha relevância com a conta feita aqui.
   const cash = (ctx.domains.cash ?? {}) as Record<string, unknown>;
-  const [dataQuality, userModel, recentDeliveries, priorityEvents, dismissedTopics, nudgeTransactions] = await Promise.all([
+  const [dataQuality, userModel, recentDeliveries, priorityEvents, dismissedTopics, nudgeTransactions, cardCycles, discovery] = await Promise.all([
     loadDataQuality(sb, userId, {
       today: ctx.as_of,
       current_month_income: Number(cash.current_month_income ?? 0),
@@ -287,6 +289,8 @@ export async function runMultiFinanceProactive(
     loadDismissedTopics(sb, userId).catch(() => [] as string[]),
     // Aviso matinal só é avaliado de manhã (economiza a leitura no resto do dia).
     isWeekdayNudgeWindow(new Date()) ? loadNudgeTransactions(sb, userId, ctx.as_of).catch(() => []) : Promise.resolve([]),
+    isReminderHour(new Date()) ? loadCardCycles(sb, userId).catch(() => []) : Promise.resolve([]),
+    isDiscoveryHour(new Date()) ? loadDiscoveryInputs(sb, userId).catch(() => null) : Promise.resolve(null),
   ]);
   // nino_priority_learning.v1 — o que a pessoa fez com os destaques.
   const priorityLearning = learnFromPriorityEvents(priorityEvents);
@@ -310,9 +314,28 @@ export async function runMultiFinanceProactive(
     userModel?.focus_goal ?? null,
   );
   if (nudge) refined.push(nudge);
+  // nino_reminders.v1 — avisar ANTES: contas do dia, fatura, fechamento, meio do mês.
+  const known = new Set(refined.map((situation) => situation.fingerprint));
+  const reminders = reminderSituations(ctx, new Date(), cardCycles).filter((situation) => !known.has(situation.fingerprint));
+  // Com o lembrete explícito da conta, a antecipação genérica do mesmo
+  // vencimento (hoje/amanhã) sai: a pessoa recebe um aviso, não dois.
+  if (reminders.some((situation) => situation.communication_kind === "bill_due_reminder")) {
+    refined = refined.filter((situation) =>
+      !(situation.communication_kind === "expected_recurring_payment" && (situation.days_until ?? 99) <= 1));
+  }
+  refined.push(...reminders);
   if (userModel) refined = applyUserModel(refined, userModel);
   refined = applyLearningAdjustment(refined, priorityLearning);
   refined = withoutDismissed(refined, dismissedTopics);
+  // nino_discovery.v1 — "sabia que dá pra…?": no máximo 1 por semana, nunca repete.
+  const tip = discoverySituation({
+    ctx,
+    usage: discovery?.usage ?? null,
+    history: discovery?.history ?? { sent_tip_ids: [], last_sent_at: null },
+    competing: refined,
+    now: new Date(),
+  });
+  if (tip) refined = withoutDismissed([...refined, tip], dismissedTopics);
 
   const timedSituations = attachTimingSignal(refined, timingCtx, windows);
 

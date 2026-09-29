@@ -7,6 +7,8 @@ import { computeMonthlyTotals, type TransactionRow } from "../finance-core/facts
 import { assessDataQuality, type DataQuality } from "./dataQuality.ts";
 import { buildUserModel, type UserModel } from "./userModel.ts";
 import type { RecentDelivery } from "./repetition.ts";
+import { tipIdFromKey, type DiscoveryHistory, type UsageProfile } from "./featureDiscovery.ts";
+import type { CardCycle } from "./reminders.ts";
 
 function ymShift(ym: string, delta: number): string {
   const [y, m] = ym.split("-").map(Number);
@@ -139,4 +141,51 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
       amount: Math.abs(Number(row.amount ?? 0)),
       category: row.category_id ? names.get(String(row.category_id)) ?? null : null,
     }));
+}
+
+/** Cartões ativos com dia de fechamento (lembrete "fecha em 2 dias"). */
+export async function loadCardCycles(sb: SupabaseClient, userId: string): Promise<CardCycle[]> {
+  const { data } = await sb.from("credit_cards").select("id,name,closing_day")
+    .eq("user_id", userId).eq("active", true).limit(20);
+  return ((data as any[]) ?? []).map((row) => ({
+    id: String(row.id), name: String(row.name ?? "cartão"), closing_day: row.closing_day == null ? null : Number(row.closing_day),
+  }));
+}
+
+/** O que a pessoa já usa do Nino (só contagens) e as dicas que já recebeu. */
+export async function loadDiscoveryInputs(sb: SupabaseClient, userId: string): Promise<{
+  usage: UsageProfile;
+  history: DiscoveryHistory;
+}> {
+  const count = async (query: any): Promise<number> => {
+    const { count: total, error } = await query;
+    if (error) throw error;
+    return Number(total ?? 0);
+  };
+  const head = { count: "exact" as const, head: true };
+  const [recurring, goals, cards, imports, splits, inbound, questions, sentRes] = await Promise.all([
+    count(sb.from("recurring_rules").select("id", head).eq("user_id", userId)),
+    count(sb.from("goals").select("id", head).eq("user_id", userId)),
+    count(sb.from("credit_cards").select("id", head).eq("user_id", userId).eq("active", true)),
+    count(sb.from("document_imports").select("id", head).eq("user_id", userId).not("invoice_total", "is", null)),
+    count(sb.from("shared_expenses").select("id", head).eq("owner_user_id", userId)),
+    count(sb.from("conversation_messages").select("id", head).eq("user_id", userId).eq("direction", "inbound")),
+    count(sb.from("conversation_messages").select("id", head).eq("user_id", userId).eq("direction", "inbound")
+      .or("body_masked.ilike.%?%,body_masked.ilike.%quanto%")),
+    sb.from("communication_deliveries").select("dedup_key,created_at")
+      .eq("user_id", userId).eq("kind", "feature_discovery")
+      .in("status", ["queued", "sent", "delivered", "acted"])
+      .order("created_at", { ascending: false }).limit(50),
+  ]);
+  const sent = ((sentRes as any)?.data as any[]) ?? [];
+  return {
+    usage: {
+      recurring_rules: recurring, goals, active_cards: cards, invoice_imports: imports,
+      splits, inbound_messages: inbound, questions_asked: questions,
+    },
+    history: {
+      sent_tip_ids: sent.map((row) => tipIdFromKey(row.dedup_key)).filter((id): id is string => !!id),
+      last_sent_at: sent[0]?.created_at ?? null,
+    },
+  };
 }
