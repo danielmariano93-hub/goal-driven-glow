@@ -2,6 +2,7 @@
 //
 // Natural-language meaning is owned by TurnSpecV3. Downstream components may
 // validate, ground and execute that meaning, but they never reinterpret it.
+// no lexical fast-path, parser or V2 circuit breaker may decide meaning first
 // Legacy V2 remains only for users outside the V3 rollout.
 // deno-lint-ignore-file no-explicit-any
 
