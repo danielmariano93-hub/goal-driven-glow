@@ -14,6 +14,7 @@ import { classifyConfirmationAct } from "../../supabase/functions/_shared/agent/
 import { isProviderStructuredFailure } from "../../supabase/functions/_shared/agent/core/ConversationAuthority";
 import { buildEvidenceClaims } from "../../supabase/functions/_shared/agent/core/EvidenceClaims";
 import { semanticBlockText } from "../../supabase/functions/_shared/agent/core/SemanticAnswerFormatter";
+import { groundReply } from "../../supabase/functions/_shared/agent/core/GroundingGateV3";
 
 const NOW = new Date("2026-09-28T15:00:00-03:00");
 const sourced = (value: string) => ({ value, source: "current_turn" as const, source_span: value });
@@ -83,11 +84,7 @@ describe("Nino V3 single-route hardening", () => {
   });
 
   it("never discards a single authoritative period expression to reparse raw text", () => {
-    const resolved = resolvePeriodExpressions(
-      ["21-27"],
-      "quanto eu gastei este mês?",
-      NOW,
-    );
+    const resolved = resolvePeriodExpressions(["21-27"], "quanto eu gastei este mês?", NOW);
     expect(resolved.source).toBe("single");
     expect(resolved.periods).toHaveLength(1);
     expect(resolved.periods[0]).toMatchObject({ from: "2026-09-21", to: "2026-09-27" });
@@ -133,6 +130,32 @@ describe("Nino V3 single-route hardening", () => {
       requested: financialIr("2026-09-21", "2026-09-27"),
     });
     expect(validateFinancialReadContract(correct)).not.toContain("turn_period_vs_financial_ir_mismatch");
+  });
+
+  it("rejects a user-visible period label that is not present in executed evidence", () => {
+    const claims = {
+      version: "nino_evidence_claims.v1",
+      period: { from: "2026-09-21", to: "2026-09-27", label: "21 a 27" },
+      comparison_period: null,
+      currency: "BRL",
+      allowed_derivations: [],
+      claims: [
+        { id: "p1", query_id: "q1", type: "period", value: null, label: "2026-09-21..2026-09-27", rank: null, engine: "analyze_spending" },
+        { id: "m1", query_id: "q1", type: "money", value: 1940, label: "total_metric", rank: null, engine: "analyze_spending" },
+      ],
+    } as any;
+    const wrong = groundReply({
+      reply: "Entre 01/09/2026 e 28/09/2026, você gastou R$ 1.940,00.",
+      claims,
+    });
+    expect(wrong.ok).toBe(false);
+    expect(wrong.violations.some((v) => v.kind === "period" && v.detail?.includes("period_not_in_evidence"))).toBe(true);
+
+    const right = groundReply({
+      reply: "Entre 21/09/2026 e 27/09/2026, você gastou R$ 1.940,00.",
+      claims,
+    });
+    expect(right.ok).toBe(true);
   });
 
   it("prefers evidence-backed period memory over a stale conversational pointer", () => {
