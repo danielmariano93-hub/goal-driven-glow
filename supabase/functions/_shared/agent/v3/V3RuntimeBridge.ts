@@ -2,8 +2,9 @@
 //
 // Transitional compatibility only. TurnSpecV3 remains the single semantic
 // authority. Time is grounded HERE, once, before entering the mature V2
-// execution engines; V2 receives canonical dates instead of free-form temporal
-// language and therefore cannot reinterpret the user's period.
+// execution engines. `period_expression` preserves the user's source wording
+// for provenance/UI only; `period_expressions` carries canonical date windows
+// used by execution and fulfillment.
 
 import { isActionKind } from "../core/ActionIR.ts";
 import {
@@ -44,6 +45,7 @@ function canonicalPeriod(period: PeriodExpressionV3 | null | undefined, now: Dat
   return canonical?.value ?? null;
 }
 
+/** Canonical windows only. These are authoritative for execution. */
 function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
   const values: string[] = [];
   for (const task of tasks) {
@@ -67,6 +69,22 @@ function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
     }
   }
   return unique(values.map((value) => value.trim()).filter(Boolean));
+}
+
+/** Original semantic expressions only for provenance/presentation. */
+function sourcePeriodExpressions(tasks: SemanticTaskV3[]): string[] {
+  const values: string[] = [];
+  for (const task of tasks) {
+    if (task.kind === "financial_query") {
+      values.push(...task.periods.map((period) => period.value));
+      if (task.comparison?.baseline.kind === "period" && task.comparison.baseline.period) {
+        values.push(task.comparison.baseline.period.value);
+      }
+      if (task.comparison?.target) values.push(task.comparison.target.value);
+    }
+    if (task.kind === "advisory") values.push(...task.periods.map((period) => period.value));
+  }
+  return unique(values.map((value) => String(value ?? "").trim()).filter(Boolean));
 }
 
 function runtimeReference(turn: TurnSpecV3): TurnReference | null {
@@ -226,7 +244,14 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
 
   const families = unique(turn.tasks.map((task) => task.family));
   const periods = periodExpressions(turn.tasks, now);
+  const sourcePeriods = sourcePeriodExpressions(turn.tasks);
   const focus = explicitFocus(turn.tasks);
+  const temporalFocus = {
+    ...focus,
+    // source wording is provenance only; canonical list below is authoritative.
+    period_expression: sourcePeriods[0] ?? null,
+    period_expressions: periods,
+  };
 
   if (families.length === 1 && families[0] === "financial.write") {
     const compiledGoal = compileAtomicGoalCreate(turn.tasks);
@@ -245,7 +270,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       domain: "financial_write",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: { action: task.action, slots: task.slots },
       direct_reply: null,
       clarification_question: null,
@@ -269,7 +294,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       domain: "advisory",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: null,
       direct_reply: null,
       clarification_question: null,
@@ -300,7 +325,7 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       domain: "financial_read",
       canonical_request: turn.canonical_request,
       inherit_focus: turn.inherit_topic,
-      focus: { ...focus, period_expression: periods[0] ?? null, period_expressions: periods },
+      focus: temporalFocus,
       action: null,
       direct_reply: null,
       clarification_question: null,
