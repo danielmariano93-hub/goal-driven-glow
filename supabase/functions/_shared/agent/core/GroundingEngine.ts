@@ -138,8 +138,13 @@ export function applyGroundedReferenceScope(
   grounded: GroundedReference | null | undefined,
 ): Record<string, unknown> {
   if (!grounded || grounded.status !== "resolved" || !grounded.entity_labels.length) return args;
+  // An explicit current-turn category always outranks an inherited reference:
+  // intersecting "Delivery" with a remembered "Lazer" scope yields an empty,
+  // wrong answer ("não encontrei gastos").
+  const explicitCategory = String((args as Record<string, unknown>)?.category ?? "").trim();
   if (
     grounded.target === "category"
+    && !explicitCategory
     && ["compare_periods", "compare_to_monthly_average", "analyze_spending"].includes(tool)
   ) {
     return { ...args, category_scope: [...grounded.entity_labels] };

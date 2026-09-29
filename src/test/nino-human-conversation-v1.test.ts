@@ -435,3 +435,12 @@ describe("release hardening from the live human E2E", () => {
     expect(resolvePeriodExpressionV3({ value: "whenever", source: "current_turn", source_span: null }, now)).toBeNull();
   });
 });
+
+describe("explicit category outranks an inherited reference scope", () => {
+  it("does not intersect an explicit category with a remembered category scope", async () => {
+    const { applyGroundedReferenceScope } = await import("../../supabase/functions/_shared/agent/core/GroundingEngine");
+    const grounded = { status: "resolved", target: "category", entity_labels: ["Lazer"] } as any;
+    expect(applyGroundedReferenceScope("analyze_spending", { category: "Delivery" }, grounded)).toEqual({ category: "Delivery" });
+    expect(applyGroundedReferenceScope("analyze_spending", {}, grounded)).toEqual({ category_scope: ["Lazer"] });
+  });
+});
