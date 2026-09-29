@@ -116,7 +116,9 @@ function lightenLayout(text: string): string {
   for (const line of lines) {
     const isBullet = line.startsWith("• ");
     const prev = out[out.length - 1] ?? "";
-    if (isBullet && prev && !prev.startsWith("• ")) out.push("");
+    // Título de seção em negrito ("*Onde mais foi*") fica colado à sua lista.
+    const isSectionTitle = /^\*[^*]+\*(?:\s*\([^)]*\))?:?$/.test(prev.trim());
+    if (isBullet && prev && !prev.startsWith("• ") && !isSectionTitle) out.push("");
     out.push(line);
   }
   return out.join("\n").trim();
@@ -146,24 +148,33 @@ const ACCENT_RULES: ReadonlyArray<{ re: RegExp; emoji: string }> = [
   { re: /\b(parab[ée]ns|boa|conseguiu|ótimo|otimo|melhor)/i, emoji: "✨" },
 ];
 
-const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2B00}-\u{2BFF}]/u;
+/** Um emoji = um pictograma (+ seletor de variação opcional): "⚠️" conta 1. */
+const EMOJI_UNIT_RE = /\p{Extended_Pictographic}\u{FE0F}?/gu;
 
 function countEmojis(text: string): number {
-  return (text.match(new RegExp(EMOJI_RE, "gu")) ?? []).length;
+  return (text.match(EMOJI_UNIT_RE) ?? []).length;
+}
+
+/** Mensagem diagramada (vários blocos) comporta um emoji por seção-chave. */
+function emojiBudget(text: string): number {
+  const blocks = text.split(/\n\s*\n/).filter((block) => block.trim()).length;
+  return blocks >= 3 && text.length > 250 ? 3 : 2;
 }
 
 /**
  * Dá um toque visual à resposta: garante 1 emoji quando não há nenhum e
- * remove excesso quando há mais de 2. Nunca insere emoji em texto vazio.
+ * remove excesso (2 em mensagens curtas, 3 nas diagramadas). Nunca insere
+ * emoji em texto vazio.
  */
 export function addEmojiAccent(text: string): string {
   const raw = String(text ?? "");
   if (!raw.trim()) return raw;
   const total = countEmojis(raw);
-  if (total > 2) {
+  const budget = emojiBudget(raw);
+  if (total > budget) {
     let kept = 0;
     return raw
-      .replace(new RegExp(EMOJI_RE, "gu"), (m) => (++kept <= 2 ? m : ""))
+      .replace(EMOJI_UNIT_RE, (m) => (++kept <= budget ? m : ""))
       .replace(/[ \t]{2,}/g, " ")
       .replace(/[ \t]+([.,;!?])/g, "$1")
       .trim();

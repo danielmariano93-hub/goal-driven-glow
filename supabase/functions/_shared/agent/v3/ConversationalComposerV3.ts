@@ -20,7 +20,7 @@ import { citedNumbers, matchesEvidence } from "../narrative/NarrativeGuard.ts";
 export const COMPOSER_VERSION = "nino_conversational_composer.v1";
 export const COMPOSER_DEADLINE_MS = 10_000;
 
-export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery";
+export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery" | "review";
 
 export type ComposeHistoryTurn = { role: "user" | "assistant"; content: string };
 
@@ -146,6 +146,7 @@ const KIND_GUIDANCE: Record<ComposeKind, string> = {
   advisory: "O usuário quer orientação/simulação. Explique o resultado da simulação em linguagem simples, diga o que isso significa na prática e sugira um próximo passo concreto baseado nos fatos.",
   decision: "O usuário está pesando uma decisão. Raciocine como um assessor: pese as alternativas com princípios financeiros sólidos (reserva de emergência, custo de dívida costuma superar rendimento de aplicação conservadora, liquidez, metas), usando SOMENTE os números dos fatos. Dê uma recomendação clara condicionada ao quadro dele e diga qual informação mudaria a recomendação.",
   recovery: "Você NÃO conseguiu calcular ou consultar com segurança o que foi pedido (o RASCUNHO explica). Diga isso com honestidade e leveza, SEM citar nenhum valor, número ou data. Responda a parte humana da mensagem (se ele pediu para você lembrar de algo, use a MEMÓRIA DE RELACIONAMENTO) e sugira, em uma frase, como ele pode pedir o dado de forma direta.",
+  review: "O usuário pediu um balanço/resumo do período. O resumo completo, já diagramado, será enviado LOGO DEPOIS da sua mensagem. Escreva SOMENTE a abertura: 1 ou 2 frases curtas com a leitura mais importante do período (o que foi fora do normal, se o mês está no azul ou apertado, o alerta principal), no tom de um assessor que conhece a pessoa. Não repita a lista de números, não use lista, não faça pergunta nem oferta (o resumo já termina com a sugestão). Pode citar no máximo um valor dos FATOS.",
   compound: "O usuário fez mais de um pedido na mesma mensagem. Responda cada parte na ordem, conectando-as numa conversa só (por exemplo: o dado e, em seguida, o conselho que decorre dele).",
 };
 
@@ -165,10 +166,17 @@ export function buildComposerPrompt(input: ComposeInput): { system: string; user
     input.allow_offer
       ? "- No máximo UMA pergunta ou oferta de próximo passo, no final, específica ao assunto. Oferta sempre no formato \"Quer que eu …?\" (ex.: \"Quer que eu compare com o mês passado?\"), para que um \"sim\" do usuário seja entendido."
       : "- Não termine com oferta de próximo passo; no máximo uma pergunta se for realmente necessária.",
+    "- LAYOUT (vale para app e WhatsApp): a mensagem precisa ser fácil de ler no celular.",
+    "  • Use *negrito* com UM asterisco de cada lado (nunca **) no número principal e nos nomes-chave (categoria, meta).",
+    "  • Separe ideias diferentes com uma linha em branco; parágrafos de 1 a 2 frases.",
+    "  • Quando houver 3 ou mais itens (categorias, contas, opções), use lista: um item por linha começando com \"• \", no formato \"• *Nome*: R$ X (peso)\".",
+    "  • No máximo 2 emojis, só para orientar a leitura (📊 resumo, ⚠️ alerta, 💡 sugestão, 🎯 meta). Nunca emoji decorativo no meio da frase.",
+    "  • Datas no formato 29/09 e intervalos por extenso (\"de 1 a 29 de setembro\"), nunca \"entre 01/09/2026 e 29/09/2026\".",
     whatsapp
-      ? "- Canal WhatsApp: mensagens curtas, parágrafos de 1-2 frases separados por linha em branco, no máximo um emoji e só se couber no tom. Pode usar *negrito* no número principal."
-      : "- Canal app: texto curto e corrido, sem emoji.",
-    "- Tamanho: o suficiente para ser útil e humano; normalmente 2 a 5 frases. Listas só quando o dado for uma lista.",
+      ? "- Canal WhatsApp: mensagens curtas."
+      : "- Canal app: mensagens curtas.",
+    "- Tamanho: o suficiente para ser útil e humano; normalmente 2 a 5 frases, ou uma frase de abertura seguida de lista curta.",
+    "- Em respostas sobre categorias: se os FATOS marcarem uma categoria como compromisso (dízimo, doação), não a trate como vilã; se marcarem reembolso (valor que voltou), diga isso; se marcarem teto estourado, destaque com ⚠️.",
     "- Reconheça sentimentos quando o usuário expressar (preocupação, alívio, surpresa) antes de ir aos números.",
     "- Use o que você lembra do usuário (MEMÓRIA DE RELACIONAMENTO) só quando for natural e relevante, sem soar invasivo.",
     `TIPO DE TURNO: ${KIND_GUIDANCE[input.kind]}`,
@@ -286,8 +294,9 @@ export function guardComposedReply(args: {
   const push = (v: string) => { if (!violations.includes(v)) violations.push(v); };
   if (!text) return { ok: false, violations: ["empty_text"] };
   if (text.length > 1_600) push("too_long");
+  const lastLine = text.split("\n").pop()?.trim() ?? "";
   if (!/[.!?…)\]*"'”]$/.test(text) && !/[.!?]\s*[\p{Extended_Pictographic}️]+$/u.test(text)
-    && !/\p{Extended_Pictographic}️?$/u.test(text)) {
+    && !/\p{Extended_Pictographic}️?$/u.test(text) && !/^•\s+\S.*\d$/.test(lastLine)) {
     push("truncated_text");
   }
 
@@ -316,6 +325,9 @@ export function guardComposedReply(args: {
     if (headline != null && !citedNumbers(text).some((n) => n.kind === "money" && matchesEvidence(n.value, [headline]))) {
       push("headline_number_missing");
     }
+  } else if (input.kind === "review") {
+    if (text.length > 420) push("too_long");
+    if (/\?\s*$/.test(text)) push("review_opening_asks");
   } else if (input.kind !== "conversation" && input.kind !== "recovery") {
     // Advice, simulations, decisions and compound turns may lead with the most
     // relevant result (e.g. the saving, not the baseline), but must still be

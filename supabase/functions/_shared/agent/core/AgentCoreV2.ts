@@ -77,6 +77,7 @@ import {
   composeConversationalReply, type ComposeKind, type ComposeResult,
 } from "../v3/ConversationalComposerV3.ts";
 import { executeAdvisorReasoning, isAdvisorReasoningKind } from "../v3/AdvisorReasoningV3.ts";
+import { executeCategoryReading, executePeriodReview } from "../v3/PeriodReviewV3.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -693,7 +694,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       return null;
     });
     if (composition?.mode === "composed") {
-      finalReply = merged.fixed_prefix ? `${merged.fixed_prefix}\n\n${composition.text}` : composition.text;
+      // Review: the composer writes only the opening; the laid-out body follows.
+      const composed = composeKind === "review" && merged.layout_tail
+        ? `${composition.text}\n\n${merged.layout_tail}`
+        : composition.text;
+      finalReply = merged.fixed_prefix ? `${merged.fixed_prefix}\n\n${composed}` : composed;
     }
   }
 
@@ -790,6 +795,8 @@ type TurnExecution = {
   /** null = the text must reach the user verbatim (drafts, receipts, failures). */
   compose_kind: ComposeKind | null;
   evidence: unknown[];
+  /** Laid-out body delivered verbatim after the composed opening ("review"). */
+  layout_tail?: string | null;
   draft_id?: string;
   result?: unknown;
   tools?: string[];
@@ -817,6 +824,13 @@ function mergeExecutions(executions: TurnExecution[]): TurnExecution & {
       composable_body: primary.compose_kind ? primary.reply : null,
       fixed_prefix: null,
     };
+  }
+  // A laid-out review inside a compound turn is delivered as is; only the
+  // single-step review gets a composed opening.
+  if (executions.some((execution) => execution.compose_kind === "review")) {
+    executions = executions.map((execution) => execution.compose_kind === "review"
+      ? { ...execution, compose_kind: null, layout_tail: null }
+      : execution);
   }
   // Writes (drafts/receipts) must reach the user verbatim; the rest is composed
   // as a single conversational answer after the fixed part.
@@ -965,6 +979,46 @@ async function executeContract(
   // Grounded advice over the user's owned evidence, used when a legacy
   // advisory engine cannot answer (instead of the misleading generic failure).
   const groundedAdvice = () => runAdvisor({ ...contract, advisory_kind: "decision", advisory_params: contract.advisory_params ?? null });
+
+  // Period review: "como foi meu mês?" — a laid-out balance, not one number.
+  if (contract.domain === "advisory" && contract.advisory_kind === "period_review") {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    const resolved = resolvePeriodExpressions(normalizePeriodExpressions(contract.focus), canonical).periods[0] ?? null;
+    const monthStart = `${today.slice(0, 8)}01`;
+    const [year, month] = today.split("-").map(Number);
+    const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    const period = resolved ? { from: resolved.from, to: resolved.to, label: resolved.label ?? null } : { from: monthStart, to: monthEnd, label: null };
+    const toolCtx = {
+      sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
+    } as any;
+    const review = await executePeriodReview({
+      period,
+      today,
+      runTool: async (tool, toolArgs) => {
+        const exec = await runTool(toolCtx, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
+        return { ok: exec.ok, result: exec.result, error: exec.error };
+      },
+    }).catch(() => null);
+    const calls = (review?.tool_calls ?? []).map((call) => ({
+      tool_name: call.tool_name, args: call.args, result: call.result, ok: call.ok,
+    }));
+    if (!review?.ok) {
+      return {
+        contract, reply: review?.reply ?? "Não consegui juntar os números desse período agora. Se quiser, me pergunte uma parte específica, como quanto você gastou ou recebeu.",
+        reply_kind: "info", path: "deterministic_fallback", compose_kind: null, evidence: [],
+        tools: calls.map((call) => call.tool_name), tool_calls: calls,
+        error: review?.error ?? "period_review_failed",
+      };
+    }
+    return {
+      contract, reply: review.reply, reply_kind: "info", path: "deterministic_tool",
+      compose_kind: "review", layout_tail: review.blocks,
+      evidence: [{ period_review: review.facts }],
+      tools: calls.map((call) => call.tool_name), tool_calls: calls,
+      active_period: { from: period.from, to: period.to, label: period.label ?? null },
+      diagnostics: { period_review: { version: review.version, ok: true } },
+    };
+  }
 
   if (contract.domain === "advisory" && isAdvisorReasoningKind(contract.advisory_kind)) {
     if (ctx.advisorEnabled) return await runAdvisor(contract);
@@ -1216,6 +1270,32 @@ async function executeContract(
     ok: call.ok === true,
   }));
 
+  // "Onde mais gastei?": o ranking ganha leitura de assessor (peso de cada
+  // categoria, compromisso escolhido, reembolso que voltou, teto estourado).
+  const extraEvidence: unknown[] = [];
+  const rankingCall = successfulSemanticExecution && !fulfillmentBlocked && toolCalls.length === 1
+    ? toolCalls.find((call) => call.ok && call.tool_name === "analyze_spending")
+    : null;
+  const ranking = rankingCall?.result as any;
+  if (ranking && ranking.metric === "expense" && ranking.group_by === "category"
+    && ["rank", "breakdown"].includes(String(ranking.view)) && !ranking.filters?.category
+    && (ranking.categories?.length ?? 0) >= 2) {
+    const reading = await executeCategoryReading({
+      spending: ranking,
+      today: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }),
+      runTool: async (tool, toolArgs) => {
+        const exec = await runTool({
+          sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
+        } as any, tool, toolArgs, { timeoutMs: 8_000, maxRetries: 0 });
+        return { ok: exec.ok, result: exec.result, error: exec.error };
+      },
+    }).catch(() => null);
+    if (reading) {
+      reply = reading.body;
+      extraEvidence.push({ category_reading: reading.facts });
+    }
+  }
+
   return {
     contract, reply, reply_kind: replyKind,
     path: ctx.semanticResolutionPath,
@@ -1226,7 +1306,7 @@ async function executeContract(
       : replyKind === "info" && (fulfillmentBlocked || !successfulSemanticExecution)
         ? "recovery"
         : null,
-    evidence: toolCalls.filter((call) => call.ok).map((call) => call.result),
+    evidence: [...toolCalls.filter((call) => call.ok).map((call) => call.result), ...extraEvidence],
     tools: semantic.engines,
     tool_calls: toolCalls,
     error: fulfillmentBlocked
