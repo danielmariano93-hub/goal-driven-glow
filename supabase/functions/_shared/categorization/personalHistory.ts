@@ -146,3 +146,49 @@ export async function derivePersonalPreferencesFromHistory(
 
   return derived;
 }
+
+/**
+ * Fontes em que a PESSOA decidiu (ou o dado veio do extrato/documento dela).
+ * Regra, conhecimento global, motor e IA ficam de fora: aprender com a própria
+ * inferência reforçaria erro sem nenhuma evidência nova.
+ */
+const HUMAN_SOURCES = new Set(["user", "personal", "history", "import", "legacy", "document_hint", "alias", ""]);
+const EXACT_MIN_COUNT = 2;
+const EXACT_MIN_SHARE = 0.8;
+
+export type LearnableRow = {
+  description: string | null;
+  category_id: string | null;
+  category_source?: string | null;
+  type: "income" | "expense";
+};
+
+export type MaterializedPreference = PersonalPreferenceRow & { transaction_type: "income" | "expense" };
+
+/**
+ * Histórico → preferência por estabelecimento/favorecido, na MESMA chave que o
+ * motor consulta (`normalizedPattern`). Só vira preferência quando a pessoa
+ * categorizou o mesmo nome pelo menos 2 vezes e 80% delas na mesma categoria.
+ */
+export function materializePreferencesFromHistory(rows: LearnableRow[]): MaterializedPreference[] {
+  const tally = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    if (!row.category_id) continue;
+    if (!HUMAN_SOURCES.has(String(row.category_source ?? ""))) continue;
+    const key = normalizedPattern(row.description);
+    if (!key || key.length < 3) continue;
+    const bucket = `${row.type}|${key}`;
+    const byCategory = tally.get(bucket) ?? new Map<string, number>();
+    byCategory.set(row.category_id, (byCategory.get(row.category_id) ?? 0) + 1);
+    tally.set(bucket, byCategory);
+  }
+  const out: MaterializedPreference[] = [];
+  for (const [bucket, byCategory] of tally) {
+    const [type, key] = bucket.split("|") as ["income" | "expense", string];
+    const total = [...byCategory.values()].reduce((sum, n) => sum + n, 0);
+    const [categoryId, count] = [...byCategory.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (count < EXACT_MIN_COUNT || count / total < EXACT_MIN_SHARE) continue;
+    out.push({ merchant_key: key, category_id: categoryId, evidence_count: count, transaction_type: type });
+  }
+  return out;
+}

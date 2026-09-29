@@ -1,8 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { streamText, Output, NoObjectGeneratedError } from "npm:ai";
 import { z } from "npm:zod";
-import { createAiGatewayProvider, normalizeAiModel, resolveAiProvider } from "../_shared/ai-gateway.ts";
+import { resolveAiProvider } from "../_shared/ai-runtime.ts";
+import { callStructuredFunction } from "../_shared/ai-structured.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordAiUsage, estimateAiCostUsd, type AiWorkload } from "../_shared/aiUsageLedger.ts";
 import { ensureWorkloadAllowed, pauseWorkloadCircuit } from "../_shared/aiWorkloadBudget.ts";
@@ -11,15 +11,26 @@ import {
   type ClassificationInput, type ClassificationResult,
 } from "../_shared/categorization/engine.ts";
 import { normalizedPattern } from "../_shared/categorization/normalize.ts";
+import { materializePreferencesFromHistory, type LearnableRow } from "../_shared/categorization/personalHistory.ts";
+import { fetchAllPages } from "../_shared/derived/pagedSelect.ts";
 
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL")??"";
 const ANON_KEY=Deno.env.get("SUPABASE_ANON_KEY")??"";
 const SERVICE_ROLE=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")??"";
 const CRON_SECRET=Deno.env.get("INTERNAL_CRON_SECRET")??Deno.env.get("CRON_SECRET")??"";
-const MODEL="google/gemini-3.6-flash";
+// Mesmo provedor e mesma chamada estruturada do restante do Nino. A chamada
+// anterior (streamText + Output.object) falhava em ~99% das tentativas desde
+// ago/2026 e deixava a fila presa em ai_error.
+const MODEL=(Deno.env.get("NINO_CATEGORY_MODEL")??Deno.env.get("NINO_AI_MODEL")??"openai/gpt-oss-120b").trim();
+const LLM_TOOL={
+  name:"emit_category_classification",
+  description:"Classifica cada lançamento em uma categoria da lista, ou null sem evidência.",
+  strict:true,
+  parameters:{type:"object",additionalProperties:false,required:["items"],properties:{items:{type:"array",items:{type:"object",additionalProperties:false,required:["index","category_id","confidence"],properties:{index:{type:"integer"},category_id:{anyOf:[{type:"string"},{type:"null"}]},confidence:{type:"number"}}}}}},
+} as const;
 
 const InputSchema=z.object({transaction_id:z.string().nullish(),type:z.enum(["income","expense","transfer"]),description:z.string().nullish(),explicit_category:z.string().nullish(),movement_kind:z.string().nullish(),transfer_group_id:z.string().nullish(),settles_card_id:z.string().nullish(),shared_expense_id:z.string().nullish()});
-const BodySchema=z.object({operation:z.enum(["classify","classify_batch","learn","review_status","process_queue","process_queue_global","backfill","backfill_global"]),input:InputSchema.optional(),inputs:z.array(InputSchema).optional(),transaction_id:z.string().optional(),category_id:z.string().optional(),limit:z.number().int().min(1).max(500).optional()});
+const BodySchema=z.object({operation:z.enum(["classify","classify_batch","learn","review_status","process_queue","process_queue_global","backfill","backfill_global","learn_history_global"]),input:InputSchema.optional(),inputs:z.array(InputSchema).optional(),transaction_id:z.string().optional(),category_id:z.string().optional(),limit:z.number().int().min(1).max(500).optional()});
 const LlmSchema=z.object({items:z.array(z.object({index:z.number(),category_id:z.string().nullable(),confidence:z.number()}))});
 function response(body:unknown,status=200){return new Response(JSON.stringify(body),{status,headers:{...corsHeaders,"Content-Type":"application/json"}});}
 async function sha256Hex(value:string):Promise<string>{const data=new TextEncoder().encode(value);const hash=await crypto.subtle.digest("SHA-256",data);return Array.from(new Uint8Array(hash)).map((b)=>b.toString(16).padStart(2,"0")).join("");}
@@ -118,7 +129,7 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
   if(!entries.length)return results;
   const provider=resolveAiProvider();
   if(!provider){deferEntries(entries,"ai_unconfigured");return results;}
-  const aiModel=normalizeAiModel(MODEL,provider);
+  const aiModel=MODEL;
   if(await getAiBlock(admin)){deferEntries(entries,"ai_circuit_blocked");return results;}
   const budget=await ensureWorkloadAllowed(admin,workload);
   if(!budget.allowed){deferEntries(entries,"workload_budget_blocked");return results;}
@@ -142,11 +153,15 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
   const started=Date.now();
   let tokensIn=0,tokensOut=0,httpStatus:number|null=null,success=false,errorCode:string|null=null;
   try{
-    const gateway=createAiGatewayProvider(provider);
-    const generation=streamText({model:gateway(aiModel),output:Output.object({schema:LlmSchema}),prompt:`Classifique lançamentos financeiros brasileiros. Use somente category_id listado E do mesmo type do item. Não classifique transferências, pagamento de fatura, investimento ou movimento técnico. Se não houver evidência suficiente, retorne category_id null. A confiança do modelo é apenas evidência para revisão; nunca autoriza auto-apply sozinha. Responda JSON estruturado.\n${JSON.stringify(payload)}`});
-    const output=await generation.output;
-    const usage=await generation.usage.catch(()=>null);
-    tokensIn=Number(usage?.promptTokens??0); tokensOut=Number(usage?.completionTokens??0); success=true;
+    const call=await callStructuredFunction({
+      provider,model:aiModel,tool:LLM_TOOL,temperature:0,reasoning_effort:"low",max_attempts:2,
+      system:"Classifique lançamentos financeiros brasileiros. Use somente category_id listado E do mesmo type do item. Não classifique transferências, pagamento de fatura, investimento ou movimento técnico. Nome de pessoa sozinho não é evidência: retorne null. Se não houver evidência suficiente, retorne category_id null. A confiança do modelo é apenas evidência para revisão; nunca autoriza aplicar sozinha.",
+      user:JSON.stringify(payload),
+    });
+    tokensIn=call.input_tokens; tokensOut=call.output_tokens; httpStatus=call.status;
+    if(!call.ok){const failure=new Error(call.error_code??"ai_error") as Error&{status?:number|null;body?:string};failure.status=call.status;failure.body=String(call.error_detail??"");throw failure;}
+    const output=LlmSchema.parse(JSON.parse(call.arguments||"{}"));
+    success=true;
     const byReturnedIndex=new Map<number,{category_id:string|null;confidence:number}>();
     for(const item of output.items??[])byReturnedIndex.set(Number(item.index),{category_id:item.category_id,confidence:Number(item.confidence??0)});
     for(const entry of selected){
@@ -173,7 +188,7 @@ async function inferWithAi(admin:ReturnType<typeof createClient>,userId:string,i
     if(httpStatus===402||httpStatus===403){await pauseAiCircuit(admin,httpStatus,String(maybe.body??""));await pauseWorkloadCircuit(admin,workload,errorCode,{status:httpStatus,requires:httpStatus===402?"top_up":"admin_action"});}
     else if(httpStatus===429){await pauseWorkloadCircuit(admin,workload,"rate_limited",{status:429,requires:"rate_limit",resumeAfter:new Date(Date.now()+15*60_000).toISOString()});}
     deferEntries(selected,errorCode??"ai_error");
-    if(NoObjectGeneratedError.isInstance(error))console.warn("[category-engine] invalid structured output",error.text?.slice(0,300));else console.warn("[category-engine] ai fallback",String(error).slice(0,300));
+    console.warn("[category-engine] ai fallback",String((error as Error)?.message??error).slice(0,300));
   }finally{
     await recordAiUsage(admin,{workload,function_name:"category-engine",operation:mode==="background"?"process_queue_global":"classify",user_id:userId,model:aiModel,provider:provider.provider,operation_type:"structured_classification",input_tokens:tokensIn,output_tokens:tokensOut,success,http_status:httpStatus,error_code:errorCode,latency_ms:Date.now()-started,batch_size:unresolvedRaw.length,unique_items:selected.length,idempotency_key:phash,reason_for_ai_call:"unresolved_category_semantic_fallback",prompt_hash:phash,payload_bytes:JSON.stringify(payload).length,metadata:{engine_version:CATEGORY_ENGINE_VERSION}});
   }
@@ -274,6 +289,30 @@ Deno.serve(async(req)=>{
       const {data,error}=await admin.rpc("claim_category_classification_batch",{p_limit:body.limit??100,p_user_id:null}); if(error)throw error;
       const result=await processClaimed(admin,(data??[]) as ClaimedRow[]); return response({ok:true,engine_version:CATEGORY_ENGINE_VERSION,claimed:(data??[]).length,...result});
     }
+    if(body.operation==="learn_history_global"){
+      // Materializa preferências pessoais a partir do que cada pessoa já
+      // categorizou (o motor V2 só consulta preferências, nunca o histórico
+      // bruto). Nunca sobrescreve preferência existente.
+      if(!isCron)return response({error:"Não autorizado"},401);
+      const since=new Date(Date.now()-730*86_400_000).toISOString().slice(0,10);
+      const users=await fetchAllPages<{user_id:string}>((from,to)=>admin.from("transactions").select("user_id")
+        .is("category_id",null).eq("status","confirmed").order("id").range(from,to) as any,{source:"learn_history_users"});
+      const userIds=[...new Set(users.map((r)=>r.user_id))];
+      let created=0; const perUser:Record<string,number>={};
+      for(const uid of userIds){
+        const rows=await fetchAllPages<LearnableRow>((from,to)=>admin.from("transactions").select("description,category_id,category_source,type")
+          .eq("user_id",uid).eq("status","confirmed").in("type",["income","expense"]).not("category_id","is",null)
+          .gte("occurred_at",since).order("id").range(from,to) as any,{source:"learn_history_rows"});
+        const prefs=materializePreferencesFromHistory(rows);
+        if(!prefs.length)continue;
+        const {data:inserted,error:upsertError}=await admin.from("user_merchant_preferences")
+          .upsert(prefs.map((p)=>({user_id:uid,merchant_key:p.merchant_key,transaction_type:p.transaction_type,category_id:p.category_id,evidence_count:p.evidence_count,updated_at:new Date().toISOString()})),{onConflict:"user_id,merchant_key,transaction_type",ignoreDuplicates:true})
+          .select("merchant_key");
+        if(upsertError)throw upsertError;
+        perUser[uid.slice(0,8)]=(inserted??[]).length; created+=(inserted??[]).length;
+      }
+      return response({ok:true,users:userIds.length,created,per_user:perUser});
+    }
     if(body.operation==="backfill_global"){
       // Backfill operacional (cron/admin): reenfileira lançamentos elegíveis
       // sem categoria de todos os usuários, com teto por execução.
@@ -287,7 +326,7 @@ Deno.serve(async(req)=>{
       const rows=(pending??[]) as Array<{id:string;user_id:string}>;
       if(!rows.length)return response({ok:true,enqueued:0,engine_version:CATEGORY_ENGINE_VERSION});
       const {error:upsertError}=await admin.from("category_classification_queue")
-        .upsert(rows.map((r)=>({user_id:r.user_id,transaction_id:r.id,status:"queued",locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString(),next_retry_reason:"backfill_global"})),{onConflict:"transaction_id"});
+        .upsert(rows.map((r)=>({user_id:r.user_id,transaction_id:r.id,status:"queued",attempts:0,locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString(),next_retry_reason:"backfill_global"})),{onConflict:"transaction_id"});
       if(upsertError)throw upsertError;
       const {data:claimed,error:claimError}=await admin.rpc("claim_category_classification_batch",{p_limit:Math.min(rows.length,100),p_user_id:null});
       if(claimError)throw claimError;
@@ -309,7 +348,7 @@ Deno.serve(async(req)=>{
       const ids=(pending??[]).map((r:{id:string})=>r.id);
       if(!ids.length)return response({ok:true,enqueued:0,pending:0,engine_version:CATEGORY_ENGINE_VERSION});
       const {error:upsertError}=await admin.from("category_classification_queue")
-        .upsert(ids.map((id)=>({user_id:userId,transaction_id:id,status:"queued",locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString(),next_retry_reason:"backfill_user"})),{onConflict:"transaction_id"});
+        .upsert(ids.map((id)=>({user_id:userId,transaction_id:id,status:"queued",attempts:0,locked_at:null,processed_at:null,last_error:null,available_at:new Date().toISOString(),next_retry_reason:"backfill_user"})),{onConflict:"transaction_id"});
       if(upsertError)throw upsertError;
       const {data:claimed,error:claimError}=await admin.rpc("claim_category_classification_batch",{p_limit:Math.min(ids.length,80),p_user_id:userId});
       if(claimError)throw claimError;
