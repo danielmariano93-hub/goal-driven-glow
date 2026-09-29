@@ -6,6 +6,7 @@
 // independent deep-review gate for consequential turns.
 
 import type { TurnSpecV3, SemanticTaskV3 } from "./TurnSpecV3.ts";
+import { resolvePeriodExpressionV3 } from "./TemporalContractV3.ts";
 
 export type SemanticSignatureV3 = {
   kind: TurnSpecV3["kind"];
@@ -67,7 +68,12 @@ function periodValues(tasks: SemanticTaskV3[]): string[] {
       out.push(...task.periods.map((period) => period.value));
     }
   }
-  return sortedUnique(out);
+  // Compare the resolved window, not the wording: "este mês", "esse mês" and
+  // "mês atual" are the same period. Unresolvable text stays textual.
+  return sortedUnique(out.map((value) => {
+    const grounded = resolvePeriodExpressionV3({ value, source: "current_turn", source_span: null });
+    return grounded ? `${grounded.from}..${grounded.to}` : value;
+  }));
 }
 
 /**
@@ -238,7 +244,10 @@ export function compareSemanticSignaturesV3(
   candidate: SemanticSignatureV3,
 ): SemanticComparisonV3 {
   const sameKind = official.kind === candidate.kind;
-  const sameAct = official.act === candidate.act;
+  // Without tasks the act label is phrasing ("conversational" vs
+  // "new_request" for the same chat turn), not an executable difference.
+  const sameAct = official.act === candidate.act
+    || (official.kind === candidate.kind && official.kind !== "task");
   const sameFamilies = stable(official.task_families) === stable(candidate.task_families);
   const sameEntities = stable(official.entities) === stable(candidate.entities);
   const samePeriods = stable(official.periods) === stable(candidate.periods);

@@ -514,3 +514,19 @@ describe("recovery composition", () => {
     expect(out.violations.join(",")).toContain("number_not_in_evidence");
   });
 });
+
+describe("semantic review compares meaning, not wording", () => {
+  it("treats este/esse mês as the same period", () => {
+    const withPeriod = (p: string) => semanticSignatureV3(task([{ ...lazerQuery, periods: [sourced(p)] } as SemanticTaskV3]));
+    expect(compareSemanticSignaturesV3(withPeriod("este mês"), withPeriod("esse mês")).semantic_match).toBe(true);
+    expect(compareSemanticSignaturesV3(withPeriod("este mês"), withPeriod("mês passado")).semantic_match).toBe(false);
+  });
+
+  it("ignores the act label on task-free conversation turns", () => {
+    const chat = (act: any) => semanticSignatureV3({
+      version: "nino_turn_spec.v3", kind: "conversation", response_intent: "conversation",
+      act, canonical_request: "cancelar", inherit_topic: false, references: [], direct_reply: "ok",
+    } as TurnSpecV3);
+    expect(compareSemanticSignaturesV3(chat("new_request"), chat("conversational")).semantic_match).toBe(true);
+  });
+});
