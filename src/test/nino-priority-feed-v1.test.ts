@@ -89,3 +89,13 @@ describe("nino_priority_learning.v1", () => {
     expect((other.evidence as any).learning_adjustment).toBe(-10);
   });
 });
+
+describe("ordem da fila", () => {
+  it("risco crítico lidera mesmo com nota menor que um item relevante", () => {
+    const feed = buildPriorityFeed([
+      sit({ fingerprint: "goal", communication_kind: "goal_at_risk", priority_score: 140 }),
+      sit({ fingerprint: "crit", communication_kind: "goal_feasibility", severity: "critical", priority_score: 135 }),
+    ], ctx);
+    expect(feed.map((i) => i.fingerprint)).toEqual(["crit", "goal"]);
+  });
+});

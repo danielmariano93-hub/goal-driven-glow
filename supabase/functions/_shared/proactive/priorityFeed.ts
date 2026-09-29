@@ -43,7 +43,11 @@ export function buildPriorityFeed(
   const minConfidence = opts.minConfidence ?? 0.6;
   const kinds = new Set<string>();
   const out: PriorityFeedItem[] = [];
-  const ordered = [...ranked].sort((a, b) => b.priority_score - a.priority_score);
+  // Risco crítico vem primeiro (mesma regra editorial da Home); dentro de cada
+  // faixa vale a nota (relevância pessoal, aprendizado, impacto).
+  const ordered = [...ranked].sort((a, b) =>
+    Number(b.severity === "critical") - Number(a.severity === "critical")
+    || b.priority_score - a.priority_score);
   for (const situation of ordered) {
     if (out.length >= limit) break;
     if (situation.score_reasons.includes("muted_by_learning")) continue;
