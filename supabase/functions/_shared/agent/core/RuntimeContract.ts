@@ -12,7 +12,7 @@
 
 // 27/09: lifecycle hardening + referências de dívida + atalhos determinísticos
 // de gráfico/período/undo + barreira de linguagem humana e resiliência de IA.
-export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-29.1";
+export const AGENT_RUNTIME_VERSION = "nino-agent-p0.2026-09-29.2";
 
 export const ANALYTICAL_CONTRACT_VERSION = "nino_analytical.v5";
 

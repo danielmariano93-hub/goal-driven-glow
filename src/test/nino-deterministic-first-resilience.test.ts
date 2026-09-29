@@ -45,6 +45,50 @@ function activeOverallSpendingMemory() {
   } as any;
 }
 
+function activeMonthlySeriesMemory() {
+  return {
+    current_topic: "read",
+    previous_intent: "read",
+    active_category: "Lazer",
+    active_merchant: null,
+    active_period: { from: "2026-06-01", to: "2026-09-29", label: "últimos 4 meses" },
+    conversation_summary: "Evolução de Lazer mês a mês nos últimos 4 meses",
+    references: [{
+      id: "monthly-ref",
+      type: "entity_set",
+      target: "category",
+      entity_labels: ["Lazer"],
+      created_at: "2026-09-29T10:00:00.000Z",
+      expires_at: "2099-09-29T10:30:00.000Z",
+      turns_remaining: 5,
+      status: "active",
+      source: {
+        tool_name: "spending_timeseries_monthly",
+        query_id: "q-monthly",
+        context: {
+          evidence: {
+            kind: "monthly_series",
+            version: "nino_monthly_series.v1",
+            formula_version: "monthly.v1",
+            months: [
+              { month: "2026-06", total: 120, has_data: true, transaction_count: 2 },
+              { month: "2026-07", total: 450, has_data: true, transaction_count: 5 },
+              { month: "2026-08", total: 300, has_data: true, transaction_count: 3 },
+              { month: "2026-09", total: 220, has_data: true, transaction_count: 2 },
+            ],
+            total: 1090,
+            transaction_count: 12,
+            window: { from: "2026-06-01", to: "2026-09-29", n: 4 },
+            scope: { category: "Lazer", merchant: null },
+            partial_first_month: false,
+            partial_last_month: true,
+          },
+        },
+      },
+    }],
+  } as any;
+}
+
 const compile = (text: string, memory: any = null) => compileDeterministicConversationTurn({ text, memory });
 
 describe("Nino deterministic-first — sem gastar quota em intenção inequívoca", () => {
@@ -172,6 +216,63 @@ describe("Nino deterministic-first — sem gastar quota em intenção inequívoc
   it("não converte continuação temporal de dívida em gasto", () => {
     const memory = { ...activeOverallSpendingMemory(), current_topic: "dívidas", conversation_summary: "Quais dívidas eu tenho?", active_category: null };
     expect(compile("E no mês passado?", memory as any)).toBeNull();
+  });
+
+  it("acolhe uma abertura humana sobre gastos sem depender do provider", () => {
+    const turn = compile("Oi Nino, tudo bem? Tô tentando entender melhor meus gastos hoje.");
+    expect(turn).toMatchObject({ mode: "converse", act: "conversational", inherit_focus: false });
+    expect(turn?.direct_reply).toContain("Vamos olhar isso juntos");
+  });
+
+  it("compila comparação e peso por categoria a partir do período ativo", () => {
+    const turn = compile("Isso foi muito? O que mais pesou?", activeOverallSpendingMemory());
+    expect(turn).toMatchObject({
+      mode: "read",
+      inherit_focus: true,
+      focus: { period_expressions: ["2026-09-14..2026-09-20", "2026-09-21..2026-09-27"] },
+      financial_read: {
+        queries: [
+          { operation: "compare", comparison_baseline_expression: "2026-09-14..2026-09-20", comparison_target_expression: "2026-09-21..2026-09-27" },
+          { operation: "breakdown", group_by: ["category"] },
+        ],
+      },
+    });
+  });
+
+  it("gera pedido de gráfico referenciado sem chamar IA", () => {
+    const turn = compile("Boa. Mostra isso em gráfico.", activeMonthlySeriesMemory());
+    expect(turn).toMatchObject({ mode: "converse", inherit_focus: true, reference: { target: "category" } });
+    expect(turn?.direct_reply).toContain("gráfico mês a mês");
+  });
+
+  it("responde observação e pior mês somente com a evidência mensal persistida", () => {
+    const memory = activeMonthlySeriesMemory();
+    const observation = compile("O que você acha que eu deveria observar aqui?", memory);
+    expect(observation?.direct_reply).toContain("julho de 2026");
+    expect(observation?.direct_reply).toContain("R$ 450,00");
+    expect(observation?.direct_reply).toContain("mês é parcial");
+
+    const worst = compile("Voltando pro Lazer: qual daqueles quatro meses foi o pior?", memory);
+    expect(worst?.direct_reply).toContain("julho de 2026");
+    expect(worst?.direct_reply).toContain("R$ 450,00");
+  });
+
+  it("trata reação humana sem apagar o contexto financeiro", () => {
+    const turn = compile("Caramba, eu não tinha percebido isso.", activeMonthlySeriesMemory());
+    expect(turn).toMatchObject({ mode: "converse", inherit_focus: true, reference: { target: "category" } });
+    expect(turn?.direct_reply).toContain("meses lado a lado");
+  });
+
+  it("resolve 'nela' como a dívida ativa", () => {
+    const turn = compile("Beleza. Registra R$ 300 de pagamento nela hoje.", activeDebtMemory());
+    expect(turn?.action).toMatchObject({ action: "debt.pay", slots: { amount: 300 } });
+    expect(turn?.reference?.target).toBe("debt");
+  });
+
+  it("usa o compilador fechado antes do V3 para não consumir quota em turnos inequívocos", () => {
+    const source = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
+    expect(source).toContain("compileDeterministicConversationTurn({ text: brainText, memory })");
+    expect(source).toContain("deterministic:closed_contract");
   });
 });
 

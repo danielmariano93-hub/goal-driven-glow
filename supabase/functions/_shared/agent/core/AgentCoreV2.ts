@@ -548,20 +548,24 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
-  // Once V3 is authoritative, ordinary language MUST reach the single semantic
-  // brain. These legacy lexical/evidence follow-up compilers stay available only
-  // outside V3 rollout as rollback compatibility; they may not preempt V3.
+  // Closed financial grammar and evidence-backed follow-ups use one strict,
+  // fail-closed deterministic authority. Everything else reaches V3. This
+  // prevents provider capacity from breaking turns whose meaning is already
+  // fully represented by owned state (confirmation-gated writes, exact reads,
+  // charts and follow-ups over persisted evidence).
   const groundedFollowupContract = v3AuthorityEnabled
-    ? null
+    ? compileDeterministicConversationTurn({ text: brainText, memory })
     : resolveGroundedComparisonFollowup(brainText, memory);
   const narrowContract = v3AuthorityEnabled
-    ? null
+    ? groundedFollowupContract
     : (groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText));
   let brain = narrowContract
     ? {
       contract: narrowContract,
       telemetry: {
-        model: groundedFollowupContract ? "deterministic:grounded_comparison_followup" : "deterministic",
+        model: v3AuthorityEnabled
+          ? "deterministic:closed_contract"
+          : groundedFollowupContract ? "deterministic:grounded_comparison_followup" : "deterministic",
         provider: null,
         llm_calls: 0,
         tokens_in: 0,
@@ -604,7 +608,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       };
     }
   }
-  const semanticResolutionPath: HandleTurnResult["path"] = semanticProviderRecovery
+  const semanticResolutionPath: HandleTurnResult["path"] = narrowContract || semanticProviderRecovery
     ? "deterministic_tool"
     : "llm";
 
