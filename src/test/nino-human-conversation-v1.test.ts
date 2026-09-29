@@ -303,6 +303,17 @@ describe("conversational composer guard", () => {
     expect(out.violations).toContain("headline_number_missing");
   });
 
+  it("lets advice lead with the most relevant computed amount", () => {
+    const input = composeInput({
+      kind: "advisory",
+      user_text: "e se eu cortar metade do delivery, quanto economizo?",
+      deterministic_body: "Hoje você gasta tipicamente R$ 290,00 por mês com Delivery.\nCom esse corte, ficaria em R$ 145,00: uma folga de R$ 145,00 por mês, ou R$ 1.740,00 em 12 meses.",
+      evidence: [{ scenario: { typical_monthly: 290, monthly_saving: 145, annual_saving: 1740 } }],
+    });
+    expect(guardComposedReply({ text: "Você economizaria R$ 145,00 por mês — R$ 1.740,00 em um ano.", input }).ok).toBe(true);
+    expect(guardComposedReply({ text: "Daria uma boa economia no seu mês.", input }).violations).toContain("headline_number_missing");
+  });
+
   it("rejects internal/provider leaks and false action claims", () => {
     expect(guardComposedReply({ text: "Segundo o motor, R$ 1.234,56.", input: composeInput() }).ok).toBe(false);
     expect(guardComposedReply({ text: "Registrei R$ 1.234,56 pra você.", input: composeInput() }).ok).toBe(false);

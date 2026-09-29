@@ -304,9 +304,18 @@ export function guardComposedReply(args: {
     if (!dates.has(key)) push(`date_not_in_evidence:${key}`);
   }
 
-  if (input.kind !== "conversation") {
+  if (input.kind === "answer") {
+    // A factual answer must keep the number that answers the question.
     const headline = firstMoney(input.deterministic_body);
     if (headline != null && !citedNumbers(text).some((n) => n.kind === "money" && matchesEvidence(n.value, [headline]))) {
+      push("headline_number_missing");
+    }
+  } else if (input.kind !== "conversation") {
+    // Advice, simulations, decisions and compound turns may lead with the most
+    // relevant result (e.g. the saving, not the baseline), but must still be
+    // anchored in at least one computed amount when the facts carry money.
+    const bodyMoney = citedNumbers(input.deterministic_body).filter((n) => n.kind === "money").map((n) => Math.abs(n.value));
+    if (bodyMoney.length && !citedNumbers(text).some((n) => n.kind === "money" && matchesEvidence(n.value, bodyMoney))) {
       push("headline_number_missing");
     }
   }
