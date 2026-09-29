@@ -12,32 +12,36 @@ import { buildNinoHomeEditorialView } from "@/lib/nino/homeEditorial";
 import { useNinoEditorialRotation } from "@/lib/nino/editorialRotation";
 import { useNinoNextStepDecision, type NinoNextStep } from "@/lib/nino/nextStep";
 import type { HomeDiagnosisView, NinoDiagnosisContext } from "@/lib/nino/diagnosis";
+import type { NinoPriority } from "@/lib/nino/priorities";
 import { notifyError } from "@/lib/ui/feedback";
 
 type Props = {
   diagnosis: HomeDiagnosisView | null;
   context: NinoDiagnosisContext | null;
   nextStep: NinoNextStep | null;
+  /** Fila única de prioridades: quando existe, é a fonte do destaque. */
+  priorities?: NinoPriority[] | null;
   loading?: boolean;
   error?: unknown;
   retrying?: boolean;
   onRetry?: () => void;
 };
 
-export function NinoGuidanceSection({ diagnosis, context, nextStep, loading, error, retrying, onRetry }: Props) {
+export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, loading, error, retrying, onRetry }: Props) {
   const decision = useNinoNextStepDecision();
   const [accepted, setAccepted] = useState<string | null>(null);
 
   const view = useMemo(
-    () => buildNinoHomeEditorialView({ context, diagnosis, nextStep }),
-    [context, diagnosis, nextStep],
+    () => buildNinoHomeEditorialView({ context, diagnosis, nextStep, priorities }),
+    [context, diagnosis, nextStep, priorities],
   );
 
   const rotation = useNinoEditorialRotation(view);
 
   if (loading) return <NinoEditorialSkeleton />;
 
-  if (error) {
+  // Com a fila disponível, uma falha do diagnóstico (reserva) não bloqueia a Home.
+  if (error && !priorities?.length) {
     return (
       <section aria-label="Orientação do Nino" className="rounded-[20px] border border-border bg-card p-4">
         <NinoErrorBlock error={error} onRetry={onRetry} retrying={retrying} />

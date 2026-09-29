@@ -16,6 +16,7 @@ import { useCategoryWeekdayHeatmap } from "@/lib/hooks/useCategoryWeekdayHeatmap
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { toHomeDiagnosisView, useNinoHomeContext } from "@/lib/nino/diagnosis";
+import { useNinoPriorities } from "@/lib/nino/priorities";
 
 export default function Index() {
   const initial = useRef(getPeriod()).current;
@@ -36,6 +37,7 @@ export default function Index() {
   const snapshot = useFinancialSnapshot(periodRange);
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const homeIntelligence = useNinoHomeContext();
+  const priorities = useNinoPriorities();
   const diagnosisContext = homeIntelligence.data?.context ?? null;
   const homeDiagnosis = useMemo(
     () => diagnosisContext ? toHomeDiagnosisView(diagnosisContext) : null,
@@ -88,7 +90,8 @@ export default function Index() {
         diagnosis={homeDiagnosis}
         context={diagnosisContext}
         nextStep={homeIntelligence.data?.nextStep ?? null}
-        loading={homeIntelligence.isLoading}
+        priorities={priorities.data ?? null}
+        loading={priorities.isLoading || (homeIntelligence.isLoading && !priorities.data?.length)}
         error={homeIntelligence.error}
         retrying={homeIntelligence.isFetching}
         onRetry={() => void homeIntelligence.refetch()}
