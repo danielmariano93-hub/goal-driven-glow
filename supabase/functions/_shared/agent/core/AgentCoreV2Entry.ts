@@ -9,21 +9,16 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { handleTurnV2 as handleTurnV2Core } from "./AgentCoreV2.ts";
-import { handleTurn as handleLegacyTurn, type HandleTurnInput, type HandleTurnResult } from "./AgentCore.ts";
+import type { HandleTurnInput, HandleTurnResult } from "./AgentCore.ts";
 import { service } from "./service.ts";
 import { getState, patchState } from "./StateManager.ts";
 import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
 import type { ComparisonEvidence, MonthlySeriesEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
-import { isEnabled } from "./FeatureFlags.ts";
 import { runTool } from "./ToolRuntime.ts";
 import { resolveTimeAspectPt } from "../../analytics/periodResolver.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
-import {
-  captureRuntimeV3ShadowSnapshot,
-  scheduleRuntimeV3ProductionShadow,
-} from "../v3/RuntimeV3ProductionShadow.ts";
 
 function comparisonEvidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
@@ -350,45 +345,16 @@ async function bindExecutedMonthlyPeriod(input: HandleTurnInput, turn: HandleTur
 }
 
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
-  // Explicit human-domain events with a dedicated deterministic tool should
-  // never depend on the Conversation Brain contract. This is intentionally
-  // narrow: the allowlist lives in V2DeterministicHumanGate and currently
-  // restores only emotional check-ins already handled safely by the legacy core.
+  // Check-in emocional explícito é registrado de forma determinística, fora do
+  // caminho da resposta; o significado do turno continua sendo do V3, que
+  // responde com empatia pelo compositor conversacional.
   const humanCapability = resolveV2DeterministicHumanCapability(input.text);
-  if (humanCapability) {
-    // Under V3-first authority the language turn belongs to V3 (which answers
-    // with empathy through the conversational composer). The emotional
-    // check-in is still recorded deterministically, off the reply path, so the
-    // lexical gate no longer decides what the user meant.
-    const v3First = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
-      && await isEnabled("v3_first_authority_v1", input.user_id).catch(() => false);
-    if (!v3First) return await handleLegacyTurn(input);
-    if (humanCapability.required_tool) {
-      await runTool({
-        sb: service(), user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text,
-      } as any, humanCapability.required_tool, humanCapability.tool_args ?? {}, { timeoutMs: 6_000, maxRetries: 0 })
-        .catch(() => undefined);
-    }
+  if (humanCapability?.required_tool) {
+    await runTool({
+      sb: service(), user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.text,
+    } as any, humanCapability.required_tool, humanCapability.tool_args ?? {}, { timeoutMs: 6_000, maxRetries: 0 })
+      .catch(() => undefined);
   }
-
-  // Shadow snapshot is captured before the official turn can mutate memory.
-  // It is gated per-user and never changes the official response or financial state.
-  const authorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);
-  const shadowEnabled = !authorityEnabled
-    && await isEnabled("runtime_v3_shadow", input.user_id).catch(() => false);
-  const shadowSb = shadowEnabled ? service() : null;
-  const shadowSnapshot = shadowSb
-    ? await captureRuntimeV3ShadowSnapshot(shadowSb, {
-      user_id: input.user_id,
-      conversation_id: input.conversation_id,
-      inbound_message_id: input.inbound_message_id ?? null,
-      channel: input.channel,
-      text: input.text,
-    }).catch((error) => {
-      console.warn("[AgentCoreV2Entry] V3 shadow snapshot failed", String((error as Error)?.message ?? error).slice(0, 220));
-      return null;
-    })
-    : null;
 
   const turn = await handleTurnV2Core(input);
   await bindEvidence(input, turn).catch((error) => {
@@ -400,18 +366,5 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   await bindExecutedMonthlyPeriod(input, turn).catch((error) => {
     console.error("[AgentCoreV2Entry] monthly period binding failed", String((error as Error)?.message ?? error).slice(0, 240));
   });
-
-  if (shadowSb && shadowSnapshot) {
-    scheduleRuntimeV3ProductionShadow({
-      sb: shadowSb,
-      snapshot: shadowSnapshot,
-      official: {
-        path: turn.path ?? null,
-        reply_kind: turn.reply_kind ?? null,
-        run_id: turn.run_id ?? null,
-      },
-    });
-  }
-
   return turn;
 }

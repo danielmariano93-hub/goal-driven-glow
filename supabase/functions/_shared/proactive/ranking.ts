@@ -103,6 +103,8 @@ export function meetsSituationMateriality(
   if (situation.severity === "critical") return true;
   // Pedido de dado não tem valor em R$: vale pelo que destrava nas leituras.
   if (situation.communication_kind === "data_quality") return true;
+  // Balanço do mês e dica de uso também valem pelo que orientam, não por R$.
+  if (situation.communication_kind === "mid_month_checkin" || situation.communication_kind === "feature_discovery") return true;
   // Urgência dispensa o piso apenas quando há risco: contexto informativo de
   // valor pequeno nunca vale uma interrupção, mesmo vencendo amanhã.
   if (situation.severity !== "info" && (situation.days_until ?? 99) <= 3) return true;

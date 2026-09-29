@@ -2,15 +2,11 @@
 //
 // Natural-language meaning is owned by TurnSpecV3. Downstream components may
 // validate, ground and execute that meaning, but they never reinterpret it.
-// no lexical fast-path, parser or V2 circuit breaker may decide meaning first
-// Legacy V2 remains only for users outside the V3 rollout.
+// no lexical fast-path, parser or V2 circuit breaker may decide meaning first.
 // deno-lint-ignore-file no-explicit-any
 
 import { isEnabled } from "./FeatureFlags.ts";
-import {
-  interpretConversationTurn as interpretConversationTurnV2,
-  type ConversationBrainOutcome,
-} from "./ConversationBrain.ts";
+import type { ConversationBrainInput, ConversationBrainOutcome } from "./ConversationBrain.ts";
 import {
   normalizeConversationTurnContract,
   type CanonicalConversationTurnContract,
@@ -24,7 +20,7 @@ import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
 export { dialogueActsFromContract } from "./ConversationBrain.ts";
 export type { ConversationTurnContract } from "./ConversationBrain.ts";
 
-type AuthorityInput = Parameters<typeof interpretConversationTurnV2>[0];
+type AuthorityInput = ConversationBrainInput;
 type SemanticTelemetry = ConversationBrainOutcome["telemetry"];
 
 function historyText(history: AuthorityInput["history"]): string {
@@ -226,12 +222,6 @@ function humanSemanticClarification(
 }
 
 export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
-  const authorityEnabled = input.user_id
-    ? await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false)
-    : false;
-
-  if (!authorityEnabled) return await interpretConversationTurnV2(input);
-
   const semantic = await interpretWithSingleSemanticAuthorityV3({
     text: input.text,
     history_text: historyText(input.history),

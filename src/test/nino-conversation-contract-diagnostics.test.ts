@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   conversationContractRepairHint,
@@ -100,13 +99,5 @@ describe("ConversationTurnContract diagnostics", () => {
       inherit_focus: false,
     }));
     expect(diagnosis.reasons).toContain("continuation_without_focus_inheritance");
-  });
-
-  it("wires deterministic reason codes into ConversationBrain repair and telemetry", () => {
-    const source = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
-    expect(source).toContain("diagnoseConversationTurnContract");
-    expect(source).toContain("INVALID_REASONS:");
-    expect(source).toContain("contract_invalid_reasons: invalidReasons");
-    expect(source).toContain("Corrija exatamente os invariantes listados acima");
   });
 });

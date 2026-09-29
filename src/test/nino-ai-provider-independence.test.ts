@@ -5,8 +5,11 @@ import { interpret } from "../../supabase/functions/_shared/agent/parser";
 // Provider selection lives in ai-runtime; production call sites must not depend on Lovable AI.
 describe("Nino AI provider independence", () => {
   it("uses one stable structured-call adapter for understanding and semantic compilation", () => {
+    // O antigo Conversation Brain não chama mais IA: a interpretação é do V3.
+    const brain = readFileSync("supabase/functions/_shared/agent/core/ConversationBrain.ts", "utf8");
+    expect(brain).not.toContain("callStructuredFunction");
+    expect(brain).not.toContain("resolveAiProvider()");
     const structuredFiles = [
-      "supabase/functions/_shared/agent/core/ConversationBrain.ts",
       "supabase/functions/_shared/agent/core/SemanticCompiler.ts",
       "supabase/functions/_shared/agent/core/HumanUnderstanding.ts",
     ];
@@ -86,7 +89,6 @@ describe("Nino AI provider independence", () => {
 
   it("does not put the Conversation Brain or Semantic Compiler on beta Responses transport", () => {
     for (const path of [
-      "supabase/functions/_shared/agent/core/ConversationBrain.ts",
       "supabase/functions/_shared/agent/core/SemanticCompiler.ts",
     ]) {
       const source = readFileSync(path, "utf8");

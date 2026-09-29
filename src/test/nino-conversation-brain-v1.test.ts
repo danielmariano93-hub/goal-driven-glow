@@ -190,7 +190,9 @@ describe("Wiring arquitetural", () => {
     expect(orchestrator).toContain("handleTurnV2(");
     expect(whatsapp).toContain("handleTurnV2(");
     expect(app).toContain("handleTurnV2(");
-    expect(v2).toContain('isEnabled("conversation_brain_v1"');
+    // V3 é a autoridade única: não há mais flag que devolva a linguagem ao legado.
+    expect(v2).not.toContain('isEnabled("conversation_brain_v1"');
+    expect(v2).toContain("const v3AuthorityEnabled = true;");
     expect(v2).toContain("preservation_enforced: true");
     expect(v2).not.toContain("classifyCapability(");
     expect(v2).not.toContain("routeIntent(");

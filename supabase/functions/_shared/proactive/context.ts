@@ -107,6 +107,9 @@ export async function buildMultiFinanceProactiveContext(
         period_performance: snapshot.period_performance,
         current_month_income: num(snapshot.current_month_income),
         current_month_expense: num(snapshot.current_month_expense),
+        // Projeção do mês no ritmo atual (gasto até hoje + consumo projetado).
+        projected_month_expense: round2(num(snapshot.current_month_expense) + num(snapshot.projected_remaining_consumption)),
+        days_elapsed: num(snapshot.days_elapsed),
         expected_income_rest_of_month: round2((snapshot.estimated_income_events ?? [])
           .filter((event: any) => String(event.date) > snapshot.today && String(event.date) <= snapshot.month_end)
           .reduce((sum: number, event: any) => sum + num(event.amount), 0)),

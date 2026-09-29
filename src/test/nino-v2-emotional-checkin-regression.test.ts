@@ -30,6 +30,7 @@ describe("V2 deterministic human events — regression", () => {
     expect(gateIndex).toBeGreaterThan(-1);
     expect(coreIndex).toBeGreaterThan(-1);
     expect(gateIndex).toBeLessThan(coreIndex);
-    expect(entry).toContain("return await handleLegacyTurn(input)");
+    // O check-in é registrado, mas a resposta é do V3: nunca volta ao runtime antigo.
+    expect(entry).not.toContain("handleLegacyTurn");
   });
 });

@@ -24,7 +24,8 @@ describe("Nino Runtime V3 production authority", () => {
   it("routes ordinary language through one V3 semantic authority without a V2 reinterpretation circuit breaker", () => {
     const authority = readFileSync("supabase/functions/_shared/agent/core/ConversationAuthority.ts", "utf8");
     const semanticAuthority = readFileSync("supabase/functions/_shared/agent/v3/SemanticAuthorityV3.ts", "utf8");
-    expect(authority).toContain('isEnabled("runtime_v3_authority_v1"');
+    // Sem ramo alternativo: nenhuma falha de flag devolve a linguagem ao cérebro antigo.
+    expect(authority).not.toContain("interpretConversationTurnV2");
     expect(authority).toContain("interpretWithSingleSemanticAuthorityV3");
     expect(authority).toContain("bridgeTurnSpecV3ToRuntime");
     expect(authority).not.toContain("v3-circuit-breaker:");
@@ -35,17 +36,17 @@ describe("Nino Runtime V3 production authority", () => {
 
     const core = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
     expect(core).toContain('from "./ConversationAuthority.ts"');
-    expect(core).toContain('v3AuthorityEnabled || await isEnabled("conversation_brain_v1"');
+    expect(core).toContain("const v3AuthorityEnabled = true;");
     expect(core).toContain("const groundedFollowupContract = v3AuthorityEnabled");
     expect(core).toContain("const narrowContract = v3AuthorityEnabled");
     const authorityCall = core.indexOf("await interpretConversationTurn({");
     expect(authorityCall).toBeGreaterThan(0);
   });
 
-  it("does not double-call V3 shadow once authority owns the turn", () => {
+  it("has no shadow interpretation or legacy fallback in the V2 entry", () => {
     const entry = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2Entry.ts", "utf8");
-    expect(entry).toContain('const authorityEnabled = await isEnabled("runtime_v3_authority_v1"');
-    expect(entry).toContain("const shadowEnabled = !authorityEnabled");
+    expect(entry).not.toContain("RuntimeV3ProductionShadow");
+    expect(entry).not.toContain("handleLegacyTurn");
   });
 
   it("bridges historical monthly semantics with provenance plus canonical execution scope", () => {

@@ -25,10 +25,6 @@ import {
   type CanonicalConversationTurnContract, type ConversationTurnContract,
 } from "./ConversationTurnContract.ts";
 import { executeBrainWriteTurn } from "./ConversationBrainRuntime.ts";
-import {
-  attachLegacyShadowObservation,
-  evaluateConversationBrainShadow,
-} from "./ConversationBrainShadow.ts";
 import { createTurnEvidenceCache } from "./TurnEvidenceCache.ts";
 import { classifyConfirmationAct } from "./ConfirmationVocabulary.ts";
 import { findPending } from "./PendingConfirmations.ts";
@@ -418,42 +414,10 @@ async function finishV2(args: {
 }
 
 export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnResult> {
-  const v3AuthorityEnabled = await isEnabled("runtime_v3_authority_v1", input.user_id).catch(() => false);
-  const enabled = v3AuthorityEnabled || await isEnabled("conversation_brain_v1", input.user_id);
-  const shadowEnabled = !enabled && await isEnabled("conversation_brain_shadow_v1", input.user_id);
-
-  if (!enabled && !shadowEnabled) return await handleLegacyTurn(input);
-
-  if (!enabled && shadowEnabled) {
-    const sb = service();
-    const [legacy] = await Promise.all([
-      handleLegacyTurn(input),
-      evaluateConversationBrainShadow({
-        sb,
-        input: {
-          user_id: input.user_id,
-          conversation_id: input.conversation_id,
-          inbound_message_id: input.inbound_message_id ?? null,
-          channel: input.channel,
-          text: input.text,
-        },
-        model: BRAIN_MODEL,
-      }),
-    ]);
-    await attachLegacyShadowObservation({
-      sb,
-      input: {
-        user_id: input.user_id,
-        conversation_id: input.conversation_id,
-        inbound_message_id: input.inbound_message_id ?? null,
-        channel: input.channel,
-        text: input.text,
-      },
-      legacy: { path: legacy.path ?? null, reply_kind: legacy.reply_kind ?? null },
-    }).catch(() => undefined);
-    return legacy;
-  }
-
+  // V3 é a única autoridade de linguagem. O runtime antigo só atende os atalhos
+  // determinísticos abaixo (confirmação pendente, notificação bancária/lote e
+  // registro rápido) — nunca mais por falha de leitura de flag.
+  const v3AuthorityEnabled = true;
   const sb = service();
   const started = Date.now();
 
