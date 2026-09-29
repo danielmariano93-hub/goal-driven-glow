@@ -47,6 +47,25 @@ function canonicalPeriod(period: PeriodExpressionV3 | null | undefined, now: Dat
   return canonical?.value ?? null;
 }
 
+/**
+ * "isso é muito comparado com o mês passado?" names only the baseline. The
+ * evaluated window is then the task's own explicit period, or — when the
+ * baseline is the previous calendar month — the current month to date. Any
+ * other one-sided comparison stays unrepresentable and is rejected.
+ */
+function comparisonTargetPeriod(task: FinancialQueryTaskV3, now: Date): string | null {
+  const explicit = canonicalPeriod(task.comparison?.target, now);
+  if (explicit || task.operation !== "compare" || task.comparison?.baseline.kind !== "period") return explicit;
+  const baseline = canonicalPeriod(task.comparison.baseline.period, now);
+  if (!baseline) return null;
+  const fromTask = task.periods.map((period) => canonicalPeriod(period, now)).find((value) => value && value !== baseline);
+  if (fromTask) return fromTask;
+  const previousMonth = canonicalPeriod({ value: "mês passado", source: "current_turn", source_span: "mês passado" } as PeriodExpressionV3, now);
+  return baseline === previousMonth
+    ? canonicalPeriod({ value: "este mês", source: "current_turn", source_span: "este mês" } as PeriodExpressionV3, now)
+    : null;
+}
+
 /** Canonical windows only. These are authoritative for execution. */
 function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
   const values: string[] = [];
@@ -60,7 +79,7 @@ function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
         const canonical = canonicalPeriod(task.comparison.baseline.period, now);
         if (canonical) values.push(canonical);
       }
-      const target = canonicalPeriod(task.comparison?.target, now);
+      const target = comparisonTargetPeriod(task, now);
       if (target) values.push(target);
     }
     if (task.kind === "advisory") {
@@ -106,7 +125,7 @@ function financialQuery(task: FinancialQueryTaskV3, now: Date): FinancialReadSem
   const baselineExpression = comparison?.baseline.kind === "period"
     ? canonicalPeriod(comparison.baseline.period, now)
     : null;
-  const targetExpression = canonicalPeriod(comparison?.target, now);
+  const targetExpression = comparisonTargetPeriod(task, now);
   return {
     metric: task.metric,
     operation: task.operation,

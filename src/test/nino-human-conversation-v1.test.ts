@@ -550,3 +550,26 @@ describe("bridge tolerates redundant-flag inconsistencies", () => {
     if (bridged.ok) expect(bridged.contract.direct_reply).not.toMatch(/R\$/);
   });
 });
+
+describe("one-sided period comparison", () => {
+  const compareWith = (baseline: string) => task([{
+    ...lazerQuery,
+    operation: "compare",
+    periods: [],
+    comparison: { direction: "any", baseline: { kind: "period", period: sourced(baseline) }, target: null },
+  } as SemanticTaskV3]);
+
+  it("evaluates the current month when only 'mês passado' is named", () => {
+    const bridged = bridgeTurnSpecV3ToRuntime(compareWith("mês passado"), NOW);
+    expect(bridged.ok).toBe(true);
+    if (!bridged.ok) return;
+    const query = bridged.contract.financial_read!.queries[0];
+    expect(query.comparison_baseline_expression).toMatch(/^\d{4}-\d{2}-01\.\.\d{4}-\d{2}-\d{2}$/);
+    expect(query.comparison_target_expression).not.toBe(query.comparison_baseline_expression);
+    expect(query.comparison_target_expression).toMatch(/-01\.\./);
+  });
+
+  it("still rejects a one-sided comparison it cannot represent", () => {
+    expect(bridgeTurnSpecV3ToRuntime(compareWith("março"), NOW).ok).toBe(false);
+  });
+});
