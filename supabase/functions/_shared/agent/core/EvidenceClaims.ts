@@ -174,7 +174,6 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
   rows.forEach((raw, index) => {
     const row = (raw ?? {}) as Record<string, unknown>;
     const name = typeof row.name === "string" ? row.name : typeof row.label === "string" ? row.label : null;
-    // DebtStatus and other EngineEnvelope rows use domain-specific money fields.
     const v = num(row.value ?? row.total ?? row.amount ?? row.outstanding_balance ?? row.net_total);
     if (!name) return;
     claims.push({ id: seq(), ...base, type: "rank", value: v, label: name, rank: index + 1 });
@@ -189,7 +188,8 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     claims.push({ id: seq(), ...base, type: "absence", value: 0, label: "sem_dados_no_recorte", rank: null });
   }
 
-  const period = (result.period ?? result.evidence && (result.evidence as Record<string, unknown>).period) as Record<string, unknown> | undefined;
+  const evidence = result.evidence as Record<string, unknown> | undefined;
+  const period = (result.period ?? evidence?.period) as Record<string, unknown> | undefined;
   if (period?.from && period?.to) {
     claims.push({ id: seq(), ...base, type: "period", value: null, label: `${String(period.from)}..${String(period.to)}`, rank: null });
   }
