@@ -100,6 +100,8 @@ export interface AgendaDebtRow {
 }
 
 const SETTLED = new Set(["paid", "settled", "closed_paid"]);
+/** Por quantos dias uma parcela já paga continua na agenda como "Pago". */
+const RECENTLY_PAID_DAYS = 7;
 const DEAD_INSTALLMENTS = new Set(["paid", "refunded", "cancelled", "reversed", "anticipated"]);
 
 // Datas civis: nunca `new Date(ano, mês, dia)` (viraria 03/09 em runtime UTC).
@@ -261,6 +263,27 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
     const installment = round2(Number(debt.installment_amount || 0));
     if (installment <= 0) continue;
     const canonical = debtState.get(debt.id);
+    // Parcela recém-paga continua visível como "Pago" por alguns dias, mesmo com
+    // o vencimento já passado: sem isso ela some e a próxima parcela (mesmo nome,
+    // mesmo valor) parece a que acabou de ser paga. Itens pagos nunca somam.
+    const paidCycleDue = canonical?.current_cycle_status === "paid" ? canonical.current_cycle_due_date : null;
+    const paidAt = canonical?.current_cycle_paid_at ?? null;
+    if (paidCycleDue && paidCycleDue < todayIso && paidAt && paidAt >= addDaysISO(todayIso, -RECENTLY_PAID_DAYS)) {
+      push({
+        id: `${debt.id}-${paidCycleDue}`,
+        name: `Parcela ${debt.name}`,
+        type: "expense",
+        amount: installment,
+        date: paidCycleDue,
+        source: "debt_installment",
+        estimated: false,
+        dedupKey: `debt:${debt.id}:${paidCycleDue.slice(0, 7)}`,
+        payment_status: "paid",
+        paid_at: paidAt,
+        source_payment_id: canonical?.source_payment_id ?? null,
+        next_due_date: canonical?.next_due_date ?? null,
+      });
+    }
     const currentCycleDue = debtDueDate(todayIso, debt.due_day);
     const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
     for (const due of candidates) {

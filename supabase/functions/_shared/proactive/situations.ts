@@ -164,11 +164,13 @@ export function composeFinancialSituations(
       outstanding > 0 ? `O saldo dessa dívida hoje é ${brl(outstanding)}.` : "",
       overdue ? "Quanto mais tempo passa, maior o custo do atraso." : "",
     ].filter(Boolean);
+    // Vence hoje é tão urgente quanto atraso: passa pelo teto diário de mensagens.
+    const dueToday = !overdue && dueState === "due_today";
     out.push(situation({
       ctx,
       type: overdue ? "debt_overdue" : "debt_due_soon",
       communication_kind: overdue ? "debt_overdue" : "debt_due_soon",
-      severity: overdue ? "critical" : "attention",
+      severity: overdue || dueToday ? "critical" : "attention",
       title: `Parcela de ${name} ${wording}`.trim(),
       body: bodyParts.join(" "),
       primary_domain: "debts",

@@ -281,8 +281,13 @@ export function collectFinancialSignals(ctx: MultiFinanceProactiveContext): Fina
     const dueDate = overdue
       ? (obligation.cycle_due_date ?? obligation.next_due_date)
       : (obligation.cycle_due_date ?? obligation.next_due_date);
+    // Identidade POR CICLO e POR MOMENTO: antes a chave era só a dívida, então
+    // a parcela de setembro "já tinha sido comunicada" em agosto e nunca mais
+    // era lembrada. Agora cada ciclo tem até três avisos: semana do vencimento,
+    // véspera/dia e atraso.
+    const stage = overdue ? "overdue" : (obligation.days_until ?? 99) <= 1 ? "imminent" : "week";
     out.push({
-      key: `debt_due:${obligation.debt_id}`,
+      key: `debt_due:${obligation.debt_id}:${dueDate ?? "sem-data"}:${stage}`,
       domain: "debts",
       label: `Parcela de ${obligation.name} (${brl(obligation.installment_amount)}) ${dueWording(obligation.days_until)}`,
       amount: obligation.installment_amount,

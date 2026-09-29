@@ -117,3 +117,26 @@ export async function loadDismissedTopics(sb: SupabaseClient, userId: string): P
   if (error) throw new Error(`nino_dismissed_topics:${error.message}`);
   return Array.isArray(data) ? (data as unknown[]).map(String) : [];
 }
+
+/** Gastos das últimas 12 semanas por categoria (base do aviso matinal por dia da semana). */
+export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, today: string) {
+  const [y, m, d] = today.split("-").map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d - 7 * 12)).toISOString().slice(0, 10);
+  const [txRes, catRes] = await Promise.all([
+    sb.from("transactions")
+      .select("occurred_at,amount,category_id,movement_kind")
+      .eq("user_id", userId).eq("status", "confirmed").eq("type", "expense")
+      .gte("occurred_at", from).lt("occurred_at", today)
+      .limit(1000),
+    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+  ]);
+  const names = new Map<string, string>();
+  for (const row of (((catRes as any)?.data ?? []) as any[])) names.set(String(row.id), String(row.name));
+  return (((txRes as any)?.data ?? []) as any[])
+    .filter((row) => !row.movement_kind || row.movement_kind === "transaction")
+    .map((row) => ({
+      occurred_at: String(row.occurred_at),
+      amount: Math.abs(Number(row.amount ?? 0)),
+      category: row.category_id ? names.get(String(row.category_id)) ?? null : null,
+    }));
+}

@@ -23,6 +23,15 @@ export const REPEAT_WINDOW_DAYS: Record<"app" | "whatsapp", { attention: number;
 /** Crescimento de impacto que conta como fato novo. */
 export const MATERIAL_GROWTH = 1.5;
 
+/**
+ * Obrigações com data (parcela, fatura, conta esquecida) têm identidade própria
+ * por ciclo e momento: o lembrete da parcela do Banco Pan não pode esperar a
+ * janela por causa do lembrete da parcela do Atacadão.
+ */
+export const TIME_BOUND_KINDS = new Set([
+  "debt_due_soon", "debt_overdue", "debt_installment_due", "forgotten_bill", "card_bill_pressure",
+]);
+
 export function repeatedKind(
   situation: FinancialSituation,
   channel: "app" | "whatsapp",
@@ -30,6 +39,7 @@ export function repeatedKind(
   now: Date,
 ): string | null {
   if (situation.severity === "critical") return null;
+  if (TIME_BOUND_KINDS.has(situation.communication_kind)) return null;
   const windowDays = REPEAT_WINDOW_DAYS[channel][situation.severity === "info" ? "info" : "attention"];
   const since = now.getTime() - windowDays * 86_400_000;
   const last = recent
