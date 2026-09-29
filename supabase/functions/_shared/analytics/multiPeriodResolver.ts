@@ -1,4 +1,4 @@
-// MultiPeriodResolver (`period_truth.v3`)
+// MultiPeriodResolver (`period_truth.v2`)
 //
 // Deterministic resolution of one or many period expressions. When the
 // conversation authority already emitted an explicit period slot, that slot is
@@ -9,12 +9,9 @@ import { resolvePeriodPt, type ResolvedPeriod } from "./periodResolver.ts";
 import { resolveExplicitPeriodPt } from "./explicitPeriodResolver.ts";
 
 export type MultiPeriodResolution = {
-  version: "period_truth.v3";
-  /** Períodos resolvidos, na ordem em que aparecem na frase. */
+  version: "period_truth.v2";
   periods: ResolvedPeriod[];
-  /** O usuário pediu explicitamente uma comparação entre os períodos? */
   comparison_intent: boolean;
-  /** Trechos reconhecidos, na mesma ordem de `periods`. */
   matched: string[];
   source: "enumeration" | "single" | "text" | "none" | "unresolved_authoritative";
 };
@@ -22,7 +19,6 @@ export type MultiPeriodResolution = {
 const MONTHS = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
 const MONTH_COUNTS = "um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|\\d{1,2}";
 
-/** Expressões temporais reconhecidas, mais longas primeiro. */
 const TOKEN_RX = new RegExp(
   [
     "mesmo periodo do mes passado",
@@ -63,24 +59,18 @@ function resolveExpression(expression: string, now: Date): ResolvedPeriod | null
   return resolveExplicitPeriodPt(expression, now) ?? resolvePeriodPt(expression, now);
 }
 
-/**
- * Raw-text discovery remains available only when there is NO authoritative
- * period slot. It is compatibility for legacy V2/out-of-rollout turns, not a
- * second authority after TurnSpecV3.
- */
+/** Raw-text discovery is compatibility for turns with no authoritative slot. */
 export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): MultiPeriodResolution {
   const t = norm(text);
   const empty: MultiPeriodResolution = {
-    version: "period_truth.v3", periods: [], comparison_intent: false, matched: [], source: "none",
+    version: "period_truth.v2", periods: [], comparison_intent: false, matched: [], source: "none",
   };
   if (!t) return empty;
 
-  // Explicit absolute range has priority over relative anchors contained in the
-  // same sentence ("semana passada do dia 21 ao dia 27").
   const explicit = resolveExplicitPeriodPt(text, now);
   if (explicit) {
     return {
-      version: "period_truth.v3",
+      version: "period_truth.v2",
       periods: [explicit],
       comparison_intent: COMPARISON_RX.test(t),
       matched: [explicit.matched],
@@ -102,7 +92,7 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
 
   if (hits.length === 1) {
     return {
-      version: "period_truth.v3",
+      version: "period_truth.v2",
       periods: [hits[0].period],
       comparison_intent: false,
       matched: [hits[0].matched],
@@ -117,40 +107,38 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
     chain.push(hits[i]);
   }
 
-  const unique: typeof hits = [];
+  const uniqueHits: typeof hits = [];
   const seen = new Set<string>();
   for (const hit of chain) {
     const k = key(hit.period);
     if (seen.has(k)) continue;
     seen.add(k);
-    unique.push(hit);
+    uniqueHits.push(hit);
   }
 
-  if (unique.length < 2) {
+  if (uniqueHits.length < 2) {
     return {
-      version: "period_truth.v3",
-      periods: [unique[0]?.period ?? hits[0].period],
+      version: "period_truth.v2",
+      periods: [uniqueHits[0]?.period ?? hits[0].period],
       comparison_intent: false,
-      matched: [unique[0]?.matched ?? hits[0].matched],
+      matched: [uniqueHits[0]?.matched ?? hits[0].matched],
       source: "text",
     };
   }
 
   return {
-    version: "period_truth.v3",
-    periods: unique.map((h) => h.period),
+    version: "period_truth.v2",
+    periods: uniqueHits.map((h) => h.period),
     comparison_intent: comparison,
-    matched: unique.map((h) => h.matched),
+    matched: uniqueHits.map((h) => h.matched),
     source: "enumeration",
   };
 }
 
 /**
- * Resolve the period slots emitted by the semantic authority.
- *
- * CRITICAL INVARIANT: one authoritative expression is still authoritative.
- * The old implementation ignored lists with length < 2 and reparsed `text`,
- * which is how an exact 21–27 interval became the current month.
+ * Resolve slots emitted by the semantic authority. A single authoritative
+ * expression remains authoritative; an unresolved authoritative expression
+ * fails closed instead of falling back to raw-text/default interpretation.
  */
 export function resolvePeriodExpressions(
   expressions: string[] | null | undefined,
@@ -176,11 +164,9 @@ export function resolvePeriodExpressions(
     matched.push(expression);
   }
 
-  // An authoritative slot that cannot be grounded must never silently turn
-  // into a different raw-text/default period. The caller can fail closed.
   if (unresolved.length) {
     return {
-      version: "period_truth.v3",
+      version: "period_truth.v2",
       periods: [],
       comparison_intent: COMPARISON_RX.test(norm(text)),
       matched: unresolved,
@@ -189,7 +175,7 @@ export function resolvePeriodExpressions(
   }
 
   return {
-    version: "period_truth.v3",
+    version: "period_truth.v2",
     periods,
     comparison_intent: COMPARISON_RX.test(norm(text)),
     matched,
