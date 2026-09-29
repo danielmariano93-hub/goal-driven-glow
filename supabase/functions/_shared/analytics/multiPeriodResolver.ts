@@ -18,6 +18,7 @@ export type MultiPeriodResolution = {
 
 const MONTHS = "janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro";
 const MONTH_COUNTS = "um|uma|dois|duas|tres|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|\\d{1,2}";
+const CANONICAL_RANGE_RX = /^20\d{2}-\d{2}-\d{2}\.\.20\d{2}-\d{2}-\d{2}$/;
 
 const TOKEN_RX = new RegExp(
   [
@@ -139,14 +140,21 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
  * Resolve slots emitted by the semantic authority. A single authoritative
  * expression remains authoritative; an unresolved authoritative expression
  * fails closed instead of falling back to raw-text/default interpretation.
+ *
+ * Canonical windows always win over human/provenance expressions when both are
+ * present in a transitional V2 focus. This prevents a legacy text expression
+ * from competing with a V3-grounded period after semantic interpretation.
  */
 export function resolvePeriodExpressions(
   expressions: string[] | null | undefined,
   text: string,
   now: Date = new Date(),
 ): MultiPeriodResolution {
-  const list = (expressions ?? []).map((e) => String(e ?? "").trim()).filter(Boolean);
-  if (!list.length) return resolveMultiPeriodsPt(text, now);
+  const rawList = (expressions ?? []).map((e) => String(e ?? "").trim()).filter(Boolean);
+  if (!rawList.length) return resolveMultiPeriodsPt(text, now);
+
+  const canonical = rawList.filter((expression) => CANONICAL_RANGE_RX.test(expression));
+  const list = canonical.length ? canonical : rawList;
 
   const periods: ResolvedPeriod[] = [];
   const matched: string[] = [];
