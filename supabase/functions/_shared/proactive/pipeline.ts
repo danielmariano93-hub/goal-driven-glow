@@ -34,6 +34,7 @@ import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
 import { loadDataQuality, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -316,8 +317,14 @@ export async function runMultiFinanceProactive(
   }
   const deferredByTiming = decisions.filter((decision) => decision.decision === "defer").length;
 
+  // nino_priority_feed.v1 — a mesma ordem vira a fila única de "o que importa".
+  const priorityFeed = buildPriorityFeed(ranked, ctx);
+
   if (persist) {
     await persistRun(sb, userId, ctx.as_of, signals, ranked, decisions, selected);
+    // A fila não pode derrubar a entrega: falha fica registrada e segue.
+    await writePriorityFeed(sb, userId, ctx.as_of, priorityFeed)
+      .catch((error) => console.warn("[proactive] priority_feed_write_failed", String((error as Error)?.message ?? error).slice(0, 160)));
     // Check-in NÃO nasce aqui: só depois de entrega confirmada pelo dispatcher.
     if (selected.length > 0) {
       const { error } = await sb.from("pending_proactive_suggestions")
@@ -358,6 +365,7 @@ export async function runMultiFinanceProactive(
     // Simulação (persist=false): o que seria dito e por quê, para avaliação.
     ...(persist ? {} : {
       preview: {
+        priority_feed: priorityFeed.map((item) => ({ rank: item.rank, kind: item.kind, title: item.title, score: item.priority_score })),
         data_quality: dataQuality,
         user_model: userModel
           ? { focus_goal: userModel.focus_goal?.name ?? null, goals: userModel.goals.length, notes: userModel.life_notes.length }
