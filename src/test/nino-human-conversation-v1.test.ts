@@ -403,3 +403,35 @@ describe("category resolution with personal copies of global categories", () => 
     expect(await resolveCategoryIdsByName(sb, "u1", "saude")).toEqual(["global-saude"]);
   });
 });
+
+describe("release hardening from the live human E2E", () => {
+  it("closed compiler never maps a synonym to a fixed category", async () => {
+    const { compileDeterministicConversationTurn } = await import("../../supabase/functions/_shared/agent/core/DeterministicConversationCompiler");
+    expect(compileDeterministicConversationTurn({ text: "quanto gastei com delivery esse mês?", memory: null })).toBeNull();
+    const literal = compileDeterministicConversationTurn({ text: "quanto gastei com lazer esse mês?", memory: null });
+    expect(literal?.focus.category).toBe("Lazer");
+  });
+
+  it("closed compiler refuses a month it cannot represent instead of defaulting", async () => {
+    const { compileDeterministicConversationTurn } = await import("../../supabase/functions/_shared/agent/core/DeterministicConversationCompiler");
+    expect(compileDeterministicConversationTurn({ text: "quanto gastei com lazer em agosto?", memory: null })).toBeNull();
+  });
+
+  it("closed compiler refuses compound messages instead of dropping the second request", async () => {
+    const { compileDeterministicConversationTurn, hasSecondRequest } = await import("../../supabase/functions/_shared/agent/core/DeterministicConversationCompiler");
+    expect(compileDeterministicConversationTurn({ text: "anota 45 reais de ifood hoje e me diz quanto já foi esse mês", memory: null })).toBeNull();
+    expect(hasSecondRequest("quanto gastei com lazer e o que voce me sugere fazer?")).toBe(true);
+    expect(hasSecondRequest("quanto gastei entre 21 e 27?")).toBe(false);
+    expect(hasSecondRequest("e com lazer?")).toBe(false);
+  });
+
+  it("resolves English period renderings through the user's literal span", async () => {
+    const { resolvePeriodExpressionV3 } = await import("../../supabase/functions/_shared/agent/v3/TemporalContractV3");
+    const now = new Date("2026-09-29T12:00:00-03:00");
+    const viaAlias = resolvePeriodExpressionV3({ value: "this month", source: "current_turn", source_span: null }, now);
+    expect(viaAlias?.from).toBe("2026-09-01");
+    const viaSpan = resolvePeriodExpressionV3({ value: "current month so far", source: "current_turn", source_span: "esse mês" }, now);
+    expect(viaSpan?.from).toBe("2026-09-01");
+    expect(resolvePeriodExpressionV3({ value: "whenever", source: "current_turn", source_span: null }, now)).toBeNull();
+  });
+});

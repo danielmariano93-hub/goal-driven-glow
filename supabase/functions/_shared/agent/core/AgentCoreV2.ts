@@ -17,7 +17,9 @@ import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
-import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationAuthority.ts";
+import {
+  dialogueActsFromContract, interpretConversationTurn, isProviderCapacityFailure, isProviderStructuredFailure,
+} from "./ConversationAuthority.ts";
 import {
   comparisonPeriodExpressions, normalizeConversationTurnContract, normalizePeriodExpressions,
   type CanonicalConversationTurnContract, type ConversationTurnContract,
@@ -618,7 +620,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // still returns null from the compiler and keeps the honest technical reply.
   // (Only reachable when the compiler did not already run before V3.)
   let semanticProviderRecovery: string | null = null;
-  if (v3AuthorityEnabled && v3FirstEnabled && !narrowContract && brain.telemetry.ok === false) {
+  const providerFailure = isProviderCapacityFailure(brain.telemetry.error)
+    || isProviderStructuredFailure(brain.telemetry.error)
+    || /semantic_interpreter_v3_(?:contract_invalid|json_invalid)/.test(String(brain.telemetry.error ?? ""));
+  if (v3AuthorityEnabled && v3FirstEnabled && !narrowContract && brain.telemetry.ok === false && providerFailure) {
     const recovered = compileDeterministicConversationTurn({ text: brainText, memory });
     if (recovered) {
       semanticProviderRecovery = String(brain.telemetry.error ?? "semantic_authority_unavailable").slice(0, 220);

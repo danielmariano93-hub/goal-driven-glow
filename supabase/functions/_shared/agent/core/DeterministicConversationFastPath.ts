@@ -347,9 +347,20 @@ function simpleReadFastPath(input: DeterministicFastPathInput): CanonicalConvers
   const text = String(input.text ?? "").trim();
   const t = norm(text);
   const memory = input.memory;
-  const category = detectCategory(text) ?? null;
+  // Closed grammar only: a category counts when the user said its name. A
+  // synonym ("delivery" -> Alimentação, "uber" -> Transporte) needs the user's
+  // real category list, which only the grounded V3 path has; guessing here
+  // answered "delivery em agosto" with the whole Alimentação total.
+  const hinted = detectCategory(text) ?? null;
+  const category = hinted && t.includes(norm(hinted)) ? hinted : null;
+  if (hinted && !category) return null;
   const periodMatch = text.match(/\b(m[eê]s passado|m[eê]s anterior|este m[eê]s|esse m[eê]s|hoje|ontem|[uú]ltimos?\s+(?:\d+|cinco|sete|seis|quatro|tr[eê]s|dois|oito|nove|dez|doze)\s+meses|de\s+(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+a\s+(?:janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro))\b/i);
   const period = periodMatch?.[1] ?? null;
+  // A month the closed grammar did not capture ("em agosto") must not be
+  // silently replaced by the implicit/current period.
+  if (!period && /\b(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|semana|dia\s+\d{1,2}|\d{1,2}\/\d{1,2})\b/.test(t)) {
+    return null;
+  }
 
   // Provider-failure recovery for a closed, contextual category switch such
   // as "Tá. Agora olha só Lazer pra mim" or "E em Alimentação?". The current

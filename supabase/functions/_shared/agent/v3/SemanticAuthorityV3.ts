@@ -177,6 +177,22 @@ export async function interpretWithSingleSemanticAuthorityV3(
     semanticSignatureV3(deep.turn),
   );
   if (!comparison.semantic_match) {
+    // Writes are consequential: they execute only when both tiers agree.
+    // Read/advice turns cannot mutate anything and still pass grounding and
+    // the contract fulfillment gate, so the deep tier's reading is used
+    // instead of failing the whole turn.
+    const proposesWrite = (turn: TurnSpecV3) =>
+      turn.kind === "task" && turn.tasks.some((task) => task.kind === "financial_write");
+    if (!proposesWrite(fast.turn) && !proposesWrite(deep.turn)) {
+      return {
+        ...deep,
+        telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, true, null),
+        tier: "deep",
+        review_required: true,
+        review_match: false,
+        review_reasons: comparison.divergence_reasons,
+      };
+    }
     return {
       turn: null,
       telemetry: aggregateTelemetry(fast.telemetry, deep.telemetry, false, "semantic_tier_disagreement"),
