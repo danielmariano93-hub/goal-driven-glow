@@ -1,9 +1,7 @@
 // Nino Runtime V3 — semantic invariants.
 //
-// These checks are deliberately deterministic. They are allowed to reject an
-// interpretation, but never to create a different interpretation. That keeps a
-// single semantic authority while still protecting the runtime from impossible
-// or unsafe contracts.
+// Deterministic checks may reject an interpretation, never create a different
+// one. TurnSpecV3 remains the single semantic authority.
 
 import { isActionKind } from "../core/ActionIR.ts";
 import type {
@@ -49,14 +47,6 @@ function inheritedReferenceTargets(references: SemanticReferenceV3[]): Set<strin
   );
 }
 
-/**
- * Explicit current-turn semantics always beat inherited context.
- *
- * Example of the production bug this prevents:
- * previous reference = Alimentação, current turn = "E em Lazer? Quanto gastei
- * esse mês?". A V3 may either use Lazer or ask for clarification, but it may
- * never silently reuse Alimentação.
- */
 function explicitEntityOverrideViolations(turn: TurnSpecV3): string[] {
   if (turn.kind !== "task") return [];
   const explicit = activeCurrentTurnEntityTargets(turn.tasks);
@@ -66,12 +56,6 @@ function explicitEntityOverrideViolations(turn: TurnSpecV3): string[] {
     .map((target) => `explicit_${target}_conflicts_with_inherited_reference`);
 }
 
-/**
- * Temporal expressions are first-class period slots in V3 and are never entity
- * references. This structurally removes the class of bugs where "esse mês"
- * gets interpreted as "essa categoria" merely because both contain a
- * demonstrative pronoun.
- */
 function suspiciousTemporalEntityReferenceViolations(turn: TurnSpecV3): string[] {
   const temporal = /^(?:este|esse|neste|nesse)?\s*(?:mes|mês|periodo|período|ano|semana)|^(?:hoje|ontem|amanha|amanhã)$/i;
   return turn.references
@@ -127,6 +111,26 @@ function writeActionViolations(turn: TurnSpecV3): string[] {
     .map((task) => `unsupported_financial_write_action:${task.kind === "financial_write" ? task.action : "unknown"}`);
 }
 
+/**
+ * Canceling a PENDING workflow and undoing an ALREADY COMMITTED write are
+ * different state transitions. The protocol gate consumes pending cancellation
+ * before V3, but this invariant is the final safety net: a semantic model may
+ * never map "deixa pra lá / não registra" to undo.last and accidentally reverse
+ * an older committed operation.
+ */
+function cancelVsUndoViolations(turn: TurnSpecV3): string[] {
+  if (turn.kind !== "task") return [];
+  const undo = turn.tasks.some((task) => task.kind === "financial_write" && task.action === "undo.last");
+  if (!undo) return [];
+  const text = String(turn.canonical_request ?? "").toLowerCase().normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim();
+  const pendingCancel = /\b(deixa pra la|nao registra|nao registrar|nao salva|nao salvar|nao confirma|nao confirmar|descarta|desconsidera|cancela isso|cancelar isso)\b/.test(text);
+  const explicitExecutedReversal = /\b(desfaz|desfazer|desfeito|reverte|reverter|estorna|estornar|ultimo lancamento|ultima transacao|que (?:eu )?(?:registrei|lancei|confirmei)|ja (?:registrei|lancei|confirmei))\b/.test(text);
+  if (pendingCancel && !explicitExecutedReversal) return ["cancel_pending_must_not_be_undo"];
+  if (!explicitExecutedReversal) return ["undo_requires_explicit_committed_reversal"];
+  return [];
+}
+
 export function verifySemanticInvariantsV3(
   turn: TurnSpecV3,
   options: { allowLegacySource?: boolean } = {},
@@ -139,6 +143,7 @@ export function verifySemanticInvariantsV3(
     ...canonicalMonthlySeriesViolations(turn),
     ...legacySourceInAuthoritativeTurnViolations(turn, options.allowLegacySource === true),
     ...writeActionViolations(turn),
+    ...cancelVsUndoViolations(turn),
   ];
   const unique = [...new Set(violations)];
   return { ok: unique.length === 0, violations: unique };
