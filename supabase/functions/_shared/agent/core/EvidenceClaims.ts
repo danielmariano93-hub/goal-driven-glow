@@ -1,8 +1,8 @@
-// EvidenceClaims (`nino_semantic_ir.v3`)
+// EvidenceClaims (`nino_semantic_ir.v4`)
 //
-// Camada semântica SOBRE o EvidencePack (não substitui). Traduz o resultado dos
-// motores em afirmações tipadas que a resposta pode fazer — e só elas. Nada aqui
-// recalcula verdade financeira: apenas lê o que o motor devolveu.
+// Typed claims extracted from deterministic engine output. Claims are evidence,
+// never recalculation. EngineEnvelope results may expose facts under `facts` and
+// entity rows under `breakdown`; those are first-class evidence too.
 import type { EvidenceClaimType, FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import type { SemanticExecutionResult, SemanticQueryOutcome } from "./SemanticQueryExecutor.ts";
 
@@ -15,11 +15,8 @@ export type EvidenceClaim = {
   id: string;
   query_id: string;
   type: EvidenceClaimType;
-  /** Valor numérico canônico (money/percentage/count/rank). */
   value: number | null;
-  /** Rótulo canônico (entity/period/direction). */
   label: string | null;
-  /** Posição no ranking, quando aplicável. */
   rank: number | null;
   engine: string | null;
 };
@@ -37,10 +34,35 @@ const MONEY_FIELDS = [
   "total_metric", "total", "amount", "value", "available", "balance",
   "net_worth", "projected_total", "total_expense", "total_income", "delta",
 ];
+const FACT_MONEY_FIELDS = [
+  "total_outstanding", "overdue_amount", "due_soon_amount", "monthly_committed",
+  "structural_monthly", "flexible_monthly", "headroom_monthly", "total_monthly_saving",
+];
+const FACT_COUNT_FIELDS = [
+  "debts_analyzed", "overdue_count", "due_soon_count", "undefined_count", "opportunities_count",
+];
 
 function num(value: unknown): number | null {
   const n = typeof value === "string" ? Number(value.replace(",", ".")) : Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function addEngineEnvelopeFacts(
+  result: Record<string, unknown>,
+  base: { query_id: string; engine: string | null },
+  seq: () => string,
+  claims: EvidenceClaim[],
+): void {
+  const facts = result.facts as Record<string, unknown> | undefined;
+  if (!facts || typeof facts !== "object") return;
+  for (const field of FACT_MONEY_FIELDS) {
+    const value = num(facts[field]);
+    if (value != null) claims.push({ id: seq(), ...base, type: "money", value, label: `facts.${field}`, rank: null });
+  }
+  for (const field of FACT_COUNT_FIELDS) {
+    const value = num(facts[field]);
+    if (value != null) claims.push({ id: seq(), ...base, type: "count", value, label: `facts.${field}`, rank: null });
+  }
 }
 
 function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): EvidenceClaim[] {
@@ -51,10 +73,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
 
   for (const field of MONEY_FIELDS) {
     const v = num(result[field]);
-    if (v != null) {
-      claims.push({ id: seq(), ...base, type: "money", value: v, label: field, rank: null });
-    }
+    if (v != null) claims.push({ id: seq(), ...base, type: "money", value: v, label: field, rank: null });
   }
+  addEngineEnvelopeFacts(result, base, seq, claims);
+
   const totals = result.totals as Record<string, unknown> | undefined;
   if (totals && typeof totals === "object") {
     for (const [key, raw] of Object.entries(totals)) {
@@ -66,9 +88,6 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
   const count = num(result.transactions_count ?? result.count);
   if (count != null) claims.push({ id: seq(), ...base, type: "count", value: count, label: "transactions", rank: null });
 
-  // compare_periods: o resultado possui dois totais e deltas por categoria.
-  // Transformamos essa estrutura em claims explícitas para completude/grounding;
-  // sem isso o formatter determinístico era bloqueado mesmo com evidência válida.
   const isComparison = num(result.total_a) != null && num(result.total_b) != null && Array.isArray(result.by_group);
   if (isComparison) {
     const totalA = num(result.total_a)!;
@@ -77,103 +96,64 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     claims.push({ id: seq(), ...base, type: "money", value: totalA, label: "total_a", rank: null });
     claims.push({ id: seq(), ...base, type: "money", value: totalB, label: "total_b", rank: null });
     claims.push({ id: seq(), ...base, type: "money", value: Math.abs(delta), label: "delta_abs", rank: null });
-
-    // O formatter canônico exibe delta_pct como percentual (ratio * 100).
-    // O engine já calculou esse valor; portanto ele deve entrar na evidência
-    // explicitamente, sem ser recalculado pelo Grounding Gate.
     const totalDeltaPct = num(result.delta_pct);
     if (totalDeltaPct != null) {
-      claims.push({
-        id: seq(), ...base, type: "percentage", value: Math.abs(totalDeltaPct) * 100,
-        label: "delta_pct", rank: null,
-      });
+      claims.push({ id: seq(), ...base, type: "percentage", value: Math.abs(totalDeltaPct) * 100, label: "delta_pct", rank: null });
     }
 
     const categoryMode = String(result.requested_group_by ?? "none") === "category";
     if (categoryMode) {
       const changed = (result.by_group as Array<Record<string, unknown>>)
-        .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005)
-        .slice();
-      const increases = changed
-        .filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
+        .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005).slice();
+      const increases = changed.filter((row) => Number(row?.delta_abs ?? 0) > 0.005)
         .sort((a, b) => Number(b?.delta_abs ?? 0) - Number(a?.delta_abs ?? 0));
-      const decreases = changed
-        .filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
+      const decreases = changed.filter((row) => Number(row?.delta_abs ?? 0) < -0.005)
         .sort((a, b) => Number(a?.delta_abs ?? 0) - Number(b?.delta_abs ?? 0));
       const direction = String(result.requested_comparison_direction ?? "any");
-      const ranked = direction === "increase"
-        ? increases
-        : direction === "decrease"
-          ? decreases
-          : direction === "any"
-            ? changed.slice().sort((a, b) =>
-              Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)))
-            : [];
+      const ranked = direction === "increase" ? increases
+        : direction === "decrease" ? decreases
+        : direction === "any" ? changed.slice().sort((a, b) => Math.abs(Number(b?.delta_abs ?? 0)) - Math.abs(Number(a?.delta_abs ?? 0)))
+        : [];
 
       changed.forEach((row) => {
         const name = typeof row.name === "string" ? row.name : null;
         if (!name) return;
         const change = Math.abs(Number(row.delta_abs ?? 0));
         const rankIndex = ranked.indexOf(row);
-        if (rankIndex >= 0) {
-          claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: rankIndex + 1 });
-        }
+        if (rankIndex >= 0) claims.push({ id: seq(), ...base, type: "rank", value: change, label: name, rank: rankIndex + 1 });
         claims.push({ id: seq(), ...base, type: "entity", value: change, label: name, rank: rankIndex >= 0 ? rankIndex + 1 : null });
         for (const [field, raw] of [["total_a", row.total_a], ["total_b", row.total_b], ["delta_abs", row.delta_abs]] as const) {
           const value = num(raw);
           if (value != null) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(value), label: `${name}:${field}`, rank: null });
         }
         const rowDeltaPct = num(row.delta_pct);
-        if (rowDeltaPct != null) {
-          claims.push({
-            id: seq(), ...base, type: "percentage", value: Math.abs(rowDeltaPct) * 100,
-            label: `${name}:delta_pct`, rank: rankIndex >= 0 ? rankIndex + 1 : null,
-          });
-        }
+        if (rowDeltaPct != null) claims.push({ id: seq(), ...base, type: "percentage", value: Math.abs(rowDeltaPct) * 100, label: `${name}:delta_pct`, rank: rankIndex >= 0 ? rankIndex + 1 : null });
       });
-      claims.push({
-        id: seq(), ...base, type: "direction", value: null,
-        label: increases.length ? "increase" : "no_increase", rank: null,
-      });
-      claims.push({
-        id: seq(), ...base, type: "direction", value: null,
-        label: decreases.length ? "decrease" : "no_decrease", rank: null,
-      });
+      claims.push({ id: seq(), ...base, type: "direction", value: null, label: increases.length ? "increase" : "no_increase", rank: null });
+      claims.push({ id: seq(), ...base, type: "direction", value: null, label: decreases.length ? "decrease" : "no_decrease", rank: null });
     } else {
-      claims.push({
-        id: seq(), ...base, type: "direction", value: null,
-        label: delta > 0.005 ? "increase" : delta < -0.005 ? "decrease" : "flat", rank: null,
-      });
+      claims.push({ id: seq(), ...base, type: "direction", value: null, label: delta > 0.005 ? "increase" : delta < -0.005 ? "decrease" : "flat", rank: null });
     }
   }
 
   const isMerchantDistribution = result.engine === "merchant_distribution" && Array.isArray(result.merchants);
   if (isMerchantDistribution) {
     for (const [label, raw] of [
-      ["category_total", result.category_total],
-      ["resolved_total", result.resolved_total],
-      ["unresolved_total", result.unresolved_total],
+      ["category_total", result.category_total], ["resolved_total", result.resolved_total], ["unresolved_total", result.unresolved_total],
     ] as const) {
       const value = num(raw);
       if (value != null) claims.push({ id: seq(), ...base, type: "money", value, label, rank: null });
     }
     const coverage = num(result.coverage);
-    if (coverage != null) {
-      claims.push({ id: seq(), ...base, type: "percentage", value: coverage * 100, label: "coverage", rank: null });
-    }
-    const merchantRows = (result.merchants as Array<Record<string, unknown>>);
+    if (coverage != null) claims.push({ id: seq(), ...base, type: "percentage", value: coverage * 100, label: "coverage", rank: null });
+    const merchantRows = result.merchants as Array<Record<string, unknown>>;
     const listed = merchantRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     const categoryTotal = num(result.category_total);
     if (categoryTotal != null) {
       const remainder = Math.max(0, categoryTotal - listed);
-      if (remainder > 0.005) {
-        claims.push({ id: seq(), ...base, type: "money", value: remainder, label: "listed_remainder", rank: null });
-      }
+      if (remainder > 0.005) claims.push({ id: seq(), ...base, type: "money", value: remainder, label: "listed_remainder", rank: null });
     }
-    merchantRows
-      .slice()
-      .sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0))
-      .forEach((row, index) => {
+    merchantRows.slice().sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)).forEach((row, index) => {
       const name = typeof row.merchant === "string" ? row.merchant : null;
       if (!name) return;
       const amount = num(row.amount);
@@ -181,9 +161,7 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       claims.push({ id: seq(), ...base, type: "entity", value: amount, label: name, rank: index + 1 });
       if (amount != null) claims.push({ id: seq(), ...base, type: "money", value: amount, label: name, rank: index + 1 });
       const share = num(row.share_of_category);
-      if (share != null) {
-        claims.push({ id: seq(), ...base, type: "percentage", value: share * 100, label: name, rank: index + 1 });
-      }
+      if (share != null) claims.push({ id: seq(), ...base, type: "percentage", value: share * 100, label: name, rank: index + 1 });
       const txCount = num(row.transactions_count);
       if (txCount != null) claims.push({ id: seq(), ...base, type: "count", value: txCount, label: name, rank: index + 1 });
     });
@@ -196,31 +174,27 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
   rows.forEach((raw, index) => {
     const row = (raw ?? {}) as Record<string, unknown>;
     const name = typeof row.name === "string" ? row.name : typeof row.label === "string" ? row.label : null;
-    const v = num(row.value ?? row.total ?? row.amount);
+    // DebtStatus and other EngineEnvelope rows use domain-specific money fields.
+    const v = num(row.value ?? row.total ?? row.amount ?? row.outstanding_balance ?? row.net_total);
     if (!name) return;
     claims.push({ id: seq(), ...base, type: "rank", value: v, label: name, rank: index + 1 });
     claims.push({ id: seq(), ...base, type: "entity", value: v, label: name, rank: index + 1 });
+    if (v != null) claims.push({ id: seq(), ...base, type: "money", value: v, label: `${name}:value`, rank: index + 1 });
     const share = num(row.share ?? row.percent ?? row.percentage);
-    if (share != null) {
-      claims.push({ id: seq(), ...base, type: "percentage", value: share, label: name, rank: index + 1 });
-    }
+    if (share != null) claims.push({ id: seq(), ...base, type: "percentage", value: share, label: name, rank: index + 1 });
   });
 
-  if (rows.length === 0 && (count === 0 || num(result.total_metric) === 0)) {
+  const nestedCount = num((result.facts as Record<string, unknown> | undefined)?.debts_analyzed);
+  if (rows.length === 0 && (count === 0 || nestedCount === 0 || num(result.total_metric) === 0)) {
     claims.push({ id: seq(), ...base, type: "absence", value: 0, label: "sem_dados_no_recorte", rank: null });
   }
 
-  const period = result.period as Record<string, unknown> | undefined;
+  const period = (result.period ?? result.evidence && (result.evidence as Record<string, unknown>).period) as Record<string, unknown> | undefined;
   if (period?.from && period?.to) {
-    claims.push({
-      id: seq(), ...base, type: "period", value: null,
-      label: `${String(period.from)}..${String(period.to)}`, rank: null,
-    });
+    claims.push({ id: seq(), ...base, type: "period", value: null, label: `${String(period.from)}..${String(period.to)}`, rank: null });
   }
   const direction = typeof result.direction === "string" ? result.direction
-    : typeof (result.change as Record<string, unknown>)?.direction === "string"
-      ? String((result.change as Record<string, unknown>).direction)
-      : null;
+    : typeof (result.change as Record<string, unknown>)?.direction === "string" ? String((result.change as Record<string, unknown>).direction) : null;
   if (direction) claims.push({ id: seq(), ...base, type: "direction", value: null, label: direction, rank: null });
 
   return claims;
