@@ -674,6 +674,7 @@ export async function executeDeterministicCapability(
   }
 
   else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
+  else if (capability.required_tool === "get_daily_insights") reply = formatDailyPriorities(execution.result);
   else {
     // Deterministic-first v2: tenta o renderizador genérico do envelope antes
     // de escalar para o modelo.
@@ -685,6 +686,23 @@ export async function executeDeterministicCapability(
   return { reply, steps: 1, tokensIn: 0, tokensOut: 0, toolCalls: [call], finish: "stop" };
 }
 
+
+/**
+ * nino_priority_feed.v1 — "o que importa agora" na mesma ordem que o app e o
+ * WhatsApp usam. Texto vem pronto da fila (determinístico); nada é recalculado.
+ */
+export function formatDailyPriorities(result: any): string {
+  const items = Array.isArray(result?.items) ? result.items : [];
+  if (!items.length) {
+    return "Hoje não tenho nenhum ponto novo que peça sua atenção. Se quiser, posso olhar um número específico.";
+  }
+  const lines = items.slice(0, 3).map((item: any, index: number) => {
+    const title = String(item?.title ?? "").trim();
+    const body = String(item?.body ?? "").trim();
+    return `${index + 1}. *${title}*${body ? ` — ${body}` : ""}`;
+  });
+  return [items.length === 1 ? "O que mais importa agora:" : "O que mais importa agora, em ordem:", ...lines].join("\n");
+}
 
 /**
  * Retorno útil do dia: gasto real de hoje (data comportamental) com um passo

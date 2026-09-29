@@ -8,6 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
+import { readPriorityFeed } from "../proactive/priorityFeed.ts";
 import {
   behavioralMetricAmount,
   buildRefundAttribution,
@@ -1217,6 +1218,17 @@ export async function draft_transaction_delete(ctx: ToolContext, args: {
 
 export async function get_daily_insights(ctx: ToolContext, args: { limit?: number }): Promise<ToolResult> {
   const limit = Math.max(1, Math.min(5, args?.limit ?? 3));
+  // nino_priority_feed.v1 — "o que importa hoje" vem da MESMA fila que o app
+  // mostra e o WhatsApp usa. As dicas antigas ficam só como reserva.
+  const feed = await readPriorityFeed(ctx.sb as any, ctx.user_id, limit).catch(() => []);
+  if (feed.length > 0) {
+    const items = feed.map((item) => ({
+      id: item.fingerprint, type: item.kind, title: item.title, body: item.body,
+      cta_label: null, cta_route: item.route, generated_at: item.computed_at,
+      severity: item.severity, rank: item.rank,
+    }));
+    return { ok: true, result: { items, count: items.length, source: "priority_feed" } };
+  }
   const { data, error } = await ctx.sb
     .from("user_insights")
     .select("id,type,title,body,cta_label,cta_route,generated_at,evidence")
