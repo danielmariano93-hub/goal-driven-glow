@@ -17,7 +17,9 @@ import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
-import { dialogueActsFromContract, interpretConversationTurn } from "./ConversationAuthority.ts";
+import {
+  dialogueActsFromContract, interpretConversationTurn, isProviderCapacityFailure, isProviderStructuredFailure,
+} from "./ConversationAuthority.ts";
 import {
   comparisonPeriodExpressions, normalizeConversationTurnContract, normalizePeriodExpressions,
   type CanonicalConversationTurnContract, type ConversationTurnContract,
@@ -74,6 +76,11 @@ import { verifyFinancialFulfillment } from "./ContractFulfillmentGate.ts";
 import { resolveGroundedComparisonFollowup } from "./GroundedComparisonFollowup.ts";
 import { applyImplicitPeriodToClarification, resolveImplicitPeriod } from "./ImplicitPeriodPolicy.ts";
 import { comparablePrevious } from "../../analytics/periodResolver.ts";
+import { remember } from "./MemoryStore.ts";
+import {
+  composeConversationalReply, type ComposeKind, type ComposeResult,
+} from "../v3/ConversationalComposerV3.ts";
+import { executeAdvisorReasoning, isAdvisorReasoningKind } from "../v3/AdvisorReasoningV3.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -216,6 +223,7 @@ async function recordV2Run(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  llm_calls?: number;
   model?: string | null;
   provider?: string | null;
   path: HandleTurnResult["path"];
@@ -242,6 +250,7 @@ async function recordV2Run(args: {
       steps: args.tools?.length ?? 0,
       tokens_in: args.tokens_in,
       tokens_out: args.tokens_out,
+      llm_calls: Math.max(0, Number(args.llm_calls ?? 0) || 0),
       latency_ms: Date.now() - args.started_at,
       error_sanitized: args.error ?? null,
       error_masked: args.error ?? null,
@@ -275,6 +284,7 @@ async function finishV2(args: {
   started_at: number;
   tokens_in: number;
   tokens_out: number;
+  llm_calls?: number;
   model?: string | null;
   provider?: string | null;
   draft_id?: string;
@@ -382,6 +392,7 @@ async function finishV2(args: {
   const run_id = await recordV2Run({
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
+    llm_calls: args.llm_calls,
     model: args.model, provider: args.provider, path: args.path,
     tools: args.tools, error: args.error, diagnostics: args.diagnostics,
   });
@@ -548,18 +559,32 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
+  const v3FirstEnabled = v3AuthorityEnabled
+    && await isEnabled("v3_first_authority_v1", input.user_id).catch(() => false);
+
   // Closed financial grammar and evidence-backed follow-ups use one strict,
   // fail-closed deterministic authority. Everything else reaches V3. This
   // prevents provider capacity from breaking turns whose meaning is already
   // fully represented by owned state (confirmation-gated writes, exact reads,
   // charts and follow-ups over persisted evidence).
+  //
+  // Under `v3_first_authority_v1` the order follows the architecture contract:
+  // V3 is the only language authority during healthy operation and the closed
+  // compiler is consulted exclusively as provider-failure recovery below.
   const groundedFollowupContract = v3AuthorityEnabled
-    ? compileDeterministicConversationTurn({ text: brainText, memory })
+    ? (v3FirstEnabled ? null : compileDeterministicConversationTurn({ text: brainText, memory }))
     : resolveGroundedComparisonFollowup(brainText, memory);
   const narrowContract = v3AuthorityEnabled
     ? groundedFollowupContract
     : (groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText));
-  let brain = narrowContract
+  let brain: {
+    contract: CanonicalConversationTurnContract | null;
+    telemetry: {
+      model: string; provider: string | null; llm_calls: number; tokens_in: number; tokens_out: number;
+      latency_ms: number; ok: boolean; error: string | null;
+    };
+    additional_contracts?: CanonicalConversationTurnContract[];
+  } = narrowContract
     ? {
       contract: narrowContract,
       telemetry: {
@@ -585,7 +610,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       sb,
       user_id: input.user_id,
       run_id: null,
-    });
+    }) as any;
 
   // V3 remains the sole semantic authority during healthy operation. If both
   // model tiers fail at the provider/structured-output boundary, recover only
@@ -593,8 +618,12 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // This prevents a transient 400/429 from turning an unequivocal read or a
   // confirmation-gated write into "não consegui processar". Ambiguous language
   // still returns null from the compiler and keeps the honest technical reply.
+  // (Only reachable when the compiler did not already run before V3.)
   let semanticProviderRecovery: string | null = null;
-  if (v3AuthorityEnabled && !narrowContract && brain.telemetry.ok === false) {
+  const providerFailure = isProviderCapacityFailure(brain.telemetry.error)
+    || isProviderStructuredFailure(brain.telemetry.error)
+    || /semantic_interpreter_v3_(?:contract_invalid|json_invalid)/.test(String(brain.telemetry.error ?? ""));
+  if (v3AuthorityEnabled && v3FirstEnabled && !narrowContract && brain.telemetry.ok === false && providerFailure) {
     const recovered = compileDeterministicConversationTurn({ text: brainText, memory });
     if (recovered) {
       semanticProviderRecovery = String(brain.telemetry.error ?? "semantic_authority_unavailable").slice(0, 220);
@@ -619,6 +648,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       sb, input, contract: failureContract, reply, reply_kind: "question",
       path: "deterministic_fallback", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      llm_calls: brain.telemetry.llm_calls,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       error: brain.telemetry.error ?? "conversation_brain_contract_unavailable",
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
@@ -636,31 +666,253 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       reply: groundedTurn.clarification ?? "Pode me dizer a que você está se referindo?",
       reply_kind: "question", path: "deterministic_fallback", started_at: started,
       tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
+      llm_calls: brain.telemetry.llm_calls,
       model: brain.telemetry.model, provider: brain.telemetry.provider,
       session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     });
   }
 
-  if (contract.mode === "converse") {
-    return await finishV2({
-      sb, input, contract, reply: contract.direct_reply!, reply_kind: "info", path: semanticResolutionPath,
-      started_at: started, tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      model: brain.telemetry.model, provider: brain.telemetry.provider,
-      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+  const [composerEnabled, memoryEnabled, advisorEnabled] = await Promise.all([
+    isEnabled("conversational_composer_v1", input.user_id).catch(() => false),
+    isEnabled("relationship_memory_v1", input.user_id).catch(() => false),
+    isEnabled("advisor_reasoning_v1", input.user_id).catch(() => false),
+  ]);
+
+  const evidenceCache = createTurnEvidenceCache();
+  const ctx: ContractExecutionContext = {
+    sb, input, brainText, memory, groundedReference: groundedTurn.reference,
+    semanticResolutionPath, brainOk: brain.telemetry.ok !== false, fromClosedCompiler: !!narrowContract || !!semanticProviderRecovery,
+    durableUserContext, session_id, evidenceCache, advisorEnabled,
+  };
+
+  const steps: CanonicalConversationTurnContract[] = [contract, ...(brain.additional_contracts ?? [])];
+  const executions: TurnExecution[] = [];
+  for (const [index, step] of steps.entries()) {
+    const stepContract = index === 0 ? step : applyImplicitPeriodToClarification(step, brainText);
+    if (index > 0) {
+      const groundedStep = groundTurnContract(stepContract, memory);
+      if (!groundedStep.ok) {
+        executions.push({
+          contract: stepContract, reply: groundedStep.clarification ?? "Pode me dizer a que você está se referindo?",
+          reply_kind: "question", path: "deterministic_fallback", compose_kind: null, evidence: [],
+        });
+        break;
+      }
+      executions.push(await executeContract({ ...ctx, groundedReference: groundedStep.reference }, stepContract));
+    } else {
+      executions.push(await executeContract(ctx, stepContract));
+    }
+    // A clarification stops the plan: the remaining steps depend on the answer.
+    if (executions[executions.length - 1].reply_kind === "question") break;
+  }
+
+  const merged = mergeExecutions(executions);
+
+  // ---- Conversational composition (voice) ---------------------------------
+  let composition: ComposeResult | null = null;
+  let finalReply = merged.reply;
+  const composeKind = merged.compose_kind;
+  if (composerEnabled && composeKind && merged.composable_body) {
+    composition = await composeConversationalReply({
+      kind: composeKind,
+      channel: input.channel === "app" ? "app" : input.channel === "simulator" ? "simulator" : "whatsapp",
+      user_text: input.text,
+      history: history.map((turn: any) => ({ role: turn.role === "user" ? "user" : "assistant", content: String(turn.content ?? "") })),
+      relationship_context: durableUserContext,
+      deterministic_body: merged.composable_body,
+      evidence: merged.evidence,
+      allow_offer: suggestionsAllowed(durableUserContext),
+      capture_memory: memoryEnabled,
+      today: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }),
+    }).catch((error) => {
+      console.warn("[AgentCoreV2] composer failed", String((error as Error)?.message ?? error).slice(0, 160));
+      return null;
     });
+    if (composition?.mode === "composed") {
+      finalReply = merged.fixed_prefix ? `${merged.fixed_prefix}\n\n${composition.text}` : composition.text;
+    }
+  }
+
+  // ---- Relationship memory -------------------------------------------------
+  const todayCivil = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  let rememberedNotes = 0;
+  if (memoryEnabled && composition?.notes?.length) {
+    for (const note of composition.notes) {
+      const saved = await remember(sb, {
+        user_id: input.user_id,
+        kind: "context",
+        key: `life:${note.key}`,
+        value: {
+          note: note.note,
+          topic: note.kind,
+          horizon: note.horizon,
+          noted_at: todayCivil,
+        },
+        confidence: 0.8,
+        source: "user",
+        visibility: "user",
+      }).catch(() => null);
+      if (saved) rememberedNotes += 1;
+    }
+  }
+
+  return await finishV2({
+    sb, input, contract: merged.contract, reply: finalReply, reply_kind: merged.reply_kind,
+    path: merged.path, started_at: started,
+    tokens_in: brain.telemetry.tokens_in + (composition?.telemetry.tokens_in ?? 0),
+    tokens_out: brain.telemetry.tokens_out + (composition?.telemetry.tokens_out ?? 0),
+    llm_calls: Number(brain.telemetry.llm_calls ?? 0) + (composition?.telemetry.llm_calls ?? 0),
+    model: brain.telemetry.model, provider: brain.telemetry.provider,
+    draft_id: merged.draft_id, result: merged.result, session_id,
+    tools: merged.tools, tool_calls: merged.tool_calls,
+    error: merged.error ?? null,
+    memory, topic_repo: topicRepo, topic_resolution: topicResolution,
+    active_period: merged.active_period,
+    comparison_period: merged.comparison_period,
+    diagnostics: {
+      ...(merged.diagnostics ?? {}),
+      ...(semanticProviderRecovery ? { semantic_provider_recovery: semanticProviderRecovery } : {}),
+      v3_first: v3FirstEnabled,
+      plan_steps: executions.map((execution) => ({
+        mode: execution.contract.mode,
+        domain: execution.contract.domain,
+        advisory_kind: execution.contract.advisory_kind ?? null,
+        reply_kind: execution.reply_kind,
+        error: execution.error ?? null,
+      })),
+      composition: composition
+        ? {
+          version: composition.version,
+          kind: composeKind,
+          mode: composition.mode,
+          reason: composition.reason,
+          violations: composition.violations.slice(0, 6),
+          model: composition.telemetry.model,
+          latency_ms: composition.telemetry.latency_ms,
+          notes_captured: composition.notes.length,
+          notes_saved: rememberedNotes,
+        }
+        : { enabled: composerEnabled, kind: composeKind },
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Contract execution (one step of a possibly compound turn)
+// ---------------------------------------------------------------------------
+
+type ContractExecutionContext = {
+  sb: any;
+  input: HandleTurnInput;
+  brainText: string;
+  memory: ConversationMemory | null;
+  groundedReference: any;
+  semanticResolutionPath: HandleTurnResult["path"];
+  brainOk: boolean;
+  fromClosedCompiler: boolean;
+  durableUserContext: string | null;
+  session_id: string | undefined;
+  evidenceCache: ReturnType<typeof createTurnEvidenceCache>;
+  advisorEnabled: boolean;
+};
+
+type ToolCallRecord = { tool_name: string; args?: any; result?: any; ok: boolean };
+
+type TurnExecution = {
+  contract: CanonicalConversationTurnContract;
+  reply: string;
+  reply_kind: HandleTurnResult["reply_kind"];
+  path: HandleTurnResult["path"];
+  /** null = the text must reach the user verbatim (drafts, receipts, failures). */
+  compose_kind: ComposeKind | null;
+  evidence: unknown[];
+  draft_id?: string;
+  result?: unknown;
+  tools?: string[];
+  tool_calls?: ToolCallRecord[];
+  error?: string | null;
+  active_period?: { from: string; to: string; label?: string | null } | null;
+  comparison_period?: { from: string; to: string } | null;
+  diagnostics?: Record<string, unknown> | null;
+};
+
+const LEGACY_ADVISORY_FOR: Record<string, "financial_plan" | "next_best_action" | "goal_strategy"> = {
+  scenario: "financial_plan",
+  decision: "next_best_action",
+  goal_projection: "goal_strategy",
+};
+
+function mergeExecutions(executions: TurnExecution[]): TurnExecution & {
+  composable_body: string | null;
+  fixed_prefix: string | null;
+} {
+  const primary = executions[0];
+  if (executions.length === 1) {
+    return {
+      ...primary,
+      composable_body: primary.compose_kind ? primary.reply : null,
+      fixed_prefix: null,
+    };
+  }
+  // Writes (drafts/receipts) must reach the user verbatim; the rest is composed
+  // as a single conversational answer after the fixed part.
+  const fixed = executions.filter((execution) => !execution.compose_kind);
+  const composable = executions.filter((execution) => !!execution.compose_kind);
+  const reply = executions.map((execution) => execution.reply.trim()).filter(Boolean).join("\n\n");
+  const draft = executions.find((execution) => execution.reply_kind === "draft");
+  const question = executions.find((execution) => execution.reply_kind === "question");
+  const errors = executions.map((execution) => execution.error).filter(Boolean) as string[];
+  const lastRead = [...executions].reverse().find((execution) => execution.active_period);
+  const composeKind: ComposeKind | null = composable.length
+    ? (composable.some((execution) => execution.compose_kind === "decision") ? "decision" : "compound")
+    : null;
+  return {
+    contract: (lastRead ?? primary).contract,
+    reply,
+    reply_kind: draft ? "draft" : question ? "question" : primary.reply_kind,
+    path: executions.every((execution) => execution.path === "deterministic_tool") ? "deterministic_tool" : primary.path,
+    compose_kind: composeKind,
+    evidence: composable.flatMap((execution) => execution.evidence),
+    draft_id: draft?.draft_id ?? primary.draft_id,
+    result: draft?.result ?? primary.result,
+    tools: executions.flatMap((execution) => execution.tools ?? []),
+    tool_calls: executions.flatMap((execution) => execution.tool_calls ?? []),
+    error: errors.length ? errors.join(";").slice(0, 300) : null,
+    active_period: lastRead?.active_period ?? primary.active_period ?? null,
+    comparison_period: lastRead?.comparison_period ?? primary.comparison_period ?? null,
+    diagnostics: Object.assign({}, ...executions.map((execution) => execution.diagnostics ?? {})),
+    composable_body: composable.length
+      ? composable.map((execution) => execution.reply.trim()).filter(Boolean).join("\n\n")
+      : null,
+    fixed_prefix: fixed.length
+      ? fixed.map((execution) => execution.reply.trim()).filter(Boolean).join("\n\n")
+      : null,
+  };
+}
+
+async function executeContract(
+  ctx: ContractExecutionContext,
+  contract: CanonicalConversationTurnContract,
+): Promise<TurnExecution> {
+  const { sb, input, memory, evidenceCache } = ctx;
+  const brainText = ctx.brainText;
+
+  if (contract.mode === "converse") {
+    // Technical fallbacks and closed-compiler replies (which may carry
+    // persisted evidence numbers) are delivered verbatim.
+    return {
+      contract, reply: contract.direct_reply!, reply_kind: "info", path: ctx.semanticResolutionPath,
+      compose_kind: ctx.brainOk && !ctx.fromClosedCompiler ? "conversation" : null,
+      evidence: [],
+    };
   }
 
   if (contract.mode === "clarify") {
-    return await finishV2({
-      sb, input, contract, reply: contract.clarification_question!,
-      reply_kind: "question", path: semanticResolutionPath, started_at: started,
-      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      model: brain.telemetry.model, provider: brain.telemetry.provider,
-      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    });
+    return {
+      contract, reply: contract.clarification_question!, reply_kind: "question",
+      path: ctx.semanticResolutionPath, compose_kind: null, evidence: [],
+    };
   }
-
-  const evidenceCache = createTurnEvidenceCache();
 
   if (contract.mode === "write") {
     const write = await executeBrainWriteTurn({
@@ -672,24 +924,19 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       evidenceCache,
     });
     if (!write.handled) {
-      return await finishV2({
-        sb, input, contract,
+      return {
+        contract,
         reply: "Entendi o pedido, mas não consegui executá-lo com segurança. Não alterei nada.",
-        reply_kind: "info", path: "deterministic_fallback", started_at: started,
-        tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-        model: brain.telemetry.model, provider: brain.telemetry.provider,
+        reply_kind: "info", path: "deterministic_fallback", compose_kind: null, evidence: [],
         error: write.error ?? "conversation_brain_write_unhandled",
-        session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-      });
+      };
     }
     const writeExecuted = Boolean(write.tool_name && write.reply_kind !== "question");
-    return await finishV2({
-      sb, input, contract, reply: write.reply,
+    return {
+      contract, reply: write.reply,
       reply_kind: write.reply_kind === "draft" ? "draft" : write.reply_kind === "question" ? "question" : "info",
-      path: semanticResolutionPath, started_at: started,
-      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      model: brain.telemetry.model, provider: brain.telemetry.provider,
-      draft_id: write.draft_id, result: write.tool_result, session_id,
+      path: ctx.semanticResolutionPath, compose_kind: null, evidence: [],
+      draft_id: write.draft_id, result: write.tool_result,
       tools: writeExecuted && write.tool_name ? [write.tool_name] : [],
       tool_calls: writeExecuted && write.tool_name ? [{
         tool_name: write.tool_name,
@@ -698,11 +945,66 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
         ok: !write.error,
       }] : [],
       error: write.error ?? null,
-      memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    });
+    };
   }
 
   const canonical = String(contract.canonical_request ?? brainText).trim();
+
+  // Advisor reasoning: scenario / decision / goal projection.
+  const runAdvisor = async (target: CanonicalConversationTurnContract): Promise<TurnExecution> => {
+    const toolCtx = {
+      sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
+    } as any;
+    const outcome = await executeAdvisorReasoning(target, {
+      runTool: async (tool, toolArgs) => {
+        const exec = await runTool(toolCtx, tool, toolArgs, { timeoutMs: 12_000, maxRetries: 1 });
+        return { ok: exec.ok, result: exec.result, error: exec.error };
+      },
+      loadCategoryBaseline: async (category, window) => {
+        const ids = await resolveCategoryIdsByName(sb, input.user_id, category);
+        if (!ids.length) return { category, error: "category_not_found" as const };
+        if (ids.length > 1) return { category, error: "category_ambiguous" as const };
+        const buckets = await loadMonthlyExpenseBuckets(sb, {
+          user_id: input.user_id, from: window.from, to: window.to, category_ids: ids,
+        });
+        const typical = typicalMonthlyPolicy({ buckets, window, preferred: "mean" });
+        return { category, typical_monthly: typical.headline, months_with_data: typical.months_with_data, window };
+      },
+    }).catch((error) => {
+      console.warn("[AgentCoreV2] advisor reasoning failed", String((error as Error)?.message ?? error).slice(0, 160));
+      return null;
+    });
+    if (!outcome) {
+      return {
+        contract: target, reply: PROTECTED_ENGINE_FAILURE_REPLY, reply_kind: "info", path: "deterministic_fallback",
+        compose_kind: null, evidence: [], error: "advisor_reasoning_failed",
+      };
+    }
+    const calls = outcome.tool_calls.map((call) => ({
+      tool_name: call.tool_name, args: call.args, result: call.result, ok: call.ok,
+    }));
+    const asksQuestion = !outcome.ok && /\?\s*$/.test(outcome.reply.trim());
+    return {
+      contract: target, reply: outcome.reply,
+      reply_kind: asksQuestion ? "question" : "info",
+      path: "deterministic_tool",
+      compose_kind: outcome.ok ? (outcome.kind === "decision" ? "decision" : "advisory") : null,
+      evidence: [{ [outcome.kind]: outcome.facts }],
+      tools: calls.map((call) => call.tool_name),
+      tool_calls: calls,
+      error: outcome.ok || asksQuestion ? null : outcome.error,
+      diagnostics: { advisor_reasoning: { version: outcome.version, kind: outcome.kind, ok: outcome.ok, error: outcome.error } },
+    };
+  };
+  // Grounded advice over the user's owned evidence, used when a legacy
+  // advisory engine cannot answer (instead of the misleading generic failure).
+  const groundedAdvice = () => runAdvisor({ ...contract, advisory_kind: "decision", advisory_params: contract.advisory_params ?? null });
+
+  if (contract.domain === "advisory" && isAdvisorReasoningKind(contract.advisory_kind)) {
+    if (ctx.advisorEnabled) return await runAdvisor(contract);
+    contract = { ...contract, advisory_kind: LEGACY_ADVISORY_FOR[contract.advisory_kind!] ?? "next_best_action" };
+  }
+
   const advisory = resolveBrainAdvisory(contract);
   if (advisory) {
     const advisoryTurn = await executeDeterministicCapability(sb, {
@@ -713,17 +1015,20 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       evidenceCache,
     }).catch(() => null);
 
+    const legacyFailed = !advisoryTurn || advisoryTurn.finish === "tool_error"
+      || !(advisoryTurn.toolCalls ?? []).some((call: any) => call.ok === true);
+    if (legacyFailed && ctx.advisorEnabled) return await groundedAdvice();
     if (advisoryTurn) {
       const toolCalls = advisoryTurn.toolCalls ?? [];
       const asksQuestion = /\?\s*$/.test(String(advisoryTurn.reply ?? "").trim())
         && toolCalls.some((call: any) => call.ok === true);
-      return await finishV2({
-        sb, input, contract, reply: advisoryTurn.reply,
+      const succeeded = advisoryTurn.finish !== "tool_error" && toolCalls.some((call: any) => call.ok === true);
+      return {
+        contract, reply: advisoryTurn.reply,
         reply_kind: asksQuestion ? "question" : "info",
-        path: "deterministic_tool", started_at: started,
-        tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-        model: brain.telemetry.model, provider: brain.telemetry.provider,
-        session_id,
+        path: "deterministic_tool",
+        compose_kind: succeeded ? "advisory" : null,
+        evidence: toolCalls.filter((call: any) => call.ok === true).map((call: any) => call.result),
         tools: toolCalls.map((call: any) => String(call.tool_name ?? "")).filter(Boolean),
         tool_calls: toolCalls.map((call: any) => ({
           tool_name: String(call.tool_name ?? "advisory_engine"),
@@ -734,10 +1039,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
         error: advisoryTurn.finish === "tool_error"
           ? String(toolCalls.find((call: any) => call.ok === false)?.error ?? "advisory_engine_error")
           : null,
-        memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-      });
+      };
     }
   }
+  if (contract.domain === "advisory" && ctx.advisorEnabled) return await groundedAdvice();
 
   const plan = buildTurnPlan({ text: canonical, history: [] });
   const comparisonIntent = contract.financial_read?.queries.some((query) => query.operation === "compare") ?? false;
@@ -768,7 +1073,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : comparablePrevious(basePeriod);
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
-  const state = session_id ? await getState(sb, session_id).catch(() => null) : null;
+  const state = ctx.session_id ? await getState(sb, ctx.session_id).catch(() => null) : null;
 
   const contractQueryCount = Math.max(
     1,
@@ -829,7 +1134,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       };
     },
     runEngine: async (tool, toolArgs) => {
-      const scopedArgs = applyGroundedReferenceScope(tool, toolArgs, groundedTurn.reference);
+      const scopedArgs = applyGroundedReferenceScope(tool, toolArgs, ctx.groundedReference);
       const exec = await runTool({
         sb,
         user_id: input.user_id,
@@ -893,25 +1198,20 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   }).catch(() => null);
 
   if (!semantic) {
-    return await finishV2({
-      sb, input, contract,
-      reply: PROTECTED_ENGINE_FAILURE_REPLY,
-      reply_kind: "info", path: "deterministic_fallback", started_at: started,
-      tokens_in: brain.telemetry.tokens_in, tokens_out: brain.telemetry.tokens_out,
-      model: brain.telemetry.model, provider: brain.telemetry.provider,
-      error: "authoritative_semantic_pipeline_failed",
-      session_id, memory, topic_repo: topicRepo, topic_resolution: topicResolution,
-    });
+    return {
+      contract, reply: PROTECTED_ENGINE_FAILURE_REPLY, reply_kind: "info", path: "deterministic_fallback",
+      compose_kind: null, evidence: [], error: "authoritative_semantic_pipeline_failed",
+    };
   }
-  if (session_id) {
-    await patchState(sb, session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
+  if (ctx.session_id) {
+    await patchState(sb, ctx.session_id, { semantic_topic_state: semantic.topic_state }).catch(() => undefined);
   }
 
   const financialReadContract = semantic.ir_v3
     ? buildFinancialReadContract({
       turn: contract,
       requested: semantic.ir_v3,
-      grounded_reference: groundedTurn.reference,
+      grounded_reference: ctx.groundedReference,
     })
     : null;
   const appliedReferenceScope = (semantic.turn?.toolCalls ?? [])
@@ -935,7 +1235,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     reply = PROTECTED_ENGINE_FAILURE_REPLY;
     replyKind = "info";
   }
-  if (replyKind === "info" && !fulfillmentBlocked && suggestionsAllowed(durableUserContext)) {
+  if (replyKind === "info" && !fulfillmentBlocked && suggestionsAllowed(ctx.durableUserContext)) {
     const suggestion = suggestionForSemantic(semantic);
     if (suggestion && !detectContinuationOffer(reply)) reply = `${reply}\n\n${suggestion}`;
   }
@@ -943,21 +1243,22 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const semanticContractFailed = semantic.telemetry?.executed_by === "contract_failed_closed";
   const semanticUnsupported = semantic.status === "unsupported" && !semantic.turn;
   const successfulSemanticExecution = (semantic.turn?.toolCalls ?? []).some((call) => call?.ok === true);
+  const toolCalls = (semantic.turn?.toolCalls ?? []).map((call: any) => ({
+    tool_name: String(call.tool_name ?? "semantic_engine"),
+    args: call.args,
+    result: call.result,
+    ok: call.ok === true,
+  }));
 
-  return await finishV2({
-    sb, input, contract, reply, reply_kind: replyKind,
-    path: semanticResolutionPath, started_at: started,
-    tokens_in: brain.telemetry.tokens_in,
-    tokens_out: brain.telemetry.tokens_out,
-    model: brain.telemetry.model, provider: brain.telemetry.provider,
-    session_id,
+  return {
+    contract, reply, reply_kind: replyKind,
+    path: ctx.semanticResolutionPath,
+    compose_kind: replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
+      ? "answer"
+      : null,
+    evidence: toolCalls.filter((call) => call.ok).map((call) => call.result),
     tools: semantic.engines,
-    tool_calls: (semantic.turn?.toolCalls ?? []).map((call: any) => ({
-      tool_name: String(call.tool_name ?? "semantic_engine"),
-      args: call.args,
-      result: call.result,
-      ok: call.ok === true,
-    })),
+    tool_calls: toolCalls,
     error: fulfillmentBlocked
       ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
       : semanticContractFailed
@@ -965,7 +1266,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       : semanticUnsupported
         ? `semantic_unsupported:${semantic.validation?.errors.join(",") || "no_engine"}`.slice(0, 300)
       : semantic.turn ? null : (semantic.errors.length ? semantic.errors.join(";").slice(0, 300) : null),
-    memory, topic_repo: topicRepo, topic_resolution: topicResolution,
     active_period: successfulSemanticExecution && semantic.ir_v2?.period
       ? { from: semantic.ir_v2.period.from, to: semantic.ir_v2.period.to, label: semantic.ir_v2.period.label ?? null }
       : memory?.active_period ?? { from: basePeriod.from, to: basePeriod.to, label: basePeriod.label ?? null },
@@ -973,7 +1273,6 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? { from: semantic.ir_v2.comparison_period.from, to: semantic.ir_v2.comparison_period.to }
       : memory?.comparison_period ?? null,
     diagnostics: {
-      semantic_provider_recovery: semanticProviderRecovery,
       semantic_status: semantic.status,
       executed_by: semantic.telemetry?.executed_by ?? null,
       mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],
@@ -982,5 +1281,5 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       engines: semantic.engines,
       successful_execution: successfulSemanticExecution,
     },
-  });
+  };
 }

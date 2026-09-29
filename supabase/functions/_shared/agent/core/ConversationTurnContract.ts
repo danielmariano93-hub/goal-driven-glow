@@ -32,6 +32,7 @@ export type TurnDomain = typeof TURN_DOMAINS[number];
 
 export const ADVISORY_KINDS = [
   "current_insight", "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
+  "goal_projection", "scenario", "decision",
 ] as const;
 export type AdvisoryKind = typeof ADVISORY_KINDS[number];
 
@@ -137,7 +138,48 @@ export type ConversationTurnContract = {
   financial_read: FinancialReadSemanticRequest | null;
   /** Subtipo advisory emitido pela mesma autoridade conversacional. */
   advisory_kind: AdvisoryKind | null;
+  /**
+   * Parâmetros tipados do subtipo advisory (cenário hipotético, opções de uma
+   * decisão, meta alvo de projeção). Hipóteses do usuário, nunca fatos.
+   */
+  advisory_params?: AdvisoryParams | null;
 };
+
+export type AdvisoryParams = {
+  scenario?: {
+    lever: "cut_category" | "extra_savings" | "purchase" | "income_change";
+    category: string | null;
+    amount: string | null;
+    percent: number | null;
+    goal: string | null;
+  } | null;
+  options?: string[];
+  goal?: string | null;
+};
+
+function normalizeAdvisoryParams(raw: unknown): AdvisoryParams | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as any;
+  const out: AdvisoryParams = {};
+  const s = value.scenario;
+  if (s && typeof s === "object"
+    && ["cut_category", "extra_savings", "purchase", "income_change"].includes(String(s.lever))) {
+    const text = (v: unknown) => (v == null || !String(v).trim() ? null : String(v).trim().slice(0, 120));
+    const percent = s.percent == null ? null : Number(s.percent);
+    out.scenario = {
+      lever: s.lever,
+      category: text(s.category),
+      amount: text(s.amount),
+      percent: percent != null && Number.isFinite(percent) ? percent : null,
+      goal: text(s.goal),
+    };
+  }
+  if (Array.isArray(value.options)) {
+    out.options = value.options.map((o: unknown) => String(o ?? "").trim().slice(0, 160)).filter(Boolean).slice(0, 6);
+  }
+  if (value.goal != null && String(value.goal).trim()) out.goal = String(value.goal).trim().slice(0, 120);
+  return Object.keys(out).length ? out : null;
+}
 
 export type CanonicalConversationTurnContract = ConversationTurnContract;
 
@@ -408,6 +450,7 @@ export function normalizeConversationTurnContract(raw: unknown): CanonicalConver
     reference,
     financial_read: financialRead,
     advisory_kind: advisoryKind,
+    ...(domain === "advisory" ? { advisory_params: normalizeAdvisoryParams(value.advisory_params) } : {}),
   };
 }
 

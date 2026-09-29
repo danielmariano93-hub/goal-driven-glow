@@ -584,7 +584,16 @@ async function resolveCategoryId(ctx: ToolContext, hintOrId: string | undefined,
   const { data: global, error: globalError } = await ctx.sb.from("categories").select("id,name,type")
     .is("user_id", null).is("archived_at", null).eq("type", type);
   if (personalError || globalError) throw new Error(`categories_query_failed:${personalError?.message ?? globalError?.message}`);
-  const all = [...(personal ?? []), ...(global ?? [])];
+  // A personal category with the same name as a global one SHADOWS it (the
+  // user's copy is the one their transactions carry). Without this, "Lazer"
+  // resolved to two candidates, returned null and every category read for such
+  // users failed as category_not_found.
+  const categoryKey = (name: unknown) => String(name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const personalNames = new Set((personal ?? []).map((c: any) => categoryKey(c.name)));
+  const all = [
+    ...(personal ?? []),
+    ...(global ?? []).filter((c: any) => !personalNames.has(categoryKey(c.name))),
+  ];
   const list: Candidate[] = all.map((c: any) => ({ id: c.id, name: c.name }));
   const r = resolveEntity(hintOrId, list);
   if (r.kind === "single") return r.match.id;

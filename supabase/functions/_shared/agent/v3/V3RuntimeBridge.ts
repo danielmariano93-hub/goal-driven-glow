@@ -202,7 +202,33 @@ function compileAtomicGoalCreate(tasks: SemanticTaskV3[]): FinancialWriteTaskV3 
   };
 }
 
-export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date()): V3RuntimeBridgeResult {
+export type V3RuntimeBridgeOptions = {
+  /**
+   * Extended advisory surface (scenario, decision, goal projection). When
+   * false, new advisory operations degrade to the closest legacy engine so a
+   * schema-widened interpreter never breaks users outside the rollout.
+   */
+  extended?: boolean;
+};
+
+const LEGACY_ADVISORY_FALLBACK: Record<string, string> = {
+  scenario: "financial_plan",
+  decision: "next_best_action",
+};
+
+function advisoryParamsOf(task: SemanticTaskV3): Record<string, unknown> | null {
+  if (task.kind !== "advisory") return null;
+  const params: Record<string, unknown> = {};
+  if (task.scenario) params.scenario = task.scenario;
+  if (task.options?.length) params.options = task.options;
+  return Object.keys(params).length ? params : null;
+}
+
+export function bridgeTurnSpecV3ToRuntime(
+  turn: TurnSpecV3,
+  now: Date = new Date(),
+  options: V3RuntimeBridgeOptions = {},
+): V3RuntimeBridgeResult {
   const invariant = verifySemanticInvariantsV3(turn);
   if (!invariant.ok) return { ok: false, contract: null, errors: invariant.violations };
   if (turn.references.length > 1) {
@@ -298,6 +324,9 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       return { ok: false, contract: null, errors: ["advisory_shape_not_executable"] };
     }
     const task = turn.tasks[0];
+    const advisoryKind = options.extended
+      ? task.operation
+      : (LEGACY_ADVISORY_FALLBACK[task.operation] ?? task.operation);
     const contract = preserveV3TemporalFocus(normalizeConversationTurnContract({
       version: "conversation_turn_contract.v2",
       act: turn.act,
@@ -312,7 +341,8 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
       resolution: { intent: "resolved", reference: reference ? "resolved" : "not_applicable", time: periods.length ? "resolved" : "not_applicable", entity: "not_applicable", action: "not_applicable" },
       reference,
       financial_read: null,
-      advisory_kind: task.operation,
+      advisory_kind: advisoryKind,
+      advisory_params: options.extended ? advisoryParamsOf(task) : null,
     }), temporalFocus);
     return contract ? { ok: true, contract, errors: [] } : { ok: false, contract: null, errors: ["advisory_bridge_rejected"] };
   }
@@ -349,4 +379,107 @@ export function bridgeTurnSpecV3ToRuntime(turn: TurnSpecV3, now: Date = new Date
   }
 
   return { ok: false, contract: null, errors: [`mixed_capability_families_not_executable:${families.join("+")}`] };
+}
+
+export type V3RuntimePlanResult =
+  | { ok: true; contracts: [CanonicalConversationTurnContract, ...CanonicalConversationTurnContract[]]; errors: [] }
+  | { ok: false; contracts: []; errors: string[] };
+
+const MAX_PLAN_CONTRACTS = 4;
+
+function goalProjectionContract(
+  turn: TurnSpecV3,
+  task: GoalQueryTaskV3,
+  reference: TurnReference | null,
+): CanonicalConversationTurnContract | null {
+  const goal = task.goal?.value ?? null;
+  return normalizeConversationTurnContract({
+    version: "conversation_turn_contract.v2",
+    act: turn.act,
+    mode: "read",
+    domain: "advisory",
+    canonical_request: turn.canonical_request,
+    inherit_focus: turn.inherit_topic,
+    focus: { category: null, merchant: null, goal, period_expression: null, period_expressions: [] },
+    action: null,
+    direct_reply: null,
+    clarification_question: null,
+    resolution: {
+      intent: "resolved",
+      reference: reference ? "resolved" : "not_applicable",
+      time: "not_applicable",
+      entity: goal ? "resolved" : "not_applicable",
+      action: "not_applicable",
+    },
+    reference,
+    financial_read: null,
+    advisory_kind: "goal_projection",
+    advisory_params: goal ? { goal } : null,
+  });
+}
+
+/**
+ * Compound turns: one canonical interpretation can carry tasks of different
+ * families ("quanto gastei com lazer e o que você sugere?"). Meaning is not
+ * re-derived here — the TurnSpec is only partitioned into executable groups,
+ * each bridged by the same deterministic rules as a single-family turn.
+ * Execution order: mutation draft first (it needs confirmation), then facts,
+ * then goal projections, then advice built on top of the facts.
+ */
+export function bridgeTurnSpecV3ToRuntimePlan(turn: TurnSpecV3, now: Date = new Date()): V3RuntimePlanResult {
+  if (turn.kind !== "task") {
+    const single = bridgeTurnSpecV3ToRuntime(turn, now, { extended: true });
+    return single.ok
+      ? { ok: true, contracts: [single.contract], errors: [] }
+      : { ok: false, contracts: [], errors: single.errors };
+  }
+  const invariant = verifySemanticInvariantsV3(turn);
+  if (!invariant.ok) return { ok: false, contracts: [], errors: invariant.violations };
+  if (turn.references.length > 1) return { ok: false, contracts: [], errors: ["multiple_references_not_executable"] };
+
+  const writes = turn.tasks.filter((task) => task.kind === "financial_write");
+  const reads = turn.tasks.filter((task) =>
+    task.kind === "financial_query" || (task.kind === "goal_query" && task.operation !== "projection")
+  );
+  const projections = turn.tasks.filter((task): task is GoalQueryTaskV3 =>
+    task.kind === "goal_query" && task.operation === "projection"
+  );
+  const advisories = turn.tasks.filter((task) => task.kind === "advisory");
+
+  const groups: SemanticTaskV3[][] = [];
+  if (writes.length) groups.push(writes);
+  if (reads.length) groups.push(reads);
+  const singleGroup = groups.length + projections.length + advisories.length === 1;
+  if (singleGroup && !projections.length) {
+    const single = bridgeTurnSpecV3ToRuntime(turn, now, { extended: true });
+    return single.ok
+      ? { ok: true, contracts: [single.contract], errors: [] }
+      : { ok: false, contracts: [], errors: single.errors };
+  }
+
+  const reference = runtimeReference(turn);
+  const contracts: CanonicalConversationTurnContract[] = [];
+  const errors: string[] = [];
+  const bridgeSubset = (tasks: SemanticTaskV3[]) => {
+    const sub = { ...turn, tasks: tasks as [SemanticTaskV3, ...SemanticTaskV3[]] } as TurnSpecV3;
+    const bridged = bridgeTurnSpecV3ToRuntime(sub, now, { extended: true });
+    if (bridged.ok) contracts.push(bridged.contract);
+    else errors.push(...bridged.errors);
+  };
+  for (const group of groups) bridgeSubset(group);
+  for (const projection of projections) {
+    const contract = goalProjectionContract(turn, projection, reference);
+    if (contract) contracts.push(contract);
+    else errors.push("goal_projection_bridge_rejected");
+  }
+  for (const advisory of advisories) bridgeSubset([advisory]);
+
+  if (errors.length) return { ok: false, contracts: [], errors: unique(errors) };
+  if (!contracts.length) return { ok: false, contracts: [], errors: ["empty_plan"] };
+  if (contracts.length > MAX_PLAN_CONTRACTS) return { ok: false, contracts: [], errors: ["too_many_plan_steps"] };
+  return {
+    ok: true,
+    contracts: contracts as [CanonicalConversationTurnContract, ...CanonicalConversationTurnContract[]],
+    errors: [],
+  };
 }

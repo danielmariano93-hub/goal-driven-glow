@@ -12,6 +12,8 @@ import { ACTION_KINDS } from "../core/ActionIR.ts";
 import { NINO_IDENTITY } from "../core/Conversational.ts";
 import { verifySemanticInvariantsV3 } from "./SemanticInvariantsV3.ts";
 import {
+  ADVISORY_OPERATIONS_V3,
+  SCENARIO_LEVERS_V3,
   SLOT_SOURCES_V3,
   TURN_SPEC_V3,
   type AdvisoryTaskV3,
@@ -20,6 +22,7 @@ import {
   type FinancialWriteTaskV3,
   type GoalQueryTaskV3,
   type PeriodExpressionV3,
+  type ScenarioSpecV3,
   type SemanticReferenceV3,
   type SemanticTaskV3,
   type TurnSpecV3,
@@ -138,13 +141,28 @@ const goalTaskPayloadSchema = {
   },
 } as const;
 
+const scenarioSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["lever", "category", "amount", "percent", "goal"],
+  properties: {
+    lever: { type: "string", enum: [...SCENARIO_LEVERS_V3] },
+    category: { anyOf: [{ type: "string" }, { type: "null" }] },
+    amount: { anyOf: [{ type: "string" }, { type: "null" }] },
+    percent: { anyOf: [{ type: "number" }, { type: "null" }] },
+    goal: { anyOf: [{ type: "string" }, { type: "null" }] },
+  },
+} as const;
+
 const advisoryTaskPayloadSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["operation", "periods"],
+  required: ["operation", "periods", "scenario", "options"],
   properties: {
-    operation: { type: "string", enum: ["current_insight", "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan"] },
+    operation: { type: "string", enum: [...ADVISORY_OPERATIONS_V3] },
     periods: { type: "array", items: periodSchema },
+    scenario: { anyOf: [scenarioSchema, { type: "null" }] },
+    options: { type: "array", maxItems: 6, items: { type: "string" } },
   },
 } as const;
 
@@ -250,7 +268,18 @@ PRINCÍPIOS OBRIGATÓRIOS:
 27. Pedidos de editar/excluir lançamento, meta, categoria, divisão ou recorrência usam as actions update/delete correspondentes. Nunca degrade silenciosamente para create.
 28. "Recebi R$ X do João daquela divisão" = split.receive. Preserve participant, amount e date se existirem.
 29. Se o usuário pedir duas ações distintas na mesma frase, preserve ambas como tasks separadas. Não apague uma delas nem finja que são uma só.
+30. Hipótese/simulação ("e se eu cortar metade do delivery?", "se eu guardar R$ 500 por mês", "se eu comprar um celular de R$ 3.000") = advisory operation=scenario com scenario preenchido: lever=cut_category (category + percent ou amount), extra_savings (amount mensal), purchase (amount), income_change (amount mensal, negativo se perda). goal só quando o usuário citar a meta. Valores hipotéticos NÃO são fatos: nunca vire financial_write.
+31. Dilema/decisão ("vale mais quitar o cartão ou investir?", "devo usar a reserva para pagar a dívida?", "compensa trocar de carro agora?") = advisory operation=decision, options com as alternativas literais que o usuário citou (ou [] se só houver uma), scenario=null salvo se houver um valor hipotético claro.
+32. Em advisory que não seja scenario use scenario=null; em advisory que não seja decision use options=[].
+33. "Quando vou bater/alcançar a meta X?" = goal_query operation=projection com goal=X (ou null se não citar).
+34. Pedido composto de fato + conselho ("quanto gastei com lazer e o que você me sugere?") = duas tasks no mesmo turno: financial_query + advisory. Registro + consulta ("anota 50 no mercado e me diz quanto já foi no mês") = financial_write + financial_query.
+35. Desabafo, preocupação, planos de vida ou conversa pessoal sem pedido de dado ("tô preocupado com dinheiro", "vou viajar em dezembro") = kind=conversation com direct_reply acolhedor, curto e sem inventar números.
 
+36. FORMATO DE CADA ITEM DE tasks (sempre o envelope completo, nunca o payload solto):
+- hipótese: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"scenario","periods":[],"scenario":{"lever":"cut_category","category":"Delivery","amount":null,"percent":50,"goal":null},"options":[]}}
+- decisão: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"decision","periods":[],"scenario":null,"options":["quitar o empréstimo","guardar para a viagem"]}}
+- projeção de meta: {"kind":"goal_query","financial":null,"advisory":null,"write":null,"goal":{"operation":"projection","goal":{"value":"Viagem","source":"current_turn","source_span":"meta da viagem"}}}
+- conselho geral: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"next_best_action","periods":[],"scenario":null,"options":[]}}
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 
 function sourced(raw: any): { value: string; source: any; source_span: string | null } | null {
@@ -349,6 +378,24 @@ function normalizeFinancial(raw: any): FinancialQueryTaskV3 | null {
   } as FinancialQueryTaskV3;
 }
 
+function normalizeScenario(raw: any): ScenarioSpecV3 | null {
+  if (!raw || typeof raw !== "object") return null;
+  const lever = String(raw.lever ?? "");
+  if (!(SCENARIO_LEVERS_V3 as readonly string[]).includes(lever)) return null;
+  const text = (value: unknown) => {
+    const out = value == null ? "" : String(value).trim();
+    return out ? out : null;
+  };
+  const percent = raw.percent == null ? null : Number(raw.percent);
+  return {
+    lever: lever as ScenarioSpecV3["lever"],
+    category: text(raw.category),
+    amount: text(raw.amount),
+    percent: percent != null && Number.isFinite(percent) ? percent : null,
+    goal: text(raw.goal),
+  };
+}
+
 function normalizeTask(raw: any): SemanticTaskV3 | null {
   if (!raw || typeof raw !== "object") return null;
   const kind = String(raw.kind ?? "");
@@ -371,11 +418,18 @@ function normalizeTask(raw: any): SemanticTaskV3 | null {
     if (!raw.advisory || raw.financial || raw.goal || raw.write) return null;
     const periodList = periods(raw.advisory.periods);
     if (!periodList) return null;
+    const scenario = normalizeScenario(raw.advisory.scenario);
+    if (raw.advisory.scenario != null && !scenario) return null;
+    const options = Array.isArray(raw.advisory.options)
+      ? raw.advisory.options.map((option: unknown) => String(option ?? "").trim()).filter(Boolean).slice(0, 6)
+      : [];
     return {
       kind: "advisory",
       family: "advisory",
       operation: raw.advisory.operation,
       periods: periodList,
+      scenario,
+      options,
     } as AdvisoryTaskV3;
   }
   if (kind === "financial_write") {
@@ -487,6 +541,13 @@ export async function interpretSemanticTurnV3(
       reasoning_effort: "low",
     });
     if (!structured.ok) {
+      // Sanitized provider detail (no user text) makes 400 structured-output
+      // rejections diagnosable instead of an opaque "gateway_400".
+      console.warn("[SemanticInterpreterV3] structured call failed", JSON.stringify({
+        model: structured.model,
+        code: structured.error_code,
+        detail: String(structured.error_detail ?? "").slice(0, 300),
+      }));
       return {
         turn: null,
         violations: [],

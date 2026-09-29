@@ -18,7 +18,7 @@ import {
 } from "./ConversationTurnContract.ts";
 import { trustedActivePeriod } from "./ConversationMemory.ts";
 import { interpretWithSingleSemanticAuthorityV3 } from "../v3/SemanticAuthorityV3.ts";
-import { bridgeTurnSpecV3ToRuntime } from "../v3/V3RuntimeBridge.ts";
+import { bridgeTurnSpecV3ToRuntime, bridgeTurnSpecV3ToRuntimePlan } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
 
 export { dialogueActsFromContract } from "./ConversationBrain.ts";
@@ -110,7 +110,22 @@ export function attachV3ReferenceToContract(
   contract: CanonicalConversationTurnContract,
 ): CanonicalConversationTurnContract {
   const reference = referenceFromV3(turn);
-  if (!reference) return contract;
+  // Explicit current-turn slots outrank inherited context: when this step
+  // already names the category/merchant, a category/merchant reference (from
+  // memory or another clause of a compound turn) must not narrow it.
+  const explicitlyNamed = (target: string | null | undefined) =>
+    (target === "category" && !!contract.focus.category)
+    || (target === "merchant" && !!contract.focus.merchant);
+  if (!reference || explicitlyNamed(reference.target)) {
+    if (contract.reference && explicitlyNamed(contract.reference.target)) {
+      return {
+        ...contract,
+        reference: null,
+        resolution: { ...contract.resolution, reference: "not_applicable" },
+      };
+    }
+    return contract;
+  }
   return {
     ...contract,
     reference,
@@ -226,6 +241,29 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   });
 
   if (semantic.turn) {
+    const compoundEnabled = input.user_id
+      ? await isEnabled("compound_turns_v1", input.user_id).catch(() => false)
+      : false;
+    if (compoundEnabled) {
+      const plan = bridgeTurnSpecV3ToRuntimePlan(semantic.turn);
+      if (plan.ok) {
+        const [first, ...rest] = plan.contracts;
+        return {
+          contract: attachV3ReferenceToContract(semantic.turn, first),
+          additional_contracts: rest.map((contract) => attachV3ReferenceToContract(semantic.turn!, contract)),
+          telemetry: {
+            ...semantic.telemetry,
+            model: `v3-${semantic.tier}:${semantic.telemetry.model}`.slice(0, 180),
+          },
+        };
+      }
+      const reason = `v3_plan_rejected:${plan.errors.join("+")}`.slice(0, 220);
+      console.warn("[ConversationAuthority] semantic plan cannot be represented", reason);
+      return plan.errors.some((e) => e.startsWith("temporal_expression_unresolved:"))
+        ? humanSemanticClarification(input, reason, semantic.telemetry)
+        : humanTechnicalFallback(input, reason, semantic.telemetry);
+    }
+
     const bridged = bridgeTurnSpecV3ToRuntime(semantic.turn);
     if (bridged.ok) {
       return {

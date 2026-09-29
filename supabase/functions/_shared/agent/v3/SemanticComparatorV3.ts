@@ -128,7 +128,18 @@ function taskShape(task: SemanticTaskV3): Record<string, unknown> {
     return { kind: task.kind, family: task.family, operation: task.operation, goal: norm(task.goal?.value) || null };
   }
   if (task.kind === "advisory") {
-    return { kind: task.kind, family: task.family, operation: task.operation, periods: periodValues([task]) };
+    // Decision options are prose and legitimately vary between tiers; the
+    // hypothetical scenario parameters are semantics and must agree.
+    const scenario = task.scenario
+      ? {
+        lever: task.scenario.lever,
+        category: norm(task.scenario.category) || null,
+        amount: task.scenario.amount == null ? null : normalizeSlotValue(task.scenario.amount),
+        percent: task.scenario.percent ?? null,
+        goal: norm(task.scenario.goal) || null,
+      }
+      : null;
+    return { kind: task.kind, family: task.family, operation: task.operation, periods: periodValues([task]), scenario };
   }
   return {
     kind: task.kind,

@@ -297,6 +297,14 @@ function monthlySeriesContract(text: string, memory: ConversationMemory): Canoni
   });
 }
 
+const SECOND_REQUEST_RX = /\S+\s+\S+.*\b(?:e|mas)\s+(?:tamb[eé]m\s+)?(?:o\s+que|me\s+(?:diz|fala|mostra|sugere|recomenda|explica|conta)|quanto(?!\s+falta)|qual|quais|como|quando|onde|registra|anota|lanca|compara|mostra)\b/;
+
+export function hasSecondRequest(normalizedText: string): boolean {
+  const t = String(normalizedText ?? "");
+  if ((t.match(/\?/g) ?? []).length >= 2) return true;
+  return SECOND_REQUEST_RX.test(t);
+}
+
 export function compileDeterministicConversationTurn(args: {
   text: string;
   memory: ConversationMemory | null;
@@ -330,6 +338,12 @@ export function compileDeterministicConversationTurn(args: {
     const monthly = monthlySeriesContract(text, args.memory);
     if (monthly) return monthly;
   }
+
+  // The generic fast path represents exactly one request. A second clause
+  // ("... e o que você sugere?", "anota X e me diz quanto...") belongs to the
+  // semantic authority; compiling only the first half silently drops intent.
+  // (Dedicated grounded handlers above own their closed two-part phrasings.)
+  if (hasSecondRequest(t)) return null;
 
   return deterministicConversationFastPath(args);
 }

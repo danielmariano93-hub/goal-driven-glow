@@ -47,6 +47,23 @@ function key(period: Pick<GroundedPeriodV3, "from" | "to">): string {
   return `${period.from}..${period.to}`;
 }
 
+const ENGLISH_PERIOD_ALIASES: Array<[RegExp, string]> = [
+  [/^this month$/i, "este mês"],
+  [/^(?:last|previous) month$/i, "mês passado"],
+  [/^this week$/i, "esta semana"],
+  [/^(?:last|previous) week$/i, "semana passada"],
+  [/^today$/i, "hoje"],
+  [/^yesterday$/i, "ontem"],
+  [/^this year$/i, "este ano"],
+  [/^(?:last|previous) year$/i, "ano passado"],
+];
+
+function englishPeriodAlias(raw: string): string | null {
+  const text = raw.trim();
+  for (const [rx, pt] of ENGLISH_PERIOD_ALIASES) if (rx.test(text)) return pt;
+  return null;
+}
+
 export function resolvePeriodExpressionV3(
   expression: PeriodExpressionV3,
   now: Date = new Date(),
@@ -56,7 +73,12 @@ export function resolvePeriodExpressionV3(
   // Absolute/range grammar has priority because strings like
   // "semana passada do dia 21 ao dia 27" contain both an explicit subrange
   // and a relative anchor. The explicit subrange is the user's narrower truth.
-  const resolved = resolveExplicitPeriodPt(raw, now) ?? resolvePeriodPt(raw, now);
+  const resolve = (value: string) => value ? (resolveExplicitPeriodPt(value, now) ?? resolvePeriodPt(value, now)) : null;
+  // Models occasionally normalize the expression into English ("this month").
+  // The user's literal span is the primary fallback; a closed alias table
+  // covers the common English renderings. Unknown text still fails closed.
+  const span = String(expression?.source_span ?? "").trim();
+  const resolved = resolve(raw) ?? resolve(span) ?? resolve(englishPeriodAlias(raw) ?? "");
   if (!resolved) return null;
   return {
     version: "nino_grounded_period.v1",

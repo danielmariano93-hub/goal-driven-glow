@@ -85,11 +85,47 @@ export type GoalQueryTaskV3 = {
   goal: SourcedValueV3<string> | null;
 };
 
+export const ADVISORY_OPERATIONS_V3 = [
+  "current_insight",
+  "next_best_action",
+  "goal_strategy",
+  "wealth_opportunity",
+  "financial_plan",
+  "scenario",
+  "decision",
+] as const;
+export type AdvisoryOperationV3 = typeof ADVISORY_OPERATIONS_V3[number];
+
+export const SCENARIO_LEVERS_V3 = [
+  "cut_category",
+  "extra_savings",
+  "purchase",
+  "income_change",
+] as const;
+export type ScenarioLeverV3 = typeof SCENARIO_LEVERS_V3[number];
+
+/**
+ * Hypothetical parameters are user-stated assumptions, never personal facts.
+ * Values stay textual here; the deterministic scenario engine parses and
+ * validates them before any calculation.
+ */
+export type ScenarioSpecV3 = {
+  lever: ScenarioLeverV3;
+  category: string | null;
+  amount: string | null;
+  percent: number | null;
+  goal: string | null;
+};
+
 export type AdvisoryTaskV3 = {
   kind: "advisory";
   family: "advisory";
-  operation: "current_insight" | "next_best_action" | "goal_strategy" | "wealth_opportunity" | "financial_plan";
+  operation: AdvisoryOperationV3;
   periods: PeriodExpressionV3[];
+  /** Required for operation=scenario; optional context for decision. */
+  scenario?: ScenarioSpecV3 | null;
+  /** Options the user is weighing, verbatim, for operation=decision. */
+  options?: string[];
 };
 
 export type FinancialWriteTaskV3 = {
@@ -179,6 +215,32 @@ export function validateTurnSpecV3(turn: TurnSpecV3): TurnSpecValidationV3 {
         errors.push(`task_${index}_goal_overview_must_not_target_single_goal`);
       }
       if (task.kind === "financial_write" && !task.action.trim()) errors.push(`task_${index}_write_action_required`);
+      if (task.kind === "advisory") {
+        if (!(ADVISORY_OPERATIONS_V3 as readonly string[]).includes(task.operation)) {
+          errors.push(`task_${index}_advisory_operation_invalid`);
+        }
+        if (task.operation === "scenario") {
+          const scenario = task.scenario ?? null;
+          if (!scenario || !(SCENARIO_LEVERS_V3 as readonly string[]).includes(scenario.lever)) {
+            errors.push(`task_${index}_scenario_required`);
+          } else {
+            const hasMagnitude = Boolean(String(scenario.amount ?? "").trim())
+              || (scenario.percent != null && Number.isFinite(scenario.percent));
+            if (!hasMagnitude) errors.push(`task_${index}_scenario_magnitude_required`);
+            if (scenario.lever === "cut_category" && !String(scenario.category ?? "").trim()) {
+              errors.push(`task_${index}_scenario_category_required`);
+            }
+            if (scenario.percent != null && (scenario.percent <= 0 || scenario.percent > 100)) {
+              errors.push(`task_${index}_scenario_percent_invalid`);
+            }
+          }
+        } else if (task.scenario) {
+          errors.push(`task_${index}_scenario_not_allowed`);
+        }
+        if (task.operation === "decision" && (task.options ?? []).length > 6) {
+          errors.push(`task_${index}_too_many_decision_options`);
+        }
+      }
     }
   }
 

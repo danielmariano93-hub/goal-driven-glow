@@ -49,6 +49,11 @@ export type ConversationBrainTelemetry = {
 export type ConversationBrainOutcome = {
   contract: CanonicalConversationTurnContract | null;
   telemetry: ConversationBrainTelemetry;
+  /**
+   * Remaining steps of a compound turn, already bridged from the same single
+   * semantic interpretation. Executed in order after `contract`.
+   */
+  additional_contracts?: CanonicalConversationTurnContract[];
 };
 
 type HistoryTurn = { role: "user" | "assistant"; content: string; created_at?: string };

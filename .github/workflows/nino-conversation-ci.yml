@@ -75,6 +75,7 @@ jobs:
           src/test/nino-provider-smoke-authority.test.ts
           src/test/nino-single-semantic-authority-v3.test.ts
           src/test/nino-lifecycle-hardening-v3.test.ts
+          src/test/nino-human-conversation-v1.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
@@ -109,6 +110,8 @@ jobs:
           supabase/functions/_shared/agent/v3/SemanticComparatorV3.ts
           supabase/functions/_shared/agent/v3/RuntimeV3ProductionShadow.ts
           supabase/functions/_shared/agent/v3/V3RuntimeBridge.ts
+          supabase/functions/_shared/agent/v3/AdvisorReasoningV3.ts
+          supabase/functions/_shared/agent/v3/ConversationalComposerV3.ts
 
       - name: Report integrated legacy type debt
         continue-on-error: true
