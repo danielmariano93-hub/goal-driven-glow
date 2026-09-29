@@ -12,7 +12,7 @@ import { buildNinoHomeEditorialView } from "@/lib/nino/homeEditorial";
 import { useNinoEditorialRotation } from "@/lib/nino/editorialRotation";
 import { useNinoNextStepDecision, type NinoNextStep } from "@/lib/nino/nextStep";
 import type { HomeDiagnosisView, NinoDiagnosisContext } from "@/lib/nino/diagnosis";
-import type { NinoPriority } from "@/lib/nino/priorities";
+import { priorityFingerprintOf, recordNinoPriorityEvent, type NinoPriority } from "@/lib/nino/priorities";
 import { notifyError } from "@/lib/ui/feedback";
 
 type Props = {
@@ -30,6 +30,7 @@ type Props = {
 export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, loading, error, retrying, onRetry }: Props) {
   const decision = useNinoNextStepDecision();
   const [accepted, setAccepted] = useState<string | null>(null);
+  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
 
   const view = useMemo(
     () => buildNinoHomeEditorialView({ context, diagnosis, nextStep, priorities }),
@@ -50,7 +51,10 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
   }
 
   const primary = rotation.primary;
-  if (!primary) return null;
+  // "Não é relevante agora" some na hora, mesmo sem outra orientação disponível.
+  if (!primary || dismissedIds.includes(primary.id)) return null;
+  // Itens da fila de prioridades alimentam o aprendizado do ranking.
+  const feedFingerprint = priorityFingerprintOf(primary.id);
 
   return (
     <div className="space-y-3.5">
@@ -60,6 +64,12 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
         acceptedMessage={accepted}
         canRequestNext={rotation.canReplacePrimary}
         requestNextNotice={rotation.primaryNotice}
+        onInteraction={feedFingerprint ? (event) => recordNinoPriorityEvent(feedFingerprint, event) : undefined}
+        onDismiss={feedFingerprint ? () => {
+          recordNinoPriorityEvent(feedFingerprint, "dismissed");
+          const replacement = rotation.replacePrimary();
+          if (!replacement) setDismissedIds((ids) => [...ids, primary.id]);
+        } : undefined}
         onRequestNext={() => {
           const replacement = rotation.replacePrimary();
           trackNinoEditorial("nino_primary_next_requested", {

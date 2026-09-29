@@ -51,10 +51,15 @@ export function scoreSituations(
       const crossBoost = crossDomainBoost(situation);
       // proactive_user_model.v1 — situação que toca meta/plano da pessoa.
       const relevanceBoost = Math.max(0, Number((situation.evidence as any)?.relevance_boost ?? 0));
-      const boost = crossBoost + relevanceBoost;
+      // nino_priority_learning.v1 — penalidade implícita (≤ 0), nunca em crítico.
+      const learningAdjustment = situation.severity === "critical"
+        ? 0
+        : Math.max(-30, Math.min(0, Number((situation.evidence as any)?.learning_adjustment ?? 0)));
+      const boost = crossBoost + relevanceBoost + learningAdjustment;
       const reasons = [...situation.score_reasons.filter((r) => r.startsWith("data_quality:")), ...value.reasons];
       if (crossBoost > 0) reasons.push(`cross_domain:${crossBoost}`);
       if (relevanceBoost > 0) reasons.push(`user_relevance:${relevanceBoost}`);
+      if (learningAdjustment < 0) reasons.push(`learned_disinterest:${learningAdjustment}`);
       if (value.muted) reasons.push("muted_by_learning");
 
       // Preferência aprendida ordena o que é OPCIONAL (± 25%). Situação

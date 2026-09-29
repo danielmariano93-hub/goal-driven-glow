@@ -33,7 +33,8 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadDataQuality, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadDataQuality, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -271,7 +272,7 @@ export async function runMultiFinanceProactive(
   // de dado incompleto perdem confiança (e viram um pedido de dado), e o que
   // toca meta/plano da pessoa ganha relevância com a conta feita aqui.
   const cash = (ctx.domains.cash ?? {}) as Record<string, unknown>;
-  const [dataQuality, userModel, recentDeliveries] = await Promise.all([
+  const [dataQuality, userModel, recentDeliveries, priorityEvents] = await Promise.all([
     loadDataQuality(sb, userId, {
       today: ctx.as_of,
       current_month_income: Number(cash.current_month_income ?? 0),
@@ -281,7 +282,11 @@ export async function runMultiFinanceProactive(
     loadUserModel(sb, userId, ctx.as_of).catch(() => null),
     // Leitura apenas: a simulação (persist=false) também respeita a janela.
     loadRecentDeliveries(sb, userId).catch(() => []),
+    loadPriorityEvents(sb, userId).catch(() => []),
   ]);
+  // nino_priority_learning.v1 — o que a pessoa fez com os destaques.
+  const priorityLearning = learnFromPriorityEvents(priorityEvents);
+  ctx.learning = mergeLearning(ctx.learning, priorityLearning);
   // "Retomar de onde combinamos" só é verdade quando existe um combinado.
   const withoutUnfoundedRemind = (situation: FinancialSituation): FinancialSituation =>
     timingState.commitment_pending || !situation.body.includes(REMIND_CLOSING)
@@ -294,6 +299,7 @@ export async function runMultiFinanceProactive(
     if (request) refined.push(request);
   }
   if (userModel) refined = applyUserModel(refined, userModel);
+  refined = applyLearningAdjustment(refined, priorityLearning);
 
   const timedSituations = attachTimingSignal(refined, timingCtx, windows);
 

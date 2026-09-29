@@ -29,6 +29,10 @@ type Props = {
   canRequestNext?: boolean;
   onRequestNext?: () => void;
   requestNextNotice?: string | null;
+  /** nino_priority_learning.v1 — interação que vira aprendizado do ranking. */
+  onInteraction?: (event: "impression" | "acted" | "next_requested") => void;
+  /** Sinal explícito "não é relevante agora" (só para itens da fila de prioridades). */
+  onDismiss?: () => void;
 };
 
 export function NinoSpotlightCard({
@@ -40,6 +44,8 @@ export function NinoSpotlightCard({
   canRequestNext,
   onRequestNext,
   requestNextNotice,
+  onInteraction,
+  onDismiss,
 }: Props) {
   const tone = TONE[item.tone];
   const ref = useRef<HTMLElement | null>(null);
@@ -57,6 +63,7 @@ export function NinoSpotlightCard({
             priority: item.priority,
             surface,
           });
+          onInteraction?.("impression");
           observer.disconnect();
         }
       },
@@ -64,12 +71,13 @@ export function NinoSpotlightCard({
     );
     observer.observe(node);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- impressão é por item, não por callback
   }, [item.id, item.priority, item.semanticType, surface]);
 
   const primary = item.primaryAction;
   const secondary = item.secondaryAction;
 
-  const trackPrimary = () =>
+  const trackPrimary = () => {
     trackNinoEditorial("nino_spotlight_primary_action", {
       item_id: item.id,
       semantic_type: item.semanticType,
@@ -77,6 +85,8 @@ export function NinoSpotlightCard({
       surface,
       action: primary?.kind,
     });
+    onInteraction?.("acted");
+  };
 
   return (
     <section
@@ -178,11 +188,26 @@ export function NinoSpotlightCard({
                 type="button"
                 data-testid="nino-spotlight-next"
                 aria-label="Mostrar outra orientação do Nino"
-                onClick={onRequestNext}
+                onClick={() => {
+                  onInteraction?.("next_requested");
+                  onRequestNext();
+                }}
                 className="inline-flex min-h-[28px] items-center gap-1 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
                 <ArrowsClockwise size={14} weight="bold" aria-hidden="true" />
                 Outra orientação
+              </button>
+            ) : null}
+
+            {onDismiss ? (
+              <button
+                type="button"
+                data-testid="nino-spotlight-dismiss"
+                aria-label="Este aviso não é relevante para mim agora"
+                onClick={onDismiss}
+                className="inline-flex min-h-[28px] items-center text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Não é relevante agora
               </button>
             ) : null}
           </div>

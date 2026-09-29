@@ -50,3 +50,24 @@ export function useNinoPriorities() {
     queryFn: fetchNinoPriorities,
   });
 }
+
+export type NinoPriorityEvent = "impression" | "acted" | "next_requested" | "dismissed";
+
+/** Item da Home que veio da fila (id `feed:<fingerprint>`). */
+export function priorityFingerprintOf(itemId: string | null | undefined): string | null {
+  const id = String(itemId ?? "");
+  return id.startsWith("feed:") && id.length > 5 ? id.slice(5) : null;
+}
+
+/**
+ * nino_priority_learning.v1 — registra a interação (fire-and-forget). Falha de
+ * rede nunca afeta a Home; o banco valida que o item é do próprio usuário.
+ */
+export function recordNinoPriorityEvent(fingerprint: string, event: NinoPriorityEvent, surface = "home"): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  void (supabase.rpc as any).call(supabase, "my_nino_priority_event", {
+    _fingerprint: fingerprint,
+    _event: event,
+    _surface: surface,
+  }).then(() => undefined, () => undefined);
+}
