@@ -1,9 +1,8 @@
-// FinancialReadContract (`financial_read_contract.v5`)
+// FinancialReadContract (`financial_read_contract.v4`)
 //
 // Domain-specific contract subordinated to the conversational authority.
-// Besides semantic query shape, v5 binds the exact temporal windows emitted by
-// Runtime V3 to the Financial IR. A later resolver may not replace 21–27 with
-// "este mês" and still pass the contract.
+// The v4 wire shape remains backward compatible; the additive semantic_periods
+// proof binds exact temporal windows emitted by Runtime V3 to Financial IR.
 
 import type {
   CanonicalConversationTurnContract,
@@ -16,13 +15,12 @@ import type { GroundedReference } from "./ConversationReferenceStore.ts";
 export type ContractPeriodWindow = { from: string; to: string };
 
 export type FinancialReadContractV4 = {
-  // Keep the exported type name for source compatibility; version is bumped.
-  version: "financial_read_contract.v5";
+  version: "financial_read_contract.v4";
   source_turn_version: "conversation_turn_contract.v2";
   domain: "financial_read";
   semantic_request: FinancialReadSemanticRequest | null;
   requested: FinancialQueryIRv3;
-  /** Exact windows that came from the authoritative semantic turn. */
+  /** Exact canonical windows that came from the authoritative V3 turn. */
   semantic_periods: ContractPeriodWindow[];
   slots: {
     intent: ResolutionState;
@@ -44,6 +42,8 @@ function canonicalWindow(expression: string | null | undefined): ContractPeriodW
 }
 
 function semanticPeriodsOf(turn: CanonicalConversationTurnContract): ContractPeriodWindow[] {
+  // period_expressions is the canonical execution scope under V3. The singular
+  // period_expression may retain source wording for provenance/UI.
   const raw = turn.focus.period_expressions?.length
     ? turn.focus.period_expressions
     : turn.focus.period_expression
@@ -76,7 +76,7 @@ export function buildFinancialReadContract(args: {
     : "not_applicable";
 
   return {
-    version: "financial_read_contract.v5",
+    version: "financial_read_contract.v4",
     source_turn_version: "conversation_turn_contract.v2",
     domain: "financial_read",
     semantic_request: args.turn.financial_read,
@@ -158,9 +158,7 @@ function financialIRWindows(ir: FinancialQueryIRv3): Set<string> {
 
 /**
  * Every exact window emitted by V3 must still exist in the compiled IR.
- * Additional IR windows are allowed only for deterministic derived baselines
- * (e.g. "compare com o período anterior"). This avoids false rejection while
- * still making loss/replacement of an explicit user window impossible.
+ * Additional IR windows are allowed only for deterministic derived baselines.
  */
 function semanticPeriodsMatchIR(contract: FinancialReadContractV4): boolean {
   if (!contract.semantic_periods.length) return true;
@@ -171,7 +169,7 @@ function semanticPeriodsMatchIR(contract: FinancialReadContractV4): boolean {
 export function validateFinancialReadContract(contract: FinancialReadContractV4 | null): string[] {
   if (!contract) return ["financial_read_contract_missing"];
   const errors: string[] = [];
-  if (contract.version !== "financial_read_contract.v5") errors.push("financial_read_contract_version");
+  if (contract.version !== "financial_read_contract.v4") errors.push("financial_read_contract_version");
   if (contract.source_turn_version !== "conversation_turn_contract.v2") errors.push("source_turn_version_invalid");
   if (contract.domain !== "financial_read") errors.push("financial_read_domain_invalid");
 
