@@ -10,6 +10,8 @@ import { NinoEmptyBlock, NinoErrorBlock, NinoLoadingBlock } from "@/components/n
 import { useNinoDiagnosisContext, type FinancialSituation } from "@/lib/nino/diagnosis";
 import { markNinoSeen } from "@/lib/nino/intelligence";
 import { consolidateSituations } from "@/lib/nino/consolidate";
+import { ExecutiveInsightCard, ExecutiveKpiStrip } from "@/components/nino/ExecutiveInsightCard";
+import { executiveForSection, useExecutiveInsights, useExecutiveRefresh } from "@/lib/nino/executive";
 
 const SECTIONS = [
   { id: "agora", label: "Agora" },
@@ -25,6 +27,10 @@ export default function Nino() {
   const [params, setParams] = useSearchParams();
   const active = (params.get("section") ?? "agora") as SectionId;
   const { data, isLoading, isError, error, isFetching, refetch } = useNinoDiagnosisContext();
+  // Leitura executiva (motor canônico): Agora, O que mudou e Aprendizados.
+  const executive = useExecutiveInsights();
+  const executiveRefresh = useExecutiveRefresh();
+  const briefing = executive.data;
   const [expanded, setExpanded] = useState(false);
   const qc = useQueryClient();
 
@@ -43,19 +49,22 @@ export default function Nino() {
 
   const quality = data?.data_quality;
   const insufficient = data?.overall_state === "insufficient_data";
+  // Do diagnóstico SQL ficam: contrapontos de dívida, antecipações, pendências e histórico.
   const current = consolidateSituations([data?.primary_situation, ...(data?.supporting_situations ?? [])].filter((item): item is FinancialSituation => Boolean(item)));
+  const debtProgress = current.filter((item) => item.situation_type === "debt_progress");
+  const agoraInsights = executiveForSection(briefing, "agora");
+  const changes = executiveForSection(briefing, "mudancas");
+  const learnings = executiveForSection(briefing, "aprendizados");
 
   const counts: Record<SectionId, number> = {
-    agora: current.length + (data?.operational_tasks.length ?? 0),
-    mudancas: current.filter((item) => item.status === "improving" || item.status === "worsening").length,
-    aprendizados: data?.patterns.length ?? 0,
+    agora: agoraInsights.length + (data?.operational_tasks.length ?? 0),
+    mudancas: changes.length + debtProgress.length,
+    aprendizados: learnings.length,
     "prepare-se": data?.anticipations.length ?? 0,
     historico: (data?.timeline.length ?? 0) + (data?.closings.length ?? 0),
   };
 
   const listFor = (id: SectionId): FinancialSituation[] => {
-    if (id === "mudancas") return current.filter((item) => item.status === "improving" || item.status === "worsening");
-    if (id === "aprendizados") return consolidateSituations(data?.patterns ?? []);
     if (id === "prepare-se") return consolidateSituations(data?.anticipations ?? []);
     return [];
   };
@@ -64,9 +73,10 @@ export default function Nino() {
     if (insufficient) {
       return "Ainda não há lançamentos suficientes para uma leitura confiável. Registre alguns gastos para o Nino começar.";
     }
-    if (id === "agora") return "Nada urgente pede sua atenção neste momento.";
-    if (id === "mudancas") return "Nenhuma mudança relevante no período comparado.";
-    if (id === "aprendizados") return "O Nino ainda está aprendendo seus padrões. Registre mais alguns dias.";
+    if (briefing?.coverage.learning) return "O Nino precisa de pelo menos 3 meses de lançamentos para comparar você com o seu próprio padrão.";
+    if (id === "agora") return "Nada material mudou no seu resultado. Seus números estão dentro do seu padrão.";
+    if (id === "mudancas") return "Nenhuma mudança relevante contra o seu padrão dos últimos meses.";
+    if (id === "aprendizados") return "Nenhum padrão com impacto relevante no seu orçamento por enquanto.";
     if (id === "prepare-se") return "Nenhum compromisso futuro exige preparação agora.";
     return "Seu histórico aparece aqui conforme o Nino acompanha suas semanas.";
   };
@@ -83,10 +93,10 @@ export default function Nino() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">Nino</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Diagnóstico causal baseado na sua vida financeira
+              Leitura executiva das suas finanças: resultado, mudanças e o que fazer
             </p>
           </div>
-          <NinoRefreshButton asOf={data?.as_of} />
+          <NinoRefreshButton asOf={data?.as_of} onRefresh={() => executiveRefresh.mutateAsync()} />
         </div>
 
       </header>
@@ -126,39 +136,23 @@ export default function Nino() {
         })}
       </nav>
 
-      {isLoading ? (
-        <NinoLoadingBlock />
-      ) : !data ? null : section.id === "agora" ? (
-        <div className={`space-y-4 transition-opacity ${isFetching ? "opacity-60" : ""}`} aria-busy={isFetching}>
-          {data.primary_situation ? (
-            <NinoSituationCard situation={data.primary_situation} action={data.primary_action} surface="nino:agora" />
-          ) : (
+      {section.id === "agora" ? (
+        <div className={`space-y-3 transition-opacity ${executive.isFetching ? "opacity-60" : ""}`} aria-busy={executive.isFetching}>
+          {briefing && <ExecutiveKpiStrip kpis={briefing.kpis} />}
+          {executive.isLoading ? (
+            <NinoLoadingBlock />
+          ) : executive.isError ? (
+            <NinoErrorBlock error={executive.error} onRetry={() => void executive.refetch()} retrying={executive.isFetching} hasStaleData={false} />
+          ) : agoraInsights.length === 0 ? (
             <NinoEmptyBlock>{emptyText("agora")}</NinoEmptyBlock>
+          ) : (
+            agoraInsights.map((insight, index) => (
+              <ExecutiveInsightCard key={insight.key} insight={insight} emphasis={index === 0} />
+            ))
           )}
 
-          {data.supporting_situations.length > 0 && (
-            <section className="space-y-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Também vale saber
-              </p>
-              {data.supporting_situations.slice(0, 2).map((item) => (
-                <NinoSupportingSignalRow key={item.id} situation={item} />
-              ))}
-              {data.supporting_situations.length > 2 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-0 text-[11px] text-muted-foreground"
-                  onClick={() => setParams({ section: "mudancas" }, { replace: true })}
-                >
-                  Ver todos os sinais ({data.supporting_situations.length})
-                </Button>
-              )}
-            </section>
-          )}
-
-          {data.operational_tasks.length > 0 && (
-            <section className="space-y-2">
+          {data && data.operational_tasks.length > 0 && (
+            <section className="space-y-2 pt-1">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Pendências para organizar
               </p>
@@ -167,9 +161,30 @@ export default function Nino() {
               ))}
             </section>
           )}
-
         </div>
-      ) : section.id === "historico" ? (
+      ) : section.id === "mudancas" || section.id === "aprendizados" ? (
+        executive.isLoading ? (
+          <NinoLoadingBlock />
+        ) : (section.id === "mudancas" ? changes.length + debtProgress.length : learnings.length) === 0 ? (
+          <NinoEmptyBlock>{emptyText(section.id)}</NinoEmptyBlock>
+        ) : (
+          <div className={`space-y-3 transition-opacity ${executive.isFetching ? "opacity-60" : ""}`} aria-busy={executive.isFetching}>
+            {(section.id === "mudancas" ? changes : learnings)
+              .slice(0, expanded ? undefined : 6)
+              .map((insight) => <ExecutiveInsightCard key={insight.key} insight={insight} />)}
+            {section.id === "mudancas" && debtProgress.map((item) => (
+              <NinoSituationCard key={item.id} situation={item} surface="nino:mudancas" />
+            ))}
+            {!expanded && (section.id === "mudancas" ? changes : learnings).length > 6 && (
+              <Button variant="outline" onClick={() => setExpanded(true)} className="w-full rounded-full">
+                Ver todas as leituras
+              </Button>
+            )}
+          </div>
+        )
+      ) : isLoading ? (
+        <NinoLoadingBlock />
+      ) : !data ? null : section.id === "historico" ? (
         counts.historico === 0 ? <NinoEmptyBlock>{emptyText("historico")}</NinoEmptyBlock> : <div className="space-y-4">
           {data.timeline.slice(0, expanded ? 20 : 6).map((entry) => <article key={entry.situation_id} className="relative border-l-2 border-border pl-5"><span className="absolute -left-[5px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-[10px] text-muted-foreground">{new Date(entry.last_event_at).toLocaleDateString("pt-BR")}</p><h2 className="text-sm font-semibold">{entry.headline}</h2><p className="mt-1 text-xs text-muted-foreground">{entry.events[0]?.narrative}</p></article>)}
           {data.closings.map((closing) => <details key={closing.id} className="rounded-[18px] border border-border bg-card p-4"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-primary" />Fechamento até {new Date(`${closing.period_end}T12:00:00`).toLocaleDateString("pt-BR")}</span><ChevronDown className="h-4 w-4" /></summary><p className="mt-3 text-xs leading-relaxed text-muted-foreground">{closing.closing_text || "Resumo consolidado do período."}</p></details>)}

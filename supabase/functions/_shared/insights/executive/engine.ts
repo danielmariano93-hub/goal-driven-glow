@@ -51,7 +51,8 @@ export type InsightKind =
   | "usage_concentration"
   | "recurring_costs"
   | "installments_ahead"
-  | "unusual_charge";
+  | "unusual_charge"
+  | "income_volatility";
 
 export type InsightAction =
   | { type: "ask"; label: string; prompt: string; detail: string | null }
@@ -337,7 +338,9 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
       const r = median(recentValues);
       const p = median(priorValues);
       const change = r - p;
-      const rising = change >= 150 && r >= 1.25 * p && Math.min(...recentValues) > p;
+      // Mudança estrutural exige um NOVO nível consistente (não um mês atípico).
+      const consistent = Math.min(...recentValues) >= 0.5 * r && Math.max(...recentValues) <= 2 * r;
+      const rising = consistent && change >= 150 && r >= 1.25 * p && Math.min(...recentValues) > p;
       const falling = -change >= 150 && r <= 0.75 * p && Math.max(...recentValues) < p;
       if (!rising && !falling) continue;
 
@@ -424,7 +427,10 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
     const firstSeen = mer.charges.reduce<string | null>((min, c) => (!min || c.month < min ? c.month : min), null);
     const isNew = !!firstSeen && firstSeen >= recent3[0] && recent3Values.every((v) => v > 0);
     const heavyUse = avgCharges >= 4 && monthlyAvg >= 300 && total3 > 0 && (monthlyAvg * 3) / total3 >= 0.05;
-    if (isNew && monthlyAvg >= 50 && !heavyUse) {
+    // Recorrente = uma cobrança por mês com valor estável (assinatura, serviço),
+    // não um mercado ou loja frequentados.
+    const newSubscription = isNew && avgCharges <= 1.5 && isStable(recent3Values, 3) && monthlyAvg >= 50;
+    if (newSubscription && !heavyUse) {
       insights.push({
         key: `merchant:${key}`,
         kind: "new_recurring",
@@ -434,7 +440,7 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
         headline: `Novo gasto recorrente: ${mer.label}, ${compact(monthlyAvg)} por mês`,
         why: `Começou em ${monthName(firstSeen!)} e se repetiu todos os meses desde então. Em um ano, são ${compact(monthlyAvg * 12)}.`,
         evidence: [recent3.map((m) => `${monthShort(m)} ${brl(mer.months.get(m) ?? 0)}`).join(" · ")],
-        action: { type: "ask", label: "Vale manter?", prompt: `Quanto eu gastei com ${mer.label} nos últimos meses?`, detail: null },
+        action: { type: "ask", label: "Revisar recorrentes", prompt: "Liste meus gastos recorrentes e quanto cada um custa por mês", detail: null },
         impact_monthly: r2(monthlyAvg),
         score: score(monthlyAvg, 0.7),
       });
@@ -485,6 +491,34 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
           : null,
         impact_monthly: r2(Math.max(0, fixedTotal - 0.5 * typicalIncome)),
         score: Math.max(score(Math.max(0, fixedTotal - 0.5 * typicalIncome), 0.8), heavy ? 35 : 20),
+      });
+    }
+  }
+
+  // 6a) Renda irregular: o parâmetro prudente é o mês mais fraco ----------------
+  const incomeWindow = range(addMonths(ref, -5), ref).filter((m) => m >= firstMonth);
+  const incomeValues = monthsOf(book.income, incomeWindow).filter((v) => v > 0);
+  if (incomeReliable && incomeValues.length >= 4) {
+    const low = Math.min(...incomeValues);
+    const high = Math.max(...incomeValues);
+    if (high >= 2 * low && high - low >= 1500) {
+      const gap = typicalSpend - low;
+      insights.push({
+        key: "income_volatility",
+        kind: "income_volatility",
+        direction: gap > 0 ? "worse" : "neutral",
+        severity: gap > 0 ? "attention" : "info",
+        section: "aprendizados",
+        headline: `Sua renda oscilou de ${compact(low)} a ${compact(high)} por mês nos últimos ${incomeWindow.length} meses`,
+        why: gap > 0
+          ? `Com renda irregular, o orçamento seguro parte do mês mais fraco. Seu gasto típico (${compact(typicalSpend)}) passa dele em ${compact(gap)}: uma reserva de ${compact(gap * 3)} cobre três meses fracos seguidos.`
+          : `Seu gasto típico (${compact(typicalSpend)}) cabe até no mês mais fraco. Os meses fortes podem ir inteiros para reserva e metas.`,
+        evidence: [incomeWindow.map((m) => `${monthShort(m)} ${compact(book.income.get(m) ?? 0)}`).join(" · ")],
+        action: gap > 0
+          ? { type: "route", label: "Criar reserva para meses fracos", route: "/app/metas", detail: `Sugestão: ${compact(gap * 3)}, formada nos meses de renda alta.` }
+          : { type: "route", label: "Guardar o excedente", route: "/app/metas", detail: null },
+        impact_monthly: r2(Math.max(0, gap)),
+        score: Math.max(score(Math.max(0, gap), 0.9), 25),
       });
     }
   }
@@ -545,7 +579,12 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
     const existing = byKey.get(insight.key);
     if (!existing || insight.score > existing.score) byKey.set(insight.key, insight);
   }
-  const ranked = [...byKey.values()].filter((i) => i.score > 0).sort((a, b) => b.score - a.score);
+  // Piso de relevância e no máximo 3 recorrentes novos: o resto é ruído.
+  let newRecurring = 0;
+  const ranked = [...byKey.values()]
+    .filter((i) => i.score >= 8 || (i.direction === "better" && i.score > 0))
+    .sort((a, b) => b.score - a.score)
+    .filter((i) => i.kind !== "new_recurring" || ++newRecurring <= 3);
 
   // KPIs do topo -----------------------------------------------------------------
   const refSpend = book.spend.get(ref) ?? 0;
@@ -561,7 +600,7 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
   }
   if (incomeReliable) {
     kpis.push({
-      label: "Resultado em 3 meses",
+      label: "Saldo em 3 meses",
       value: signedCompact(net3),
       hint: `entrou ${compact(income3)}`,
       tone: net3 >= 0 ? "good" : "bad",

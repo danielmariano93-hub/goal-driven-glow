@@ -139,8 +139,39 @@ describe("motor executivo sobre dados com os padrões reais", () => {
   });
 
   it("KPIs do topo: gasto do mês, resultado e poupança", () => {
-    expect(briefing.kpis.map((k) => k.label)).toEqual(["Gasto em setembro", "Resultado em 3 meses", "Taxa de poupança"]);
+    expect(briefing.kpis.map((k) => k.label)).toEqual(["Gasto em setembro", "Saldo em 3 meses", "Taxa de poupança"]);
     expect(briefing.kpis[1].tone).toBe("bad");
+  });
+});
+
+describe("sem ruído", () => {
+  it("categoria irregular não vira 'mudança estrutural'; mercado frequente não é 'recorrente'", () => {
+    const rows: LedgerEntry[] = [];
+    const ms = ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"];
+    const tithe = [0, 0, 0, 3300, 749, 73, 2445];
+    ms.forEach((m, i) => {
+      rows.push(e(`${m}-05`, 9000, "Salário", null, "income"));
+      rows.push(e(`${m}-10`, 3000, "Moradia", "LS Prado"));
+      if (tithe[i]) rows.push(e(`${m}-15`, tithe[i], "Dízimo", "Igreja"));
+      if (i >= 4) for (let k = 0; k < 4; k++) rows.push(e(`${m}-${10 + k}`, 20 + k * 7, "Mercado", "Mini Extra"));
+    });
+    const b = computeExecutiveInsights({ as_of: "2026-09-30", entries: rows });
+    expect(b.insights.find((i) => i.key === "category:cat-Dízimo")).toBeUndefined();
+    expect(b.insights.find((i) => i.kind === "new_recurring")).toBeUndefined();
+  });
+
+  it("renda irregular: orçamento pelo mês mais fraco", () => {
+    const rows: LedgerEntry[] = [];
+    const incomes = [18000, 10000, 34000, 7700, 8500, 24000];
+    ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"].forEach((m, i) => {
+      rows.push(e(`${m}-05`, incomes[i], "Salário", null, "income"));
+      rows.push(e(`${m}-10`, 12000, "Moradia", "LS Prado"));
+    });
+    const b = computeExecutiveInsights({ as_of: "2026-09-30", entries: rows });
+    const vol = b.insights.find((i) => i.kind === "income_volatility")!;
+    expect(vol.headline).toBe("Sua renda oscilou de R$ 7,7 mil a R$ 34 mil por mês nos últimos 6 meses");
+    expect(vol.why).toContain("passa dele em R$ 4,3 mil");
+    expect(vol.action).toMatchObject({ label: "Criar reserva para meses fracos" });
   });
 });
 

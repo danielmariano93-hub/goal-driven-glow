@@ -17,8 +17,11 @@ export type AssessorSource = "fab" | "deep_link" | "whatsapp_media" | "notificat
 type Ctx = {
   isOpen: boolean;
   source: AssessorSource;
-  openAssessor: (source?: AssessorSource) => void;
+  /** Pergunta pronta para a pessoa revisar e enviar (ex.: ação de um insight). */
+  draft: string | null;
+  openAssessor: (source?: AssessorSource, options?: { draft?: string }) => void;
   closeAssessor: () => void;
+  clearDraft: () => void;
 };
 
 const AssessorCtx = createContext<Ctx | null>(null);
@@ -26,20 +29,32 @@ const AssessorCtx = createContext<Ctx | null>(null);
 export function AssessorProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [source, setSource] = useState<AssessorSource>(null);
+  const [draft, setDraft] = useState<string | null>(null);
 
-  const openAssessor = useCallback((src?: AssessorSource) => {
+  const openAssessor = useCallback((src?: AssessorSource, options?: { draft?: string }) => {
     setSource(src ?? "fab");
+    setDraft(options?.draft?.trim() || null);
     setIsOpen(true);
   }, []);
+
+  const clearDraft = useCallback(() => setDraft(null), []);
 
   const closeAssessor = useCallback(() => {
     setIsOpen(false);
     setSource(null);
   }, []);
 
-  const value = useMemo(() => ({ isOpen, source, openAssessor, closeAssessor }), [isOpen, source, openAssessor, closeAssessor]);
+  const value = useMemo(
+    () => ({ isOpen, source, draft, openAssessor, closeAssessor, clearDraft }),
+    [isOpen, source, draft, openAssessor, closeAssessor, clearDraft],
+  );
 
   return <AssessorCtx.Provider value={value}>{children}</AssessorCtx.Provider>;
+}
+
+/** Para componentes que também são renderizados fora do provider (testes, telas isoladas). */
+export function useOptionalAssessor(): Ctx | null {
+  return useContext(AssessorCtx);
 }
 
 export function useAssessor(): Ctx {
