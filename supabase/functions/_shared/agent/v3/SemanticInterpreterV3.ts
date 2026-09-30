@@ -95,7 +95,7 @@ const financialTaskPayloadSchema = {
     group_by: {
       type: "array",
       maxItems: 1,
-      items: { type: "string", enum: ["category", "merchant", "card", "account", "month", "weekday", "day"] },
+      items: { type: "string", enum: ["category", "merchant", "card", "account", "month", "weekday", "day", "week", "quarter"] },
     },
     filters: {
       type: "array",
@@ -257,7 +257,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 14. canonical_request deve preservar o significado completo sem inventar dados ou datas resolvidas.
 15. "Quanto gasto por mês com X?", sem período histórico explícito, é hábito/típico: financial_query expense_amount, operation=value, group_by=[], periods=[], filtro X. NUNCA peça esclarecimento só por faltar período.
 16. "Quanto gastei ... por mês nos últimos N meses?" é série histórica factual: financial_query expense_amount, operation=trend, group_by=[month], periods=["últimos N meses"].
-17b. "dia a dia", "por dia", "diário", "gráfico diário", "cada dia do mês" e equivalentes significam série DIÁRIA: operation=trend e group_by=[day], preservando filtros (categoria E estabelecimento, se ditos) e o período (ex.: "setembro"). Nunca use group_by=[month] para um pedido diário.
+17b. Séries por grão: "dia a dia"/"por dia"/"diário"/"gráfico diário" = group_by=[day]; "semana a semana"/"semanal"/"por semana" = group_by=[week]; "mês a mês"/"mensal" = group_by=[month]; "trimestral"/"por trimestre" = group_by=[quarter]. Sempre operation=trend, preservando filtros (categoria E estabelecimento, se ditos) e o período (ex.: "setembro"). Nunca troque o grão pedido (pedido diário nunca vira group_by=[month]).
 17. "mês a mês", "mês por mês", "em cada mês", "evolução mensal" e equivalentes significam série histórica: operation=trend e group_by=[month], preservando filtros e período. Não use sum/breakdown para esse formato.
 18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.
 19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.

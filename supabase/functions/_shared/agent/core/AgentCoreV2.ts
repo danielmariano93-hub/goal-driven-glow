@@ -78,7 +78,10 @@ import {
 } from "../v3/ConversationalComposerV3.ts";
 import { executeAdvisorReasoning, isAdvisorReasoningKind } from "../v3/AdvisorReasoningV3.ts";
 import { executeCategoryReading, executePeriodReview } from "../v3/PeriodReviewV3.ts";
-import { dailySeriesExecutedIR, dailySpendingSeriesText, loadDailySpendingSeries, MAX_DAILY_SERIES_DAYS } from "./handlers/DailySeriesHandler.ts";
+import {
+  capSeriesWindow, loadScopedSeries, SCOPED_SERIES_ENGINE, scopedSeriesExecutedIR, scopedSeriesText,
+} from "./handlers/ScopedSeriesHandler.ts";
+import { isScopedSeriesGrain } from "./SeriesGrain.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -412,6 +415,11 @@ async function finishV2(args: {
     result: args.result,
     run_id,
     session_id: args.session_id,
+    // Evidência EXATA executada neste turno: o gráfico e o follow-up usam estes
+    // resultados, nunca uma reconstrução a partir da memória.
+    executed_calls: (args.tool_calls ?? [])
+      .filter((call) => call.ok && call.result != null)
+      .map((call) => ({ tool_name: call.tool_name, args: call.args ?? {}, result: call.result, ok: true })),
   };
 }
 
@@ -1166,7 +1174,8 @@ async function executeContract(
       return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
     },
     runTypicalMonthly: async (query) => {
-      if (query.grain === "day" && query.time.aspect === "trend") {
+      // Série por grão (dia/semana/trimestre) com recorte: um motor, um template.
+      if (isScopedSeriesGrain(query.grain) && query.time.aspect === "trend") {
         const categoryLabel = query.filters.find((f) => f.field === "category")?.value ?? null;
         const merchantLabel = query.filters.find((f) => f.field === "merchant")?.value ?? null;
         const categoryIds = categoryLabel
@@ -1174,23 +1183,22 @@ async function executeContract(
           : null;
         if (categoryLabel && (!categoryIds || !categoryIds.length)) return { domain_error: "category_not_found" as const };
         if (categoryLabel && categoryIds && categoryIds.length > 1) return { domain_error: "category_ambiguous" as const };
-        const from = String(query.time.from ?? "");
-        let to = String(query.time.to ?? "");
-        if (!from || !to) return null;
-        // Série diária legível: no máximo ~3 meses a partir do início pedido.
-        const cap = new Date(Date.parse(`${from}T12:00:00Z`) + (MAX_DAILY_SERIES_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
-        if (to > cap) to = cap;
-        const result = await loadDailySpendingSeries(sb, {
+        if (!query.time.from || !query.time.to) return null;
+        // Janela legível por grão (ex.: no máximo ~3 meses dia a dia).
+        const window = capSeriesWindow(query.grain, String(query.time.from), String(query.time.to));
+        const result = await loadScopedSeries(sb, {
           user_id: input.user_id,
-          from, to,
+          grain: query.grain,
+          from: window.from,
+          to: window.to,
           category_ids: categoryIds,
           category_label: categoryLabel ? String(categoryLabel) : null,
           merchant: merchantLabel ? String(merchantLabel) : null,
         });
         return {
-          text: dailySpendingSeriesText(result),
-          executed_ir: dailySeriesExecutedIR(query, result),
-          engine: "spending_timeseries_daily_scoped",
+          text: scopedSeriesText(result),
+          executed_ir: scopedSeriesExecutedIR(query, result),
+          engine: SCOPED_SERIES_ENGINE,
           result,
         };
       }
@@ -1328,7 +1336,7 @@ async function executeContract(
   // Série (mês a mês, dia a dia) e ranking com leitura: o conteúdo diagramado
   // vai inteiro; a voz escreve só a abertura. Antes o compositor resumia a
   // série e a lista de meses sumia ("quero mês a mês" pedido de novo).
-  const SERIES_ENGINES = new Set(["spending_timeseries_monthly", "spending_timeseries_daily_scoped"]);
+  const SERIES_ENGINES = new Set(["spending_timeseries_monthly", SCOPED_SERIES_ENGINE]);
   const laidOut = replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
     && (extraEvidence.length > 0 || (toolCalls.length === 1 && SERIES_ENGINES.has(toolCalls[0].tool_name)));
   return {

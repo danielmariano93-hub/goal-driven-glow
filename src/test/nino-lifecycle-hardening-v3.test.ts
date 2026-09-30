@@ -235,7 +235,10 @@ describe("Nino lifecycle hardening — continuidade depois da interpretação", 
     const entry = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2Entry.ts", "utf8");
     const chart = readFileSync("supabase/functions/_shared/intelligence/chartFallback.ts", "utf8");
     expect(entry).toContain("ensureRequestedArtifact");
-    expect(chart).toContain("generate_monthly_series_chart_artifact");
+    const templates = readFileSync("supabase/functions/_shared/intelligence/chartTemplates.ts", "utf8");
+    expect(chart).toContain("seriesChartFromEvidence");
     expect(chart).toContain("monthly_series");
+    expect(templates).toContain("generate_monthly_series_chart_artifact");
+    expect(templates).toContain("generate_daily_series_chart_artifact");
   });
 });

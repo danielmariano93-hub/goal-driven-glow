@@ -19,6 +19,7 @@ import { runTool } from "./ToolRuntime.ts";
 import { resolveTimeAspectPt } from "../../analytics/periodResolver.ts";
 import { ensureRequestedArtifact } from "../../intelligence/chartFallback.ts";
 import { hasExplicitChartIntent } from "../../intelligence/chartIntent.ts";
+import { mergeExecutedSeriesEvidence, seriesEvidenceGrain } from "../../intelligence/chartTemplates.ts";
 
 function comparisonEvidenceResult(evidence: ComparisonEvidence, ref: ReferenceObject) {
   return {
@@ -128,6 +129,11 @@ function formulaVersionsFromCalls(calls: V2ToolCall[]): Record<string, string> |
   return entries.length ? Object.fromEntries(entries) : null;
 }
 
+/** Chamadas de série executadas neste turno, com o resultado exato. */
+function seriesExecutedCalls(turn: HandleTurnResult) {
+  return (turn.executed_calls ?? []).filter((call) => call.ok && seriesEvidenceGrain(call.result) !== null);
+}
+
 async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Promise<void> {
   if (!turn.run_id || !turn.session_id) return;
   const sb = service();
@@ -168,6 +174,19 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
 
   const calls: V2ToolCall[] = [];
   const callRefs: ReferenceObject[] = [];
+  // Séries (dia/semana/mês/trimestre): grava o resultado EXATO executado no
+  // turno. Era a reconstrução pela memória que gravava `null` para a série
+  // diária e deixava o gráfico sem dados.
+  for (const executed of seriesExecutedCalls(turn)) {
+    calls.push({
+      tool_name: executed.tool_name,
+      args: (executed.args ?? {}) as Record<string, unknown>,
+      result: executed.result,
+      ok: true,
+      duration_ms: null,
+      error: null,
+    });
+  }
   for (const ref of candidates) {
     const call = v2CallFromReference(ref, tools[0]);
     if (!call) continue;
@@ -256,7 +275,8 @@ async function bindRequestedArtifact(input: HandleTurnInput, turn: HandleTurnRes
     user_id: input.user_id,
     conversation_id: input.conversation_id,
     text: input.text,
-    toolCalls: calls,
+    // A evidência do próprio turno vale mais que uma gravação incompleta.
+    toolCalls: mergeExecutedSeriesEvidence(calls, turn.executed_calls),
   });
   if (!artifact) return;
 

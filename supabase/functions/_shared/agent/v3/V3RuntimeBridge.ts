@@ -128,7 +128,7 @@ function runtimeReference(turn: TurnSpecV3): TurnReference | null {
  * instead of failing the turn on a structural technicality.
  */
 export function coherentOperation(operation: string, groupBy: readonly string[]): string {
-  const temporal = groupBy.includes("month") || groupBy.includes("day");
+  const temporal = ["month", "day", "week", "quarter"].some((grain) => groupBy.includes(grain));
   if (temporal && ["value", "sum", "breakdown", "rank"].includes(operation)) return "trend";
   if ((operation === "value" || operation === "sum") && groupBy.length > 0) return "breakdown";
   return operation;

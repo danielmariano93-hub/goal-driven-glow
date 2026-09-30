@@ -39,11 +39,11 @@ import {
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
 import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
 import {
-  isDailySeriesShape, isMonthlySeriesShape, isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
+  isScopedSeriesShape, isMonthlySeriesShape, isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
   type FinancialQueryIRv3, type FinancialQueryV3,
 } from "./FinancialIRv3.ts";
 import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
-import { repairDailyGrain } from "./DailyGrainRepair.ts";
+import { repairSeriesGrain } from "./SeriesGrainRepair.ts";
 import { expandIRForPeriods, type MultiPeriodExpansion } from "./MultiPeriodPlan.ts";
 import { multiPeriodText } from "./MultiPeriodAnswer.ts";
 import { CANONICAL_DEGRADED_NOTE, degradeForCanonicalRead } from "./CanonicalReadFallback.ts";
@@ -303,7 +303,7 @@ export async function runSemanticTurn(
   // soma única ou série mensal por omissão da interpretação.
   // Com contrato autoritativo o reparo já aconteceu no contrato (mesma regra),
   // e mexer só no IR aqui criaria divergência com o pedido canônico.
-  if (irV2 && input.authoritative_contract !== true) irV2 = repairDailyGrain(irV2, input.text).ir;
+  if (irV2 && input.authoritative_contract !== true) irV2 = repairSeriesGrain(irV2, input.text).ir;
   // Herança de período do tópico: turno de continuação sem período explícito
   // usa o recorte já combinado ("e por cartão?" mantém os 90 dias).
   const inheritPeriod = input.authoritative_contract !== true
@@ -505,7 +505,7 @@ export async function runSemanticTurn(
   // estatística de meses FECHADOS, com mediana declarada e ressalva de
   // cobertura. Antes essa pergunta era respondida com o mês corrente parcial.
   const typicalQuery = irV3?.queries.length === 1
-    && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]) || isDailySeriesShape(irV3.queries[0]))
+    && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]) || isScopedSeriesShape(irV3.queries[0]))
     ? irV3.queries[0]
     : null;
   if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {

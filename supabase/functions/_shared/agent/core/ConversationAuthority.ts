@@ -5,7 +5,7 @@
 // no lexical fast-path, parser or V2 circuit breaker may decide meaning first.
 // deno-lint-ignore-file no-explicit-any
 
-import { repairDailyGrainInContract } from "./DailyGrainRepair.ts";
+import { repairSeriesGrainInContract } from "./SeriesGrainRepair.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import type { ConversationBrainInput, ConversationBrainOutcome } from "./ConversationBrain.ts";
 import {
@@ -240,7 +240,7 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
       if (plan.ok) {
         const [first, ...rest] = plan.contracts;
         return {
-          contract: repairDailyGrainInContract(attachV3ReferenceToContract(semantic.turn, first), input.text),
+          contract: repairSeriesGrainInContract(attachV3ReferenceToContract(semantic.turn, first), input.text),
           additional_contracts: rest.map((contract) => attachV3ReferenceToContract(semantic.turn!, contract)),
           telemetry: {
             ...semantic.telemetry,
@@ -258,7 +258,7 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
     const bridged = bridgeTurnSpecV3ToRuntime(semantic.turn);
     if (bridged.ok) {
       return {
-        contract: repairDailyGrainInContract(attachV3ReferenceToContract(semantic.turn, bridged.contract), input.text),
+        contract: repairSeriesGrainInContract(attachV3ReferenceToContract(semantic.turn, bridged.contract), input.text),
         telemetry: {
           ...semantic.telemetry,
           model: `v3-${semantic.tier}:${semantic.telemetry.model}`.slice(0, 180),
