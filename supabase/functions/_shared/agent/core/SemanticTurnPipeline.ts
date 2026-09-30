@@ -43,6 +43,7 @@ import {
   type FinancialQueryIRv3, type FinancialQueryV3,
 } from "./FinancialIRv3.ts";
 import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
+import { repairDailyGrain } from "./DailyGrainRepair.ts";
 import { expandIRForPeriods, type MultiPeriodExpansion } from "./MultiPeriodPlan.ts";
 import { multiPeriodText } from "./MultiPeriodAnswer.ts";
 import { CANONICAL_DEGRADED_NOTE, degradeForCanonicalRead } from "./CanonicalReadFallback.ts";
@@ -298,6 +299,11 @@ export async function runSemanticTurn(
   }
 
   let irV2 = ir ? normalizeToV2(ir, { acts: input.acts, topic_id: topic.topic_id }) : null;
+  // Grão diário pedido literalmente ("gráfico diário", "dia a dia") nunca vira
+  // soma única ou série mensal por omissão da interpretação.
+  // Com contrato autoritativo o reparo já aconteceu no contrato (mesma regra),
+  // e mexer só no IR aqui criaria divergência com o pedido canônico.
+  if (irV2 && input.authoritative_contract !== true) irV2 = repairDailyGrain(irV2, input.text).ir;
   // Herança de período do tópico: turno de continuação sem período explícito
   // usa o recorte já combinado ("e por cartão?" mantém os 90 dias).
   const inheritPeriod = input.authoritative_contract !== true
