@@ -38,6 +38,7 @@ const VECTOR_GLYPHS: Record<string, VectorGlyph> = {
   ],
   "9": [[[0.82, 0.5], [0.22, 0.5], [0.08, 0.26], [0.25, 0.03], [0.68, 0], [0.88, 0.18], [0.86, 0.7], [0.62, 1], [0.28, 1]]],
   "-": [[[0.12, 0.52], [0.88, 0.52]]],
+  "/": [[[0.78, 0], [0.22, 1]]],
   ",": [[[0.55, 0.86], [0.48, 1.08], [0.3, 1.22]]],
   ".": [[[0.5, 0.96], [0.51, 0.97]]],
   "k": [[[0.16, 0], [0.16, 1]], [[0.85, 0.18], [0.18, 0.6], [0.86, 1]]],
@@ -184,7 +185,8 @@ export function chartDayLabel(label: string): string {
   const raw = String(label ?? "").trim().toLowerCase();
   const monthly = raw.match(/^([a-z]{3})\/(\d{2})$/);
   if (monthly && MONTH_AXIS_LABELS[monthly[1]]) {
-    return `${MONTH_AXIS_LABELS[monthly[1]]}-${monthly[2]}`;
+    // "09/26" (mês/ano, como validade de cartão): "09-26" parecia dia 26.
+    return `${MONTH_AXIS_LABELS[monthly[1]]}/${monthly[2]}`;
   }
   return raw.split("/")[0].padStart(2, "0").slice(0, 2);
 }

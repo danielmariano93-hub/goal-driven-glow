@@ -59,6 +59,9 @@ const MONEY_KEYS = [
 ];
 const PERCENT_KEYS = ["percent", "percentage", "share", "variation", "progress", "pace", "ratio"];
 const COUNT_KEYS = ["count", "transactions_count", "occurrences", "installments", "days"];
+// Métricas internas do motor (pontuação, confiança, prioridade...) nunca viram
+// fato narrável: "value_score" não é dinheiro e "confidence" não é conversa.
+const INTERNAL_KEY = /score|confidence|priority|relevance|utility|weight|threshold|timing|rank|version|attempt|sample_size|consistency|coverage|uplift/;
 
 function num(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -145,6 +148,7 @@ export function buildNarrativeEvidencePack(
 
   for (const [key, raw] of Object.entries(evidence)) {
     const lower = key.toLowerCase();
+    if (INTERNAL_KEY.test(lower)) continue;
     if (isIsoDate(raw)) {
       allowedDates.add(String(raw).slice(0, 10));
       facts.push({ key, label: key, kind: "date", value: null, text: String(raw).slice(0, 10) });

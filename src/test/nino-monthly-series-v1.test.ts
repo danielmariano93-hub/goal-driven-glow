@@ -211,23 +211,25 @@ describe("nino_monthly_series.v1", () => {
       partial_first_month: false,
       partial_last_month: true,
     };
-    const text = monthlySpendingSeriesText(result);
-    expect(text).toContain("* Agosto: R$ 123,45 — 2 lançamentos");
-    expect(text).toContain("* Setembro: sem lançamentos encontrados");
-    expect(text).toContain("Alimentação");
-    expect(text).toContain("Thales");
-    expect(text).toContain("mês parcial");
+    const text = monthlySpendingSeriesText(result).replace(/\u00a0/g, " ");
+    expect(text).toContain("• *Agosto*: R$ 123,45 (2 lançamentos)");
+    expect(text).toContain("• *Setembro*: sem lançamentos");
+    expect(text).toContain("Alimentação com Thales");
+    expect(text).toContain("Setembro ainda está em andamento: considerado até o dia 26.");
   });
 
   it("returns the conversational summary with total, monthly counts, average, peak and partial-month warning", () => {
-    const text = monthlySpendingSeriesText(thalesFixture());
-    expect(text).toContain("💸 Nos 6 meses analisados, de 01/04/2026 a 26/09/2026, você gastou R$ 606,00 em Lazer com Thales, em 11 lançamentos.");
-    expect(text).toContain("* Abril: R$ 80,00 — 1 lançamento");
-    expect(text).toContain("* Julho: R$ 72,00 — 2 lançamentos");
-    expect(text).toContain("* Setembro: R$ 155,00 — 3 lançamentos");
-    expect(text).toContain("Sua média foi de R$ 101,00 por mês.");
-    expect(text).toContain("Junho teve o maior gasto, com R$ 160,00.");
-    expect(text).toContain("Setembro já soma R$ 155,00, mas ainda é um mês parcial, considerado somente até o dia 26.");
+    const text = monthlySpendingSeriesText(thalesFixture()).replace(/\u00a0/g, " ");
+    expect(text.startsWith("📊 *Lazer com Thales, mês a mês* (01/04/2026 a 26/09/2026)")).toBe(true);
+    expect(text).toContain("• *Abril*: R$ 80,00 (1 lançamento)");
+    expect(text).toContain("• *Julho*: R$ 72,00 (2 lançamentos)");
+    expect(text).toContain("• *Setembro*: R$ 155,00 (3 lançamentos)");
+    expect(text).toContain("*Total:* R$ 606,00 em 11 lançamentos");
+    expect(text).toContain("*Média:* R$ 101,00 por mês");
+    expect(text).toContain("*Maior mês:* Junho, com R$ 160,00");
+    expect(text).toContain("Setembro ainda está em andamento: considerado até o dia 26.");
+    // Todos os seis meses aparecem, um por linha.
+    expect(text.split("\n").filter((line) => line.startsWith("• *"))).toHaveLength(6);
   });
 
   it("builds the monthly WhatsApp artifact in the same visual family as the daily chart", () => {
@@ -266,8 +268,8 @@ describe("nino_monthly_series.v1", () => {
   });
 
   it("renders monthly axis labels with month and year while preserving daily labels", () => {
-    expect(chartDayLabel("jan/26")).toBe("01-26");
-    expect(chartDayLabel("dez/25")).toBe("12-25");
+    expect(chartDayLabel("jan/26")).toBe("01/26");
+    expect(chartDayLabel("dez/25")).toBe("12/25");
     expect(chartDayLabel("23/09")).toBe("23");
   });
 });

@@ -20,7 +20,7 @@ import { citedNumbers, matchesEvidence } from "../narrative/NarrativeGuard.ts";
 export const COMPOSER_VERSION = "nino_conversational_composer.v1";
 export const COMPOSER_DEADLINE_MS = 10_000;
 
-export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery" | "review";
+export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery" | "review" | "layout";
 
 export type ComposeHistoryTurn = { role: "user" | "assistant"; content: string };
 
@@ -147,6 +147,7 @@ const KIND_GUIDANCE: Record<ComposeKind, string> = {
   decision: "O usuário está pesando uma decisão. Raciocine como um assessor: pese as alternativas com princípios financeiros sólidos (reserva de emergência, custo de dívida costuma superar rendimento de aplicação conservadora, liquidez, metas), usando SOMENTE os números dos fatos. Dê uma recomendação clara condicionada ao quadro dele e diga qual informação mudaria a recomendação.",
   recovery: "Você NÃO conseguiu calcular ou consultar com segurança o que foi pedido (o RASCUNHO explica). Diga isso com honestidade e leveza, SEM citar nenhum valor, número ou data. Responda a parte humana da mensagem (se ele pediu para você lembrar de algo, use a MEMÓRIA DE RELACIONAMENTO) e sugira, em uma frase, como ele pode pedir o dado de forma direta.",
   review: "O usuário pediu um balanço/resumo do período. O resumo completo, já diagramado, será enviado LOGO DEPOIS da sua mensagem. Escreva SOMENTE a abertura: 1 ou 2 frases curtas com a leitura mais importante do período (o que foi fora do normal, se o mês está no azul ou apertado, o alerta principal), no tom de um assessor que conhece a pessoa. Não repita a lista de números, não use lista, não faça pergunta nem oferta (o resumo já termina com a sugestão). Pode citar no máximo um valor dos FATOS.",
+  layout: "O usuário pediu um dado em formato de série/lista (mês a mês, dia a dia). A resposta completa, já diagramada com todos os pontos, será enviada LOGO DEPOIS da sua mensagem. Escreva SOMENTE a abertura: 1 ou 2 frases curtas com a leitura mais útil da série (pico, tendência, mês/dia fora do padrão). Não repita a lista, não faça pergunta nem oferta. Pode citar no máximo um valor dos FATOS.",
   compound: "O usuário fez mais de um pedido na mesma mensagem. Responda cada parte na ordem, conectando-as numa conversa só (por exemplo: o dado e, em seguida, o conselho que decorre dele).",
 };
 
@@ -325,7 +326,7 @@ export function guardComposedReply(args: {
     if (headline != null && !citedNumbers(text).some((n) => n.kind === "money" && matchesEvidence(n.value, [headline]))) {
       push("headline_number_missing");
     }
-  } else if (input.kind === "review") {
+  } else if (input.kind === "review" || input.kind === "layout") {
     if (text.length > 420) push("too_long");
     if (/\?\s*$/.test(text)) push("review_opening_asks");
   } else if (input.kind !== "conversation" && input.kind !== "recovery") {

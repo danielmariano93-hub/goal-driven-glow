@@ -44,6 +44,8 @@ export function buildNarrativePrompt(args: {
     "- Não afirme causa, risco ou projeção que não esteja nas afirmações permitidas.",
     "- Nunca julgue moralmente o gasto do usuário e nunca use tom de cobrança.",
     "- Nunca mencione modelo, provedor de IA ou nome interno de motor.",
+    "- Nunca fale de score, pontuação, confiança, amostras ou prioridade: são métricas internas.",
+    "- Dinheiro sempre no formato brasileiro: R$ 190,09 (vírgula nos centavos, ponto no milhar).",
     `- No máximo ${rules.maxSentences} frases e ${rules.maxNumbers} números no texto inteiro.`,
     "- Conclusão antes do número. Uma pergunta no final, no máximo.",
     channel === "whatsapp"

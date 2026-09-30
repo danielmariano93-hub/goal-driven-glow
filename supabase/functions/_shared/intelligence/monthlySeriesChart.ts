@@ -2,6 +2,7 @@
 // It never recalculates financial facts: totals/counts come from
 // nino_monthly_series.v1. The only derived visual series is a trailing average.
 import type { MonthlySpendingSeriesResult } from "../agent/core/handlers/MonthlySeriesHandler.ts";
+import { dailyScopeLabel, type DailySpendingSeriesResult } from "../agent/core/handlers/DailySeriesHandler.ts";
 
 const MONTHS_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const MONTHS_LONG = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
@@ -107,6 +108,54 @@ export function buildMonthlySeriesChartArtifact(result: MonthlySpendingSeriesRes
       row_count: result.transaction_count,
       confidence: "high" as const,
       source: "nino_monthly_series.v1",
+      period: { from: result.window.from, to: result.window.to },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Série diária (`nino_daily_series.v1`): mesma regra — só apresenta a evidência.
+// ---------------------------------------------------------------------------
+
+const ddmm = (ymd: string) => `${String(ymd).slice(8, 10)}/${String(ymd).slice(5, 7)}`;
+
+export function dailySeriesChartCaption(result: DailySpendingSeriesResult): string {
+  const lines = [
+    `📊 Gastos dia a dia · ${dailyScopeLabel(result)}`,
+    `• Período: ${ddmm(result.window.from)} a ${ddmm(result.window.to)}.`,
+    `• Total gasto: ${brl(result.total)} em ${launchCount(result.transaction_count)}.`,
+    `• Dias com gasto: ${result.active_days} de ${result.window.n}.`,
+  ];
+  if (result.peak) lines.push(`• Maior dia: ${ddmm(result.peak.date)}, com ${brl(result.peak.total)}.`);
+  if (result.active_days) lines.push(`• Média nos dias com gasto: ${brl(result.average_per_active_day)}.`);
+  return lines.join("\n").slice(0, 950);
+}
+
+export function buildDailySeriesChartArtifact(result: DailySpendingSeriesResult) {
+  const scope = dailyScopeLabel(result);
+  const caption = dailySeriesChartCaption(result);
+  return {
+    kind: "chart" as const,
+    title: `Gastos dia a dia · ${scope}`,
+    headline: `Gastos dia a dia · ${scope}`,
+    summary_text: caption,
+    fallback_text: caption,
+    a11y_summary: `Série diária de gastos em ${scope}, de ${formatDatePt(result.window.from)} a ${formatDatePt(result.window.to)}. Total ${brl(result.total)}.`,
+    chart: {
+      type: "bar" as const,
+      title: `Gasto por dia`,
+      x_labels: result.days.map((day) => ddmm(day.date)),
+      series: [
+        { name: "Gasto do dia", data: result.days.map((day) => Number(day.total ?? 0)), color: "#6D3BFF", render_as: "bar" as const },
+      ],
+      units: "BRL" as const,
+      y_format: "currency",
+    },
+    provenance: {
+      formula_version: result.formula_version,
+      row_count: result.transaction_count,
+      confidence: "high" as const,
+      source: "nino_daily_series.v1",
       period: { from: result.window.from, to: result.window.to },
     },
   };

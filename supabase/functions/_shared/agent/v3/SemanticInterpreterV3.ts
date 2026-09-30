@@ -95,7 +95,7 @@ const financialTaskPayloadSchema = {
     group_by: {
       type: "array",
       maxItems: 1,
-      items: { type: "string", enum: ["category", "merchant", "card", "account", "month", "weekday"] },
+      items: { type: "string", enum: ["category", "merchant", "card", "account", "month", "weekday", "day"] },
     },
     filters: {
       type: "array",
@@ -241,6 +241,8 @@ Você NÃO executa ferramentas, NÃO calcula valores financeiros e NÃO inventa 
 PRINCÍPIOS OBRIGATÓRIOS:
 1. A mensagem atual tem precedência sobre memória/contexto. Se o usuário disser explicitamente "Lazer", contexto anterior "Alimentação" não pode substituir Lazer.
 2. Memória só preenche informação ausente. Nunca sobrescreve informação explícita do turno atual.
+2b. Quando o turno atual nomeia um estabelecimento ou categoria NOVO, não herde filtros de OUTRA dimensão do assunto anterior: "quanto gastei no estabelecimento Thales" depois de falar de Lazer = filtro merchant=Thales SÓ (sem category=Lazer). Só combine os dois se o usuário disser ("nessa categoria", "em Lazer no Thales").
+2c. Pedido curto que só muda período, grão ou formato ("mês a mês nos últimos 5 meses", "e em agosto?", "dia a dia", "em gráfico", "me traga isso por mês") é follow_up: herde os filtros do turno anterior (source=memory) e NÃO peça esclarecimento de categoria/estabelecimento.
 3. Períodos são slots temporais. "esse mês", "mês passado", "hoje" e equivalentes NUNCA são referências a categoria/estabelecimento/meta/dívida.
 4. Referências só existem para anáforas reais: "ela", "essa categoria", "delas", "aquele estabelecimento", "essa meta", "essa dívida", mensagem citada etc.
 5. Não escolha nome de ferramenta/função. Escolha somente uma das famílias/tarefas semânticas permitidas pelo schema.
@@ -255,6 +257,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 14. canonical_request deve preservar o significado completo sem inventar dados ou datas resolvidas.
 15. "Quanto gasto por mês com X?", sem período histórico explícito, é hábito/típico: financial_query expense_amount, operation=value, group_by=[], periods=[], filtro X. NUNCA peça esclarecimento só por faltar período.
 16. "Quanto gastei ... por mês nos últimos N meses?" é série histórica factual: financial_query expense_amount, operation=trend, group_by=[month], periods=["últimos N meses"].
+17b. "dia a dia", "por dia", "diário", "gráfico diário", "cada dia do mês" e equivalentes significam série DIÁRIA: operation=trend e group_by=[day], preservando filtros (categoria E estabelecimento, se ditos) e o período (ex.: "setembro"). Nunca use group_by=[month] para um pedido diário.
 17. "mês a mês", "mês por mês", "em cada mês", "evolução mensal" e equivalentes significam série histórica: operation=trend e group_by=[month], preservando filtros e período. Não use sum/breakdown para esse formato.
 18. Em financial_write use SOMENTE estas actions de domínio: ${ACTION_KINDS.join(", ")}. "Registre um gasto..." = transaction.create. Não invente nomes de tools/functions.
 19. Quando o usuário disser categoria e estabelecimento em qualquer ordem, preserve ambos como filtros independentes; o nome do merchant nunca inclui a categoria.

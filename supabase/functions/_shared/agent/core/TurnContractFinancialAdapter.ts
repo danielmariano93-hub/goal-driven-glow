@@ -32,9 +32,9 @@ function canonicalizeTurnQuery(
   // Deliberately scoped to category/merchant reads: an unscoped overall trend
   // belongs to the longitudinal engine and must not be stolen by this rule.
   const scopedMonthlyExpense = query.metric === "expense_amount"
-    && ["sum", "value"].includes(String(query.operation))
+    && ["sum", "value", "breakdown", "rank"].includes(String(query.operation))
     && query.group_by.length === 1
-    && query.group_by[0] === "month"
+    && (query.group_by[0] === "month" || query.group_by[0] === "day")
     && query.filters.length > 0
     && query.filters.every((filter) => filter.field === "category" || filter.field === "merchant");
 
