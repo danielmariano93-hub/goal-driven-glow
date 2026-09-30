@@ -12,6 +12,7 @@ export const ACTION_KINDS = [
   "goal.contribute",
   "goal.update",
   "goal.delete",
+  "spending_goal.plan",
   "debt.create",
   "debt.pay",
   "card_bill.pay",
@@ -47,6 +48,8 @@ const ACTION_TO_TOOL: Record<ActionKind, WriteWorkflowKind> = {
   "goal.contribute": "add_goal_contribution_draft",
   "goal.update": "lifecycle_goal_update_draft",
   "goal.delete": "lifecycle_goal_delete_draft",
+  // Meta de GASTO (teto por categoria) e submetas por estabelecimento.
+  "spending_goal.plan": "lifecycle_spending_goal_plan_draft",
   "debt.create": "create_debt_draft",
   "debt.pay": "lifecycle_debt_payment_draft",
   "card_bill.pay": "pay_credit_card_bill_draft",

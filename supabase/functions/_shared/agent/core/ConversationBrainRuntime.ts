@@ -174,12 +174,29 @@ export async function executeBrainWriteTurn(args: {
     };
   }
 
+  const result: any = exec.result ?? {};
+  // O adaptador pediu um dado que só a pessoa sabe (ex.: categoria de um
+  // estabelecimento ainda sem histórico): pergunta e mantém a intenção viva.
+  if (result?.needs_input) {
+    await saveWorkflow(args.sb, {
+      user_id: args.user_id,
+      conversation_id: args.conversation_id,
+      workflow: { ...built.workflow, asked_slot: result.slot ? String(result.slot) : null },
+    });
+    return {
+      handled: true,
+      reply: String(result.card_text ?? "Pode me dar mais um detalhe?"),
+      reply_kind: "question",
+      tool_name: step.kind,
+      tool_args: step.args,
+      error: null,
+    };
+  }
   await closeWorkflow(args.sb, {
     user_id: args.user_id,
     conversation_id: args.conversation_id,
     outcome: "completed",
   });
-  const result: any = exec.result ?? {};
   return {
     handled: true,
     reply: draftText(result),

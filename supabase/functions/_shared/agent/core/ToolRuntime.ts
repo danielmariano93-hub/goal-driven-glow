@@ -11,6 +11,7 @@ import { toolByName, type ToolContext, type ToolResult } from "../tools.ts";
 import { lifecycleToolByName } from "./LifecycleTools.ts";
 import { recurringLifecycleToolByName } from "./RecurringLifecycleTools.ts";
 import { goalLifecycleToolByName } from "./GoalLifecycleTools.ts";
+import { spendingGoalToolByName } from "./SpendingGoalTools.ts";
 import { undoLifecycleToolByName } from "./UndoLifecycleTools.ts";
 import type { HistoryTurn } from "./ConversationHistory.ts";
 import { isRetryable } from "./ErrorRecovery.ts";
@@ -96,6 +97,7 @@ async function runToolUncached(
     ?? recurringLifecycleToolByName(tool_name)
     ?? lifecycleToolByName(tool_name)
     ?? goalLifecycleToolByName(tool_name)
+    ?? spendingGoalToolByName(tool_name)
     ?? undoLifecycleToolByName(tool_name);
   const started = Date.now();
 

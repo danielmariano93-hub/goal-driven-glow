@@ -9,6 +9,8 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { executeConfirmation, type ConfirmationExecution, type PendingRow } from "./PendingConfirmations.ts";
+import { expenseGoalNote } from "../../spendingGoals/runtime.ts";
+import { localDate } from "../../finance-core/ninoClock.ts";
 import { buildActionReceipt, type ActionReceipt } from "./ReceiptBuilder.ts";
 import { unprovenMessage } from "./PersistenceProof.ts";
 
@@ -108,5 +110,20 @@ export async function confirmAndBuildReceipt(
 
   const context = await resolveReceiptContext(sb, pending.user_id, pending.payload, execution.result);
   const receipt = buildActionReceipt(pending.kind, { ...(pending.payload as any ?? {}), ...(execution.result ?? {}) }, context);
+  // spending_goals.v1 — depois do gasto, onde ele pesou (submeta e meta). Nunca
+  // atrasa nem derruba o recibo: sem meta ou sem resposta rápida, sai só o recibo.
+  if (pending.kind === "transaction") {
+    const src = { ...(pending.payload as any ?? {}), ...(execution.result ?? {}) };
+    const note = await Promise.race([
+      expenseGoalNote(sb, pending.user_id, localDate(), {
+        id: src.transaction_id ?? src.id, category_id: src.category_id, type: src.type,
+      }).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+    if (note) {
+      receipt.lines.push(note);
+      receipt.text = receipt.lines.join("\n");
+    }
+  }
   return { ok: true, reply: receipt.text, reply_kind: "receipt", receipt, execution, error: null, proven: true };
 }

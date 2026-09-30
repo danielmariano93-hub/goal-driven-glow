@@ -5,6 +5,7 @@
 import { insightValue, isAppTaskKind, materialityFloor } from "../intelligence/insightValue.ts";
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
 import { repeatedKind, type RecentDelivery } from "./repetition.ts";
+import { SPENDING_GOAL_ORIENTATION_KINDS } from "./spendingGoalSituations.ts";
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -105,6 +106,8 @@ export function meetsSituationMateriality(
   if (situation.communication_kind === "data_quality") return true;
   // Balanço do mês e dica de uso também valem pelo que orientam, não por R$.
   if (situation.communication_kind === "mid_month_checkin" || situation.communication_kind === "feature_discovery") return true;
+  // Metas de gasto: fim de semana e fechamentos orientam a próxima decisão.
+  if (SPENDING_GOAL_ORIENTATION_KINDS.has(situation.communication_kind)) return true;
   // Urgência dispensa o piso apenas quando há risco: contexto informativo de
   // valor pequeno nunca vale uma interrupção, mesmo vencendo amanhã.
   if (situation.severity !== "info" && (situation.days_until ?? 99) <= 3) return true;

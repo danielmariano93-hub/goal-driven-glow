@@ -16,6 +16,18 @@ import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
+import { useGoals } from "@/lib/db/finance";
+import type { MerchantTargetEvaluation } from "@/lib/engine/spendingGoals";
+import {
+  useSaveMerchantTarget,
+  useSetSavingsDestination,
+  useSpendingGoalAdvice,
+  useSpendingGoalReadings,
+  useUpdateMerchantTargetStatus,
+} from "@/lib/nino/spendingGoals";
+import { GoalMerchantBreakdown } from "@/components/metas/GoalMerchantBreakdown";
+import { MerchantTargetForm } from "@/components/metas/MerchantTargetForm";
+import { CategoryHistoryInsight } from "@/components/metas/CategoryHistoryInsight";
 
 export default function MetaCategoriaDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -32,6 +44,13 @@ export default function MetaCategoriaDetalhe() {
   const delCatGoal = useDeleteCategorySpendingGoal();
   const toggleCatGoal = useUpdateCategorySpendingGoalStatus();
   const [openForm, setOpenForm] = useState(false);
+  const { data: readings, isLoading: readingsLoading, isError: readingsError } = useSpendingGoalReadings();
+  const { data: advice } = useSpendingGoalAdvice();
+  const { data: savingGoals } = useGoals();
+  const saveTarget = useSaveMerchantTarget();
+  const targetStatus = useUpdateMerchantTargetStatus();
+  const setDestination = useSetSavingsDestination();
+  const [targetForm, setTargetForm] = useState<{ open: boolean; initial: MerchantTargetEvaluation | null }>({ open: false, initial: null });
 
   const goal = (catGoals ?? []).find((g) => g.id === id) ?? null;
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })), [txs]);
@@ -43,6 +62,16 @@ export default function MetaCategoriaDetalhe() {
   const evaluation = useMemo(
     () => financialSnapshot?.activeCategoryGoals.find((item) => item.goal.id === goal?.id) ?? null,
     [financialSnapshot, goal?.id],
+  );
+
+  const reading = useMemo(() => (readings ?? []).find((r) => r.goal_id === id) ?? null, [readings, id]);
+  const categoryAdvice = useMemo(
+    () => advice?.categories.find((c) => c.category_id === goal?.category_id) ?? null,
+    [advice, goal?.category_id],
+  );
+  const accumulationGoals = useMemo(
+    () => (savingGoals ?? []).filter((g) => String(g.status ?? "active") === "active" && String((g as { kind?: string }).kind ?? "savings") !== "donation"),
+    [savingGoals],
   );
 
   const strategy = useMemo(
@@ -105,6 +134,55 @@ export default function MetaCategoriaDetalhe() {
         </CategoryGoalCard>
       </ul>
 
+      {reading ? (
+        <GoalMerchantBreakdown
+          reading={reading}
+          onAdd={() => setTargetForm({ open: true, initial: null })}
+          onEdit={(target) => setTargetForm({ open: true, initial: target })}
+          onToggle={(target) => targetStatus.mutate(
+            { id: target.id, status: target.status === "paused" ? "active" : "paused" },
+            { onError: (e: unknown) => toast.error((e as Error).message) },
+          )}
+          onDelete={(target) => {
+            if (confirm(`Excluir a submeta ${target.label}? O gasto continua contando na meta da categoria.`)) {
+              targetStatus.mutate({ id: target.id, status: "cancelled" }, {
+                onSuccess: () => toast.success("Submeta excluída"),
+                onError: (e: unknown) => toast.error((e as Error).message),
+              });
+            }
+          }}
+        />
+      ) : readingsLoading ? (
+        <p className="mt-5 flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Detalhando por estabelecimento…</p>
+      ) : readingsError ? (
+        <p className="mt-5 text-xs text-muted-foreground">Não consegui carregar o detalhamento por estabelecimento agora.</p>
+      ) : null}
+
+      {categoryAdvice ? (
+        <section className="mt-5">
+          <CategoryHistoryInsight advice={categoryAdvice} />
+        </section>
+      ) : null}
+
+      <section className="mt-5 rounded-2xl border border-border bg-card p-4">
+        <p className="text-sm font-semibold">Destino da economia</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Quando o mês fechar abaixo da sua referência, o Nino sugere mover a diferença para este objetivo.
+        </p>
+        <select
+          className="input-base mt-2"
+          style={{ fontSize: 16 }}
+          value={reading?.savings_goal_id ?? ""}
+          onChange={(e) => setDestination.mutate(
+            { goal_id: goal.id, savings_goal_id: e.target.value || null },
+            { onSuccess: () => toast.success("Destino atualizado"), onError: (err: unknown) => toast.error((err as Error).message) },
+          )}
+        >
+          <option value="">Ainda não definido</option>
+          {accumulationGoals.map((g) => (<option key={g.id} value={g.id}>{g.name}</option>))}
+        </select>
+      </section>
+
       <section className="mt-5 rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Lançamentos considerados</p>
@@ -134,6 +212,22 @@ export default function MetaCategoriaDetalhe() {
           </ul>
         )}
       </section>
+
+      {targetForm.open && reading ? (
+        <MerchantTargetForm
+          goalId={goal.id}
+          categoryId={goal.category_id}
+          categoryName={categoryName ?? "a categoria"}
+          takenKeys={reading.breakdown.targets.flatMap((t) => t.merchant_keys)}
+          initial={targetForm.initial}
+          saving={saveTarget.isPending}
+          onClose={() => setTargetForm({ open: false, initial: null })}
+          onSubmit={(input) => saveTarget.mutate(input, {
+            onSuccess: () => { setTargetForm({ open: false, initial: null }); toast.success(input.id ? "Submeta atualizada" : "Submeta criada"); },
+            onError: (e: unknown) => toast.error((e as Error).message),
+          })}
+        />
+      ) : null}
 
       {openForm && (
         <CategoryGoalForm
