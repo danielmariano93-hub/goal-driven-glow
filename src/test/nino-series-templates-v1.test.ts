@@ -120,7 +120,7 @@ describe("templates de gráfico", () => {
     expect(chart.payload.chart.x_labels).toEqual(result.points.map((p) => p.label));
     const sum = (chart.payload.chart.series[0].data as number[]).reduce((a, b) => a + b, 0);
     expect(sum).toBeCloseTo(result.total, 2);
-    expect(chart.payload.provenance.period).toEqual({ from, to: "2026-09-30" });
+    expect(chart.payload.provenance.period).toMatchObject({ from, to: "2026-09-30" });
   });
 
   it("eixo do PNG do WhatsApp: dia, mês e trimestre legíveis", () => {

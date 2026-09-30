@@ -130,7 +130,7 @@ describe("gráfico diário de Transporte no Uber — caminho real até o artefat
     expect(payload.chart.x_labels).toHaveLength(30);
     expect(payload.chart.x_labels[0]).toBe("01/09");
     expect((payload.chart.series[0].data as number[]).reduce((a, b) => a + b, 0)).toBeCloseTo(228.83, 2);
-    expect(payload.provenance.period).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(payload.provenance.period).toMatchObject({ from: "2026-09-01", to: "2026-09-30" });
   });
 
   it("follow-up \"Me traga isso em gráfico diário agora\" gera o gráfico do mesmo recorte", async () => {

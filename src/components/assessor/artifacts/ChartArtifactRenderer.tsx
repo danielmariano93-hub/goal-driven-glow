@@ -1,11 +1,13 @@
 // Renderer universal para ChartArtifact vindo do assessor.
 // Suporta bar, line/area, donut, progress e forecast_band. Sem cálculo — só
 // consome o payload já pronto do motor analítico.
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   LineChart, Line, Area, ComposedChart, PieChart, Pie, Cell,
 } from "recharts";
 import type { ChartArtifact } from "@/types/artifacts";
+import { normalizeChartArtifact } from "./normalizeChartArtifact";
 
 const BRL = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 const PALETTE = ["#6D3BFF", "#8B5CF6", "#FF6B4A", "#FF9F1C", "#16A37A", "#3B82F6"];
@@ -28,7 +30,39 @@ function ConfidencePill({ level }: { level: string }) {
   return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${it.cls}`}>{it.label}</span>;
 }
 
-export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact }) {
+/** Um gráfico com problema nunca derruba a conversa inteira. */
+class ArtifactBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[assessor] artifact render failed", error.message, info.componentStack?.slice(0, 300));
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+        Não consegui exibir este gráfico. A resposta em texto acima usa os mesmos dados.
+      </p>
+    );
+  }
+}
+
+export function ChartArtifactRenderer({ artifact }: { artifact: unknown }) {
+  const normalized = normalizeChartArtifact(artifact);
+  if (!normalized) return null;
+  return (
+    <ArtifactBoundary>
+      <ChartArtifactView artifact={normalized} />
+    </ArtifactBoundary>
+  );
+}
+
+function ChartArtifactView({ artifact }: { artifact: ChartArtifact }) {
   const { chart, metrics, provenance, headline, narrative } = artifact;
   const rows = chart.x_labels.map((label, i) => {
     const row: Record<string, string | number> = { label };
@@ -48,7 +82,7 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{headline}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{narrative}</p>
+          {narrative && <p className="mt-0.5 text-xs text-muted-foreground">{narrative}</p>}
         </div>
         <div className="flex flex-col items-end gap-1">
           <ConfidencePill level={provenance.confidence} />
@@ -76,7 +110,8 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
           {chart.type === "bar" || chart.type === "stacked_bar" ? (
             <BarChart data={rows}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis dataKey="label" fontSize={10} interval={0} angle={-15} height={40} />
+              <XAxis dataKey="label" fontSize={10} interval={rows.length > 12 ? "preserveStartEnd" : 0}
+              angle={rows.length > 12 ? 0 : -15} height={40} minTickGap={4} />
               <YAxis fontSize={10} tickFormatter={(v) => fmt(chart.units, v)} width={60} />
               <Tooltip formatter={(v: number) => fmt(chart.units, v)} />
               {chart.series.map((s, i) => (
@@ -136,9 +171,11 @@ export function ChartArtifactRenderer({ artifact }: { artifact: ChartArtifact })
         </ResponsiveContainer>
       </div>
 
-      <p className="mt-2 text-[10px] text-muted-foreground">
-        {provenance.period.from} → {provenance.period.to} · {provenance.row_count} registros · {provenance.formula_version}
-      </p>
+      {provenance.period.from && provenance.period.to && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          {provenance.period.from} → {provenance.period.to} · {provenance.row_count} registros
+        </p>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 // chartTemplates (`nino_chart_templates.v1`)
+// deno-lint-ignore-file no-explicit-any
 //
 // Gráfico de série = TEMPLATE por grão + DADOS executados + PERÍODO e recorte.
 // O Nino só decide o grão (dia, semana, mês, trimestre); o template define
@@ -65,6 +66,12 @@ export function buildScopedSeriesChartArtifact(result: ScopedSeriesResult) {
     summary_text: caption,
     fallback_text: caption,
     a11y_summary: `${template.title} em ${scope}, de ${ddmmyyyy(result.window.from)} a ${ddmmyyyy(result.window.to)}. Total ${brl(result.total)}.`,
+    narrative: `De ${ddmm(result.window.from)} a ${ddmm(result.window.to)}: ${brl(result.total)} em ${launches(result.transaction_count)}.`,
+    metrics: [
+      { label: "Total no período", value: brl(result.total) },
+      { label: template.units, value: `${result.active_points} de ${result.window.n}` },
+      ...(result.peak ? [{ label: template.peak, value: `${pointDisplayLabel(result.grain, result.peak)} · ${brl(result.peak.total)}` }] : []),
+    ],
     chart: {
       type: "bar" as const,
       title: template.bar_name,
@@ -80,9 +87,20 @@ export function buildScopedSeriesChartArtifact(result: ScopedSeriesResult) {
       row_count: result.transaction_count,
       confidence: "high" as const,
       source: result.version,
-      period: { from: result.window.from, to: result.window.to },
+      as_of: new Date().toISOString(),
+      period: { from: result.window.from, to: result.window.to, tz: "America/Sao_Paulo" as const },
     },
   };
+}
+
+function monthlyMetrics(result: MonthlySpendingSeriesResult) {
+  const withData = result.months.filter((point) => point.has_data);
+  const peak = withData.reduce<(typeof withData)[number] | null>((best, p) => !best || p.total > best.total ? p : best, null);
+  return [
+    { label: "Total no período", value: brl(result.total) },
+    { label: "Meses com gasto", value: `${withData.length} de ${result.months.length}` },
+    ...(peak ? [{ label: "Maior mês", value: `${peak.month.slice(5, 7)}/${peak.month.slice(2, 4)} · ${brl(peak.total)}` }] : []),
+  ];
 }
 
 function isMonthlySeriesResult(value: unknown): value is MonthlySpendingSeriesResult {
@@ -103,6 +121,44 @@ export function seriesEvidenceHasData(result: unknown): boolean {
   return false;
 }
 
+/**
+ * Contrato do ChartArtifact que o app renderiza (src/types/artifacts.ts):
+ * headline, narrative, metrics[], chart{x_labels, series[]}, provenance{period
+ * {from,to,tz}, as_of, row_count, confidence, formula_version}. Qualquer payload
+ * de gráfico passa por aqui antes de ser gravado: campo ausente derrubava a tela
+ * inteira do assessor no app.
+ */
+export function completeChartContract<T extends Record<string, any>>(payload: T): T {
+  const summary = String(payload?.summary_text ?? payload?.fallback_text ?? "");
+  const summaryLines = summary.split("\n").map((line) => line.replace(/^[•📊\s]+/u, "").trim()).filter(Boolean);
+  const provenance = (payload?.provenance ?? {}) as Record<string, any>;
+  const chart = (payload?.chart ?? null) as Record<string, any> | null;
+  return {
+    ...payload,
+    headline: String(payload?.headline ?? payload?.title ?? "Gráfico"),
+    narrative: String(payload?.narrative ?? summaryLines[1] ?? summaryLines[0] ?? ""),
+    metrics: Array.isArray(payload?.metrics) ? payload.metrics : [],
+    ...(chart
+      ? {
+        chart: {
+          ...chart,
+          x_labels: Array.isArray(chart.x_labels) ? chart.x_labels : [],
+          series: Array.isArray(chart.series) ? chart.series : [],
+          units: chart.units ?? "BRL",
+        },
+      }
+      : {}),
+    provenance: {
+      ...provenance,
+      as_of: provenance.as_of ?? new Date().toISOString(),
+      confidence: provenance.confidence ?? "medium",
+      row_count: Number(provenance.row_count ?? 0),
+      formula_version: String(provenance.formula_version ?? "artifact.v2"),
+      period: { ...(provenance.period ?? {}), tz: provenance.period?.tz ?? "America/Sao_Paulo" },
+    },
+  };
+}
+
 export type SeriesChart = {
   grain: SeriesGrain;
   template: SeriesChartTemplate;
@@ -119,9 +175,13 @@ export function seriesChartFromEvidence(result: unknown, requestedGrain: SeriesG
   if (requestedGrain && requestedGrain !== grain) return null;
   const template = SERIES_CHART_TEMPLATES[grain];
   const payload = isMonthlySeriesResult(result)
-    ? buildMonthlySeriesChartArtifact(result)
+    ? {
+      ...buildMonthlySeriesChartArtifact(result),
+      narrative: `De ${ddmm(result.window.from)} a ${ddmm(result.window.to)}: ${brl(result.total)} em ${launches(result.transaction_count)}.`,
+      metrics: monthlyMetrics(result),
+    }
     : buildScopedSeriesChartArtifact(result as ScopedSeriesResult);
-  return { grain, template, payload };
+  return { grain, template, payload: completeChartContract(payload) };
 }
 
 type CallLike = {

@@ -4,7 +4,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest, isContextualChartFollowup } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
-import { SERIES_CHART_TEMPLATES, seriesChartFromEvidence, seriesEvidenceGrain, seriesEvidenceHasData } from "./chartTemplates.ts";
+import { completeChartContract, SERIES_CHART_TEMPLATES, seriesChartFromEvidence, seriesEvidenceGrain, seriesEvidenceHasData } from "./chartTemplates.ts";
 import type { SeriesGrain } from "../agent/core/SeriesGrain.ts";
 
 type ToolCallLike = {
@@ -169,7 +169,7 @@ async function persistRichArtifact(
     payload: any;
   },
 ): Promise<string | null> {
-  const payload = args.payload ?? {};
+  const payload = completeChartContract(args.payload ?? {});
   const formulaVersion = String(payload?.provenance?.formula_version ?? "artifact.v2");
   const summaryText = String(payload?.summary_text ?? payload?.fallback_text ?? "");
   const fallbackText = String(payload?.fallback_text ?? summaryText);
