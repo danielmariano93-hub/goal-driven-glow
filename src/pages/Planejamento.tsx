@@ -6,7 +6,9 @@ import { sortCategories } from "@/lib/categories/order";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
-import { simulateSpending, type SimulationVerdict } from "@/lib/engine/spendingSimulation";
+import { monthLabel, simulateSpending, type SimulationVerdict } from "@/lib/engine/spendingSimulation";
+import { categoryLimitsFor, purchaseMonths, usePurchasePlan, type PurchasePlanVerdict } from "@/lib/nino/purchasePlan";
+import { PurchaseMonthByMonth } from "@/components/planning/PurchaseMonthByMonth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -16,6 +18,24 @@ const VERDICT_STYLE: Record<SimulationVerdict, { chip: string; icon: JSX.Element
   risky: { chip: "bg-brand-coral/15 text-brand-coral", icon: <Warning size={18} weight="fill" /> },
   unaffordable: { chip: "bg-destructive/10 text-destructive", icon: <XCircle size={18} weight="fill" /> },
 };
+
+/** Veredito mês a mês → estilo do selo. */
+const PLAN_STYLE: Record<PurchasePlanVerdict, SimulationVerdict> = {
+  fits: "safe",
+  tight: "attention",
+  deficit: "risky",
+  worsens_deficit: "unaffordable",
+  unknown: "attention",
+};
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return debounced;
+}
 
 function formatDate(value: string) {
   const [y, m, d] = value.slice(0, 10).split("-").map(Number);
@@ -60,14 +80,42 @@ export default function Planejamento() {
     });
   }, [amount, installments, paymentMethod, categoryId, snapshot.data, categories, plannedDate, cardId, cards, accountId, accounts]);
 
-  const style = result ? VERDICT_STYLE[result.verdict] : null;
+  // A compra é julgada em cada mês em que pesa (fatura de cada parcela ou mês
+  // da compra à vista) — não só no mês corrente.
+  const planRequest = useMemo(() => {
+    if (!result) return null;
+    const months = purchaseMonths({
+      method: result.method,
+      plannedDate: result.plannedDate,
+      cardCompetence: result.cardCompetence,
+      installments: result.installments,
+      installmentAmount: result.installmentAmount,
+      amount: result.amount,
+    });
+    const goal = snapshot.data?.activeCategoryGoals.find((g) => g.goal.category_id === categoryId);
+    return {
+      amount: result.amount,
+      category_id: categoryId || null,
+      category_name: (categories ?? []).find((c) => c.id === categoryId)?.name ?? "Categoria",
+      months,
+      category_limits: categoryLimitsFor(months.map((m) => m.month), goal),
+    };
+  }, [result, snapshot.data, categoryId, categories]);
+  const debouncedRequest = useDebounced(planRequest, 500);
+  const plan = usePurchasePlan(debouncedRequest);
+  const planReady = plan.data && debouncedRequest === planRequest ? plan.data : null;
+
+  const style = planReady ? VERDICT_STYLE[PLAN_STYLE[planReady.verdict]] : result ? VERDICT_STYLE[result.verdict] : null;
+  const headline = planReady?.headline ?? result?.headline ?? "";
+  const touchesCurrentMonth = !!result && (result.method === "cash" ? result.plannedDate.slice(0, 7) === todayISO().slice(0, 7) : result.cashImpactWithinMonth);
+  const planDeficit = planReady && (planReady.verdict === "deficit" || planReady.verdict === "worsens_deficit");
 
   return (
     <div className="mx-auto w-full max-w-[720px] space-y-4 pb-20">
       <header>
         <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Antes de gastar</h1>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
-          O mesmo motor da Home: nada aqui é recalculado por fora.
+          Simule uma compra e veja o efeito em cada mês em que ela pesa.
         </p>
       </header>
 
@@ -146,27 +194,38 @@ export default function Planejamento() {
           <section className="overflow-hidden rounded-[18px] border border-border bg-card">
             <div className="flex items-start justify-between gap-3 p-4">
               <div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${style?.chip}`}>{style?.icon} {result.headline}</span>
+                {plan.isFetching && !planReady ? (
+                  <span className="inline-flex h-6 w-40 animate-pulse rounded-full bg-muted" aria-label="Calculando o efeito mês a mês" />
+                ) : (
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${style?.chip}`}>{style?.icon} {headline}</span>
+                )}
                 <p className="mt-2 font-display text-2xl font-bold tabular-nums text-foreground">{formatBRL(result.amount)}</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {result.method === "card"
                     ? `${result.installments}x de ${formatBRL(result.installmentAmount)} no cartão`
                     : "À vista, direto do saldo"}
-                  {result.daysOfTypicalPace != null ? ` · equivale a ${result.daysOfTypicalPace.toFixed(1)} dias do seu ritmo típico` : ""}
+                  {result.daysOfTypicalPace != null ? ` · equivale a ${result.daysOfTypicalPace.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias do seu ritmo típico` : ""}
                 </p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Compra em {formatDate(result.plannedDate)} · dinheiro sai em {formatDate(result.cashImpactDate)}
-                  {result.cardCompetence ? ` (fatura ${result.cardCompetence})` : ""}
+                  {result.cardCompetence ? ` (fatura de ${monthLabel(result.cardCompetence)})` : ""}
                 </p>
+                {planReady?.explanation ? (
+                  <p className="mt-2 text-[12.5px] leading-[18px] text-foreground/80">{planReady.explanation}</p>
+                ) : null}
               </div>
             </div>
-            <div className="grid grid-cols-2 border-t border-border">
-              <Metric label="Disponível hoje" before={result.availableToday} after={result.availableAfterNow} />
-              <Metric label="Fechamento do mês" before={result.projectedEndBalance} after={result.projectedEndBalanceAfter} bordered />
-            </div>
-            <div className="border-t border-border p-3.5">
-              <Metric label="Livre depois do que já tem data" before={result.freeAfterCommitments} after={result.freeAfterCommitmentsAfter} inline />
-            </div>
+            {touchesCurrentMonth ? (
+              <>
+                <div className="grid grid-cols-2 border-t border-border">
+                  <Metric label="Disponível hoje" before={result.availableToday} after={result.availableAfterNow} />
+                  <Metric label="Fechamento deste mês" before={result.projectedEndBalance} after={result.projectedEndBalanceAfter} bordered />
+                </div>
+                <div className="border-t border-border p-3.5">
+                  <Metric label="Livre depois do que já tem data" before={result.freeAfterCommitments} after={result.freeAfterCommitmentsAfter} inline />
+                </div>
+              </>
+            ) : null}
           </section>
 
           <button
@@ -186,18 +245,11 @@ export default function Planejamento() {
             {reviewCounted ? "Análise registrada" : "Concluir esta análise"}
           </button>
 
-          {result.categoryGoalImpact ? (
-            <section className="rounded-[18px] border border-border bg-card p-4">
-              <p className="text-[11px] font-bold text-primary">Meta de {result.categoryGoalImpact.categoryName}</p>
-              <p className="mt-1 text-[13px] text-foreground">
-                Limite de {formatBRL(result.categoryGoalImpact.limit)} · já usou {formatBRL(result.categoryGoalImpact.spent)}.
-              </p>
-              <p className={`mt-1 text-[13px] font-semibold ${result.categoryGoalImpact.exceeds ? "text-destructive" : "text-foreground"}`}>
-                {result.categoryGoalImpact.exceeds
-                  ? `Esta compra estoura a meta em ${formatBRL(Math.abs(result.categoryGoalImpact.remainingAfter))}.`
-                  : `Depois desta compra ainda sobram ${formatBRL(result.categoryGoalImpact.remainingAfter)}.`}
-              </p>
-            </section>
+          {planReady && planReady.months.length > 0 ? <PurchaseMonthByMonth plan={planReady} /> : null}
+          {plan.isError && !planReady ? (
+            <p className="rounded-[18px] border border-border bg-card p-4 text-[12px] text-muted-foreground">
+              Não consegui projetar os próximos meses agora. O resultado acima considera só o mês atual.
+            </p>
           ) : null}
 
           {result.installmentSchedule.length > 1 ? (
@@ -214,11 +266,26 @@ export default function Planejamento() {
             </section>
           ) : null}
 
+          {planReady && planReady.fixed_commitments.length > 0 ? (
+            <section className="rounded-[18px] border border-border bg-card p-4">
+              <h2 className="font-display text-base font-bold text-foreground">Fixos que o Nino identificou</h2>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Cobranças que se repetem todo mês com valor parecido. Já estão no seu gasto típico.</p>
+              <ul className="mt-2 divide-y divide-border">
+                {planReady.fixed_commitments.map((item) => (
+                  <li key={item.label} className="flex min-h-10 items-center justify-between gap-3 py-2 text-[13px]">
+                    <span className="min-w-0 truncate text-foreground">{item.label}</span>
+                    <strong className="shrink-0 tabular-nums">{formatBRL(item.amount)}<span className="text-[11px] font-normal text-muted-foreground">/mês</span></strong>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
           {result.commitments.length > 0 ? (
             <section className="rounded-[18px] border border-border bg-card p-4">
               <div className="flex items-center gap-2">
                 <CalendarBlank size={18} className="text-muted-foreground" weight="duotone" />
-                <h2 className="font-display text-base font-bold text-foreground">O que já tem data</h2>
+                <h2 className="font-display text-base font-bold text-foreground">Próximos vencimentos</h2>
               </div>
               <ul className="mt-2 divide-y divide-border">
                 {result.commitments.map((item) => (
@@ -234,11 +301,14 @@ export default function Planejamento() {
             </section>
           ) : null}
 
-          {result.goalsAtRisk.length > 0 ? (
+          {(planReady ? planDeficit : result.goalsAtRisk.length > 0) && (snapshot.data?.goalProgress ?? []).some((g) => g.remaining > 0) ? (
             <section className="rounded-[18px] border border-brand-coral/40 bg-brand-coral/10 p-4">
               <p className="text-[13px] font-semibold text-foreground">Metas que podem sofrer</p>
               <ul className="mt-1 list-disc pl-4 text-[12px] text-muted-foreground">
-                {result.goalsAtRisk.map((g) => <li key={g.id}>{g.name} — faltam {formatBRL(g.remaining)}</li>)}
+                {(planReady
+                  ? (snapshot.data?.goalProgress ?? []).filter((g) => g.remaining > 0).map((g) => ({ id: g.id, name: g.name, remaining: g.remaining }))
+                  : result.goalsAtRisk
+                ).map((g) => <li key={g.id}>{g.name} — faltam {formatBRL(g.remaining)}</li>)}
               </ul>
             </section>
           ) : null}
@@ -246,6 +316,15 @@ export default function Planejamento() {
           <section className="rounded-[18px] border border-border bg-card p-4 text-[12px] text-muted-foreground">
             <p className="flex items-center gap-1.5 text-[11px] font-bold text-foreground"><Info size={14} weight="duotone" /> Como calculamos</p>
             <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+              {planReady ? (
+                <>
+                  <li>Cada parte da compra é julgada no mês em que pesa: no cartão, o mês da fatura de cada parcela.</li>
+                  <li>
+                    Mês típico: entram {formatBRL(planReady.basis.typical_income)} e saem {formatBRL(planReady.basis.typical_spend)} (mediana dos últimos {planReady.basis.months_of_history} meses; já inclui aluguel, contas e parcelas de sempre). Se o que já está comprometido para o mês for maior, vale o comprometido.
+                  </li>
+                  {planReady.notes.map((note) => <li key={note}>{note}</li>)}
+                </>
+              ) : null}
               {result.assumptions.map((a) => <li key={a}>{a}</li>)}
             </ul>
             {result.limitations.length > 0 ? (
@@ -273,3 +352,4 @@ function Metric({ label, before, after, bordered, inline }: { label: string; bef
     </div>
   );
 }
+

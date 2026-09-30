@@ -72,6 +72,18 @@ export interface SpendingSimulationResult {
   limitations: string[];
 }
 
+const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+/** "2026-10" → "outubro de 2026". */
+export function monthLabel(ym: string): string {
+  const [year, month] = ym.split("-").map(Number);
+  return MONTHS_PT[month - 1] ? `${MONTHS_PT[month - 1]} de ${year}` : ym;
+}
+/** "2026-10-30" → "30/10/2026". */
+function dateLabel(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
+
 export function simulateSpending(input: SpendingSimulationInput): SpendingSimulationResult {
   const snap = input.snapshot;
   const amount = round2(Math.max(0, Number(input.amount) || 0));
@@ -160,19 +172,19 @@ export function simulateSpending(input: SpendingSimulationInput): SpendingSimula
     .filter((g) => g.remaining > 0 && freeAfterCommitmentsAfter < g.remaining * 0.1)
     .map((g) => ({ id: g.id, name: g.name, remaining: g.remaining }));
 
+  // Só o que ainda vai vencer: parcela de 04/09 não é "o que já tem data" em 30/09.
   const commitments = snap.commitmentAgenda.items
-    .filter((item) => item.type === "expense")
+    .filter((item) => item.type === "expense" && item.date >= todayIso)
     .slice(0, 5)
     .map((item) => ({ name: item.name, amount: item.amount, date: item.date, estimated: item.estimated }));
 
   const assumptions: string[] = [
-    `Disponível hoje e projeção vêm do motor canônico (${snap.contractVersion}).`,
-    `Compromissos com data considerados: ${snap.commitmentAgenda.items.length} nos próximos 30 dias.`,
+    "Disponível hoje vem do mesmo cálculo da Home.",
     method === "card"
-      ? `No cartão, a compra entra na fatura${cardCompetence ? ` de ${cardCompetence}` : ""} e o dinheiro sai em ${cashImpactDate}.`
-      : `À vista, o valor sai do saldo em ${cashImpactDate}.`,
+      ? `No cartão, a compra entra na fatura${cardCompetence ? ` de ${monthLabel(cardCompetence)}` : ""} e o dinheiro sai em ${dateLabel(cashImpactDate)}.`
+      : `À vista, o valor sai do saldo em ${dateLabel(cashImpactDate)}.`,
     ...(method === "cash" && input.accountName ? [`A saída será feita pela conta ${input.accountName}.`] : []),
-    `Impacto na meta de categoria acontece na data da compra (${plannedDate}).`,
+    `Para a categoria vale o mês da compra (${dateLabel(plannedDate)}).`,
   ];
   if (snap.projection.estimatedFixedInflows > 0) {
     assumptions.push("A renda fixa futura estimada está incluída apenas na projeção, nunca no saldo real.");
