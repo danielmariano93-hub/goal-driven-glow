@@ -11,6 +11,7 @@ import { NinoMessageText } from "./NinoMessageText";
 import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
 import type { ChartArtifact } from "@/types/artifacts";
 import { useAuth } from "@/context/AuthContext";
+import { useOptionalAssessor } from "@/context/AssessorContext";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { NativeCaptureButton } from "@/components/native/NativeCaptureButton";
 import { NativeRecorderButton } from "@/components/native/NativeRecorderButton";
@@ -65,6 +66,14 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const viewport = useVisualViewport();
+  const assessor = useOptionalAssessor();
+
+  // Pergunta pronta vinda de um insight: entra no campo para a pessoa revisar e enviar.
+  useEffect(() => {
+    if (!assessor?.draft) return;
+    setInput(assessor.draft);
+    assessor.clearDraft();
+  }, [assessor]);
 
   useEffect(() => {
     const previous = document.body.style.overflow;

@@ -8,7 +8,7 @@ import { updatedAtLabel } from "@/lib/nino/format";
  * Botão Atualizar com estados inequívocos:
  * pressão, processando, sucesso (após refetch), erro com retry e horário da última atualização.
  */
-export function NinoRefreshButton({ asOf }: { asOf?: string | null }) {
+export function NinoRefreshButton({ asOf, onRefresh }: { asOf?: string | null; onRefresh?: () => Promise<unknown> }) {
   const refresh = useNinoRefresh();
   const [last, setLast] = useState<NinoRefreshSummary | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
@@ -17,6 +17,8 @@ export function NinoRefreshButton({ asOf }: { asOf?: string | null }) {
   const run = () => {
     if (busy) return;
     setFailed(null);
+    // Leitura executiva recalcula junto (falha dela não derruba o restante).
+    void onRefresh?.().catch(() => undefined);
     refresh.mutate(undefined, {
       onSuccess: (summary) => {
         setLast(summary);
