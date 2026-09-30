@@ -278,16 +278,16 @@
     @apply w-full rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30;
   }
 
-  /* iOS: garante que campos com @apply text-sm (14px) não disparem
-     o zoom automático do Safari em telas ≤ 767px. Reforça a regra base
-     dentro do mesmo @layer components para vencer o cascade. */
+  /* iOS: campo com fonte < 16px faz o Safari dar zoom ao focar (e o zoom
+     fica depois do login). A regra antiga perdia para utilitários como
+     `text-sm` aplicados direto no campo, então aqui ela é obrigatória. */
   @media (max-width: 767px) {
     .input-base,
     .split-form .input,
-    input,
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
     select,
     textarea {
-      font-size: 16px;
+      font-size: 16px !important;
     }
   }
 
