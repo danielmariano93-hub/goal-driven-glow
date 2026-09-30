@@ -39,6 +39,8 @@ export const qk = {
   performanceDetail: ["performance-detail"] as const,
   ninoHomeIntelligence: ["nino", "home-intelligence"] as const,
   categoryWeekdayHeatmap: ["category-weekday-heatmap"] as const,
+  // Metas de gasto com submetas: estorno, recategorização ou novo gasto recalculam.
+  spendingGoalReadings: ["spending-goal-readings"] as const,
 } as const;
 
 export type QueryKeyName = keyof typeof qk;
@@ -50,7 +52,7 @@ const DERIVED_KEYS: readonly (readonly string[])[] = [
   // A versão do ledger é a chave-mestra das leituras derivadas: invalidá-la
   // derruba snapshot, acompanhamento, inteligência editorial e heatmap.
   qk.ledgerVersion, qk.homeSnapshot, qk.performanceDetail,
-  qk.ninoHomeIntelligence, qk.categoryWeekdayHeatmap,
+  qk.ninoHomeIntelligence, qk.categoryWeekdayHeatmap, qk.spendingGoalReadings,
 ];
 
 /**

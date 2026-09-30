@@ -248,6 +248,7 @@ const LEGACY_ADVISORY_FALLBACK: Record<string, string> = {
   scenario: "financial_plan",
   decision: "next_best_action",
   period_review: "current_insight",
+  spending_goal_plan: "financial_plan",
 };
 
 function advisoryParamsOf(task: SemanticTaskV3): Record<string, unknown> | null {

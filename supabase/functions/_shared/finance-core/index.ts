@@ -34,5 +34,6 @@ export * from "./longitudinal.ts";
 export * from "./wealthOpportunity.ts";
 export * from "./recurringSchedule.ts";
 export * from "./categoryWeekdayHeatmap.ts";
+export * from "./spendingGoals.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
 export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";

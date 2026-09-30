@@ -2,7 +2,11 @@
 // Leitura executiva das finanças da pessoa para a tela do Nino.
 // - get: devolve a leitura do dia (cache de 30 min), recalculando se preciso;
 // - refresh: recalcula agora;
-// - feedback: registra útil / não ajudou / dispensar para uma causa-raiz.
+// - feedback: registra útil / não ajudou / dispensar para uma causa-raiz;
+// - simulate: "Antes de gastar" mês a mês;
+// - goals: leitura das metas de gasto com submetas por estabelecimento
+//   (+ análise do histórico com `advice: true`);
+// - goal_merchants: estabelecimentos de uma categoria para criar submeta.
 // Com x-cron-secret aceita { user_id } (verificação interna/cron).
 // Nenhuma ação movimenta dinheiro.
 // deno-lint-ignore-file no-explicit-any
@@ -12,6 +16,7 @@ import { httpContext } from "../_shared/http.ts";
 import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared/insights/executive/engine.ts";
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
+import { adviseGoals, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -62,7 +67,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
-  let body: { action?: unknown; user_id?: unknown; key?: unknown; kind?: unknown; feedback?: unknown; purchase?: unknown } = {};
+  let body: {
+    action?: unknown; user_id?: unknown; key?: unknown; kind?: unknown; feedback?: unknown; purchase?: unknown;
+    advice?: unknown; category_ids?: unknown; category_id?: unknown;
+  } = {};
   try { body = await req.json(); } catch { /* corpo vazio = get */ }
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -127,6 +135,24 @@ Deno.serve(async (req) => {
         },
       });
       return h.ok({ ok: true, plan });
+    }
+    if (action === "goals") {
+      const ctx = await loadSpendingGoalContext(sb, userId, todaySP());
+      const onlyCategoryIds = Array.isArray(body.category_ids)
+        ? body.category_ids.filter((id): id is string => typeof id === "string").slice(0, 30)
+        : undefined;
+      return h.ok({
+        ok: true,
+        as_of: ctx.as_of,
+        goals: readGoals(ctx),
+        advice: body.advice === true ? adviseGoals(ctx, { onlyCategoryIds }) : null,
+      });
+    }
+    if (action === "goal_merchants") {
+      const categoryId = typeof body.category_id === "string" ? body.category_id : "";
+      if (!categoryId) return h.fail("category_required", 400);
+      const ctx = await loadSpendingGoalContext(sb, userId, todaySP());
+      return h.ok({ ok: true, merchants: merchantOptions(ctx, categoryId) });
     }
     if (action !== "get" && action !== "refresh") return h.fail("invalid_action", 400);
 

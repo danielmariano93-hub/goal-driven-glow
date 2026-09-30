@@ -31,6 +31,8 @@ export const MATERIAL_GROWTH = 1.5;
 export const TIME_BOUND_KINDS = new Set([
   "debt_due_soon", "debt_overdue", "debt_installment_due", "forgotten_bill", "card_bill_pressure",
   "bill_due_reminder", "card_closing_soon",
+  // Metas de gasto: cada semana, fim de semana e fechamento tem identidade própria.
+  "spending_goal_weekend", "spending_goal_weekly", "spending_goal_monthly", "spending_goal_zero_charge",
 ]);
 
 export function repeatedKind(

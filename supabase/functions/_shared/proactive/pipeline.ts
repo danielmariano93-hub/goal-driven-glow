@@ -39,6 +39,8 @@ import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { detectWeekdayPattern, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
+import { spendingGoalSituations } from "./spendingGoalSituations.ts";
+import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
   PROACTIVE_MULTIFINANCE_VERSION,
@@ -324,6 +326,24 @@ export async function runMultiFinanceProactive(
       !(situation.communication_kind === "expected_recurring_payment" && (situation.days_until ?? 99) <= 1));
   }
   refined.push(...reminders);
+  // nino_spending_goals_comm.v1 — metas de gasto com submetas: intervir enquanto
+  // ainda dá para corrigir o mês. A leitura rica substitui o aviso genérico de
+  // teto da mesma meta (uma meta, uma mensagem).
+  if (((ctx.domains.goals as unknown[]) ?? []).length > 0 && isReminderHour(new Date())) {
+    const goalSituations = await loadSpendingGoalContext(sb, userId, ctx.as_of)
+      .then((sg) => spendingGoalSituations(ctx, sg, readGoals(sg)))
+      .catch((error) => {
+        console.warn("[proactive] spending goals skipped", String((error as Error)?.message ?? error).slice(0, 160));
+        return [] as FinancialSituation[];
+      });
+    if (goalSituations.length) {
+      const covered = new Set(goalSituations.map((situation) => String((situation.evidence as any)?.goal_id ?? "")).filter(Boolean));
+      refined = refined.filter((situation) =>
+        !(situation.type === "category_goal_pressure" && covered.has(String((situation.signals?.[0]?.evidence as any)?.goal_id ?? ""))));
+      const knownNow = new Set(refined.map((situation) => situation.fingerprint));
+      refined.push(...goalSituations.filter((situation) => !knownNow.has(situation.fingerprint)));
+    }
+  }
   if (userModel) refined = applyUserModel(refined, userModel);
   refined = applyLearningAdjustment(refined, priorityLearning);
   refined = withoutDismissed(refined, dismissedTopics);

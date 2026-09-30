@@ -37,6 +37,7 @@ import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
 import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
+import { useSpendingGoalAdvice, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
 
 type GoalTab = "all" | "individual" | "shared";
 
@@ -113,6 +114,8 @@ export default function Metas() {
 
 
 
+  const { data: spendingReadings } = useSpendingGoalReadings();
+  const { data: spendingAdvice } = useSpendingGoalAdvice(tab === "all" || openCatList);
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
   const catNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -142,6 +145,19 @@ export default function Metas() {
       return map;
     }, {}),
   }), [goals, contribs, investments, catGoalEvals, numericTxs]);
+
+  const readingByGoal = useMemo(
+    () => new Map((spendingReadings ?? []).map((reading) => [reading.goal_id, reading])),
+    [spendingReadings],
+  );
+  // Sugestões do Nino: categorias de gasto variável ainda sem meta, pelo histórico.
+  const suggestions = useMemo(
+    () => (spendingAdvice?.categories ?? [])
+      .filter((c) => c.discretionary && c.potential_monthly > 0 && !c.existing_goal_id && c.reference >= 150)
+      .filter((c) => !(catGoals ?? []).some((g) => g.category_id === c.category_id && g.status !== "cancelled"))
+      .slice(0, 3),
+    [spendingAdvice, catGoals],
+  );
 
   return (
     <div>
@@ -233,11 +249,41 @@ export default function Metas() {
                   onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
                   onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
                 >
+                  <GoalPaceLine reading={readingByGoal.get(ev.goal.id)} />
                   <CategoryGoalStrategyCard strategy={buildStrategyForCategoryGoal(ev, numericTxs as never)} />
                 </CategoryGoalCard>
               ))}
             </ul>
           )}
+          {suggestions.length ? (
+            <div className="mt-4 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
+              <p className="text-[12px] font-semibold">Sugestões do Nino pelo seu histórico</p>
+              <ul className="mt-2 space-y-2">
+                {suggestions.map((c) => (
+                  <li key={c.category_id} className="flex items-start justify-between gap-2 text-[12px]">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{c.name}</p>
+                      <p className="text-muted-foreground">
+                        Referência {formatBRL(c.reference)} · limite sugerido {formatBRL(c.recommended_limit)} · {formatBRL(c.impact.m12)} em 12 meses
+                        {c.merchants[0] ? ` · maior peso: ${c.merchants[0].label}` : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCatGoal({ category_id: c.category_id, mode: "fixed_limit", fixed_limit: c.recommended_limit, computed_limit: c.recommended_limit, period_type: "monthly_recurring" } as never);
+                        setOpenCatGoal(true);
+                      }}
+                      className="shrink-0 rounded-full border border-primary px-3 py-1 text-[11px] font-semibold text-primary"
+                    >
+                      Criar meta
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-[11px] text-muted-foreground">Você também pode pedir no chat: “analise meus gastos e me ajude a criar metas”.</p>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -815,5 +861,20 @@ function SharedGoalsInline() {
         </Link>
       </div>
     </div>
+  );
+}
+
+/** Consumo x tempo e quem mais pesa, na visão executiva da categoria. */
+function GoalPaceLine({ reading }: { reading: GoalReading | undefined }) {
+  if (!reading) return null;
+  const b = reading.breakdown;
+  const pct = (ratio: number) => `${Math.round(ratio * 100)}%`;
+  const ahead = b.consumed_share > b.elapsed_share + 0.1;
+  return (
+    <p className="mt-2 rounded-lg bg-secondary/60 px-2.5 py-1.5 text-[11px]">
+      Consumido <strong className={ahead ? "text-red-600" : ""}>{pct(b.consumed_share)}</strong> da meta · período transcorrido <strong>{pct(b.elapsed_share)}</strong>
+      {b.main_driver ? <> · maior peso: <strong>{b.main_driver.label}</strong></> : null}
+      {b.targets.length ? <> · {b.targets.length} submeta{b.targets.length > 1 ? "s" : ""}</> : null}
+    </p>
   );
 }

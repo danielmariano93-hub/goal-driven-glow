@@ -21,6 +21,7 @@ const TABLE_BY_KIND: Record<string, string> = {
   goal_contribution: "goal_contributions",
   goal_update: "goals",
   goal_delete: "goals",
+  spending_goal_plan: "category_spending_goals",
   shared_goal_create: "shared_goals",
   shared_goal_contribution: "shared_goal_contributions",
   shared_expense: "shared_expenses",

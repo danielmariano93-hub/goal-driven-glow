@@ -12,6 +12,8 @@ import {
 } from "@/lib/engine/metrics";
 import { formatBRL, round2, todayISO } from "@/lib/engine/facts";
 import { sortCategories } from "@/lib/categories/order";
+import { useSpendingGoalAdvice } from "@/lib/nino/spendingGoals";
+import { CategoryHistoryInsight } from "./CategoryHistoryInsight";
 
 export type CategoryGoalFormValues = {
   id?: string;
@@ -76,6 +78,12 @@ export function CategoryGoalForm({ initial, categories, txs, saving, onClose, on
   const [customStart, setCustomStart] = useState<string>(initial?.start_date ?? todayISO(firstOfMonth(new Date())));
   const [customEnd, setCustomEnd] = useState<string>(initial?.end_date ?? todayISO(lastOfMonth(new Date())));
   const [error, setError] = useState<string | null>(null);
+  // Análise do histórico completo (a mesma que o Nino usa para sugerir metas).
+  const { data: advice, isLoading: adviceLoading } = useSpendingGoalAdvice();
+  const categoryAdvice = useMemo(
+    () => advice?.categories.find((c) => c.category_id === categoryId) ?? null,
+    [advice, categoryId],
+  );
 
   const autoBaseline = useMemo(() => {
     if (!categoryId) return 0;
@@ -156,7 +164,7 @@ export function CategoryGoalForm({ initial, categories, txs, saving, onClose, on
         className="w-full max-w-[640px] max-h-[90dvh] overflow-y-auto rounded-t-[20px] sm:rounded-[20px] border border-border bg-card p-5 sm:p-6 shadow-card"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))" }}
       >
-        <h2 className="font-display text-lg font-bold">{initial ? "Editar meta de categoria" : "Nova meta de categoria"}</h2>
+        <h2 className="font-display text-lg font-bold">{initial?.id ? "Editar meta de categoria" : "Nova meta de categoria"}</h2>
         <p className="mt-1 text-xs text-muted-foreground">Defina um teto de gasto e acompanhe seu ritmo em tempo real.</p>
 
         <div className="mt-4 space-y-3">
@@ -168,6 +176,17 @@ export function CategoryGoalForm({ initial, categories, txs, saving, onClose, on
               {expenseCats.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
             </select>
           </div>
+
+          {categoryId ? (
+            categoryAdvice ? (
+              <CategoryHistoryInsight
+                advice={categoryAdvice}
+                onUseRecommended={(limit) => { setMode("fixed_limit"); setFixedLimit(String(limit)); setManualLimit(""); }}
+              />
+            ) : adviceLoading ? (
+              <p className="flex items-center gap-2 text-[11px] text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Analisando seu histórico…</p>
+            ) : null
+          ) : null}
 
           {/* 2. Como definir a meta */}
           <div>

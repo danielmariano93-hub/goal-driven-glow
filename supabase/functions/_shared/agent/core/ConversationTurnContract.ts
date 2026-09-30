@@ -32,7 +32,7 @@ export type TurnDomain = typeof TURN_DOMAINS[number];
 
 export const ADVISORY_KINDS = [
   "current_insight", "next_best_action", "goal_strategy", "wealth_opportunity", "financial_plan",
-  "goal_projection", "scenario", "decision", "period_review",
+  "goal_projection", "scenario", "decision", "period_review", "spending_goal_plan",
 ] as const;
 export type AdvisoryKind = typeof ADVISORY_KINDS[number];
 

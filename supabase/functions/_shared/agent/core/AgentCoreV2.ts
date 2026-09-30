@@ -77,6 +77,7 @@ import {
   composeConversationalReply, type ComposeKind, type ComposeResult,
 } from "../v3/ConversationalComposerV3.ts";
 import { executeAdvisorReasoning, isAdvisorReasoningKind } from "../v3/AdvisorReasoningV3.ts";
+import { executeSpendingGoalAdvice } from "./SpendingGoalTools.ts";
 import { executeCategoryReading, executePeriodReview } from "../v3/PeriodReviewV3.ts";
 import {
   capSeriesWindow, loadScopedSeries, SCOPED_SERIES_ENGINE, scopedSeriesExecutedIR, scopedSeriesText,
@@ -1026,6 +1027,33 @@ async function executeContract(
       tools: calls.map((call) => call.tool_name), tool_calls: calls,
       active_period: { from: period.from, to: period.to, label: period.label ?? null },
       diagnostics: { period_review: { version: review.version, ok: true } },
+    };
+  }
+
+  // Metas de gasto: analisa o histórico e deixa metas + submetas prontas para
+  // confirmar (nada é criado sem o "sim").
+  if (contract.domain === "advisory" && contract.advisory_kind === "spending_goal_plan") {
+    const toolCtx = {
+      sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: canonical, evidenceCache,
+    } as any;
+    const plan = await executeSpendingGoalAdvice(toolCtx).catch((error) => ({
+      ok: false as const,
+      reply: "Não consegui analisar seu histórico agora. Nenhuma meta foi criada; tente de novo em instantes.",
+      error: String((error as Error)?.message ?? error).slice(0, 160),
+    }));
+    if (!plan.ok) {
+      return {
+        contract, reply: plan.reply, reply_kind: /\?\s*$/.test(plan.reply.trim()) ? "question" : "info",
+        path: "deterministic_tool", compose_kind: null, evidence: [], error: plan.error,
+      };
+    }
+    return {
+      contract, reply: plan.reply, reply_kind: "draft", path: "deterministic_tool", compose_kind: null,
+      draft_id: plan.draft_id ?? undefined,
+      evidence: [{ spending_goal_plan: plan.facts }],
+      tools: ["spending_goal_advice"],
+      tool_calls: [{ tool_name: "spending_goal_advice", args: {}, result: plan.facts, ok: true }],
+      diagnostics: { spending_goal_plan: { version: String(plan.facts.version ?? ""), ok: true } },
     };
   }
 

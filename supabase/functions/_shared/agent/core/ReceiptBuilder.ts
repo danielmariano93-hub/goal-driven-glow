@@ -20,6 +20,9 @@ export function buildReceipt(kind: ReceiptKind, result: any): string {
   }
   if (kind === "transfer") return `Transferência registrada: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
   if (kind === "goal") return `Meta criada: ${result?.name}. ✅`;
+  if (kind === "spending_goal_plan") {
+    return result?.receipt_text ? `${result.receipt_text} ✅` : "Metas de gasto salvas. ✅";
+  }
   if (kind === "goal_contribution") return `Aporte registrado: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;
   if (kind === "shared_goal_create") return `Meta conjunta criada: ${result?.title ?? ""}. ✅`;
   if (kind === "shared_goal_contribution") return `Contribuição registrada em meta conjunta: ${NUM_BR.format(Number(result?.amount ?? 0))}. ✅`;

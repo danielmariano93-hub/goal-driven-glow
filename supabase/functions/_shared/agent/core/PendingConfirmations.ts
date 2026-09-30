@@ -28,6 +28,7 @@ export function confirmationExecutor(kind: string): string {
   if (kind === "shared_expense") return "agent_execute_shared_expense_confirmation";
   if (kind === "transaction") return "agent_execute_transaction_confirmation_v2";
   if (kind === "goal_create") return "agent_execute_goal_create_confirmation_v1";
+  if (kind === "spending_goal_plan") return "agent_execute_spending_goal_plan_confirmation_v1";
   if (kind === "split_receive") return "agent_execute_split_receive_confirmation_v1";
   if (RECURRING_KINDS.has(kind)) return "agent_execute_recurring_confirmation_v1";
   if (LIFECYCLE_KINDS.has(kind)) return "agent_execute_lifecycle_confirmation_v1";

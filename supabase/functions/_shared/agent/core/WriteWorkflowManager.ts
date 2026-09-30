@@ -19,6 +19,7 @@ export const WRITE_WORKFLOW_KINDS = [
   "add_goal_contribution_draft",
   "lifecycle_goal_update_draft",
   "lifecycle_goal_delete_draft",
+  "lifecycle_spending_goal_plan_draft",
   "create_debt_draft",
   "lifecycle_debt_payment_draft",
   "lifecycle_category_create_draft",
@@ -46,6 +47,8 @@ export const REQUIRED_SLOTS: Record<WriteWorkflowKind, string[]> = {
   add_goal_contribution_draft: ["goal", "amount"],
   lifecycle_goal_update_draft: ["goal"],
   lifecycle_goal_delete_draft: ["goal"],
+  // Categoria OU estabelecimento: o adaptador decide e pergunta o que faltar.
+  lifecycle_spending_goal_plan_draft: [],
   create_debt_draft: ["name", "original_amount"],
   lifecycle_debt_payment_draft: ["debt"],
   lifecycle_category_create_draft: ["name"],
