@@ -6,7 +6,7 @@ import { materializePreferencesFromHistory } from "../../supabase/functions/_sha
 // Categorias globais reais + as pessoais do usuário que tem Dízimo e Beleza.
 const GLOBAL: CategoryCandidate[] = [
   "Alimentação", "Assinaturas", "Educação", "Impostos e Taxas", "Lazer", "Mercado", "Moradia", "Outros",
-  "Pets", "Presentes", "Saúde", "Serviços", "Transporte", "Vestuário",
+  "Pets", "Presentes", "Saúde", "Serviços", "Transporte", "Vestuário", "Beleza",
 ].map((name) => ({ id: name, name, user_id: null }));
 const WITH_TITHE: CategoryCandidate[] = [
   ...GLOBAL,
@@ -28,7 +28,12 @@ describe("datas coladas no extrato não quebram a identidade do favorecido", () 
 
 describe("lançamentos reais que ficaram sem categoria agora se resolvem", () => {
   const auto = [
-    ["LOGOALI MERCADO EXPRES", "Mercado"],
+    ["LOGOALI MERCADO EXPRES", "Lazer"],
+    ["AUGUSTA", "Lazer"],
+    ["PAY AUGUS 1502", "Lazer"],
+    ["MP*BLACKZONE", "Beleza"],
+    ["BLACK ZONE JARDIM PAULI", "Beleza"],
+    ["LOGOALI MERCADO EXPRESSO", "Lazer"],
     ["Pão de Açúcar", "Mercado"],
     ["MINI EXTRA-0103", "Mercado"],
     ["OXXO VILELA GEON", "Mercado"],
@@ -116,5 +121,23 @@ describe("organizar por favorecido", () => {
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({ id: "expense:pamela", total: 2090, direction: "pago" });
+  });
+});
+
+import { resolveVisibleCategories } from "@/lib/db/finance";
+
+describe("categoria pessoal de mesmo nome sobrepõe a global", () => {
+  it("\"Beleza\" pessoal (slug diferente) esconde a \"Beleza\" global", () => {
+    const rows = [
+      { id: "g", user_id: null, slug: "beleza", name: "Beleza", type: "expense", archived_at: null },
+      { id: "p", user_id: "u", slug: "beleza-088920", name: "Beleza", type: "expense", archived_at: null },
+      { id: "l", user_id: null, slug: "lazer", name: "Lazer", type: "expense", archived_at: null },
+    ] as never;
+    expect(resolveVisibleCategories(rows, "u").map((c) => c.id)).toEqual(["p", "l"]);
+    expect(resolveVisibleCategories(rows, "outro").map((c) => c.id)).toEqual(["g", "p", "l"]);
+  });
+
+  it("\"Augusta\" só é Lazer quando é o estabelecimento, não um nome dentro de outro", () => {
+    expect(decide("FARMACIA AUGUSTA")?.category_id).toBe("Saúde");
   });
 });

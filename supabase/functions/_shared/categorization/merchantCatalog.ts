@@ -54,6 +54,12 @@ export const CURATED_MERCHANTS: CuratedMerchant[] = [
   { canonical_name: "Sympla", semantic_category: "Lazer", patterns: [/\bsympla\b/i] },
   { canonical_name: "Shotgun", semantic_category: "Lazer", patterns: [/\bshotgun\b/i] },
   { canonical_name: "TotalPass", semantic_category: "Saúde", patterns: [/\btotal\s*pass\b/i] },
+  // Confirmadas pelo responsável do produto (set/2026): valem para todos e
+  // vencem regra por palavra ("Logoali Mercado" é bar/conveniência de lazer,
+  // não supermercado) e aprendizado antigo.
+  { canonical_name: "Logoali", semantic_category: "Lazer", authoritative: true, patterns: [/\blogoali\b/i] },
+  { canonical_name: "Augusta", semantic_category: "Lazer", authoritative: true, patterns: [/^\s*augusta\s*$/i, /\bpay\s+augus\b/i] },
+  { canonical_name: "BlackZone", semantic_category: "Beleza", authoritative: true, patterns: [/\bblack\s*zone\b/i, /\bblackzone\b/i] },
   // Marcas inequívocas vistas sem categoria em produção (set/2026).
   { canonical_name: "KFC", semantic_category: "Alimentação", patterns: [/\bkfc\b/i] },
   { canonical_name: "McDonald's", semantic_category: "Alimentação", patterns: [/\bmc\s*donald'?s?\b/i, /\bmcdonalds\b/i] },
