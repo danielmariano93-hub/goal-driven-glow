@@ -81,3 +81,7 @@ verify_jwt = false
 [functions.finance-facts-worker]
 # Internal cron calls authenticate in the handler with x-cron-secret.
 verify_jwt = false
+
+[functions.nino-insights]
+# Valida o JWT do usuário no próprio handler (e aceita o segredo interno de cron).
+verify_jwt = false
