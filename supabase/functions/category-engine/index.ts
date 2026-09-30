@@ -303,10 +303,16 @@ Deno.serve(async(req)=>{
         const rows=await fetchAllPages<LearnableRow>((from,to)=>admin.from("transactions").select("description,category_id,category_source,type")
           .eq("user_id",uid).eq("status","confirmed").in("type",["income","expense"]).not("category_id","is",null)
           .gte("occurred_at",since).order("id").range(from,to) as any,{source:"learn_history_rows"});
-        const prefs=materializePreferencesFromHistory(rows);
+        const learned=materializePreferencesFromHistory(rows);
+        if(!learned.length)continue;
+        // user_merchant_preferences.category_slug é obrigatório.
+        const {data:cats,error:catsError}=await admin.from("categories").select("id,slug").in("id",[...new Set(learned.map((p)=>p.category_id))]);
+        if(catsError)throw catsError;
+        const slugById=new Map(((cats??[]) as Array<{id:string;slug:string|null}>).map((c)=>[c.id,c.slug]));
+        const prefs=learned.filter((p)=>slugById.get(p.category_id!));
         if(!prefs.length)continue;
         const {data:inserted,error:upsertError}=await admin.from("user_merchant_preferences")
-          .upsert(prefs.map((p)=>({user_id:uid,merchant_key:p.merchant_key,transaction_type:p.transaction_type,category_id:p.category_id,evidence_count:p.evidence_count,updated_at:new Date().toISOString()})),{onConflict:"user_id,merchant_key,transaction_type",ignoreDuplicates:true})
+          .upsert(prefs.map((p)=>({user_id:uid,merchant_key:p.merchant_key,transaction_type:p.transaction_type,category_id:p.category_id,category_slug:slugById.get(p.category_id!),evidence_count:p.evidence_count,updated_at:new Date().toISOString()})),{onConflict:"user_id,merchant_key,transaction_type",ignoreDuplicates:true})
           .select("merchant_key");
         if(upsertError)throw upsertError;
         perUser[uid.slice(0,8)]=(inserted??[]).length; created+=(inserted??[]).length;
@@ -361,5 +367,5 @@ Deno.serve(async(req)=>{
     const inputs=body.operation==="classify"?(body.input?[body.input]:[]):(body.inputs??[]);if(!inputs.length)return response({error:"Nenhum lançamento informado"},400);
     let results=await classifyBatchDeterministic(admin,userId!,inputs);const beforeAi=results.map((r)=>r.action);results=await inferWithAi(admin,userId!,inputs,results,"ondemand");const persisted=await Promise.all(results.map((result,index)=>persistDecision(admin,userId!,inputs[index],result,"live",{ai_attempted:beforeAi[index]==="leave_unresolved"&&result.category_source==="llm"})));
     return response(body.operation==="classify"?{decision:persisted[0]}:{decisions:persisted,processed:persisted.length});
-  }catch(error){console.error("[category-engine]",error);return response({error:"Falha ao categorizar",details:error instanceof Error?error.message:String(error)},500);}
+  }catch(error){console.error("[category-engine]",error);return response({error:"Falha ao categorizar",details:error instanceof Error?error.message:String((error as {message?:string})?.message??error)},500);}
 });
