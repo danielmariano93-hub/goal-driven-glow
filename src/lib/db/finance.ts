@@ -236,13 +236,16 @@ export function useSaveCategory() {
  */
 export function resolveVisibleCategories(rows: CategoryRow[], userId: string | null | undefined): CategoryRow[] {
   if (!userId) return rows;
-  const overriddenSlugs = new Set(
-    rows
-      .filter((c) => c.user_id === userId && c.archived_at == null && c.slug)
-      .map((c) => c.slug as string)
-  );
+  const personal = rows.filter((c) => c.user_id === userId && c.archived_at == null);
+  const overriddenSlugs = new Set(personal.filter((c) => c.slug).map((c) => c.slug as string));
+  // Pessoal com o mesmo nome também sobrepõe a global ("Beleza" pessoal com
+  // slug "beleza-088920" não pode aparecer duplicada ao lado da global).
+  const fold = (value: string | null | undefined) =>
+    String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const overriddenNames = new Set(personal.map((c) => `${c.type}:${fold(c.name)}`));
   return rows.filter((c) => {
     if (c.user_id === null && overriddenSlugs.has(c.slug as string)) return false;
+    if (c.user_id === null && overriddenNames.has(`${c.type}:${fold(c.name)}`)) return false;
     return true;
   });
 }
