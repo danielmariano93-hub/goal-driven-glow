@@ -78,6 +78,7 @@ import {
 } from "../v3/ConversationalComposerV3.ts";
 import { executeAdvisorReasoning, isAdvisorReasoningKind } from "../v3/AdvisorReasoningV3.ts";
 import { executeCategoryReading, executePeriodReview } from "../v3/PeriodReviewV3.ts";
+import { dailySeriesExecutedIR, dailySpendingSeriesText, loadDailySpendingSeries, MAX_DAILY_SERIES_DAYS } from "./handlers/DailySeriesHandler.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
 
@@ -695,7 +696,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     });
     if (composition?.mode === "composed") {
       // Review: the composer writes only the opening; the laid-out body follows.
-      const composed = composeKind === "review" && merged.layout_tail
+      const composed = (composeKind === "review" || composeKind === "layout") && merged.layout_tail
         ? `${composition.text}\n\n${merged.layout_tail}`
         : composition.text;
       finalReply = merged.fixed_prefix ? `${merged.fixed_prefix}\n\n${composed}` : composed;
@@ -827,8 +828,8 @@ function mergeExecutions(executions: TurnExecution[]): TurnExecution & {
   }
   // A laid-out review inside a compound turn is delivered as is; only the
   // single-step review gets a composed opening.
-  if (executions.some((execution) => execution.compose_kind === "review")) {
-    executions = executions.map((execution) => execution.compose_kind === "review"
+  if (executions.some((execution) => execution.compose_kind === "review" || execution.compose_kind === "layout")) {
+    executions = executions.map((execution) => execution.compose_kind === "review" || execution.compose_kind === "layout"
       ? { ...execution, compose_kind: null, layout_tail: null }
       : execution);
   }
@@ -1165,6 +1166,34 @@ async function executeContract(
       return { ok: exec.ok, result: exec.result, error: exec.error, duration_ms: exec.duration_ms };
     },
     runTypicalMonthly: async (query) => {
+      if (query.grain === "day" && query.time.aspect === "trend") {
+        const categoryLabel = query.filters.find((f) => f.field === "category")?.value ?? null;
+        const merchantLabel = query.filters.find((f) => f.field === "merchant")?.value ?? null;
+        const categoryIds = categoryLabel
+          ? await resolveCategoryIdsByName(sb, input.user_id, String(categoryLabel))
+          : null;
+        if (categoryLabel && (!categoryIds || !categoryIds.length)) return { domain_error: "category_not_found" as const };
+        if (categoryLabel && categoryIds && categoryIds.length > 1) return { domain_error: "category_ambiguous" as const };
+        const from = String(query.time.from ?? "");
+        let to = String(query.time.to ?? "");
+        if (!from || !to) return null;
+        // Série diária legível: no máximo ~3 meses a partir do início pedido.
+        const cap = new Date(Date.parse(`${from}T12:00:00Z`) + (MAX_DAILY_SERIES_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
+        if (to > cap) to = cap;
+        const result = await loadDailySpendingSeries(sb, {
+          user_id: input.user_id,
+          from, to,
+          category_ids: categoryIds,
+          category_label: categoryLabel ? String(categoryLabel) : null,
+          merchant: merchantLabel ? String(merchantLabel) : null,
+        });
+        return {
+          text: dailySpendingSeriesText(result),
+          executed_ir: dailySeriesExecutedIR(query, result),
+          engine: "spending_timeseries_daily_scoped",
+          result,
+        };
+      }
       if (query.grain === "month" && query.time.aspect === "trend") {
         const categoryLabel = query.filters.find((f) => f.field === "category")?.value ?? null;
         const merchantLabel = query.filters.find((f) => f.field === "merchant")?.value ?? null;
@@ -1296,10 +1325,19 @@ async function executeContract(
     }
   }
 
+  // Série (mês a mês, dia a dia) e ranking com leitura: o conteúdo diagramado
+  // vai inteiro; a voz escreve só a abertura. Antes o compositor resumia a
+  // série e a lista de meses sumia ("quero mês a mês" pedido de novo).
+  const SERIES_ENGINES = new Set(["spending_timeseries_monthly", "spending_timeseries_daily_scoped"]);
+  const laidOut = replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
+    && (extraEvidence.length > 0 || (toolCalls.length === 1 && SERIES_ENGINES.has(toolCalls[0].tool_name)));
   return {
     contract, reply, reply_kind: replyKind,
     path: ctx.semanticResolutionPath,
-    compose_kind: replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
+    layout_tail: laidOut ? reply : null,
+    compose_kind: laidOut
+      ? "layout"
+      : replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
       ? "answer"
       // Honest failure (blocked, unsupported, no data): keep it honest but
       // human, answering the conversational part without any amount.

@@ -14,7 +14,7 @@ describe("regressão — gráfico dos últimos N meses", () => {
   it("classifica o pedido explícito como série mensal, não timeseries diária", () => {
     expect(inferChartRequest(TEXT)).toEqual({ mode: "monthly_series" });
     expect(inferChartRequest("Faça um gráfico dia a dia dos últimos 4 meses de quanto gastei em lazer"))
-      .toMatchObject({ mode: "tool", args: { kind: "timeseries" } });
+      .toEqual({ mode: "daily_series" });
   });
 
   it("preserva janela corrida para pergunta comum, mas usa 4 meses-calendário no gráfico", () => {

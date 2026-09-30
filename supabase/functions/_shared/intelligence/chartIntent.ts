@@ -3,6 +3,7 @@ import { interpretSemanticQuery } from "./semanticQuery.ts";
 export type ChartRequest =
   | { mode: "weekday_pattern" }
   | { mode: "monthly_series" }
+  | { mode: "daily_series" }
   | { mode: "category"; days: number }
   | {
       mode: "tool";
@@ -85,6 +86,13 @@ export function inferChartRequest(text: string): ChartRequest | null {
   if (/\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)
     || requestsExplicitMonthlyWindow(t)) {
     return { mode: "monthly_series" };
+  }
+  // Grão diário explícito vence "categoria"/"estabelecimento" no texto:
+  // "gráfico dia a dia nessa categoria" é uma série diária filtrada, não um
+  // ranking de categorias.
+  if (/\b(dia a dia|por dia|diari[oa]s?|diariamente|cada dia|todos os dias)\b/.test(t)
+    && !/\b(media diaria|ritmo diario|tendencia da media)\b/.test(t)) {
+    return { mode: "daily_series" };
   }
   if (/\b(categoria|categorias)\b/.test(t)) {
     return { mode: "category", days: requestedDays(t) };

@@ -112,7 +112,7 @@ describe("Nino Runtime V3 production authority", () => {
     });
   });
 
-  it("fails closed when a monthly series is emitted as sum/breakdown", () => {
+  it("repairs a monthly series emitted as sum/breakdown into trend (never drops the turn)", () => {
     for (const operation of ["sum", "breakdown"] as const) {
       const turn = baseTask({
         kind: "financial_query",
@@ -125,9 +125,11 @@ describe("Nino Runtime V3 production authority", () => {
         limit: null,
         comparison: null,
       });
-      const result = verifySemanticInvariantsV3(turn);
-      expect(result.ok).toBe(false);
-      expect(result.violations).toContain("task_0_monthly_series_requires_trend");
+      expect(verifySemanticInvariantsV3(turn).ok).toBe(true);
+      const bridged = bridgeTurnSpecV3ToRuntime(turn, NOW);
+      expect(bridged.ok).toBe(true);
+      if (!bridged.ok) continue;
+      expect(bridged.contract.financial_read?.queries[0]).toMatchObject({ operation: "trend", group_by: ["month"] });
     }
   });
 

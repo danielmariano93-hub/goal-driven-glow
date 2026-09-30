@@ -4,7 +4,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest, isContextualChartFollowup } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
-import { buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
+import { buildDailySeriesChartArtifact, buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
 
 type ToolCallLike = {
   step_index: number;
@@ -47,6 +47,20 @@ function isMonthlyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
     && Array.isArray(result?.months)
     && result.months.length,
   );
+}
+
+function isDailyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
+  const result = (call?.result ?? {}) as any;
+  return Boolean(
+    call?.ok
+    && result?.version === "nino_daily_series.v1"
+    && Array.isArray(result?.days)
+    && result.days.length,
+  );
+}
+
+function isSeriesEvidenceCall(call: ToolCallLike | null | undefined): boolean {
+  return isMonthlyEvidenceCall(call) || isDailyEvidenceCall(call);
 }
 
 /**
@@ -104,7 +118,7 @@ async function loadRecentMonthlyEvidence(
     if (!analytical.length) continue;
     // The first evidence-producing run is authoritative. If it is not the
     // monthly series, stop here instead of walking back into stale context.
-    return analytical.find((call) => isMonthlyEvidenceCall(call)) ?? null;
+    return analytical.find((call) => isSeriesEvidenceCall(call)) ?? null;
   }
   return null;
 }
@@ -191,10 +205,44 @@ export async function ensureRequestedArtifact(args: {
     // Prefer evidence already executed for the SAME financial question. If this
     // is an explicit referential follow-up ("mostra isso em gráfico"), the V2
     // bridge may load the immediately previous persisted analytical evidence.
-    let monthlyAnalytical = [...args.toolCalls].reverse().find((call) => isMonthlyEvidenceCall(call)) ?? null;
-    if (!monthlyAnalytical && contextualFollowup) {
-      monthlyAnalytical = await loadRecentMonthlyEvidence(args.sb, args.user_id, args.conversation_id);
+    let seriesAnalytical = [...args.toolCalls].reverse().find((call) => isSeriesEvidenceCall(call)) ?? null;
+    if (!seriesAnalytical && contextualFollowup) {
+      seriesAnalytical = await loadRecentMonthlyEvidence(args.sb, args.user_id, args.conversation_id);
     }
+    // Série diária: o gráfico é dia a dia, com o mesmo recorte da resposta.
+    if (seriesAnalytical && isDailyEvidenceCall(seriesAnalytical) && request.mode !== "monthly_series") {
+      const result = seriesAnalytical.result as any;
+      if (!Number(result?.active_days ?? 0)) throw new Error("daily_series_evidence_empty");
+      const payload = buildDailySeriesChartArtifact(result);
+      const artifact_id = await persistRichArtifact(args.sb, {
+        user_id: args.user_id,
+        conversation_id: args.conversation_id,
+        payload,
+      });
+      return {
+        artifact_id,
+        message: artifact_id ? "Preparei o gráfico dia a dia com o mesmo recorte da resposta." : "Não consegui gerar a imagem agora.",
+        toolCall: {
+          step_index: step,
+          tool_name: "generate_daily_series_chart_artifact",
+          args: request,
+          result: {
+            artifact_id,
+            source_evidence: {
+              run_id: seriesAnalytical.run_id ?? null,
+              tool_name: seriesAnalytical.tool_name,
+              formula_version: result.formula_version ?? null,
+              window: result.window ?? null,
+              scope: result.scope ?? null,
+            },
+          },
+          ok: Boolean(artifact_id),
+          duration_ms: Date.now() - started,
+          error: artifact_id ? null : "artifact_not_persisted",
+        },
+      };
+    }
+    const monthlyAnalytical = seriesAnalytical && isMonthlyEvidenceCall(seriesAnalytical) ? seriesAnalytical : null;
     if (monthlyAnalytical) {
       const result = monthlyAnalytical.result as any;
       const months = Array.isArray(result?.months) ? result.months : [];
@@ -244,6 +292,11 @@ export async function ensureRequestedArtifact(args: {
     // daily/category chart without the monthly analytical evidence.
     if (request.mode === "monthly_series") {
       throw new Error("monthly_series_evidence_unavailable");
+    }
+    // Pedido diário sem a série diária do mesmo recorte: nunca trocar por um
+    // gráfico genérico (era assim que "diário de Uber" virava outra coisa).
+    if (request.mode === "daily_series") {
+      throw new Error("daily_series_evidence_unavailable");
     }
 
     if (request.mode === "weekday_pattern") {
@@ -350,6 +403,8 @@ export async function ensureRequestedArtifact(args: {
         step_index: step,
         tool_name: request.mode === "monthly_series"
           ? "generate_monthly_series_chart_artifact"
+          : request.mode === "daily_series"
+            ? "generate_daily_series_chart_artifact"
           : request.mode === "category"
             ? "generate_category_chart_artifact"
             : request.mode === "weekday_pattern"

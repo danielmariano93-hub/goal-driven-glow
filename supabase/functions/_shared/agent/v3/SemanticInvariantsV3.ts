@@ -63,19 +63,6 @@ function suspiciousTemporalEntityReferenceViolations(turn: TurnSpecV3): string[]
     .map((reference) => `temporal_expression_used_as_${reference.target}_reference`);
 }
 
-function canonicalMonthlySeriesViolations(turn: TurnSpecV3): string[] {
-  if (turn.kind !== "task") return [];
-  const violations: string[] = [];
-  for (const [index, task] of turn.tasks.entries()) {
-    if (task.kind !== "financial_query") continue;
-    const monthly = task.group_by.length === 1 && task.group_by[0] === "month" && task.periods.length > 0;
-    if (monthly && (task.operation === "sum" || task.operation === "breakdown")) {
-      violations.push(`task_${index}_monthly_series_requires_trend`);
-    }
-  }
-  return violations;
-}
-
 function legacySourceInAuthoritativeTurnViolations(turn: TurnSpecV3, allowLegacySource: boolean): string[] {
   if (allowLegacySource) return [];
   const violations: string[] = [];
@@ -140,7 +127,6 @@ export function verifySemanticInvariantsV3(
     ...structural.errors,
     ...explicitEntityOverrideViolations(turn),
     ...suspiciousTemporalEntityReferenceViolations(turn),
-    ...canonicalMonthlySeriesViolations(turn),
     ...legacySourceInAuthoritativeTurnViolations(turn, options.allowLegacySource === true),
     ...writeActionViolations(turn),
     ...cancelVsUndoViolations(turn),

@@ -22,7 +22,9 @@ export type GuardViolation =
   | "forecast_not_allowed"
   | "risk_not_allowed"
   | "provider_mentioned"
-  | "moral_judgement";
+  | "moral_judgement"
+  | "internal_jargon"
+  | "unformatted_number";
 
 export type GuardResult = {
   ok: boolean;
@@ -94,6 +96,10 @@ const MORAL_PATTERNS = [
   /\bfalta de (disciplina|controle)\b/i,
   /\bdevia ter\b/i,
 ];
+// Vocabulário do motor que não é conversa com a pessoa.
+const INTERNAL_JARGON = [/\bscores?\b/i, /\bconfian[çc]a de\b/i, /\bamostras?\b/i, /\bprioridade \d/i, /\bdetector\b/i];
+// "190.09" em vez de "R$ 190,09": número cru vindo do JSON.
+const RAW_DECIMAL = /(?<![\d.,])\d+\.\d{1,2}(?![\d.])/;
 const PROVIDER_PATTERNS = [/\bgpt\b/i, /\bgemini\b/i, /\bopenai\b/i, /\bllm\b/i, /modelo de linguagem/i, /\bprompt\b/i];
 
 export function guardNarrative(args: {
@@ -155,6 +161,12 @@ export function guardNarrative(args: {
   if (!allowed.has("risk") && RISK_PATTERNS.some((p) => p.test(text))) push("risk_not_allowed", "risco afirmado sem evidência");
   if (MORAL_PATTERNS.some((p) => p.test(text))) push("moral_judgement", "julgamento moral");
   if (PROVIDER_PATTERNS.some((p) => p.test(text))) push("provider_mentioned", "menção a modelo/provedor");
+  for (const pattern of INTERNAL_JARGON) {
+    const hit = text.match(pattern);
+    if (hit) push("internal_jargon", hit[0]);
+  }
+  const raw = text.match(RAW_DECIMAL);
+  if (raw) push("unformatted_number", raw[0]);
 
   return { ok: violations.length === 0, violations, detail };
 }

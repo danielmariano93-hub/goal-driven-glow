@@ -135,7 +135,8 @@ describe("Fase 2 — texto e gráfico compartilham a mesma verdade", () => {
     const text = monthlySpendingSeriesText(fixture).replace(/\u00a0/g, " ");
     const artifact = buildMonthlySeriesChartArtifact(fixture);
 
-    expect(text).toContain("R$ 606,00 em Lazer com Thales, em 11 lançamentos");
+    expect(text).toContain("Lazer com Thales");
+    expect(text).toContain("*Total:* R$ 606,00 em 11 lançamentos");
     expect(text).toContain("01/04/2026 a 26/09/2026");
     expect(artifact.chart.series[0].data).toEqual(fixture.months.map((point) => point.total));
     expect(artifact.provenance.formula_version).toBe(fixture.formula_version);

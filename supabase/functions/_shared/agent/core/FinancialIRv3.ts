@@ -127,11 +127,12 @@ function aspectFromLegacy(
   metric: FinancialMetric,
   period: CanonicalPeriod | null,
   today: string,
+  groupBy: readonly string[] = [],
 ): { aspect: TimeAspect; grain: TimeGrain; reduce: Reduction } {
   if (POINT_IN_TIME_METRICS.has(metric)) {
     return { aspect: "point_in_time", grain: "none", reduce: "none" };
   }
-  if (operation === "trend") return { aspect: "trend", grain: "month", reduce: "none" };
+  if (operation === "trend") return { aspect: "trend", grain: groupBy.includes("day") ? "day" : "month", reduce: "none" };
   if (operation === "forecast") return { aspect: "projection", grain: "none", reduce: "sum" };
   const partial = !!period && period.from <= today && period.to >= today;
   return {
@@ -161,7 +162,7 @@ export function normalizeToV3(
     const legacyOperation = String(q.operation ?? "");
     // `q.period` (multi-período) tem precedência sobre o período do envelope.
     const queryPeriod = (q as { period?: { from: string; to: string; label: string } | null }).period ?? null;
-    const inferred = aspectFromLegacy(legacyOperation, q.metric, queryPeriod ?? v2.period ?? null, today);
+    const inferred = aspectFromLegacy(legacyOperation, q.metric, queryPeriod ?? v2.period ?? null, today, q.group_by ?? []);
     const aspect = ASPECTS.has(String(declaredTime?.aspect)) ? declaredTime!.aspect as TimeAspect : inferred.aspect;
     const grain = GRAINS.has(String(source.grain)) ? source.grain as TimeGrain : inferred.grain;
     const reduce = REDUCES.has(String(source.reduce)) ? source.reduce as Reduction : inferred.reduce;
@@ -326,6 +327,21 @@ export function isTypicalMonthlyShape(q: FinancialQueryV3): boolean {
     && (q.group_by?.length ?? 0) === 0;
 }
 
+
+/** Série diária factual ("gráfico diário de setembro de Transporte no Uber"). */
+export function isDailySeriesShape(q: FinancialQueryV3): boolean {
+  const filterFields = new Set((q.filters ?? []).map((f) => f.field));
+  const filtersSupported = [...filterFields].every((field) => field === "category" || field === "merchant");
+  const groupSupported = (q.group_by?.length ?? 0) === 0
+    || (q.group_by.length === 1 && q.group_by[0] === "day");
+  return q.metric === "expense_amount"
+    && q.grain === "day"
+    && q.time.aspect === "trend"
+    && (q.reduce === "none" || q.reduce === "sum")
+    && Boolean(q.time.from && q.time.to)
+    && filtersSupported
+    && groupSupported;
+}
 
 /** Canonical shape for a factual month-by-month spending series. */
 export function isMonthlySeriesShape(q: FinancialQueryV3): boolean {

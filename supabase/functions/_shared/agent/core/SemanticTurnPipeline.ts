@@ -39,7 +39,7 @@ import {
 import type { SemanticCompilerTelemetry } from "./SemanticCompiler.ts";
 import { ontologyHintFor, ontologySignature } from "./IRCapabilityAdapter.ts";
 import {
-  isMonthlySeriesShape, isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
+  isDailySeriesShape, isMonthlySeriesShape, isTypicalMonthlyShape, normalizeToV3, validateFinancialIRv3,
   type FinancialQueryIRv3, type FinancialQueryV3,
 } from "./FinancialIRv3.ts";
 import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
@@ -499,7 +499,7 @@ export async function runSemanticTurn(
   // estatística de meses FECHADOS, com mediana declarada e ressalva de
   // cobertura. Antes essa pergunta era respondida com o mês corrente parcial.
   const typicalQuery = irV3?.queries.length === 1
-    && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]))
+    && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]) || isDailySeriesShape(irV3.queries[0]))
     ? irV3.queries[0]
     : null;
   if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {
