@@ -119,32 +119,53 @@ export function merchantTargetLimit(kind: MerchantTargetKind, args: { amount?: n
 }
 
 /**
- * O débito do banco trunca o nome em 5 letras ("PAY VENDI", "PAY HIROT"). Quando
- * o mesmo histórico traz o nome completo ("Vendify", "Hirota Food Express"),
- * a forma truncada passa a pertencer a ele — senão uma submeta seria burlada
- * sem querer. Só une quando o prefixo aponta para um único estabelecimento.
+ * Um mesmo estabelecimento chega com nomes de tamanhos diferentes:
+ *  - truncado pelo débito ("HIROT", "VENDI") quando o histórico traz o nome
+ *    completo ("Hirota Food Express", "Vendify");
+ *  - com sufixo do boleto/adquirente ("L S Prado IN", "L S Prado
+ *    Intermediacao N") quando existe a forma curta ("LS Prado").
+ * Sem unir as variações, uma submeta seria burlada sem querer. Só une quando o
+ * prefixo aponta para um único estabelecimento.
  */
-function mergeTruncatedMerchants(ids: Array<{ key: string; label: string; truncated: boolean }>): Map<string, { key: string; label: string }> {
-  const counts = new Map<string, { key: string; label: string; count: number; truncated: boolean }>();
+const compactKey = (key: string) => key.replace(/\s/g, "");
+
+function mergeTruncatedMerchants(ids: Array<{ key: string; label: string; truncated: boolean; normalized: boolean }>): Map<string, { key: string; label: string }> {
+  const counts = new Map<string, { key: string; label: string; count: number; truncated: boolean; normalized: boolean }>();
   for (const id of ids) {
-    const row = counts.get(id.key) ?? { key: id.key, label: id.label, count: 0, truncated: id.truncated };
+    const row = counts.get(id.key) ?? { key: id.key, label: id.label, count: 0, truncated: id.truncated, normalized: id.normalized };
     row.count += 1;
-    row.truncated = row.truncated && id.truncated;
     counts.set(id.key, row);
   }
-  const compact = (key: string) => key.replace(/\s/g, "");
+  const rows = [...counts.values()].filter((row) => !row.key.startsWith("raw:"));
   const out = new Map<string, { key: string; label: string }>();
-  for (const row of counts.values()) {
-    if (!row.truncated || row.key.startsWith("raw:")) continue;
-    const prefix = compact(row.key);
+
+  // 1) Forma truncada → nome completo.
+  for (const row of rows) {
+    if (!row.truncated) continue;
+    const prefix = compactKey(row.key);
     if (prefix.length < 4) continue;
-    const candidates = [...counts.values()].filter((other) =>
-      other.key !== row.key && !other.truncated && !other.key.startsWith("raw:")
-      && compact(other.key).length > prefix.length && compact(other.key).startsWith(prefix));
-    const families = new Set(candidates.map((c) => compact(c.key).slice(0, prefix.length + 2)));
+    const candidates = rows.filter((other) =>
+      other.key !== row.key && !other.truncated
+      && compactKey(other.key).length > prefix.length && compactKey(other.key).startsWith(prefix));
+    const families = new Set(candidates.map((c) => compactKey(c.key).slice(0, prefix.length + 2)));
     if (!candidates.length || families.size > 1) continue;
     const best = candidates.sort((a, b) => b.count - a.count)[0];
     out.set(row.key, { key: best.key, label: best.label });
+  }
+
+  // 2) Variação com sufixo → forma curta mais específica (≥ 6 letras).
+  for (const row of rows) {
+    // Marca conhecida ou alias nunca é "variação" de outra (Amazon Prime ≠ Amazon).
+    if (out.has(row.key) || !row.normalized) continue;
+    const long = compactKey(row.key);
+    const base = rows
+      .filter((other) => other.key !== row.key && !other.truncated && !out.has(other.key))
+      .filter((other) => {
+        const short = compactKey(other.key);
+        return short.length >= 6 && short.length < long.length && long.startsWith(short);
+      })
+      .sort((a, b) => compactKey(a.key).length - compactKey(b.key).length)[0];
+    if (base) out.set(row.key, { key: base.key, label: base.label });
   }
   return out;
 }
@@ -156,7 +177,7 @@ function mergeTruncatedMerchants(ids: Array<{ key: string; label: string; trunca
  */
 export function buildSpendingLedger(txs: SpendingLedgerTx[], resolver: MerchantResolver = buildMerchantResolver()): SpendingEntry[] {
   const attribution = buildRefundAttribution(txs);
-  const identity = new Map<string, { key: string; label: string; truncated: boolean }>();
+  const identity = new Map<string, { key: string; label: string; truncated: boolean; normalized: boolean }>();
   const resolveTx = (t: SpendingLedgerTx) => {
     const cached = identity.get(t.id);
     if (cached) return cached;
@@ -167,9 +188,11 @@ export function buildSpendingLedger(txs: SpendingLedgerTx[], resolver: MerchantR
       ? {
         key: resolution.key,
         label: resolution.label,
-        truncated: resolution.source === "normalized" && /^\s*pay\b/i.test(text ?? "") && resolution.key.replace(/\s/g, "").length <= 6,
+        // Débito trunca o nome em ~5 letras: um token curto sem marca/alias.
+        truncated: resolution.source === "normalized" && !resolution.key.includes(" ") && resolution.key.length <= 6,
+        normalized: resolution.source === "normalized",
       }
-      : { key: `raw:${raw.toLowerCase() || "sem_descricao"}`, label: raw || "Sem descrição", truncated: false };
+      : { key: `raw:${raw.toLowerCase() || "sem_descricao"}`, label: raw || "Sem descrição", truncated: false, normalized: false };
     identity.set(t.id, value);
     return value;
   };
@@ -473,6 +496,12 @@ export const MERCHANT_GROUPS: Array<{ id: string; label: string; keys: string[] 
   { id: "tech", label: "Ferramentas de tecnologia", keys: ["chatgpt", "lovable", "github", "google"] },
 ];
 
+/** A chave pertence ao grupo? ("99food" e "99 food" são o mesmo estabelecimento.) */
+export function merchantInGroup(group: { keys: string[] }, key: string): boolean {
+  const k = compactKey(key);
+  return group.keys.some((member) => compactKey(member) === k);
+}
+
 /** Categorias de obrigação: entram na análise, mas o Nino não sugere cortá-las. */
 const OBLIGATION_RX = /d[ií]vida|empr[eé]stimo|financiamento|d[ií]zimo|oferta|doa[cç]|imposto|tributo|moradia|aluguel|condom[ií]nio|investiment|educa[cç]|escola|faculdade|sa[uú]de|seguro|pens[aã]o|tarifa|juros/i;
 
@@ -565,7 +594,7 @@ function profileMerchants(entries: SpendingEntry[], months: string[], categoryId
   }
   const categoryTotal = sumOf([...map.values()].flatMap((r) => [...r.totals.values()]));
   const subscriptionCategory = /assinatura|servi[cç]o|streaming|software/i.test(categoryName);
-  const reviewKeys = new Set(MERCHANT_GROUPS.filter((g) => g.id === "streaming" || g.id === "tech").flatMap((g) => g.keys));
+  const reviewKeys = new Set(MERCHANT_GROUPS.filter((g) => g.id === "streaming" || g.id === "tech").flatMap((g) => g.keys.map(compactKey)));
   return [...map.entries()].map(([key, r]) => {
     const values = window.map((m) => Math.max(0, r.totals.get(m) ?? 0));
     const present = window.filter((m) => (r.totals.get(m) ?? 0) > 0);
@@ -585,7 +614,7 @@ function profileMerchants(entries: SpendingEntry[], months: string[], categoryId
       months_present: present.length,
       charges_per_month: round2(chargesPerMonth),
       behavior,
-      review: behavior === "fixed" && (subscriptionCategory || reviewKeys.has(key)),
+      review: behavior === "fixed" && (subscriptionCategory || reviewKeys.has(compactKey(key))),
     };
   }).filter((m) => m.monthly_average > 0).sort((a, b) => b.monthly_average - a.monthly_average);
 }
@@ -594,7 +623,7 @@ function suggestTargets(merchants: MerchantHistoryProfile[]): SuggestedMerchantT
   const used = new Set<string>();
   const candidates: Array<{ label: string; keys: string[]; monthly: number; share: number; behavior: MerchantBehavior; review: boolean }> = [];
   for (const group of MERCHANT_GROUPS) {
-    const members = merchants.filter((m) => group.keys.includes(m.key));
+    const members = merchants.filter((m) => merchantInGroup(group, m.key));
     if (members.length < 2) continue;
     members.forEach((m) => used.add(m.key));
     candidates.push({

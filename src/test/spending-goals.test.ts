@@ -81,6 +81,17 @@ describe("spending goals — livro canônico", () => {
     names.forEach(([name, key], i) => expect([name, ledger.find((e) => e.id === `n${i}`)?.merchant_key]).toEqual([name, key]));
   });
 
+  it("une variações com sufixo do boleto e nomes já sem o prefixo do débito", () => {
+    const names: Array<[string, string]> = [
+      ["LS Prado", "ls prado"], ["PAG BOLETO L S PRADO IN", "ls prado"], ["L S Prado Intermediacao N", "ls prado"],
+      ["Hirot", "hirota food express"], ["Hirota Food Express", "hirota food express"],
+      ["Droga", "droga raia"], ["PAY RAIA1 0803", "droga raia"],
+      ["AMAZON PRIME BR", "amazon prime"], ["AMAZON BR", "amazon"],
+    ];
+    const ledger = buildSpendingLedger(names.map(([name], i) => tx({ id: `v${i}`, occurred_at: "2026-09-10", amount: 10, merchant_name: name })));
+    names.forEach(([name, key], i) => expect([name, ledger.find((e) => e.id === `v${i}`)?.merchant_key]).toEqual([name, key]));
+  });
+
   it("intermediador sozinho não vira estabelecimento", () => {
     const ledger = buildSpendingLedger([tx({ id: "x", occurred_at: "2026-09-10", amount: 10, merchant_name: "PIX AUT EBANX" })]);
     expect(ledger[0].merchant_key.startsWith("raw:")).toBe(true);
