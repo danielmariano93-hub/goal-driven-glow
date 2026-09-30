@@ -91,7 +91,7 @@ export type ExecutiveBriefing = {
 // ---------------------------------------------------------------------------
 
 const ym = (date: string) => date.slice(0, 7);
-function addMonths(month: string, delta: number): string {
+export function addMonths(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number);
   const d = new Date(Date.UTC(y, m - 1 + delta, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -100,7 +100,7 @@ function daysInMonth(month: string): number {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
-function range(from: string, to: string): string[] {
+export function range(from: string, to: string): string[] {
   const out: string[] = [];
   for (let m = from; m <= to && out.length < 60; m = addMonths(m, 1)) out.push(m);
   return out;
@@ -115,7 +115,7 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 
 /** Recorrente = aparece quase todo mês com valor estável (dispersão robusta baixa). */
-function isStable(values: number[], minPresent: number): boolean {
+export function isStable(values: number[], minPresent: number): boolean {
   const present = values.filter((v) => v > 0);
   if (present.length < minPresent) return false;
   const med = median(present);
@@ -153,7 +153,7 @@ export function unifyMerchantKeys(keys: Array<{ key: string; label: string }>): 
 // Livro mensal
 // ---------------------------------------------------------------------------
 
-type MerchantBook = {
+export type MerchantBook = {
   label: string;
   months: Map<string, number>;
   counts: Map<string, number>;
@@ -161,7 +161,7 @@ type MerchantBook = {
   categories: Map<string, number>;
 };
 
-type Book = {
+export type Book = {
   months: string[];
   spend: Map<string, number>;
   income: Map<string, number>;
@@ -169,7 +169,7 @@ type Book = {
   byMerchant: Map<string, MerchantBook>;
 };
 
-function buildBook(entries: LedgerEntry[], months: string[]): Book {
+export function buildBook(entries: LedgerEntry[], months: string[]): Book {
   const inWindow = new Set(months);
   const book: Book = { months, spend: new Map(), income: new Map(), byCategory: new Map(), byMerchant: new Map() };
   const merchantMap = unifyMerchantKeys(entries
@@ -203,7 +203,7 @@ function buildBook(entries: LedgerEntry[], months: string[]): Book {
   return book;
 }
 
-const monthsOf = (map: Map<string, number>, months: string[]) => months.map((m) => r2(map.get(m) ?? 0));
+export const monthsOf = (map: Map<string, number>, months: string[]) => months.map((m) => r2(map.get(m) ?? 0));
 
 // ---------------------------------------------------------------------------
 // Motor

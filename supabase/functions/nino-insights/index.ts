@@ -11,6 +11,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared/insights/executive/engine.ts";
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
+import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -61,7 +62,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return h.fail("method_not_allowed", 405);
 
-  let body: { action?: unknown; user_id?: unknown; key?: unknown; kind?: unknown; feedback?: unknown } = {};
+  let body: { action?: unknown; user_id?: unknown; key?: unknown; kind?: unknown; feedback?: unknown; purchase?: unknown } = {};
   try { body = await req.json(); } catch { /* corpo vazio = get */ }
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -95,6 +96,37 @@ Deno.serve(async (req) => {
       });
       if (error) throw new Error(`feedback:${error.message}`);
       return h.ok({ ok: true });
+    }
+    if (action === "simulate") {
+      // Antes de gastar: a compra é julgada em cada mês em que pesa.
+      const raw = (body.purchase ?? {}) as Record<string, any>;
+      const amount = Number(raw.amount);
+      const months = Array.isArray(raw.months)
+        ? raw.months.slice(0, 48).map((m: any) => ({ month: String(m?.month ?? ""), amount: Number(m?.amount) }))
+          .filter((m: { month: string; amount: number }) => /^\d{4}-\d{2}$/.test(m.month) && Number.isFinite(m.amount) && m.amount > 0)
+        : [];
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000 || !months.length) {
+        return h.fail("invalid_purchase", 400);
+      }
+      const limits: Record<string, number | null> = {};
+      if (raw.category_limits && typeof raw.category_limits === "object") {
+        for (const [month, value] of Object.entries(raw.category_limits as Record<string, unknown>)) {
+          if (/^\d{4}-\d{2}$/.test(month)) limits[month] = Number.isFinite(Number(value)) && value !== null ? Number(value) : null;
+        }
+      }
+      const asOf = todaySP();
+      const input = await loadExecutiveInput(sb, userId, asOf);
+      const plan = computePurchasePlan({
+        ...input,
+        purchase: {
+          amount,
+          category_id: typeof raw.category_id === "string" ? raw.category_id : null,
+          category_name: typeof raw.category_name === "string" && raw.category_name.trim() ? raw.category_name.trim().slice(0, 80) : "Categoria",
+          months,
+          category_limits: limits,
+        },
+      });
+      return h.ok({ ok: true, plan });
     }
     if (action !== "get" && action !== "refresh") return h.fail("invalid_action", 400);
 
