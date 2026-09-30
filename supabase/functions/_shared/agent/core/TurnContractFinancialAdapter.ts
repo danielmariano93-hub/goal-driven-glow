@@ -34,7 +34,7 @@ function canonicalizeTurnQuery(
   const scopedMonthlyExpense = query.metric === "expense_amount"
     && ["sum", "value", "breakdown", "rank"].includes(String(query.operation))
     && query.group_by.length === 1
-    && (query.group_by[0] === "month" || query.group_by[0] === "day")
+    && ["month", "day", "week", "quarter"].includes(query.group_by[0])
     && query.filters.length > 0
     && query.filters.every((filter) => filter.field === "category" || filter.field === "merchant");
 

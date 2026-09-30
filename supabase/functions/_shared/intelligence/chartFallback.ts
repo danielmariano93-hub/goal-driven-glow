@@ -4,7 +4,8 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { analyze_spending, generate_chart_artifact } from "../agent/tools.ts";
 import { inferChartRequest, isContextualChartFollowup } from "./chartIntent.ts";
 import { WEEKDAY_TRUTH_FORMULA_VERSION } from "../analytics/weekdayTruth.ts";
-import { buildDailySeriesChartArtifact, buildMonthlySeriesChartArtifact } from "./monthlySeriesChart.ts";
+import { SERIES_CHART_TEMPLATES, seriesChartFromEvidence, seriesEvidenceGrain, seriesEvidenceHasData } from "./chartTemplates.ts";
+import type { SeriesGrain } from "../agent/core/SeriesGrain.ts";
 
 type ToolCallLike = {
   step_index: number;
@@ -38,29 +39,26 @@ function isArtifactCall(call: ToolCallLike | null | undefined): boolean {
   return tool.startsWith("generate_") && tool.includes("artifact");
 }
 
-function isMonthlyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
-  const result = (call?.result ?? {}) as any;
-  return Boolean(
-    call?.ok
-    && call?.tool_name === "spending_timeseries_monthly"
-    && result?.version === "nino_monthly_series.v1"
-    && Array.isArray(result?.months)
-    && result.months.length,
-  );
-}
-
-function isDailyEvidenceCall(call: ToolCallLike | null | undefined): boolean {
-  const result = (call?.result ?? {}) as any;
-  return Boolean(
-    call?.ok
-    && result?.version === "nino_daily_series.v1"
-    && Array.isArray(result?.days)
-    && result.days.length,
-  );
-}
-
+/** Evidência de série executada (mês, dia, semana, trimestre) com dados. */
 function isSeriesEvidenceCall(call: ToolCallLike | null | undefined): boolean {
-  return isMonthlyEvidenceCall(call) || isDailyEvidenceCall(call);
+  return Boolean(call?.ok) && seriesEvidenceGrain(call?.result) !== null;
+}
+
+/**
+ * O turno executou uma leitura com recorte (categoria/estabelecimento)? Então
+ * um gráfico genérico de "todos os gastos" responderia OUTRA pergunta.
+ */
+function executedScopedRead(toolCalls: ToolCallLike[]): boolean {
+  return toolCalls.some((call) => {
+    if (!call.ok || isArtifactCall(call)) return false;
+    const args = (call.args ?? {}) as any;
+    const result = (call.result ?? {}) as any;
+    return Boolean(
+      args.merchant || args.category_name || args.category
+      || result?.scope?.merchant || result?.scope?.category
+      || result?.filters?.category || result?.filters?.merchant || result?.merchant,
+    );
+  });
 }
 
 /**
@@ -69,7 +67,7 @@ function isSeriesEvidenceCall(call: ToolCallLike | null | undefined): boolean {
  * backwards: if the user changed financial subject, "mostre isso em gráfico"
  * must not resurrect an older monthly series from another topic.
  */
-async function loadRecentMonthlyEvidence(
+async function loadRecentSeriesEvidence(
   sb: SupabaseClient,
   userId: string,
   conversationId: string,
@@ -207,69 +205,37 @@ export async function ensureRequestedArtifact(args: {
     // bridge may load the immediately previous persisted analytical evidence.
     let seriesAnalytical = [...args.toolCalls].reverse().find((call) => isSeriesEvidenceCall(call)) ?? null;
     if (!seriesAnalytical && contextualFollowup) {
-      seriesAnalytical = await loadRecentMonthlyEvidence(args.sb, args.user_id, args.conversation_id);
+      seriesAnalytical = await loadRecentSeriesEvidence(args.sb, args.user_id, args.conversation_id);
     }
-    // Série diária: o gráfico é dia a dia, com o mesmo recorte da resposta.
-    if (seriesAnalytical && isDailyEvidenceCall(seriesAnalytical) && request.mode !== "monthly_series") {
+    // Série (dia/semana/mês/trimestre): TEMPLATE do grão preenchido com a
+    // evidência executada — mesmos valores, mesmo período, mesmo recorte.
+    const requestedGrain: SeriesGrain | null = request.mode === "series"
+      ? request.grain
+      : request.mode === "monthly_series" ? "month" : null;
+    if (seriesAnalytical) {
       const result = seriesAnalytical.result as any;
-      if (!Number(result?.active_days ?? 0)) throw new Error("daily_series_evidence_empty");
-      const payload = buildDailySeriesChartArtifact(result);
+      const chart = seriesChartFromEvidence(result, requestedGrain);
+      if (!chart) {
+        throw new Error(seriesEvidenceHasData(result) ? "series_grain_mismatch" : "series_evidence_empty");
+      }
       const artifact_id = await persistRichArtifact(args.sb, {
         user_id: args.user_id,
         conversation_id: args.conversation_id,
-        payload,
+        payload: chart.payload,
       });
       return {
         artifact_id,
-        message: artifact_id ? "Preparei o gráfico dia a dia com o mesmo recorte da resposta." : "Não consegui gerar a imagem agora.",
+        message: artifact_id ? `Preparei o gráfico (${chart.template.title.toLowerCase()}) com o mesmo recorte da resposta.` : "Não consegui gerar a imagem agora.",
         toolCall: {
           step_index: step,
-          tool_name: "generate_daily_series_chart_artifact",
+          tool_name: chart.template.tool_name,
           args: request,
           result: {
             artifact_id,
+            template: chart.grain,
             source_evidence: {
               run_id: seriesAnalytical.run_id ?? null,
               tool_name: seriesAnalytical.tool_name,
-              formula_version: result.formula_version ?? null,
-              window: result.window ?? null,
-              scope: result.scope ?? null,
-            },
-          },
-          ok: Boolean(artifact_id),
-          duration_ms: Date.now() - started,
-          error: artifact_id ? null : "artifact_not_persisted",
-        },
-      };
-    }
-    const monthlyAnalytical = seriesAnalytical && isMonthlyEvidenceCall(seriesAnalytical) ? seriesAnalytical : null;
-    if (monthlyAnalytical) {
-      const result = monthlyAnalytical.result as any;
-      const months = Array.isArray(result?.months) ? result.months : [];
-      if (!months.length || !months.some((point: any) => Boolean(point?.has_data))) {
-        throw new Error("monthly_series_evidence_unavailable");
-      }
-
-      // The artifact is a pure presentation of the SAME evidence object. No
-      // financial value is recalculated by the chart path.
-      const payload = buildMonthlySeriesChartArtifact(result);
-      const artifact_id = await persistRichArtifact(args.sb, {
-        user_id: args.user_id,
-        conversation_id: args.conversation_id,
-        payload,
-      });
-      return {
-        artifact_id,
-        message: artifact_id ? "Preparei o gráfico mês a mês com o mesmo recorte da resposta." : "Não consegui gerar a imagem agora.",
-        toolCall: {
-          step_index: step,
-          tool_name: "generate_monthly_series_chart_artifact",
-          args: request,
-          result: {
-            artifact_id,
-            source_evidence: {
-              run_id: monthlyAnalytical.run_id ?? null,
-              tool_name: monthlyAnalytical.tool_name,
               formula_version: result.formula_version ?? null,
               window: result.window ?? null,
               scope: result.scope ?? null,
@@ -288,15 +254,19 @@ export async function ensureRequestedArtifact(args: {
       throw new Error("referenced_chart_evidence_unavailable");
     }
 
-    // If the user explicitly asked for a monthly chart, never degrade to a
-    // daily/category chart without the monthly analytical evidence.
+    // Pedido de série (qualquer grão) sem a série do mesmo recorte: nunca
+    // trocar por um gráfico genérico (era assim que "diário de Uber" virava
+    // um gráfico de todos os gastos).
     if (request.mode === "monthly_series") {
       throw new Error("monthly_series_evidence_unavailable");
     }
-    // Pedido diário sem a série diária do mesmo recorte: nunca trocar por um
-    // gráfico genérico (era assim que "diário de Uber" virava outra coisa).
-    if (request.mode === "daily_series") {
-      throw new Error("daily_series_evidence_unavailable");
+    if (request.mode === "series") {
+      throw new Error("series_evidence_unavailable");
+    }
+    // Leitura com recorte no turno: gráfico genérico sem filtro seria outra
+    // pergunta. Falha honesta em vez de gráfico errado.
+    if ((request.mode === "tool" || request.mode === "category") && executedScopedRead(args.toolCalls)) {
+      throw new Error("scoped_chart_evidence_unavailable");
     }
 
     if (request.mode === "weekday_pattern") {
@@ -402,9 +372,9 @@ export async function ensureRequestedArtifact(args: {
       toolCall: {
         step_index: step,
         tool_name: request.mode === "monthly_series"
-          ? "generate_monthly_series_chart_artifact"
-          : request.mode === "daily_series"
-            ? "generate_daily_series_chart_artifact"
+          ? SERIES_CHART_TEMPLATES.month.tool_name
+          : request.mode === "series"
+            ? SERIES_CHART_TEMPLATES[request.grain].tool_name
           : request.mode === "category"
             ? "generate_category_chart_artifact"
             : request.mode === "weekday_pattern"

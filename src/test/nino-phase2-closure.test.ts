@@ -164,7 +164,7 @@ describe("Fase 2 — texto e gráfico compartilham a mesma verdade", () => {
     const app = readFileSync("supabase/functions/_shared/agent/core/adapters/AppAdapter.ts", "utf8");
     const fallback = readFileSync("supabase/functions/_shared/intelligence/chartFallback.ts", "utf8");
     expect(app).toContain("!isContextualChartFollowup(args.text)");
-    expect(fallback).toContain("loadRecentMonthlyEvidence");
+    expect(fallback).toContain("loadRecentSeriesEvidence");
     expect(fallback).toContain("referenced_chart_evidence_unavailable");
     expect(fallback).toContain("source_evidence");
   });

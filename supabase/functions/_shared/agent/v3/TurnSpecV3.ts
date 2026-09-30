@@ -49,7 +49,7 @@ export type FinancialOperationV3 =
   | "trend"
   | "forecast"
   | "explain";
-export type FinancialDimensionV3 = "category" | "merchant" | "card" | "account" | "month" | "weekday" | "day";
+export type FinancialDimensionV3 = "category" | "merchant" | "card" | "account" | "month" | "weekday" | "day" | "week" | "quarter";
 
 export type PeriodExpressionV3 = SourcedValueV3<string>;
 

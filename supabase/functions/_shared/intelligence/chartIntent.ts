@@ -1,9 +1,11 @@
 import { interpretSemanticQuery } from "./semanticQuery.ts";
+import { isScopedSeriesGrain, requestedSeriesGrain, type ScopedSeriesGrain } from "../agent/core/SeriesGrain.ts";
 
 export type ChartRequest =
   | { mode: "weekday_pattern" }
   | { mode: "monthly_series" }
-  | { mode: "daily_series" }
+  /** Série com recorte por grão: template de gráfico dia/semana/trimestre. */
+  | { mode: "series"; grain: ScopedSeriesGrain }
   | { mode: "category"; days: number }
   | {
       mode: "tool";
@@ -75,24 +77,16 @@ export function inferChartRequest(text: string): ChartRequest | null {
   if (interpretSemanticQuery(text)?.intent === "weekday_pattern") {
     return { mode: "weekday_pattern" };
   }
-  // Monthly series is not a category breakdown. This check MUST precede the
-  // generic category branch or "gráfico de Alimentação mês a mês" becomes a
-  // ranking of categories and answers a different question.
-  //
-  // "gráfico dos últimos N meses" is also monthly by default: a visual request
-  // over months means one bucket per calendar month unless the user explicitly
-  // asks for daily grain ("dia a dia", "por dia", etc.). This prevents the
-  // generic timeseries renderer from turning a 4-month request into a daily line.
-  if (/\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)
+  // Grão explícito (dia, semana, trimestre, mês) vem de UMA fonte
+  // (SeriesGrain) e vence "categoria"/"estabelecimento" no texto: "gráfico dia
+  // a dia nessa categoria" é uma série filtrada, não um ranking de categorias.
+  const grain = requestedSeriesGrain(text);
+  if (isScopedSeriesGrain(grain)) return { mode: "series", grain };
+  // Monthly series is not a category breakdown. "gráfico dos últimos N meses"
+  // is also monthly by default: one bucket per calendar month.
+  if (grain === "month" || /\b(mes a mes|mensalmente ao longo|evolucao mensal|trajetoria mensal)\b/.test(t)
     || requestsExplicitMonthlyWindow(t)) {
     return { mode: "monthly_series" };
-  }
-  // Grão diário explícito vence "categoria"/"estabelecimento" no texto:
-  // "gráfico dia a dia nessa categoria" é uma série diária filtrada, não um
-  // ranking de categorias.
-  if (/\b(dia a dia|por dia|diari[oa]s?|diariamente|cada dia|todos os dias)\b/.test(t)
-    && !/\b(media diaria|ritmo diario|tendencia da media)\b/.test(t)) {
-    return { mode: "daily_series" };
   }
   if (/\b(categoria|categorias)\b/.test(t)) {
     return { mode: "category", days: requestedDays(t) };

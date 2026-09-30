@@ -14,7 +14,7 @@ export const FINANCIAL_METRICS = [
 export type FinancialMetric = typeof FINANCIAL_METRICS[number];
 
 export const FINANCIAL_DIMENSIONS = [
-  "category", "merchant", "card", "account", "month", "weekday", "day",
+  "category", "merchant", "card", "account", "month", "weekday", "day", "week", "quarter",
 ] as const;
 export type FinancialDimension = typeof FINANCIAL_DIMENSIONS[number];
 

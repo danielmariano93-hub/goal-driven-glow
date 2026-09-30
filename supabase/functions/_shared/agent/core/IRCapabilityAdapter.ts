@@ -86,18 +86,19 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
       };
     }
 
-    // "dia a dia" / "gráfico diário": série diária factual, com recorte
-    // opcional de categoria e/ou estabelecimento (motor nino_daily_series.v1).
-    // Sem este mapeamento o validador recusava o plano antes do handler rodar.
+    // Série por grão (dia/semana/trimestre), com recorte opcional de categoria
+    // e/ou estabelecimento (motor nino_scoped_series.v1). Sem este mapeamento o
+    // validador recusava o plano antes do handler rodar.
     if (metric === "expense"
-      && group === "day"
+      && (group === "day" || group === "week" || group === "quarter")
       && ["sum", "trend"].includes(q.operation)
       && onlyFilters(q, ["category", "merchant"])) {
       return {
-        tool: "spending_timeseries_daily_scoped",
+        tool: "spending_timeseries_scoped",
         capability: "financial_analysis",
         execution: "deterministic",
         args: {
+          grain: group,
           from: period.from, to: period.to,
           ...(monthlyCategory ? { category_name: monthlyCategory } : {}),
           ...(merchant ? { merchant } : {}),
@@ -373,7 +374,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount + value|sum com filtro merchant e filtro opcional category (motor merchant_profile)",
   "expense_amount + rank|breakdown group merchant (filtro opcional: category; motor merchant_distribution)",
   "expense_amount + sum|trend group month com filtro category e/ou merchant (motor spending_timeseries_monthly)",
-  "expense_amount + sum|trend group day com filtro opcional category e/ou merchant (série dia a dia)",
+  "expense_amount + sum|trend group day|week|quarter com filtro opcional category e/ou merchant (série por grão)",
   "expense_amount|income_amount + compare (filtro opcional: category, group opcional category; baseline por período ou média dos N meses completos anteriores)",
   "expense_amount|income_amount + trend (sem filtro) ou trend group month (trajetória mês a mês)",
   "expense_amount + trend com filtro category|card (exige período de comparação)",
@@ -390,7 +391,7 @@ export function executableOntologyText(): string {
 /** Sugestão canônica quando a combinação pedida não tem motor. */
 export function ontologyHintFor(q: FinancialQuery): string | null {
   if (q.metric === "financial_health") return "financial_health + value";
-  if (q.operation === "trend" && q.group_by.length && !["month", "day"].includes(q.group_by[0])) {
+  if (q.operation === "trend" && q.group_by.length && !["month", "day", "week", "quarter"].includes(q.group_by[0])) {
     return `${q.metric} + trend group month`;
   }
   if (q.operation === "compare" && !onlyFilters(q, ["category"])) return `${q.metric} + compare sem filtro`;

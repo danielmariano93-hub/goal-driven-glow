@@ -169,6 +169,8 @@ export type HandleTurnResult = {
   result?: unknown;
   session_id?: string;
   envelope?: ReturnType<typeof buildChannelEnvelope>;
+  /** Chamadas executadas com o resultado exato (V2): evidência para gráfico/follow-up. */
+  executed_calls?: Array<{ tool_name: string; args: unknown; result: unknown; ok: boolean }>;
 };
 
 /** Entrada pública: roda o turno e passa a resposta pelo humanizador, que é a

@@ -168,7 +168,11 @@ export async function handleAppMessage(args: {
   // The V2 Entry owns referential charts because it can prove which evidence
   // they refer to. If it deliberately failed closed, do not manufacture a new
   // generic timeseries here and answer a different question.
-  if (!recent?.payload && wantsChart(args.text) && !isContextualChartFollowup(args.text)) {
+  // Se o turno executou uma leitura financeira, o gráfico só pode sair DELA (V2
+  // Entry, templates por grão). Um gráfico genérico aqui mostrava "todos os
+  // gastos do mês" para um pedido de Transporte no Uber.
+  const executedFinancialRead = (turn.executed_calls ?? []).some((call) => call.ok);
+  if (!recent?.payload && !executedFinancialRead && wantsChart(args.text) && !isContextualChartFollowup(args.text)) {
     try {
       const kind = pickDeterministicChartKind(args.text);
       const chart = await generate_chart_artifact(

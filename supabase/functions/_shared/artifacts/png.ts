@@ -42,6 +42,8 @@ const VECTOR_GLYPHS: Record<string, VectorGlyph> = {
   ",": [[[0.55, 0.86], [0.48, 1.08], [0.3, 1.22]]],
   ".": [[[0.5, 0.96], [0.51, 0.97]]],
   "k": [[[0.16, 0], [0.16, 1]], [[0.85, 0.18], [0.18, 0.6], [0.86, 1]]],
+  // "T" de trimestre no eixo ("T3/26").
+  "t": [[[0.08, 0], [0.92, 0]], [[0.5, 0], [0.5, 1]]],
 };
 
 function crc32(bytes: Uint8Array): number {
@@ -188,6 +190,8 @@ export function chartDayLabel(label: string): string {
     // "09/26" (mês/ano, como validade de cartão): "09-26" parecia dia 26.
     return `${MONTH_AXIS_LABELS[monthly[1]]}/${monthly[2]}`;
   }
+  const quarterly = raw.match(/^t([1-4])\/(\d{2})$/);
+  if (quarterly) return `t${quarterly[1]}/${quarterly[2]}`;
   return raw.split("/")[0].padStart(2, "0").slice(0, 2);
 }
 function line(buf: Uint8Array, x0: number, y0: number, x1: number, y1: number, color: number[], thickness = 3) {

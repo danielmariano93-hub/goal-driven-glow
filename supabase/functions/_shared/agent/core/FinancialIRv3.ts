@@ -57,7 +57,7 @@ export const TIME_ASPECTS = [
 ] as const;
 export type TimeAspect = typeof TIME_ASPECTS[number];
 
-export const TIME_GRAINS = ["none", "day", "month"] as const;
+export const TIME_GRAINS = ["none", "day", "week", "month", "quarter"] as const;
 export type TimeGrain = typeof TIME_GRAINS[number];
 
 export const REDUCTIONS = ["none", "sum", "typical", "mean", "median", "rate"] as const;
@@ -132,7 +132,10 @@ function aspectFromLegacy(
   if (POINT_IN_TIME_METRICS.has(metric)) {
     return { aspect: "point_in_time", grain: "none", reduce: "none" };
   }
-  if (operation === "trend") return { aspect: "trend", grain: groupBy.includes("day") ? "day" : "month", reduce: "none" };
+  if (operation === "trend") {
+    const grain = (["day", "week", "quarter"] as const).find((g) => groupBy.includes(g)) ?? "month";
+    return { aspect: "trend", grain, reduce: "none" };
+  }
   if (operation === "forecast") return { aspect: "projection", grain: "none", reduce: "sum" };
   const partial = !!period && period.from <= today && period.to >= today;
   return {
@@ -328,14 +331,19 @@ export function isTypicalMonthlyShape(q: FinancialQueryV3): boolean {
 }
 
 
-/** Série diária factual ("gráfico diário de setembro de Transporte no Uber"). */
-export function isDailySeriesShape(q: FinancialQueryV3): boolean {
+/**
+ * Série factual com recorte em grão dia/semana/trimestre ("gráfico diário de
+ * setembro de Transporte no Uber", "semana a semana no iFood"). O mês tem shape
+ * e motor próprios (isMonthlySeriesShape).
+ */
+export function isScopedSeriesShape(q: FinancialQueryV3): boolean {
   const filterFields = new Set((q.filters ?? []).map((f) => f.field));
   const filtersSupported = [...filterFields].every((field) => field === "category" || field === "merchant");
+  const scoped = q.grain === "day" || q.grain === "week" || q.grain === "quarter";
   const groupSupported = (q.group_by?.length ?? 0) === 0
-    || (q.group_by.length === 1 && q.group_by[0] === "day");
+    || (q.group_by.length === 1 && q.group_by[0] === q.grain);
   return q.metric === "expense_amount"
-    && q.grain === "day"
+    && scoped
     && q.time.aspect === "trend"
     && (q.reduce === "none" || q.reduce === "sum")
     && Boolean(q.time.from && q.time.to)
