@@ -9,6 +9,7 @@ import { localDate } from "../../finance-core/ninoClock.ts";
 import { merchantMatches, merchantQueryKey } from "../../finance-core/merchant.ts";
 import {
   MERCHANT_GROUPS,
+  merchantInGroup,
   merchantTargetLimit,
   type CategorySpendingAdvice,
   type MerchantTargetKind,
@@ -41,6 +42,7 @@ export type PlanGoal = {
   lines: string[];
 };
 
+export type PlanFailure = { ok: false; question: string; error: string };
 export type PlanOutcome =
   | { ok: true; goals: PlanGoal[]; summary: string; receipt_text: string }
   | { ok: false; question: string; error: string };
@@ -92,7 +94,7 @@ function resolveMerchantTerm(sg: SpendingGoalContext, term: string, categoryId: 
     if (e.amount > 0 && !seen.has(e.merchant_key)) seen.set(e.merchant_key, e.merchant_label);
   }
   if (group) {
-    const keys = group.keys.filter((k) => seen.has(k));
+    const keys = [...seen.keys()].filter((k) => merchantInGroup(group, k));
     return keys.length ? { label: keys.map((k) => seen.get(k)!).join(" + "), keys } : { label: group.label, keys: group.keys };
   }
   const key = merchantQueryKey(term, sg.resolver);
@@ -344,9 +346,10 @@ async function spendingGoalPlanDraft(ctx: ToolContext, args: any): Promise<ToolR
   const sg = await loadSpendingGoalContext(ctx.sb, ctx.user_id, localDate());
   const advice = adviseGoals(sg);
   const outcome = planFromCommand(sg, advice, args ?? {});
-  if (!outcome.ok) {
-    const slot = { category_required: "category", category_not_found: "category", merchant_not_found: "merchants", no_history_for_reduction: "amount" }[outcome.error] ?? null;
-    return { ok: true, result: { needs_input: true, slot, card_text: outcome.question, error: outcome.error } };
+  if (outcome.ok === false) {
+    const fail = outcome as PlanFailure;
+    const slot = ({ category_required: "category", category_not_found: "category", merchant_not_found: "merchants", no_history_for_reduction: "amount" } as Record<string, string>)[fail.error] ?? null;
+    return { ok: true, result: { needs_input: true, slot, card_text: fail.question, error: fail.error } };
   }
   const draftId = await upsertPlanDraft(ctx, outcome, outcome.summary);
   return { ok: true, result: { draft_id: draftId, summary: outcome.summary } };
@@ -359,7 +362,10 @@ export async function executeSpendingGoalAdvice(ctx: ToolContext): Promise<
   const sg = await loadSpendingGoalContext(ctx.sb, ctx.user_id, localDate());
   const advice = adviseGoals(sg);
   const outcome = planFromAdvice(sg, advice);
-  if (!outcome.ok) return { ok: false, reply: outcome.question, error: outcome.error };
+  if (outcome.ok === false) {
+    const fail = outcome as PlanFailure;
+    return { ok: false, reply: fail.question, error: fail.error };
+  }
   const draftId = await upsertPlanDraft(ctx, outcome, outcome.summary);
   return {
     ok: true,
