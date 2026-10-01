@@ -41,16 +41,16 @@ Regras do motor que não devem mudar sem decisão de produto:
 ### 3.2 Feito pelo Lovable e NÃO verificado por mim
 Capacidade do Nino/WhatsApp para "como estão meus hábitos?" (referências a `behavior_evolution` em `agent/tools.ts`, `CapabilityRegistry.ts`, `CapabilityRouter.ts`, `prompt.ts`, `DeterministicAnswersImpl.ts`) e o texto de `formatBehaviorEvolution`. Há testes (`src/test/behavior-entrega2.test.ts`), mas falta validar de ponta a ponta com uma mensagem real no WhatsApp/chat.
 
-### 3.3 Falta
-1. **Validar o Nino/WhatsApp** (item 3.2) com mensagens reais ("como estão meus hábitos?", "melhorei?") e conferir que o veredito é o mesmo da tela.
-2. **Backfill dos demais usuários**: `select public.behavior_observed_backfill_v2('<uuid>'::uuid);` um por vez (idempotente). Não está em laço automático porque o `apply_migration` trava.
-3. **Tipos do Supabase**: regenerar `src/integrations/supabase/types.ts` e remover o cast em `observedSnapshots.ts`.
-4. **Deploy manual quando o CI falha**: o workflow `Nino Direct Supabase Deploy` só dispara com mudança em `supabase/functions/**` ou `config.toml`. Se uma mudança só de migração/teste precisar de redeploy, disparar `workflow_dispatch` com `confirm=DEPLOY`.
+### 3.3 Falta (resumo final)
+1. **Teste ponta a ponta do Nino/WhatsApp** com uma mensagem real ("como estão meus hábitos?") — a ferramenta `get_behavior_evolution` reaproveita o mesmo carregador do job semanal (validado em produção) e a lógica tem testes unitários, mas nenhuma conversa real foi feita.
+2. **Backfill de usuários novos**: `select public.behavior_observed_backfill_v2('<uuid>'::uuid);` (idempotente). Os 4 usuários que tinham evidência em 01/10/2026 já foram reconstruídos.
+3. **Acompanhar a primeira execução automática do cron** (segunda 09:30 UTC; job `behavior-observed-weekly`): conferir `cron.job_run_details` e `net._http_response`.
+4. Concluídos: tipos do Supabase regenerados (sem cast), migração `...311000` com `posted` removida do repositório.
 
 ### 3.4 ARMADILHAS JÁ ENCONTRADAS — leia antes de mexer
-- **`transactions.status` só tem `confirmed`, `planned`, `superseded`. `posted` NÃO existe.** Um PR (#161) afirmou o contrário e reescreveu os experimentos para `'posted'`. Foi corrigido (a migração `...311000` continua no repositório mas é sobrescrita pela `...320000`, que compara com `confirmed`). **Consulte o banco real (`pg_enum`, `information_schema.columns`) antes de escrever SQL**; erros do mesmo tipo já pegos: `debts.initial_amount` (é `original_amount`), `investment_movements.kind='aporte'` (é `application`).
+- **`transactions.status` só tem `confirmed`, `planned`, `superseded`. `posted` NÃO existe.** Um PR (#161) afirmou o contrário e reescreveu os experimentos para `'posted'`. Foi corrigido (a migração `...311000` foi removida do repositório). **Consulte o banco real (`pg_enum`, `information_schema.columns`) antes de escrever SQL**; erros do mesmo tipo já pegos: `debts.initial_amount` (é `original_amount`), `investment_movements.kind='aporte'` (é `application`).
 - **`DROP FUNCTION` trava no ambiente do MCP do Supabase** (timeout de 60 s, nada é removido). Não renomeie parâmetros de função existente; ajuste o chamador. Foi por isso que a RPC por usuário usa `p_uid` e a migração `...330000` documenta a paridade.
-- **Há outro agente (Lovable, `gpt-engineer-app[bot]`) empurrando direto para a `main`.** Sempre `git fetch` e confira `git log origin/main` antes de começar; ele já duplicou trabalho e quebrou o CI da `main` uma vez (testes que liam arquivos movidos). Rode a suíte completa na `main` antes de somar mudanças.
+- **O Lovable (`gpt-engineer-app[bot]`) empurrou direto para a `main` e trocou o `.env` para outro projeto do Supabase, derrubando o login de todos (corrigido nos PRs #167/#168). O acesso dele deve ser removido.** Se ainda houver push de bot na `main`, trate como incidente. Também: o Vercel ignorava mudanças em `.env`; agora `.env` e `scripts/vercel-ignore-build.mjs` disparam build. Sempre `git fetch` e confira `git log origin/main` antes de começar; ele já duplicou trabalho e quebrou o CI da `main` uma vez (testes que liam arquivos movidos). Rode a suíte completa na `main` antes de somar mudanças.
 - **Teste do mesmo tipo que quebrou o CI:** vários testes leem código-fonte com `readFileSync`. Ao mover lógica de arquivo, procure por `grep -rn "<arquivo antigo>" src/test`.
 
 ## 4. Como desenvolver aqui (regras que precisam continuar valendo)
