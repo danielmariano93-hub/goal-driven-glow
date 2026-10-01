@@ -9,7 +9,9 @@ import { snapshotFromProfile, weekStartOf, type ObservedSnapshot } from "@/lib/b
 // (uma linha por semana, atualizada no dia) sempre que a página carrega com
 // dados canônicos; a tabela tem RLS por usuário.
 
-// tabela nova ainda fora dos tipos gerados do Supabase
+// TODO Entrega 2: remover este cast assim que o arquivo gerado do Supabase for
+// atualizado com behavior_observed_snapshots. Mantido isolado aqui para não
+// espalhar tipo frouxo pelo app.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const table = () => (supabase.from as unknown as (name: string) => any)("behavior_observed_snapshots");
 export const OBSERVED_SNAPSHOTS_KEY = "behavior-observed-snapshots";
@@ -22,12 +24,15 @@ export function useObservedSnapshots() {
     staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await table()
-        .select("week_start,overall_score,coverage,confidence,dimensions")
+        .select("week_start,overall_score,coverage,confidence,methodology_version,dimensions")
         .eq("user_id", user!.id)
         .order("week_start", { ascending: false })
         .limit(40);
       if (error) throw error;
-      return ((data ?? []) as ObservedSnapshot[]).map((row) => ({ ...row, overall_score: row.overall_score == null ? null : Number(row.overall_score) }));
+      return ((data ?? []) as ObservedSnapshot[]).map((row) => ({
+        ...row,
+        overall_score: row.overall_score == null ? null : Number(row.overall_score),
+      }));
     },
   });
 }

@@ -15,9 +15,16 @@ function profile(scores: Partial<Record<string, number | null>>, factors: Record
     dimensions: Object.fromEntries(BEHAVIOR_DIMENSIONS.map((d) => [d.key, dim(scores[d.key] ?? 5, factors[d.key])])) as ObservedBehaviorProfile["dimensions"],
   };
 }
-const snap = (week: string, scores: Record<string, number>, factors: Record<string, ObservedDimension["factors"]> = {}, overall = 5): ObservedSnapshot => ({
-  week_start: week, overall_score: overall, coverage: 8, confidence: "high",
-  dimensions: Object.fromEntries(BEHAVIOR_DIMENSIONS.map((d) => [d.key, { score: scores[d.key] ?? 5, confidence: "high" as const, factors: factors[d.key] }])),
+const snap = (
+  week: string,
+  scores: Record<string, number>,
+  factors: Record<string, ObservedDimension["factors"]> = {},
+  overall: number | null = 5,
+  confidence: "low" | "medium" | "high" = "high",
+  methodology_version = "behavior_observed.v2",
+): ObservedSnapshot => ({
+  week_start: week, overall_score: overall, coverage: 8, confidence, methodology_version,
+  dimensions: Object.fromEntries(BEHAVIOR_DIMENSIONS.map((d) => [d.key, { score: scores[d.key] ?? 5, confidence, factors: factors[d.key] }])),
 });
 
 describe("weekStartOf", () => {
@@ -68,6 +75,13 @@ describe("compareDimensions", () => {
     expect(control.why).toMatch(/Primeira leitura/);
     expect(control.drivers[0].key).toBe("closed");
   });
+  it("usa a menor confiança entre presente e passado", () => {
+    const base = snap("2026-08-31", { control: 2 }, {}, null, "low", "behavior_observed.v2_backfill");
+    const changes = compareDimensions(profile({ control: 9 }), base);
+    const control = changes.find((c) => c.key === "control")!;
+    expect(control.direction).toBe("better");
+    expect(control.confidence).toBe("low");
+  });
 });
 
 describe("buildBehaviorVerdict", () => {
@@ -91,11 +105,25 @@ describe("buildBehaviorVerdict", () => {
     const v = buildBehaviorVerdict(compareDimensions(profile({ control: 5, planning: 5, security: 5 }), base), base, 5);
     expect(v.kind).toBe("worse");
   });
-  it("confiança baixa não conta como mudança", () => {
+  it("confiança baixa atual não conta como mudança", () => {
     const p = profile({ control: 9, planning: 9, awareness: 9 });
     for (const d of BEHAVIOR_DIMENSIONS) p.dimensions[d.key].confidence = "low";
     const base = snap("2026-08-31", { control: 1, planning: 1, awareness: 1 });
     expect(buildBehaviorVerdict(compareDimensions(p, base), base, 6).kind).toBe("insufficient");
+  });
+  it("base reconstruída de baixa confiança também não sustenta veredito", () => {
+    const base = snap(
+      "2026-08-31",
+      { control: 1, planning: 1, awareness: 1, debt: 1 },
+      {},
+      null,
+      "low",
+      "behavior_observed.v2_backfill",
+    );
+    const v = buildBehaviorVerdict(compareDimensions(profile({ control: 9, planning: 9, awareness: 9, debt: 9 }), base), base, 8);
+    expect(v.kind).toBe("insufficient");
+    expect(v.improved).toBe(0);
+    expect(v.overallDelta).toBeNull();
   });
 });
 
@@ -104,11 +132,13 @@ describe("habitSeries e snapshotFromProfile", () => {
     const series = habitSeries([snap("2026-09-21", { calm: 4 })], profile({ calm: 6 }), "2026-09-28");
     expect(series.calm).toEqual([{ week: "2026-09-21", score: 4 }, { week: "2026-09-28", score: 6 }]);
   });
-  it("snapshot guarda notas e fatores", () => {
-    const p = profile({ calm: 6 }, { calm: [{ key: "direct", label: "d", value: 6, weight: 1 }] });
+  it("snapshot guarda notas, fatores e versão da metodologia", () => {
+    const p = profile({ calm: 6 }, { calm: [{ key: "direct", label: "d", value: 6, weight: 1 }] }) as ObservedBehaviorProfile & { methodologyVersion?: string };
+    p.methodologyVersion = "behavior_observed.v2";
     const s = snapshotFromProfile(p);
     expect(s.dimensions.calm?.score).toBe(6);
     expect(s.dimensions.calm?.factors?.[0].key).toBe("direct");
+    expect(s.methodology_version).toBe("behavior_observed.v2");
   });
 });
 
