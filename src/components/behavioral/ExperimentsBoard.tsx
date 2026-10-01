@@ -1,10 +1,11 @@
-import { CalendarDays, CheckCircle2, Clock3, FlaskConical, Loader2, Sparkles, Target } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, FlaskConical, Loader2, RotateCcw, Sparkles, Target, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
   BehaviorExperiment,
   BehaviorExperimentTemplate,
   BehavioralEvolutionSnapshot,
 } from "@/lib/behavioral/client";
+import { experimentOutcome } from "@/lib/behavioral/experimentOutcome";
 
 const DAY_MS = 86_400_000;
 
@@ -30,9 +31,31 @@ function formatDate(value: string) {
   }).format(date).replace(".", "");
 }
 
+function formatBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(value);
+}
+
+function formatOutcomeValue(experiment: BehaviorExperiment, value: number | null) {
+  if (value == null) return "—";
+  if (experiment.tracking_kind === "spend_reduction_pct") return `${formatBRL(value)}/dia`;
+  if (experiment.tracking_kind === "no_spend_days" || experiment.tracking_kind === "checkin_count") return value.toFixed(0);
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1).replace(".", ",");
+}
+
 function progressText(experiment: BehaviorExperiment) {
   if (experiment.tracking_kind === "spend_reduction_pct") return `${Math.max(0, Number(experiment.current_value)).toFixed(0)}% de redução observada`;
   return `${Number(experiment.current_value).toFixed(0)} de ${Number(experiment.target_value).toFixed(0)}`;
+}
+
+function recommendationCopy(experiment: BehaviorExperiment) {
+  const outcome = experimentOutcome(experiment);
+  if (outcome.recommendation === "continue") {
+    return { icon: CheckCircle2, title: "Vale manter por mais um ciclo", body: "O teste chegou ao objetivo. Repetir ajuda a descobrir se o comportamento se sustenta fora desta janela." };
+  }
+  if (outcome.recommendation === "switch") {
+    return { icon: RotateCcw, title: "Melhor trocar a estratégia", body: "Este formato não entregou evidência suficiente de melhora. O aprendizado vale mais do que insistir no mesmo teste." };
+  }
+  return { icon: FlaskConical, title: "Ainda precisa de mais evidência", body: "O Nino ainda não tem uma comparação estável para sugerir manter ou trocar." };
 }
 
 export function ExperimentsBoard({
@@ -47,7 +70,9 @@ export function ExperimentsBoard({
   onLog: (experiment: BehaviorExperiment) => Promise<void>;
 }) {
   const active = snapshot.activeExperiments;
-  const completed = snapshot.experiments.filter((row) => row.status === "completed").slice(0, 3);
+  const finished = snapshot.experiments
+    .filter((row) => row.status === "completed" || row.status === "expired" || row.status === "abandoned")
+    .slice(0, 3);
   const activeSlugs = new Set(active.map((row) => row.template_slug));
   const recommended = snapshot.recommendedTemplates.filter((template) => !activeSlugs.has(template.slug)).slice(0, 3);
 
@@ -158,18 +183,71 @@ export function ExperimentsBoard({
         </div>
       ) : null}
 
-      {completed.length > 0 && (
-        <div className="rounded-[22px] border border-success/20 bg-success/5 p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-success">Experimentos concluídos</p>
-          <div className="mt-2 space-y-2">
-            {completed.map((experiment) => (
-              <div key={experiment.id} className="flex items-center gap-2 text-xs">
-                <CheckCircle2 size={14} className="shrink-0 text-success" />
-                <span className="font-medium">{experiment.title}</span>
-                <span className="ml-auto text-muted-foreground">100%</span>
-              </div>
-            ))}
+      {finished.length > 0 && (
+        <div className="space-y-2 rounded-[22px] border border-border bg-card p-4 shadow-card">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">O que os testes mostraram</p>
+            <p className="mt-1 text-xs text-muted-foreground">Antes, depois e o próximo passo — sem tratar associação como causa.</p>
           </div>
+          {finished.map((experiment) => {
+            const outcome = experimentOutcome(experiment);
+            const recommendation = recommendationCopy(experiment);
+            const RecommendationIcon = recommendation.icon;
+            const reduction = experiment.tracking_kind === "spend_reduction_pct" ? outcome.deltaPct ?? Number(experiment.current_value) : outcome.deltaPct;
+            return (
+              <article key={experiment.id} className="rounded-[20px] border border-border/80 bg-background/60 p-3.5">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-success/10 text-success"><CheckCircle2 size={16} /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold">{experiment.title}</p>
+                      <span className="shrink-0 rounded-full bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {experiment.status === "completed" ? "Concluído" : experiment.status === "expired" ? "Encerrado" : "Interrompido"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl bg-secondary/55 p-3">
+                      <div>
+                        <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Antes</p>
+                        <p className="mt-1 font-display text-base font-bold">{formatOutcomeValue(experiment, outcome.baseline)}</p>
+                      </div>
+                      <ArrowRight size={14} className="text-muted-foreground" />
+                      <div className="text-right">
+                        <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Durante o teste</p>
+                        <p className="mt-1 font-display text-base font-bold">{formatOutcomeValue(experiment, outcome.current)}</p>
+                      </div>
+                    </div>
+
+                    {reduction != null && (
+                      <div className="mt-2 flex items-center gap-2 text-xs">
+                        <TrendingDown size={14} className={reduction > 0 ? "text-success" : "text-muted-foreground"} />
+                        <span className="font-semibold">{Math.abs(reduction).toFixed(0)}%</span>
+                        <span className="text-muted-foreground">
+                          {experiment.tracking_kind === "spend_reduction_pct"
+                            ? reduction > 0 ? "menos gasto médio" : "sem redução de gasto"
+                            : reduction > 0 ? "de melhora no indicador" : "de variação no indicador"}
+                        </span>
+                      </div>
+                    )}
+
+                    {outcome.savedTotal != null && outcome.savedTotal > 0 && (
+                      <div className="mt-2 rounded-xl bg-success/8 px-3 py-2 text-[11px] leading-relaxed text-foreground">
+                        Efeito estimado: <strong>{formatBRL(outcome.savedTotal)} a menos</strong> no período, comparando o gasto médio diário anterior com o observado durante o teste.
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex items-start gap-2 border-t border-border/70 pt-3">
+                      <RecommendationIcon size={15} className="mt-0.5 shrink-0 text-primary" />
+                      <div>
+                        <p className="text-xs font-semibold">{recommendation.title}</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{recommendation.body}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
