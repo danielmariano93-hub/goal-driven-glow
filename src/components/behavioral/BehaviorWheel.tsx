@@ -35,6 +35,7 @@ export function BehaviorWheel({
   cycle,
   onSave,
   saving = false,
+  baseline = null,
 }: {
   latest: ExtendedBehavioralAssessment | null;
   previous: ExtendedBehavioralAssessment | null;
@@ -43,6 +44,8 @@ export function BehaviorWheel({
   cycle: AssessmentCycle;
   onSave: (scores: Record<BehaviorDimensionKey, number>) => Promise<void>;
   saving?: boolean;
+  /** Leitura do Nino numa data anterior, desenhada como terceira camada. */
+  baseline?: { date: string; scores: Partial<Record<BehaviorDimensionKey, number | null>> } | null;
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
@@ -52,8 +55,9 @@ export function BehaviorWheel({
     subject: dimension.short,
     self: Number(latest?.scores?.[dimension.key] ?? 0),
     nino: observed.dimensions[dimension.key]?.score ?? null,
+    before: baseline?.scores[dimension.key] ?? null,
     fullMark: 10,
-  })), [latest, observed]);
+  })), [latest, observed, baseline]);
 
   const strongest = latest
     ? [...BEHAVIOR_DIMENSIONS].sort((a, b) => Number(latest.scores?.[b.key] ?? 0) - Number(latest.scores?.[a.key] ?? 0))[0]
@@ -152,6 +156,18 @@ export function BehaviorWheel({
                     strokeWidth={2.5}
                     dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }}
                   />
+                  {baseline ? (
+                    <Radar
+                      name="Antes"
+                      dataKey="before"
+                      stroke="hsl(var(--muted-foreground))"
+                      fill="hsl(var(--muted-foreground))"
+                      fillOpacity={0.04}
+                      strokeWidth={1.5}
+                      strokeDasharray="2 3"
+                      dot={false}
+                    />
+                  ) : null}
                   {observed.coverage > 0 ? (
                     <Radar
                       name="Nino"
@@ -170,7 +186,8 @@ export function BehaviorWheel({
 
             <div className="flex items-center justify-center gap-5 px-4 pb-3 text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" /> Você</span>
-              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" /> Nino observa</span>
+              <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" /> Nino observa hoje</span>
+              {baseline ? <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" /> Nino em {baseline.date.split("-").reverse().slice(0, 2).join("/")}</span> : null}
             </div>
 
             <div className="grid gap-2 border-t border-border p-4 sm:grid-cols-2">
