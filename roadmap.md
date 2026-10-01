@@ -13,3 +13,9 @@
 - [x] Validar suíte, typecheck e contratos de deploy sem publicar
 - [x] Corrigir gasto mensal típico antes da IA e eliminar fallback incompatível
 - [x] Validar a frase real, orçamento de turno e regressões sem publicar
+
+## Emocional Entrega 2 (pausado)
+- [ ] Sincronizar com main 0a8818a (#162) sem reverter: status `confirmed`, `investment_movements.kind='application'`, `debts.original_amount`
+- [ ] Backfill seguro/idempotente para os demais usuários (validar contra banco real)
+- [ ] Corrigir 3 testes falhando (behavioral-map-cycle-v2, behavioral-evolution-three-waves)
+- [ ] Lint, build e checagem visual 390px

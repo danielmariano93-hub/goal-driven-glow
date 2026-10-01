@@ -100,7 +100,7 @@ describe("Entrega 2 — job semanal e banco", () => {
   });
 
   it("migration: posted, gastos com horário, helpers service_role-only e cron semanal", () => {
-    expect(migration).not.toMatch(/status\s*=\s*'confirmed'/);
+    expect(migration).not.toContain("'posted')");
     expect(migration).toContain("'expense_transactions'");
     expect(migration).toContain("local_occurred_at");
     expect(migration).toMatch(/revoke all on function public\.behavior_observed_active_users[^;]*from public, anon, authenticated/i);

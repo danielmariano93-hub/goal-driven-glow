@@ -100,7 +100,7 @@ begin
       )
         from public.transactions
        where user_id = v_uid
-         and status::text in ('confirmed','posted')
+         and status::text = 'confirmed'
          and type::text = 'expense'
          and coalesce(movement_kind::text,'transaction') = 'transaction'
          and occurred_at >= now() - interval '90 days'
@@ -113,7 +113,7 @@ begin
                count(*)::int as tx_count
           from public.transactions
          where user_id = v_uid
-           and status::text in ('confirmed','posted')
+           and status::text = 'confirmed'
            and type::text = 'expense'
            and coalesce(movement_kind::text,'transaction') = 'transaction'
            and occurred_at >= now() - interval '180 days'
@@ -130,7 +130,7 @@ begin
         select id, amount, occurred_at, local_occurred_at, occurred_at_time, created_at, origin::text as origin
           from public.transactions
          where user_id = v_uid
-           and status::text in ('confirmed','posted')
+           and status::text = 'confirmed'
            and type::text = 'expense'
            and coalesce(movement_kind::text,'transaction') = 'transaction'
            and occurred_at >= (now() - interval '180 days')::date
@@ -210,7 +210,7 @@ begin
       into v_baseline
       from public.transactions t
      where t.user_id = v_uid
-       and t.status::text in ('confirmed','posted')
+       and t.status::text = 'confirmed'
        and t.type::text = 'expense'
        and coalesce(t.movement_kind, 'transaction') = 'transaction'
        and coalesce(t.behavioral_day, t.occurred_at::date) >= current_date - v_tpl.duration_days
@@ -280,7 +280,7 @@ begin
        select 1
          from public.transactions t
         where t.user_id = v_exp.user_id
-          and t.status::text in ('confirmed','posted')
+          and t.status::text = 'confirmed'
           and t.type::text = 'expense'
           and coalesce(t.movement_kind, 'transaction') = 'transaction'
           and coalesce(t.behavioral_day, t.occurred_at::date) = d.day::date
@@ -304,7 +304,7 @@ begin
         into v_current
         from public.transactions t
        where t.user_id = v_exp.user_id
-         and t.status::text in ('confirmed','posted')
+         and t.status::text = 'confirmed'
          and t.type::text = 'expense'
          and coalesce(t.movement_kind, 'transaction') = 'transaction'
          and coalesce(t.behavioral_day, t.occurred_at::date) >= v_exp.started_at::date
@@ -534,7 +534,7 @@ begin
     select coalesce(sum(amount),0)::numeric into v_income_90
     from public.transactions
     where user_id = v_uid
-      and status::text in ('confirmed','posted')
+      and status::text = 'confirmed'
       and type::text = 'income'
       and occurred_at between v_as_of - 89 and v_as_of;
 
