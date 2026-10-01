@@ -62,11 +62,11 @@ export function toLedger(
   return out;
 }
 
-export async function loadExecutiveInput(sb: any, userId: string, asOf: string): Promise<ExecutiveInput> {
+export async function loadExecutiveInput(sb: any, userId: string, asOf: string, monthsBack = 12): Promise<ExecutiveInput> {
   const to = `${asOf.slice(0, 7)}-31`;
   const from = (() => {
     const d = new Date(`${asOf.slice(0, 7)}-01T12:00:00Z`);
-    d.setUTCMonth(d.getUTCMonth() - 12);
+    d.setUTCMonth(d.getUTCMonth() - monthsBack);
     return d.toISOString().slice(0, 10);
   })();
   // Compras no cartão podem ter competência meses depois da data da compra.
