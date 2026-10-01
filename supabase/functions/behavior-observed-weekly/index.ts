@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
     const next = fetch(`${SUPABASE_URL}/functions/v1/behavior-observed-weekly`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-cron-secret": secret, Authorization: `Bearer ${SERVICE_ROLE}` },
-      body: JSON.stringify({ cursor: index < users.length ? users[index - 1] ?? cursor : lastProcessed, limit }),
+      body: JSON.stringify({ cursor: lastProcessed, limit }),
     }).catch((e) => console.error("[behavior-observed-weekly] continuation failed", String(e).slice(0, 200)));
     // Mantém a função viva até a continuação ser despachada.
     (globalThis as any).EdgeRuntime?.waitUntil?.(next);
