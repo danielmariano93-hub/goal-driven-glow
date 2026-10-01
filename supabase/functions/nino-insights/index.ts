@@ -6,7 +6,8 @@
 // - simulate: "Antes de gastar" mês a mês;
 // - goals: leitura das metas de gasto com submetas por estabelecimento
 //   (+ análise do histórico com `advice: true`);
-// - goal_merchants: estabelecimentos de uma categoria para criar submeta.
+// - goal_merchants: estabelecimentos de uma categoria para criar submeta;
+// - dashboard: painel de Relatórios (período, comparação, filtros) já calculado.
 // Com x-cron-secret aceita { user_id } (verificação interna/cron).
 // Nenhuma ação movimenta dinheiro.
 // deno-lint-ignore-file no-explicit-any
@@ -16,6 +17,7 @@ import { httpContext } from "../_shared/http.ts";
 import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared/insights/executive/engine.ts";
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
+import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDashboard/runtime.ts";
 import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -70,6 +72,7 @@ Deno.serve(async (req) => {
   let body: {
     action?: unknown; user_id?: unknown; key?: unknown; kind?: unknown; feedback?: unknown; purchase?: unknown;
     advice?: unknown; category_ids?: unknown; category_id?: unknown;
+    start?: unknown; end?: unknown; compare?: unknown; merchant?: unknown;
   } = {};
   try { body = await req.json(); } catch { /* corpo vazio = get */ }
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
@@ -149,6 +152,11 @@ Deno.serve(async (req) => {
         history: goalHistoryOf(ctx, readings),
         advice: body.advice === true ? adviseGoals(ctx, { onlyCategoryIds }) : null,
       });
+    }
+    if (action === "dashboard") {
+      const parsed = parseDashboardParams(body as Record<string, any>, todaySP());
+      if (typeof parsed === "string") return h.fail(parsed, 400);
+      return h.ok({ ok: true, dashboard: await loadReportDashboard(sb, userId, todaySP(), parsed) });
     }
     if (action === "goal_merchants") {
       const categoryId = typeof body.category_id === "string" ? body.category_id : "";

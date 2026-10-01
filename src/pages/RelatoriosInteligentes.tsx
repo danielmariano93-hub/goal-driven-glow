@@ -1,34 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarDays, ChevronRight, Download, FileText, Loader2, Printer, Sparkles, Trash2 } from "lucide-react";
+import { BookmarkPlus, ChevronRight, Download, FileText, Loader2, Printer, RefreshCw, Trash2 } from "lucide-react";
 import { listReports, generateReportNow, deleteReport, periodLabel, type ReportListItem } from "@/lib/reports/intelligent/client";
+import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
+import { periodTitle } from "@/lib/engine/reportDashboard";
+import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
+import { ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
 import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
-import { resolvePeriodRange } from "@/lib/ui/periodStore";
 import { cn } from "@/lib/utils";
-
-type QuickType = "weekly" | "monthly" | "monthly_partial";
-
-function isoToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function addDaysIso(ymd: string, delta: number): string {
   const [y, m, d] = ymd.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d + delta));
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
-}
-
-function shortLabel(ymd: string): string {
-  return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
 }
 
 /**
@@ -57,16 +47,16 @@ function typeLabel(type: ReportListItem["report_type"]): string {
 export default function RelatoriosInteligentes() {
   const navigate = useNavigate();
   const [items, setItems] = useState<ReportListItem[] | null>(null);
-  const [generating, setGenerating] = useState<QuickType | "custom" | null>(null);
+  const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ReportListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const initial = useMemo(() => resolvePeriodRange(), []);
-  const [from, setFrom] = useState(initial.start);
-  const [to, setTo] = useState(initial.end);
-  const today = isoToday();
+  // O painel já abre calculado: período, comparação e filtros vivem na URL.
+  const { query, update, today } = useDashboardQuery();
+  const { data: dash, isLoading, isFetching, isError, refetch } = useReportDashboard(query);
+  const from = query.start;
+  const to = query.end;
   const rangeValid = Boolean(from && to && from <= to && to <= today);
 
   async function load() {
@@ -80,36 +70,18 @@ export default function RelatoriosInteligentes() {
 
   useEffect(() => { void load(); }, []);
 
-  async function handleGenerate(type: QuickType) {
-    setGenerating(type);
-    try {
-      const res = await generateReportNow(type);
-      notifySuccess("Relatório gerado.");
-      await load();
-      if (res?.report_id) navigate(`/app/relatorios/${res.report_id}`);
-    } catch {
-      notifyError("Não consegui gerar o relatório agora. Tente novamente em instantes.");
-    } finally {
-      setGenerating(null);
-    }
-  }
-
-  async function handleGenerateCustom() {
-    if (!rangeValid) {
-      notifyError("Escolha um período válido, terminando hoje ou antes.");
-      return;
-    }
-    setGenerating("custom");
+  /** Guarda o período que está na tela como relatório salvo (com a leitura do Nino). */
+  async function handleSave() {
+    setSaving(true);
     try {
       const res = await generateReportNow("custom", { start: from, end: to });
-      notifySuccess("Relatório do período gerado.");
-      setPickerOpen(false);
+      notifySuccess("Relatório salvo.");
       await load();
       if (res?.report_id) navigate(`/app/relatorios/${res.report_id}`);
     } catch {
-      notifyError("Não consegui gerar o relatório desse período. Revise as datas e tente de novo.");
+      notifyError("Não consegui salvar o relatório agora. Tente novamente em instantes.");
     } finally {
-      setGenerating(null);
+      setSaving(false);
     }
   }
 
@@ -179,34 +151,15 @@ export default function RelatoriosInteligentes() {
     }
   }
 
-  function applyPreset(kind: "month" | "previousMonth" | "7d" | "30d") {
-    const now = new Date();
-    if (kind === "month") {
-      setFrom(`${today.slice(0, 7)}-01`);
-      setTo(today);
-      return;
-    }
-    if (kind === "previousMonth") {
-      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const last = new Date(now.getFullYear(), now.getMonth(), 0);
-      const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      setFrom(iso(first));
-      setTo(iso(last));
-      return;
-    }
-    setFrom(addDaysIso(today, kind === "7d" ? -6 : -29));
-    setTo(today);
-  }
-
-  const busy = generating !== null;
+  const previousLabel = dash?.previous ? periodTitle(dash.previous) : null;
 
   return (
-    <div className="space-y-5 pt-2 pb-8">
+    <div className="space-y-4 pt-2 pb-8">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            A leitura do Nino sobre o período que você escolher — semana fechada, mês fechado, mês em andamento ou datas livres.
+            Como você está, para onde vai o dinheiro e o que mudou. Escolha o período e compare.
           </p>
         </div>
         <div className="flex shrink-0 gap-2 print:hidden">
@@ -228,47 +181,55 @@ export default function RelatoriosInteligentes() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => void handleGenerate("weekly")}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-2xl border border-border bg-card p-3 text-left text-xs font-semibold shadow-card transition-colors hover:border-primary/40 disabled:opacity-60"
-        >
-          {generating === "weekly" ? <Loader2 size={16} className="animate-spin text-primary" /> : <CalendarDays size={16} className="text-primary" />}
-          Última semana
-        </button>
-        <button
-          onClick={() => void handleGenerate("monthly")}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-2xl border border-border bg-card p-3 text-left text-xs font-semibold shadow-card transition-colors hover:border-primary/40 disabled:opacity-60"
-        >
-          {generating === "monthly" ? <Loader2 size={16} className="animate-spin text-primary" /> : <Sparkles size={16} className="text-primary" />}
-          Último mês
-        </button>
-        <button
-          onClick={() => void handleGenerate("monthly_partial")}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-2xl border border-border bg-card p-3 text-left text-xs font-semibold shadow-card transition-colors hover:border-primary/40 disabled:opacity-60"
-        >
-          {generating === "monthly_partial" ? <Loader2 size={16} className="animate-spin text-primary" /> : <Sparkles size={16} className="text-primary" />}
-          <span>
-            Mês em andamento
-            <span className="block font-normal text-muted-foreground">números reais até hoje</span>
-          </span>
-        </button>
-        <button
-          onClick={() => setPickerOpen(true)}
-          disabled={busy}
-          className="flex items-center gap-2 rounded-2xl border border-primary/40 bg-card p-3 text-left text-xs font-semibold shadow-card transition-colors hover:border-primary disabled:opacity-60"
-        >
-          {generating === "custom" ? <Loader2 size={16} className="animate-spin text-primary" /> : <CalendarDays size={16} className="text-primary" />}
-          <span>
-            Escolher período
-            <span className="block font-normal text-muted-foreground">{shortLabel(from)} a {shortLabel(to)}</span>
-          </span>
-        </button>
-      </div>
+      <PeriodBar
+        query={query}
+        onChange={update}
+        categories={dash?.filterOptions.categories ?? []}
+        today={today}
+        comparisonAvailable={dash?.coverage.comparisonAvailable ?? true}
+      />
 
+      {isLoading && !dash ? (
+        <div className="grid place-items-center py-16" role="status" aria-live="polite">
+          <Loader2 className="animate-spin text-muted-foreground" />
+          <span className="sr-only">Calculando seu painel</span>
+        </div>
+      ) : isError && !dash ? (
+        <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center">
+          <p className="text-sm font-semibold">Não consegui montar o painel agora</p>
+          <p className="mt-1 text-xs text-muted-foreground">Seus dados estão seguros. Tente de novo em instantes.</p>
+          <button type="button" onClick={() => void refetch()} className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium">
+            <RefreshCw size={12} /> Tentar de novo
+          </button>
+        </div>
+      ) : dash ? (
+        <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
+          <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
+          <KpiStrip d={dash} />
+          <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
+          <EvolutionChart d={dash} />
+          <CategoryBreakdown d={dash} />
+          {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
+          <HabitScoreboard habits={dash.habits} trend={dash.trend} />
+          <div className="flex justify-center print:hidden">
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-full border border-primary px-4 py-2 text-xs font-semibold text-primary disabled:opacity-60"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <BookmarkPlus size={12} />} Salvar este relatório com a leitura do Nino
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <details className="group rounded-2xl border border-border bg-card print:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold">
+          Relatórios salvos{items ? ` (${items.length})` : ""}
+          <ChevronRight size={16} className="text-muted-foreground transition-transform group-open:rotate-90" aria-hidden />
+        </summary>
+        <div className="border-t border-border p-3">
       {items === null ? (
         <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>
       ) : items.length === 0 ? (
@@ -319,55 +280,8 @@ export default function RelatoriosInteligentes() {
         </ul>
       )}
 
-      <Sheet open={pickerOpen} onOpenChange={setPickerOpen}>
-        <SheetContent side="bottom" className="rounded-t-3xl">
-          <SheetHeader>
-            <SheetTitle>Relatório de um período</SheetTitle>
-            <SheetDescription>
-              Escolha as datas e o Nino fecha exatamente esse intervalo, comparando com os mesmos dias imediatamente anteriores.
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" className="h-10 rounded-full text-xs" onClick={() => applyPreset("month")}>Este mês</Button>
-            <Button type="button" variant="outline" className="h-10 rounded-full text-xs" onClick={() => applyPreset("previousMonth")}>Mês passado</Button>
-            <Button type="button" variant="outline" className="h-10 rounded-full text-xs" onClick={() => applyPreset("7d")}>Últimos 7 dias</Button>
-            <Button type="button" variant="outline" className="h-10 rounded-full text-xs" onClick={() => applyPreset("30d")}>Últimos 30 dias</Button>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <label className="text-xs text-muted-foreground">
-              De
-              <input
-                type="date"
-                value={from}
-                max={to || today}
-                onChange={(e) => setFrom(e.target.value)}
-                className="mt-1 h-11 w-full rounded-[14px] border border-border bg-background px-3 text-sm"
-              />
-            </label>
-            <label className="text-xs text-muted-foreground">
-              Até
-              <input
-                type="date"
-                value={to}
-                min={from}
-                max={today}
-                onChange={(e) => setTo(e.target.value)}
-                className="mt-1 h-11 w-full rounded-[14px] border border-border bg-background px-3 text-sm"
-              />
-            </label>
-          </div>
-
-          <Button
-            onClick={() => void handleGenerateCustom()}
-            disabled={!rangeValid || busy}
-            className="mt-4 w-full rounded-full"
-          >
-            {generating === "custom" ? "Gerando…" : "Gerar relatório do período"}
-          </Button>
-        </SheetContent>
-      </Sheet>
+        </div>
+      </details>
 
       <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
         <AlertDialogContent>
