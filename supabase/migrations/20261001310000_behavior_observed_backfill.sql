@@ -62,7 +62,7 @@ begin
     union all
     select min(coalesce(start_date, created_at::date)) from public.debts where user_id = v_uid
     union all
-    select min(occurred_at) from public.investment_movements where user_id = v_uid and kind = 'aporte'
+    select min(occurred_at) from public.investment_movements where user_id = v_uid and kind = 'application'
   ) evidence
   where d is not null;
 
@@ -170,7 +170,7 @@ begin
       v_coverage := v_coverage + 1;
     end if;
 
-    -- Patrimônio: somente aportes explicitamente classificados como "aporte".
+    -- Patrimônio: somente aportes explicitamente classificados como "application".
     -- "compra" pode ser rebalanceamento/reinvestimento e não prova capital novo.
     -- Não usa valor atual do investimento para não vazar informação futura.
     select
@@ -179,13 +179,13 @@ begin
     into v_contribution_days, v_contributions
     from public.investment_movements
     where user_id = v_uid
-      and kind = 'aporte'
+      and kind = 'application'
       and occurred_at between v_as_of - 89 and v_as_of;
 
     select coalesce(sum(amount),0)::numeric into v_income_90
     from public.transactions
     where user_id = v_uid
-      and status::text = 'posted'
+      and status::text = 'confirmed'
       and type::text = 'income'
       and occurred_at between v_as_of - 89 and v_as_of;
 
@@ -215,7 +215,7 @@ begin
     -- data. Não reconstrói peso sobre ativos porque o patrimônio histórico não é
     -- confiável. A nota é, portanto, parcial e nunca ganha confiança alta.
     select
-      coalesce(sum(initial_amount),0)::numeric,
+      coalesce(sum(original_amount),0)::numeric,
       min(coalesce(start_date, created_at::date))
     into v_debt_original, v_debt_first
     from public.debts

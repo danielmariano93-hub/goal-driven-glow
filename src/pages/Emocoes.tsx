@@ -216,7 +216,7 @@ export default function Emocoes() {
       />
 
       <WhatChanged changes={changes} hasBaseline={!!baseline} />
-      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} />
+      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={history.filter((row) => row.methodology_version === "behavior_observed.v2_backfill").length} />
       <MoneyImpactCard impact={impact} />
 
       {dashboard.activeExperiments.length > 0 ? (
