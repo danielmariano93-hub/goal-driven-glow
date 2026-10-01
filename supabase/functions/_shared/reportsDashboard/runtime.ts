@@ -39,7 +39,7 @@ export function parseDashboardParams(raw: Record<string, any>, today: string): D
 
 export async function loadReportDashboard(sb: any, userId: string, today: string, params: DashboardParams): Promise<ReportDashboard> {
   // 24 meses: o período escolhido (até 12 meses) e o período de comparação.
-  const input = await loadExecutiveInput(sb, userId, today, 24);
+  const input = await loadExecutiveInput(sb, userId, today, 24, { includeDebtPayments: true });
   return buildReportDashboard(input.entries, {
     today,
     start: params.start,

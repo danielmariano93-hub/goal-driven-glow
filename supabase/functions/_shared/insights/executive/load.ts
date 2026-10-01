@@ -32,6 +32,7 @@ export function toLedger(
   categories: Map<string, string>,
   aliases: MerchantAliasRow[],
   window: { from: string; to: string },
+  opts: { includeDebtPayments?: boolean } = {},
 ): LedgerEntry[] {
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   const attribution = buildRefundAttribution(rows as TransactionRow[]);
@@ -41,7 +42,13 @@ export function toLedger(
     const row = { ...raw, amount: Number(raw.amount ?? 0) } as TransactionRow;
     const date = reportingCompetenceDate(row);
     if (date < window.from || date > window.to) continue;
-    const expense = behavioralMetricAmount(row, "expense");
+    // Relatórios mostram para onde o dinheiro saiu: parcela de empréstimo e
+    // pagamento de dívida são saída real da conta (os insights executivos seguem
+    // tratando como amortização, não como gasto novo).
+    const debtOut = opts.includeDebtPayments === true
+      && (row.movement_kind === "debt_payment" || row.movement_kind === "loan_payment")
+      && row.type === "expense" && !row.transfer_group_id && !row.settles_card_id;
+    const expense = debtOut ? Number(row.amount || 0) : behavioralMetricAmount(row, "expense");
     const income = behavioralMetricAmount(row, "income");
     if (expense === 0 && income === 0) continue;
     const kind: LedgerEntry["kind"] = expense !== 0 ? "expense" : "income";
@@ -62,7 +69,7 @@ export function toLedger(
   return out;
 }
 
-export async function loadExecutiveInput(sb: any, userId: string, asOf: string, monthsBack = 12): Promise<ExecutiveInput> {
+export async function loadExecutiveInput(sb: any, userId: string, asOf: string, monthsBack = 12, opts: { includeDebtPayments?: boolean } = {}): Promise<ExecutiveInput> {
   const to = `${asOf.slice(0, 7)}-31`;
   const from = (() => {
     const d = new Date(`${asOf.slice(0, 7)}-01T12:00:00Z`);
@@ -97,7 +104,7 @@ export async function loadExecutiveInput(sb: any, userId: string, asOf: string, 
   }));
   return {
     as_of: asOf,
-    entries: toLedger(rows, categories, aliases, { from, to }),
+    entries: toLedger(rows, categories, aliases, { from, to }, opts),
     future_installments: ((installments ?? []) as any[])
       .filter((row) => String(row.status ?? "") !== "paid" && !row.absorbed_by_statement_id)
       .map((row) => ({ month: String(row.competence_month ?? "").slice(0, 7), amount: Number(row.amount ?? 0) }))

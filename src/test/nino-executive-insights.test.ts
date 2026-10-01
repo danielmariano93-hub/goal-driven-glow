@@ -227,3 +227,17 @@ describe("livro canônico (mesma verdade de Home e relatórios)", () => {
     ]);
   });
 });
+
+describe("toLedger – pagamento de dívida", () => {
+  const debt = [{ id: "d1", status: "confirmed", type: "expense", amount: 500, occurred_at: "2026-09-29T12:00:00Z", description: "Pagamento de dívida: Celular", movement_kind: "debt_payment", category_id: "div", transfer_group_id: null, settles_card_id: null }];
+  const cats = new Map([["div", "Dívidas e empréstimos"]]);
+  const win = { from: "2026-09-01", to: "2026-09-30" };
+  it("fica fora dos insights executivos (amortização)", () => {
+    expect(toLedger(debt, cats, [], win)).toHaveLength(0);
+  });
+  it("entra como saída nos relatórios", () => {
+    const out = toLedger(debt, cats, [], win, { includeDebtPayments: true });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: "expense", amount: 500, category: "Dívidas e empréstimos" });
+  });
+});
