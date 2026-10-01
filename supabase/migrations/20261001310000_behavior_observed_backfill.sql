@@ -62,7 +62,7 @@ begin
     union all
     select min(coalesce(start_date, created_at::date)) from public.debts where user_id = v_uid
     union all
-    select min(occurred_at) from public.investment_movements where user_id = v_uid
+    select min(occurred_at) from public.investment_movements where user_id = v_uid and kind = 'aporte'
   ) evidence
   where d is not null;
 
@@ -79,7 +79,7 @@ begin
 
     -- Consciência histórica: somente check-ins. A instrumentação de uso do app
     -- não existia no passado, então a confiança permanece baixa e a nota é
-    -- limitada a 6,5, igual ao teto do motor atual quando não há uso observado.
+    -- limitada a 6,5, igual ao teto do motor atual quando há uma única fonte.
     select count(*)::int into v_count
     from public.emotional_checkins
     where user_id = v_uid
@@ -170,21 +170,22 @@ begin
       v_coverage := v_coverage + 1;
     end if;
 
-    -- Patrimônio: somente aportes já registrados até a semana. Não usa o valor
-    -- atual do investimento para não vazar informação futura para o passado.
+    -- Patrimônio: somente aportes explicitamente classificados como "aporte".
+    -- "compra" pode ser rebalanceamento/reinvestimento e não prova capital novo.
+    -- Não usa valor atual do investimento para não vazar informação futura.
     select
       count(distinct occurred_at)::int,
       coalesce(sum(amount),0)::numeric
     into v_contribution_days, v_contributions
     from public.investment_movements
     where user_id = v_uid
-      and kind in ('application','deposit','contribution')
+      and kind = 'aporte'
       and occurred_at between v_as_of - 89 and v_as_of;
 
     select coalesce(sum(amount),0)::numeric into v_income_90
     from public.transactions
     where user_id = v_uid
-      and status::text = 'confirmed'
+      and status::text = 'posted'
       and type::text = 'income'
       and occurred_at between v_as_of - 89 and v_as_of;
 
@@ -210,19 +211,21 @@ begin
       v_coverage := v_coverage + 1;
     end if;
 
-    -- Dívidas: principal conhecido menos pagamentos aplicados até a data. Não
-    -- reconstrói peso sobre ativos porque o patrimônio histórico não é confiável.
+    -- Dívidas: principal inicial conhecido menos pagamentos registrados até a
+    -- data. Não reconstrói peso sobre ativos porque o patrimônio histórico não é
+    -- confiável. A nota é, portanto, parcial e nunca ganha confiança alta.
     select
-      coalesce(sum(coalesce(principal_amount, original_amount, 0)),0)::numeric,
+      coalesce(sum(initial_amount),0)::numeric,
       min(coalesce(start_date, created_at::date))
     into v_debt_original, v_debt_first
     from public.debts
     where user_id = v_uid
       and coalesce(start_date, created_at::date) <= v_as_of;
 
-    select coalesce(sum(coalesce(amount_applied, amount, 0)),0)::numeric into v_debt_paid
+    select coalesce(sum(amount),0)::numeric into v_debt_paid
     from public.debt_payments
-    where user_id = v_uid and paid_at <= v_as_of;
+    where user_id = v_uid
+      and paid_at::date <= v_as_of;
 
     if v_debt_original > 0 then
       v_debt_reduction := greatest(0, least(1, v_debt_paid / v_debt_original));
