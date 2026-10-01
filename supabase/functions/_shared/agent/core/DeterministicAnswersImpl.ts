@@ -674,6 +674,7 @@ export async function executeDeterministicCapability(
   }
 
   else if (capability.name === "emotion_finance") reply = formatEmotionFinance(execution.result);
+  else if (capability.name === "behavior_evolution") reply = formatBehaviorEvolution(execution.result);
   else if (capability.required_tool === "get_daily_insights") reply = formatDailyPriorities(execution.result);
   else {
     // Deterministic-first v2: tenta o renderizador genérico do envelope antes
@@ -877,4 +878,27 @@ export function formatGoalPerformance(
   if (opts.disclosure) blocks.push(opts.disclosure);
 
   return blocks.join("\n\n");
+}
+
+
+/**
+ * Evolução dos hábitos — texto 100% derivado do veredito canônico
+ * (`behaviorHabitsReading`), o mesmo da página Emocional.
+ */
+export function formatBehaviorEvolution(result: any): string {
+  const verdict = result?.verdict ?? {};
+  const lines: string[] = [`*${String(verdict.headline ?? "Ainda não dá para dizer se você melhorou")}*`];
+  if (verdict.summary) lines.push(String(verdict.summary));
+  if (verdict.kind && verdict.kind !== "insufficient") {
+    const changes = Array.isArray(result?.changes) ? result.changes : [];
+    const moved = changes.filter((c: any) => (c.direction === "better" || c.direction === "worse") && c.confidence !== "low");
+    for (const c of moved.slice(0, 3)) {
+      lines.push(`${c.direction === "better" ? "▲" : "▼"} ${c.label}: ${String(c.why ?? "").trim()}`);
+    }
+  }
+  if (result?.baseline_reconstructed) {
+    lines.push("A base de comparação é um histórico reconstruído (parcial): só as evidências que existiam na época entraram.");
+  }
+  lines.push("Os detalhes estão em Emocional, no app.");
+  return lines.join("\n");
 }
