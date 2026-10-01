@@ -18,6 +18,9 @@ const ROOT_BUILD_FILES = new Set([
   ".node-version",
   "vercel.json",
   "components.json",
+  // Variáveis VITE_* são embutidas no bundle: mudar .env muda o app em produção.
+  ".env",
+  ".env.production",
 ]);
 
 export function isVercelRelevantPath(path) {
@@ -35,6 +38,8 @@ export function isVercelRelevantPath(path) {
   // npm prebuild executes this synchronizer. A change can alter generated code
   // or fail the Vercel build, so it remains deploy-relevant by design.
   if (p === "scripts/sync-finance-core.mjs") return true;
+  // Mudar a própria regra de deploy precisa publicar (e valida a regra nova).
+  if (p === "scripts/vercel-ignore-build.mjs") return true;
 
   return false;
 }

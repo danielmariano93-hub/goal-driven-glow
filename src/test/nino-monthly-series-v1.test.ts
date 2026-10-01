@@ -290,6 +290,9 @@ describe("Vercel impact gate", () => {
     expect(isVercelRelevantPath("bun.lock")).toBe(true);
     expect(isVercelRelevantPath(".npmrc")).toBe(true);
     expect(isVercelRelevantPath("scripts/sync-finance-core.mjs")).toBe(true);
+    // .env define o projeto Supabase embutido no bundle: precisa publicar (regressão do login).
+    expect(isVercelRelevantPath(".env")).toBe(true);
+    expect(isVercelRelevantPath("scripts/vercel-ignore-build.mjs")).toBe(true);
     expect(shouldBuildForFiles(["supabase/functions/a.ts", "src/pages/Home.tsx"])).toBe(true);
   });
 });
