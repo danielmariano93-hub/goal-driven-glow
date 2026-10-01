@@ -37,10 +37,12 @@ describe("behavioral dashboard runtime", () => {
   it("shows a real experiment timeline and habit progress", () => {
     expect(experiments).toContain("Dia {timing.elapsedDays} de {timing.durationDays}");
     expect(experiments).toContain("dias restantes");
-    expect(experiments).toContain("Tempo do experimento");
-    expect(experiments).toContain("Progresso do hábito");
+    expect(experiments).toContain("Progresso");
+    expect(experiments).toContain("progressLabel(");
     expect(experiments).toContain("formatDate(experiment.started_at)");
     expect(experiments).toContain("formatDate(experiment.ends_at)");
-    expect(experiments).toContain("timeProgress");
+    // cada experimento explica o que é, o que conta e o que já contou
+    expect(experiments).toContain("O que conta");
+    expect(experiments).toContain("Já contou");
   });
 });

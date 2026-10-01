@@ -20,7 +20,9 @@ describe("emotional tab resilience", () => {
     expect(page).toContain("<BehaviorWheel");
     expect(page).toContain("<ExperimentsBoard");
     expect(page).toContain("<MoneyMoodTimeline");
-    expect(page).toContain("<CoachHighlights");
+    expect(page).toContain("<BehaviorVerdictCard");
+    // "Nino percebeu / Highlights" saiu da página: repetia o que já está nos blocos de cima
+    expect(page).not.toContain("<CoachHighlights");
   });
 
   it("does not zero real records merely because an auxiliary source failed", () => {

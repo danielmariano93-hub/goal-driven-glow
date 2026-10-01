@@ -53,6 +53,16 @@ Capacidade do Nino/WhatsApp para "como estão meus hábitos?" (referências a `b
 - **O Lovable (`gpt-engineer-app[bot]`) empurrou direto para a `main` e trocou o `.env` para outro projeto do Supabase, derrubando o login de todos (corrigido nos PRs #167/#168). O acesso dele deve ser removido.** Se ainda houver push de bot na `main`, trate como incidente. Também: o Vercel ignorava mudanças em `.env`; agora `.env` e `scripts/vercel-ignore-build.mjs` disparam build. Sempre `git fetch` e confira `git log origin/main` antes de começar; ele já duplicou trabalho e quebrou o CI da `main` uma vez (testes que liam arquivos movidos). Rode a suíte completa na `main` antes de somar mudanças.
 - **Teste do mesmo tipo que quebrou o CI:** vários testes leem código-fonte com `readFileSync`. Ao mover lógica de arquivo, procure por `grep -rn "<arquivo antigo>" src/test`.
 
+## 3.5 Experimentos claros (outubro/2026)
+- Cada experimento explica "o que é", "o que conta", "como é medido" e mostra "já contou" com a origem de cada contagem. Textos em `src/lib/behavioral/experimentCopy.ts` (por slug, testados).
+- **Patrimônio**: o Nino detecta sozinho lançamentos `movement_kind='investment_application'`; o usuário pode **vincular um lançamento real** (RPC `behavior_experiment_link`, candidatos em `behavior_experiment_candidates`) e desfazer (`behavior_experiment_unlink`, remoção lógica `source='removed'`).
+- **Revisão de 5 minutos**: a semana conta sozinha se o usuário abriu Relatórios e (Planejamento ou Metas) (`behavioral_app_activity_daily`), ou pelo roteiro guiado (`behavior_experiment_complete_review`).
+- **Pausa antes da compra**: registro com resposta ("a vontade passou"/"comprei mesmo assim") e vínculo opcional à compra.
+- Em patrimônio e revisão semanal **só evidência conta**: marcações manuais antigas (sem prova) aparecem no histórico como "não conta".
+- `sync_auto` roda dentro de `behavior_experiment_refresh` (ao abrir a página e no tick proativo). Eventos têm `source`, `ref_type`, `ref_key`, `label`; índice único por (experimento, ref_type, ref_key).
+- O bloco "Nino percebeu / Highlights" foi removido da página (repetia o que está nos blocos de cima); o `momentSignal` (calma baixa + vontade alta) virou um aviso curto no topo, só quando existe.
+- **Ferramenta do Supabase**: `DELETE` e alguns `UPDATE` longos travam no MCP (confirmação invisível). Use remoção lógica e rode comandos um de cada vez.
+
 ## 4. Como desenvolver aqui (regras que precisam continuar valendo)
 
 **Validação antes de qualquer push** (todas rodadas na raiz):
