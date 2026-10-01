@@ -8,6 +8,7 @@ const triggerPrivileges = readFileSync("supabase/migrations/20260920035043_behav
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const checkin = readFileSync("src/components/home/EmotionalCheckinCard.tsx", "utf8");
 const client = readFileSync("src/lib/behavioral/client.ts", "utf8");
+const pairing = readFileSync("src/lib/engine/emotionSpendPairing.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const mood = readFileSync("src/components/behavioral/MoneyMoodTimeline.tsx", "utf8");
 const experiments = readFileSync("src/components/behavioral/ExperimentsBoard.tsx", "utf8");
@@ -43,9 +44,10 @@ describe("behavioral evolution — three waves", () => {
   });
 
   it("wave 3 creates actionable highlights with evidence and minimum samples", () => {
-    expect(client).toContain("vulnerable.length >= 3");
-    expect(client).toContain("comparison.length >= 3");
-    expect(client).toContain("paired.length >= 8");
+    // limites mínimos moram no motor de pareamento (emotionSpendPairing)
+    expect(pairing).toContain("EMOTION_SPEND_MIN_PER_GROUP = 3");
+    expect(pairing).toContain("EMOTION_SPEND_MIN_PAIRED = 8");
+    expect(pairing).toContain("vulnerable.length >= EMOTION_SPEND_MIN_PER_GROUP");
     expect(client).toContain("não uma relação de causa");
     expect(highlights).toContain("Correlação emocional nunca é apresentada como diagnóstico ou causa");
     expect(page).toContain("confiança explícita");
