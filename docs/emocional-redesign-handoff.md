@@ -30,14 +30,28 @@ Regras do motor que não devem mudar sem decisão de produto:
 - Veredito: melhores − piores ≥ 2 = melhorando; ≤ −2 = piorando; senão parecido.
 - O "porquê" só cita componentes que andaram **na mesma direção** da nota.
 
-## 3. Entrega 2 (pendente) — o que fazer, onde e por quê
+## 3. Entrega 2 — estado real (atualizado após a conclusão em produção)
 
-1. **Preencher o passado (backfill).** Hoje a linha do tempo começa na primeira abertura após o deploy. Dá para reconstruir, com a data de cada momento, apenas: Controle (ciclos de meta permanentes, tabela de ciclos criada na migração `20261001200000_goal_cycles_history.sql`), Tranquilidade e Consciência-por-check-in (tabela `emotional_checkins`), Dívidas e Patrimônio (lançamentos). As demais dimensões (uso do app, planejamento) só valem daqui para frente: **não inventar**; marcar na tela que o passado é parcial. Fazer como migração/RPC que insere em `behavior_observed_snapshots` com `methodology_version` distinto (ex.: `behavior_observed.v2_backfill`) para poder separar depois.
-2. **Job semanal no servidor.** Hoje o snapshot só grava quando o usuário abre a página. Criar uma edge function (padrão das funções com `x-cron-secret`, ver `nino-insights`) que roda uma vez por semana e grava o snapshot de todos os usuários ativos. Isso exige **espelhar** `observedProfileV2` para `supabase/functions/_shared/` (padrão `scripts/sync-finance-core.mjs`, módulo novo em `FINANCE_CORE_MODULES`, com teste de paridade `finance-core-parity.test.ts`; nomes exportados por `export *` em `finance-core/index.ts` precisam ser únicos).
-3. **Resultado dos experimentos.** Em `ExperimentsBoard.tsx`, mostrar antes/depois (campos `baseline_value`, `current_value`, `result_delta_pct` da tabela `behavior_experiments`), o efeito em reais quando o experimento é de gasto, e a recomendação de continuar ou trocar.
-4. **Nino/WhatsApp.** Responder "como estão meus hábitos?" com o mesmo veredito. Seguir o pipeline de leitura existente (ActionIR → ferramenta de leitura em `supabase/functions/_shared/agent/tools.ts` → composição) e registrar a capacidade onde as demais estão registradas (CapabilityRegistry, ConversationTurnContract, SemanticInterpreterV3). Reaproveitar `behaviorEvolution.ts` espelhado, nunca recalcular em outro lugar.
-5. **Impacto no dinheiro mais forte.** `moneyImpactOf` usa a associação por dia já existente (`computeEmotionSpend`). Os 37 check-ins do usuário real nunca foram ligados a um lançamento (`transaction_id` vazio). Melhorar o pareamento (por faixa de horário) em `src/lib/engine/emotionFinance.ts` (`emotion_finance.v1`) e manter a regra: associação, não causa.
-6. **Tipos do Supabase.** `behavior_observed_snapshots` ainda não está em `src/integrations/supabase/types.ts`; o acesso usa um cast com comentário. Regenerar os tipos e remover o cast.
+### 3.1 Em produção e verificado com dados reais
+- **Backfill** `behavior_observed_backfill_v2(uuid)` (função no banco): 31 semanas reconstruídas para o usuário Daniel, `methodology_version='behavior_observed.v2_backfill'`.
+- **Job semanal** (edge function `behavior-observed-weekly` + cron `behavior-observed-weekly`, segunda 09:30 UTC, job id 36 no `cron.job`): executado manualmente para o Daniel e gravou o snapshot da semana (coverage 8, nota 5,5). Fluxo: cron → `behavior_observed_weekly_tick()` → função → RPC `behavior_observed_active_users` → motor espelhado (`finance-core/behaviorObserved.ts`) → upsert em `behavior_observed_snapshots`.
+- **RPC por usuário** `behavioral_dashboard_snapshot_for_user(p_uid uuid)` e RPC pública `behavioral_dashboard_snapshot()` com `expense_transactions` (gastos com horário) para o pareamento emoção × gasto por janela (`src/lib/engine/emotionSpendPairing.ts`).
+- Resultado dos experimentos (`experimentOutcome.ts`), aviso de passado reconstruído, regra "menor confiança entre presente e base".
+
+### 3.2 Feito pelo Lovable e NÃO verificado por mim
+Capacidade do Nino/WhatsApp para "como estão meus hábitos?" (referências a `behavior_evolution` em `agent/tools.ts`, `CapabilityRegistry.ts`, `CapabilityRouter.ts`, `prompt.ts`, `DeterministicAnswersImpl.ts`) e o texto de `formatBehaviorEvolution`. Há testes (`src/test/behavior-entrega2.test.ts`), mas falta validar de ponta a ponta com uma mensagem real no WhatsApp/chat.
+
+### 3.3 Falta
+1. **Validar o Nino/WhatsApp** (item 3.2) com mensagens reais ("como estão meus hábitos?", "melhorei?") e conferir que o veredito é o mesmo da tela.
+2. **Backfill dos demais usuários**: `select public.behavior_observed_backfill_v2('<uuid>'::uuid);` um por vez (idempotente). Não está em laço automático porque o `apply_migration` trava.
+3. **Tipos do Supabase**: regenerar `src/integrations/supabase/types.ts` e remover o cast em `observedSnapshots.ts`.
+4. **Deploy manual quando o CI falha**: o workflow `Nino Direct Supabase Deploy` só dispara com mudança em `supabase/functions/**` ou `config.toml`. Se uma mudança só de migração/teste precisar de redeploy, disparar `workflow_dispatch` com `confirm=DEPLOY`.
+
+### 3.4 ARMADILHAS JÁ ENCONTRADAS — leia antes de mexer
+- **`transactions.status` só tem `confirmed`, `planned`, `superseded`. `posted` NÃO existe.** Um PR (#161) afirmou o contrário e reescreveu os experimentos para `'posted'`. Foi corrigido (a migração `...311000` continua no repositório mas é sobrescrita pela `...320000`, que compara com `confirmed`). **Consulte o banco real (`pg_enum`, `information_schema.columns`) antes de escrever SQL**; erros do mesmo tipo já pegos: `debts.initial_amount` (é `original_amount`), `investment_movements.kind='aporte'` (é `application`).
+- **`DROP FUNCTION` trava no ambiente do MCP do Supabase** (timeout de 60 s, nada é removido). Não renomeie parâmetros de função existente; ajuste o chamador. Foi por isso que a RPC por usuário usa `p_uid` e a migração `...330000` documenta a paridade.
+- **Há outro agente (Lovable, `gpt-engineer-app[bot]`) empurrando direto para a `main`.** Sempre `git fetch` e confira `git log origin/main` antes de começar; ele já duplicou trabalho e quebrou o CI da `main` uma vez (testes que liam arquivos movidos). Rode a suíte completa na `main` antes de somar mudanças.
+- **Teste do mesmo tipo que quebrou o CI:** vários testes leem código-fonte com `readFileSync`. Ao mover lógica de arquivo, procure por `grep -rn "<arquivo antigo>" src/test`.
 
 ## 4. Como desenvolver aqui (regras que precisam continuar valendo)
 
