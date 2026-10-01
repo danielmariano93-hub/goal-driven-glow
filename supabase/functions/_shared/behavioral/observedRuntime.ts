@@ -25,7 +25,7 @@ export function todaySaoPaulo(now: Date = new Date()): string {
 }
 
 export async function loadObservedProfile(sb: any, userId: string): Promise<ObservedBehaviorProfile> {
-  const { data, error } = await sb.rpc("behavioral_dashboard_snapshot_for_user", { p_user_id: userId });
+  const { data, error } = await sb.rpc("behavioral_dashboard_snapshot_for_user", { p_uid: userId });
   if (error) throw new Error(`behavioral_dashboard_snapshot_for_user:${error.message}`);
   return buildObservedProfileV2(observedInputFromDashboardPayload(data ?? {}));
 }
