@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Check, CircleDashed, Minus, Pause, X } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
-import { historyMonthName, type GoalHighlight, type GoalHistory, type GoalSeries, type HistoryMonth, type HistoryMonthStatus } from "@/lib/engine/goalHistory";
+import { historyMonthName, type GoalHighlight, type GoalHistory, type GoalImpact, type GoalSeries, type HistoryMonth, type HistoryMonthStatus } from "@/lib/engine/goalHistory";
 
 // Visual das metas ao longo do tempo (`goal_history.v1`). Status nunca é só cor:
 // cada estado tem ícone + rótulo, e todo gráfico tem a tabela equivalente.
@@ -252,5 +252,121 @@ export function GoalHistoryPanel({ series }: { series: GoalSeries }) {
         })}
       </ul>
     </section>
+  );
+}
+
+/** O que as metas já fizeram: economia estimada (contrafactual) e clareza. */
+export function GoalImpactCard({ impact }: { impact: GoalImpact }) {
+  const positive = impact.estimated_savings > 0;
+  const pctText = (v: number) => `${Math.round(Math.abs(v) * 100)}%`;
+  return (
+    <section aria-label="Impacto das metas" className="mb-4 rounded-2xl border border-border bg-card p-4">
+      <p className="text-sm font-semibold">O que as metas já fizeram por você</p>
+      {impact.closed_goal_months ? (
+        <>
+          <p className={`mt-2 font-display text-2xl font-bold tabular-nums ${positive ? "text-emerald-700" : "text-red-700"}`}>
+            {positive ? "" : "+"}{formatBRL(Math.abs(impact.estimated_savings))}
+          </p>
+          <p className="text-[12px] text-muted-foreground">
+            {positive ? "de gasto evitado (estimativa)" : "acima do que você gastaria sem meta (estimativa)"}
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
+            <div className="rounded-xl bg-secondary/60 p-2.5">
+              <p className="text-muted-foreground">Sem meta, provavelmente</p>
+              <p className="font-semibold tabular-nums">{formatBRL(impact.expected_without_goals)}</p>
+            </div>
+            <div className="rounded-xl bg-secondary/60 p-2.5">
+              <p className="text-muted-foreground">Com meta, de fato</p>
+              <p className="font-semibold tabular-nums">{formatBRL(impact.actual_with_goals)}</p>
+            </div>
+          </div>
+          {impact.net_effect != null && impact.control_change != null ? (
+            <p className="mt-2 text-[12px]">
+              Categorias com meta: <strong>{impact.goal_change != null ? `${impact.goal_change < 0 ? "−" : "+"}${pctText(impact.goal_change)}` : "—"}</strong> ·
+              sem meta: <strong>{impact.control_change < 0 ? "−" : "+"}{pctText(impact.control_change)}</strong> frente a antes.
+            </p>
+          ) : null}
+          {impact.by_category.length > 1 ? (
+            <ul className="mt-2 space-y-0.5 text-[12px]">
+              {impact.by_category.map((c) => (
+                <li key={c.category_id} className="flex justify-between gap-2">
+                  <span className="truncate text-muted-foreground">{c.category_name}</span>
+                  <span className={`shrink-0 font-medium tabular-nums ${c.savings >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                    {c.savings >= 0 ? `−${formatBRL(c.savings)}` : `+${formatBRL(-c.savings)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : (
+        <p className="mt-1 text-[12px] text-muted-foreground">{impact.explanation}</p>
+      )}
+
+      <ul className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 text-center text-[11px] text-muted-foreground">
+        <li>
+          <span className="block text-[15px] font-bold tabular-nums text-foreground">{impact.months_met}/{impact.closed_goal_months}</span>
+          metas cumpridas
+        </li>
+        <li>
+          <span className="block text-[15px] font-bold tabular-nums text-foreground">{impact.coverage_share != null ? `${Math.round(impact.coverage_share * 100)}%` : "—"}</span>
+          do gasto sob meta
+        </li>
+        <li>
+          <span className="block text-[15px] font-bold tabular-nums text-foreground">{impact.alerts_delivered}</span>
+          avisos antecipados
+        </li>
+      </ul>
+      {impact.closed_goal_months ? (
+        <details className="mt-2 text-[11px] text-muted-foreground">
+          <summary className="cursor-pointer">Como calculamos</summary>
+          <p className="mt-1">{impact.explanation} A referência de cada categoria é a média dos 3 meses antes da primeira meta.</p>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+/** Encerradas: todos os meses de meta já fechados, inclusive de metas editadas ou excluídas. */
+export function ClosedGoalMonths({ history, onOpen }: { history: GoalHistory; onOpen?: (series: GoalSeries) => void }) {
+  const items = history.series.flatMap((s) => s.months
+    .filter((m) => m.status === "met" || m.status === "missed")
+    .map((m) => ({ s, m })))
+    .sort((a, b) => b.m.month.localeCompare(a.m.month) || a.s.category_name.localeCompare(b.s.category_name, "pt-BR"));
+  if (!items.length) return null;
+  const months = [...new Set(items.map((x) => x.m.month))];
+  return (
+    <details className="group mt-4 rounded-xl border border-border">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] font-semibold">
+        Encerradas ({items.length})
+        <span className="text-[11px] font-normal text-muted-foreground group-open:hidden">ver resultados</span>
+      </summary>
+      <div className="border-t border-border">
+        {months.map((month) => (
+          <div key={month}>
+            <p className="bg-secondary/50 px-3 py-1.5 text-[11px] font-semibold capitalize text-muted-foreground">{historyMonthName(month)} de {month.slice(0, 4)}</p>
+            <ul className="divide-y divide-border">
+              {items.filter((x) => x.m.month === month).map(({ s, m }) => {
+                const ok = m.status === "met";
+                return (
+                  <li key={`${s.category_id}-${month}`}>
+                    <button type="button" onClick={() => onOpen?.(s)} className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[12px]">
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{s.category_name}</span>
+                        <span className="text-muted-foreground tabular-nums">{formatBRL(m.actual)} de {formatBRL(m.limit ?? 0)}</span>
+                      </span>
+                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${ok ? "bg-emerald-500/15 text-emerald-700" : "bg-red-500/15 text-red-700"}`}>
+                        {ok ? <Check size={11} aria-hidden /> : <X size={11} aria-hidden />}
+                        {ok ? `Cumpriu · sobrou ${formatBRL(m.difference ?? 0)}` : `Acima ${formatBRL(-(m.difference ?? 0))}`}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }

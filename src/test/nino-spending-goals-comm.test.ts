@@ -39,7 +39,7 @@ function sgContext(asOf: string, rows: SpendingLedgerTx[], targets: MerchantTarg
   return {
     as_of: asOf, rows: rows as never, entries: buildSpendingLedger(rows, resolver), resolver,
     categories: [{ id: TRANSPORTE, name: "Transporte" }, { id: ASSINATURAS, name: "Assinaturas" }, { id: LAZER, name: "Lazer" }],
-    goals: goals as never, targets,
+    goals: goals as never, targets, cycles: [], alerts_delivered: 0,
   };
 }
 

@@ -40,7 +40,7 @@ function sg(goals: unknown[] = []): SpendingGoalContext {
       { id: TRANSPORTE, name: "Transporte" }, { id: ASSINATURAS, name: "Assinaturas" },
       { id: ALIMENTACAO, name: "Alimentação" }, { id: LAZER, name: "Lazer" },
     ],
-    goals: goals as never, targets: [],
+    goals: goals as never, targets: [], cycles: [], alerts_delivered: 0,
   };
 }
 
