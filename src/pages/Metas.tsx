@@ -38,7 +38,7 @@ import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal }
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
 import { useGoalHistory, useSpendingGoalAdvice, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
-import { GoalHighlights, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
+import { ClosedGoalMonths, GoalHighlights, GoalImpactCard, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 
 type GoalTab = "all" | "individual" | "shared";
 
@@ -243,6 +243,7 @@ export default function Metas() {
       {(tab === "all" || openCatList) && goalHistory ? (
         <>
           <GoalHighlights highlights={goalHistory.highlights} onOpen={openSeries} />
+          <GoalImpactCard impact={goalHistory.impact} />
           <GoalScoreboard history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
         </>
       ) : null}
@@ -280,7 +281,9 @@ export default function Metas() {
               ))}
             </ul>
           )}
-          {closedEvals.length ? (
+          {goalHistory ? (
+            <ClosedGoalMonths history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
+          ) : closedEvals.length ? (
             <details className="group mt-4 rounded-xl border border-border">
               <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] font-semibold">
                 Encerradas ({closedEvals.length})

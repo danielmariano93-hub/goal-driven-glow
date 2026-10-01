@@ -505,6 +505,9 @@ export function merchantInGroup(group: { keys: string[] }, key: string): boolean
 }
 
 /** Categorias de obrigação: entram na análise, mas o Nino não sugere cortá-las. */
+export function isObligationCategory(name: string): boolean {
+  return OBLIGATION_RX.test(name);
+}
 const OBLIGATION_RX = /d[ií]vida|empr[eé]stimo|financiamento|d[ií]zimo|oferta|doa[cç]|imposto|tributo|moradia|aluguel|condom[ií]nio|investiment|educa[cç]|escola|faculdade|sa[uú]de|seguro|pens[aã]o|tarifa|juros/i;
 
 export type MerchantBehavior = "fixed" | "habit" | "sporadic";

@@ -13,9 +13,9 @@
 // Mesma verdade canônica do teto (livro `spending_goals.v1`): despesa real,
 // competência, estornos e categoria efetiva. Módulo puro, sem I/O.
 
-import type { SpendingEntry } from "./spendingGoals";
+import { isObligationCategory, type SpendingEntry } from "./spendingGoals";
 
-export const GOAL_HISTORY_VERSION = "goal_history.v1";
+export const GOAL_HISTORY_VERSION = "goal_history.v2";
 
 export interface HistoryGoalRow {
   id: string;
@@ -28,6 +28,8 @@ export interface HistoryGoalRow {
   recurrence_end_date?: string | null;
   status: string;
   created_at?: string | null;
+  /** "cycle" = mês guardado no histórico (meta editada ou excluída depois). */
+  source?: "goal" | "cycle";
 }
 
 export type HistoryMonthStatus = "met" | "missed" | "in_progress" | "no_goal" | "before" | "paused";
@@ -36,6 +38,8 @@ export interface HistoryMonth {
   month: string;
   status: HistoryMonthStatus;
   goal_id: string | null;
+  /** "cycle" quando o mês vem do histórico guardado (meta editada/excluída). */
+  source: "goal" | "cycle" | null;
   limit: number | null;
   actual: number;
   /** Só no mês corrente: fechamento projetado. */
@@ -81,6 +85,36 @@ export interface GoalHistory {
   series: GoalSeries[];
   scoreboard: { months: string[]; rows: Array<{ category_id: string; category_name: string; cells: Array<{ month: string; status: HistoryMonthStatus }> }> };
   highlights: GoalHighlight[];
+  impact: GoalImpact;
+}
+
+/**
+ * Quanto as metas ajudaram (contrafactual): o que provavelmente teria sido
+ * gasto sem meta é a média de antes da meta, ajustada pelo quanto os seus
+ * OUTROS gastos (categorias sem meta) variaram no mesmo período — diferenças
+ * em diferenças. Assim um mês caro "para todo mundo" não vira mérito nem culpa
+ * da meta.
+ */
+export interface GoalImpact {
+  closed_goal_months: number;
+  categories_tracked: number;
+  expected_without_goals: number;
+  actual_with_goals: number;
+  /** Economia estimada (positivo = gastou menos do que gastaria sem meta). */
+  estimated_savings: number;
+  /** Variação dos gastos sem meta no mesmo período (o ajuste). */
+  control_change: number | null;
+  /** Variação das categorias com meta frente a antes. */
+  goal_change: number | null;
+  /** Efeito líquido (pontos percentuais): com meta − sem meta. */
+  net_effect: number | null;
+  /** Fatia do gasto do último mês fechado que está sob meta (clareza). */
+  coverage_share: number | null;
+  months_met: number;
+  alerts_delivered: number;
+  by_category: Array<{ category_id: string; category_name: string; expected: number; actual: number; savings: number }>;
+  headline: string;
+  explanation: string;
 }
 
 export interface GoalHistoryInput {
@@ -92,6 +126,10 @@ export interface GoalHistoryInput {
   current?: Record<string, { projected: number; status: string }>;
   /** Quantos meses de "antes da meta" mostrar como referência. */
   monthsBefore?: number;
+  /** Meses de meta guardados no histórico (sobrevivem a edição/exclusão). */
+  cycles?: HistoryGoalRow[];
+  /** Avisos do Nino sobre metas já entregues (clareza). */
+  alertsDelivered?: number;
 }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -131,6 +169,10 @@ function goalForMonth(goals: HistoryGoalRow[], month: string, current: string): 
   });
   if (!applicable.length) return null;
   return applicable.sort((a, b) => {
+    // A meta viva vence o mês guardado; período explícito vence recorrente.
+    const as = a.source === "cycle" ? 1 : 0;
+    const bs = b.source === "cycle" ? 1 : 0;
+    if (as !== bs) return as - bs;
     const ar = (a.period_type ?? "") === "monthly_recurring" ? 1 : 0;
     const br = (b.period_type ?? "") === "monthly_recurring" ? 1 : 0;
     if (ar !== br) return ar - br;
@@ -146,7 +188,10 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
   const current = input.today.slice(0, 7);
   const monthsBefore = input.monthsBefore ?? 3;
   const names = new Map(input.categories.map((c) => [c.id, c.name]));
-  const goals = input.goals.filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0);
+  const goals = [
+    ...input.goals.map((g) => ({ ...g, source: "goal" as const })),
+    ...(input.cycles ?? []).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
+  ].filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0);
 
   // Gasto e maior estabelecimento por categoria e mês.
   const spend = new Map<string, number>();
@@ -181,14 +226,14 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
 
     const months: HistoryMonth[] = [];
     for (const month of before) {
-      months.push({ month, status: "before", goal_id: null, limit: null, actual: actualOf(categoryId, month), projected: null, difference: null, main_driver: driverOf(categoryId, month) });
+      months.push({ month, status: "before", goal_id: null, source: null, limit: null, actual: actualOf(categoryId, month), projected: null, difference: null, main_driver: driverOf(categoryId, month) });
     }
     for (const month of span) {
       const goal = goalForMonth(list, month, current);
       const actual = actualOf(categoryId, month);
       if (!goal) {
         // Mês corrente sem meta só aparece se já houve meta antes (mostra a lacuna).
-        months.push({ month, status: "no_goal", goal_id: null, limit: null, actual, projected: null, difference: null, main_driver: driverOf(categoryId, month) });
+        months.push({ month, status: "no_goal", goal_id: null, source: null, limit: null, actual, projected: null, difference: null, main_driver: driverOf(categoryId, month) });
         continue;
       }
       const limit = round2(Number(goal.computed_limit));
@@ -197,15 +242,17 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
       const status: HistoryMonthStatus = goal.status === "paused"
         ? "paused"
         : isCurrent ? "in_progress" : actual <= limit ? "met" : "missed";
-      months.push({ month, status, goal_id: goal.id, limit, actual, projected, difference: round2(limit - actual), main_driver: driverOf(categoryId, month) });
+      months.push({ month, status, goal_id: goal.id, source: goal.source ?? "goal", limit, actual, projected, difference: round2(limit - actual), main_driver: driverOf(categoryId, month) });
     }
 
     // Referência: a da meta (congelada na criação) ou a média dos meses antes dela.
+    // Referência: o que você gastava nos meses ANTES da primeira meta (o mesmo
+    // livro canônico); sem histórico, a referência informada na criação.
     const firstGoal = [...list].sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
     const beforeValues = months.filter((m) => m.status === "before" && m.actual > 0).map((m) => m.actual);
-    const baseline = firstGoal.baseline_value && firstGoal.baseline_value > 0
-      ? round2(firstGoal.baseline_value)
-      : beforeValues.length ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length) : null;
+    const baseline = beforeValues.length
+      ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length)
+      : firstGoal.baseline_value && firstGoal.baseline_value > 0 ? round2(firstGoal.baseline_value) : null;
 
     const closed = months.filter((m) => m.status === "met" || m.status === "missed");
     let streak = 0;
@@ -215,11 +262,11 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     const change = baseline && recentAvg != null ? round2((recentAvg - baseline) / baseline) : null;
     const savings = baseline != null && closed.length ? round2(closed.reduce((a, m) => a + (baseline - m.actual), 0)) : null;
 
-    const currentMonth = months.find((m) => m.month === current && m.goal_id);
+    const currentMonth = months.find((m) => m.month === current && m.goal_id && m.source === "goal");
     series.push({
       category_id: categoryId,
       category_name: names.get(categoryId) ?? "Categoria",
-      current_goal_id: currentMonth?.goal_id ?? [...months].reverse().find((m) => m.goal_id)?.goal_id ?? null,
+      current_goal_id: currentMonth?.goal_id ?? [...months].reverse().find((m) => m.goal_id && m.source === "goal")?.goal_id ?? null,
       first_month: firstMonth,
       baseline,
       months,
@@ -245,13 +292,118 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     })),
   };
 
+  const impact = goalImpact({
+    series, entries: input.entries, categories: input.categories, current,
+    monthsBefore, alertsDelivered: input.alertsDelivered ?? 0,
+  });
+  const highlights = goalHighlights(series, current);
+  if (impact.closed_goal_months > 0 && Math.abs(impact.estimated_savings) >= 1) {
+    highlights.unshift({
+      id: "impact",
+      tone: impact.estimated_savings > 0 ? "positive" : "negative",
+      category_id: null,
+      title: impact.headline,
+      body: impact.explanation,
+    });
+  }
+
   return {
     version: GOAL_HISTORY_VERSION,
     as_of: input.today,
     current_month: current,
     series,
     scoreboard,
-    highlights: goalHighlights(series, current),
+    highlights: highlights.slice(0, 6),
+    impact,
+  };
+}
+
+/** Contrafactual das metas: quanto foi evitado e quanto ficou mais claro. */
+export function goalImpact(args: {
+  series: GoalSeries[];
+  entries: SpendingEntry[];
+  categories: Array<{ id: string; name: string }>;
+  current: string;
+  monthsBefore: number;
+  alertsDelivered: number;
+}): GoalImpact {
+  const goalCats = new Set(args.series.map((s) => s.category_id));
+  const closedBySeries = args.series.map((s) => ({
+    s,
+    closed: s.months.filter((m) => m.status === "met" || m.status === "missed"),
+  })).filter((x) => x.closed.length && x.s.baseline != null);
+  const closedMonths = [...new Set(closedBySeries.flatMap((x) => x.closed.map((m) => m.month)))].sort();
+  const firstGoalMonth = args.series.map((s) => s.first_month).sort()[0] ?? args.current;
+  const preMonths = monthRange(shiftMonth(firstGoalMonth, -args.monthsBefore), shiftMonth(firstGoalMonth, -1));
+
+  // Grupo de comparação: categorias de consumo SEM meta.
+  const names = new Map(args.categories.map((c) => [c.id, c.name]));
+  const controlTotals = new Map<string, number>();
+  const monthTotals = new Map<string, number>();
+  for (const e of args.entries) {
+    monthTotals.set(e.month, (monthTotals.get(e.month) ?? 0) + e.amount);
+    if (!e.category_id || goalCats.has(e.category_id)) continue;
+    const name = names.get(e.category_id);
+    if (!name || isObligationCategory(name)) continue;
+    controlTotals.set(e.month, (controlTotals.get(e.month) ?? 0) + e.amount);
+  }
+  const avg = (months: string[], map: Map<string, number>) => months.length
+    ? months.reduce((a, m) => a + Math.max(0, map.get(m) ?? 0), 0) / months.length
+    : 0;
+  const controlBefore = avg(preMonths, controlTotals);
+  const controlAfter = avg(closedMonths, controlTotals);
+  // Ajuste limitado a ±30% para um mês atípico de outra categoria não dominar.
+  const controlChange = controlBefore > 0 && closedMonths.length
+    ? Math.max(-0.3, Math.min(0.3, (controlAfter - controlBefore) / controlBefore))
+    : null;
+
+  const byCategory = closedBySeries.map(({ s, closed }) => {
+    const expected = round2(closed.length * (s.baseline ?? 0) * (1 + (controlChange ?? 0)));
+    const actual = round2(closed.reduce((a, m) => a + m.actual, 0));
+    return { category_id: s.category_id, category_name: s.category_name, expected, actual, savings: round2(expected - actual) };
+  }).sort((a, b) => b.savings - a.savings);
+  const expected = round2(byCategory.reduce((a, c) => a + c.expected, 0));
+  const actual = round2(byCategory.reduce((a, c) => a + c.actual, 0));
+  const savings = round2(expected - actual);
+  const baseSum = closedBySeries.reduce((a, x) => a + (x.s.baseline ?? 0) * x.closed.length, 0);
+  const goalChange = baseSum > 0 ? round2(actual / baseSum - 1) : null;
+  const net = goalChange != null && controlChange != null ? round2(goalChange - controlChange) : null;
+
+  const lastClosed = shiftMonth(args.current, -1);
+  const lastTotal = monthTotals.get(lastClosed) ?? 0;
+  const underGoal = args.series.reduce((a, s) => a + (s.months.find((m) => m.month === lastClosed && m.goal_id)?.actual ?? 0), 0);
+  const coverage = lastTotal > 0 && underGoal > 0 ? round2(underGoal / lastTotal) : null;
+  const monthsMet = closedBySeries.reduce((a, x) => a + x.closed.filter((m) => m.status === "met").length, 0);
+  const closedCount = closedBySeries.reduce((a, x) => a + x.closed.length, 0);
+
+  const best = byCategory.find((c) => c.savings > 0);
+  const headline = !closedCount
+    ? "O impacto das metas aparece no primeiro fechamento"
+    : savings > 0
+      ? `As metas evitaram cerca de ${brl(savings)} em gastos`
+      : `Com meta, o gasto ficou ${brl(-savings)} acima do esperado`;
+  const adjust = controlChange == null
+    ? ""
+    : ` Seus gastos sem meta ${controlChange >= 0 ? "subiram" : "caíram"} ${pct(controlChange)} no mesmo período, e isso já foi descontado.`;
+  const explanation = !closedCount
+    ? "Assim que um mês com meta fechar, o Nino compara o que você gastou com o que provavelmente gastaria sem ela."
+    : `Sem meta, você provavelmente gastaria ${brl(expected)} nessas categorias em ${closedCount} ${closedCount === 1 ? "mês" : "meses"} de meta; gastou ${brl(actual)}.${adjust}${savings > 0 && best ? ` A maior contribuição veio de ${best.category_name}.` : ""}`;
+
+  return {
+    closed_goal_months: closedCount,
+    categories_tracked: args.series.length,
+    expected_without_goals: expected,
+    actual_with_goals: actual,
+    estimated_savings: savings,
+    control_change: controlChange == null ? null : round2(controlChange),
+    goal_change: goalChange,
+    net_effect: net,
+    coverage_share: coverage,
+    months_met: monthsMet,
+    alerts_delivered: args.alertsDelivered,
+    by_category: byCategory,
+    headline,
+    explanation,
   };
 }
 
@@ -314,14 +466,6 @@ export function goalHighlights(series: GoalSeries[], current: string): GoalHighl
         body: `${brl(last.actual)} para um limite de ${brl(last.limit ?? 0)}${last.main_driver ? `; o maior peso foi ${last.main_driver.label}` : ""}.`,
       });
     }
-  }
-  const savingsSeries = series.filter((s) => s.kpis.savings_total != null && s.kpis.closed_months > 0);
-  if (savingsSeries.length) {
-    const total = round2(savingsSeries.reduce((a, s) => a + (s.kpis.savings_total ?? 0), 0));
-    const since = savingsSeries.map((s) => s.first_month).sort()[0];
-    out.push(total >= 0
-      ? { id: "savings", tone: "positive", category_id: null, weight: 75, title: `${brl(total)} economizados desde ${historyMonthName(since)}`, body: "Soma do que ficou abaixo da sua referência nos meses fechados com meta." }
-      : { id: "savings", tone: "negative", category_id: null, weight: 65, title: `${brl(-total)} acima da referência desde ${historyMonthName(since)}`, body: "Nos meses fechados com meta, o gasto somado ficou acima do que era antes." });
   }
   if (series.length && !series.some((s) => s.kpis.closed_months > 0)) {
     out.push({

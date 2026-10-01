@@ -4,7 +4,7 @@
 // histórico que sustenta as sugestões.
 // deno-lint-ignore-file no-explicit-any
 import { fetchAllPages } from "../derived/pagedSelect.ts";
-import { buildGoalHistory, type GoalHistory } from "../finance-core/goalHistory.ts";
+import { buildGoalHistory, type GoalHistory, type HistoryGoalRow } from "../finance-core/goalHistory.ts";
 import type { TransactionRow } from "../finance-core/facts.ts";
 import { buildMerchantResolver, type MerchantAliasRow, type MerchantResolver } from "../finance-core/merchant.ts";
 import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "../finance-core/metrics.ts";
@@ -34,6 +34,10 @@ export type SpendingGoalContext = {
   categories: Array<{ id: string; name: string }>;
   goals: CategorySpendingGoalRow[];
   targets: MerchantTargetRow[];
+  /** Meses de meta guardados (sobrevivem à edição e à exclusão da meta). */
+  cycles: HistoryGoalRow[];
+  /** Avisos de meta de gasto já entregues pelo Nino. */
+  alerts_delivered: number;
 };
 
 export type GoalReading = {
@@ -74,7 +78,7 @@ export async function loadSpendingGoalContext(
     d.setUTCMonth(d.getUTCMonth() - monthsBack);
     return d.toISOString().slice(0, 10);
   })();
-  const [rows, catsRes, aliasRes, goalsRes, targetsRes] = await Promise.all([
+  const [rows, catsRes, aliasRes, goalsRes, targetsRes, cyclesRes, alertsRes] = await Promise.all([
     fetchAllPages<any>((a, b) =>
       sb.from("transactions").select(TX_COLUMNS)
         .eq("user_id", userId)
@@ -89,6 +93,12 @@ export async function loadSpendingGoalContext(
     sb.from("merchant_aliases").select("alias_key,friendly_name,hits").eq("user_id", userId),
     sb.from("category_spending_goals").select("*").eq("user_id", userId).in("status", ["active", "paused"]),
     sb.from("spending_goal_merchant_targets").select("*").eq("user_id", userId).neq("status", "cancelled"),
+    sb.from("category_spending_goal_cycles")
+      .select("id,goal_id,category_id,start_date,end_date,target_snapshot,baseline_snapshot")
+      .eq("user_id", userId).not("category_id", "is", null),
+    sb.from("communication_deliveries").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).eq("status", "delivered")
+      .in("kind", ["goal_feasibility", "spending_goal_pressure", "spending_goal_zero_charge", "spending_goal_threshold", "spending_goal_weekend", "spending_goal_weekly", "spending_goal_monthly"]),
   ]);
   for (const [name, res] of [["categories", catsRes], ["goals", goalsRes], ["targets", targetsRes]] as const) {
     if ((res as any).error) throw new Error(`spending_goals_${name}:${(res as any).error.message}`);
@@ -123,6 +133,18 @@ export async function loadSpendingGoalContext(
       baseline_amount: t.baseline_amount == null ? null : Number(t.baseline_amount),
       computed_limit: t.computed_limit == null ? null : Number(t.computed_limit),
     })) as MerchantTargetRow[],
+    cycles: (((cyclesRes as any).data ?? []) as any[]).map((c) => ({
+      id: `cycle:${c.id}`,
+      category_id: String(c.category_id),
+      computed_limit: Number(c.target_snapshot ?? 0),
+      baseline_value: c.baseline_snapshot == null ? null : Number(c.baseline_snapshot),
+      start_date: String(c.start_date),
+      end_date: String(c.end_date),
+      period_type: "custom",
+      status: "active",
+      source: "cycle" as const,
+    })),
+    alerts_delivered: Number((alertsRes as any).count ?? 0),
   };
 }
 
@@ -181,6 +203,8 @@ export function goalHistoryOf(ctx: SpendingGoalContext, readings: GoalReading[] 
     entries: ctx.entries,
     categories: ctx.categories,
     current: Object.fromEntries(readings.map((r) => [r.goal_id, { projected: r.projected, status: r.status }])),
+    cycles: ctx.cycles,
+    alertsDelivered: ctx.alerts_delivered,
   });
 }
 
