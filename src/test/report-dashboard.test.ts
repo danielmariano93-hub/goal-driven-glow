@@ -122,9 +122,27 @@ describe("painel: veredito melhor, igual, insuficiente e filtros", () => {
     expect(m.totals.expense).toBe(100);
     expect(m.previousTotals).toBeNull();
   });
-  it("estorno abate a categoria e período vazio não quebra", () => {
+  it("estorno não abate o gasto: aparece separado e entra na sobra", () => {
     const d = run([inc("2026-09-05", 5000), out("2026-09-06", 300, "Lazer", "Bar"), out("2026-09-07", -100, "Lazer", "Bar")]);
-    expect(d.categories[0].total).toBe(200);
+    expect(d.totals.expense).toBe(300);
+    expect(d.totals.refunds).toBe(100);
+    expect(d.totals.net).toBe(4800);
+    expect(d.categories[0].total).toBe(300);
+  });
+  it("estorno maior que os gastos do dia não zera o Saiu (caso real de 01/10)", () => {
+    const today = { today: "2026-10-01", start: "2026-10-01", end: "2026-10-01", compare: "none" as const, categoryIds: [], merchant: "" };
+    const entries = [
+      out("2026-10-01", 215.09, "Energia", "Enel"), out("2026-10-01", 65, "Serviços", "Celularia"), out("2026-10-01", 5, "Outros", "Henry"),
+      out("2026-10-01", -291.34, "Lazer", "Ingresso"),
+    ];
+    const d = buildReportDashboard(entries, today);
+    expect(d.totals.expense).toBe(285.09);
+    expect(d.totals.refunds).toBe(291.34);
+    expect(d.totals.count).toBe(3);
+    // a soma das categorias bate com o Saiu
+    expect(d.categories.reduce((a, c) => a + c.total, 0)).toBeCloseTo(d.totals.expense, 2);
+  });
+  it("período vazio não quebra", () => {
     const empty = buildReportDashboard([], { today: "2026-10-02", start: "2026-09-01", end: "2026-09-30", compare: "previous" });
     expect(empty.totals.expense).toBe(0);
     expect(empty.categories).toEqual([]);

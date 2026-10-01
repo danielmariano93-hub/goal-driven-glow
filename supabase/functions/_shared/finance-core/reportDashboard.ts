@@ -42,7 +42,10 @@ export interface DashRange { start: string; end: string; days: number }
 
 export interface Totals {
   income: number;
+  /** Saída bruta do período (igual à Home): estornos NÃO abatem aqui, aparecem em `refunds`. */
   expense: number;
+  /** Estornos/reembolsos recebidos no período (voltaram para a conta). */
+  refunds: number;
   net: number;
   savingsRate: number | null;
   count: number;
@@ -243,20 +246,26 @@ const inRange = (e: DashEntry, r: DashRange) => e.date >= r.start && e.date <= r
 function totalsOf(entries: DashEntry[], r: DashRange, daysForAvg: number): Totals {
   let income = 0;
   let expense = 0;
+  let refunds = 0;
   let count = 0;
   for (const e of entries) {
     if (!inRange(e, r)) continue;
     if (e.kind === "income") income += e.amount;
-    else {
+    else if (e.amount > 0) {
       expense += e.amount;
-      if (e.amount > 0) count += 1;
+      count += 1;
+    } else {
+      // Estorno de uma compra: entrada de dinheiro, nunca "gasto negativo" que
+      // esconde os gastos reais do mesmo dia.
+      refunds += -e.amount;
     }
   }
   income = round2(Math.max(0, income));
-  expense = round2(Math.max(0, expense));
-  const net = round2(income - expense);
+  expense = round2(expense);
+  refunds = round2(refunds);
+  const net = round2(income + refunds - expense);
   return {
-    income, expense, net,
+    income, expense, refunds, net,
     savingsRate: income > 0 ? round2(net / income) : null,
     count,
     dailyAvg: round2(expense / Math.max(1, daysForAvg)),
@@ -362,7 +371,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   const sparkMonths = Array.from({ length: 6 }, (_, i) => shiftMonthKey(monthOf(period.end), i - 5));
   const sparkFloor = `${sparkMonths[0]}-01`;
   for (const e of scoped) {
-    if (e.kind !== "expense") continue;
+    if (e.kind !== "expense" || e.amount <= 0) continue;
     const inCurrent = inRange(e, period);
     const inPrevious = previous ? inRange(e, previous) : false;
     const inSpark = e.date >= sparkFloor && e.date <= endOfMonth(`${monthOf(period.end)}-01`);
@@ -427,7 +436,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   const trend = trendOf(closed, filtered);
 
   // Hábitos
-  const habits = filtered ? [] : buildHabits({ entries: scoped, period, previous, totals, previousTotals, categories, req, elapsedDays: elapsed(period) });
+  const habits = filtered ? [] : buildHabits({ entries: scoped.filter((e) => e.kind !== "expense" || e.amount > 0), period, previous, totals, previousTotals, categories, req, elapsedDays: elapsed(period) });
 
   // Veredito
   const verdict = filtered ? null : buildVerdict({ totals, previousTotals, deltas, categories, habits, trend, comparing: previous != null, tooEarly: period.end >= req.today && elapsed(period) < 3 });
@@ -450,7 +459,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   // Opções de filtro (independem do filtro de categoria ativo).
   const optionTotals = new Map<string, { id: string; name: string; total: number }>();
   for (const e of entries) {
-    if (e.kind !== "expense" || !inRange(e, period) || !e.category_id) continue;
+    if (e.kind !== "expense" || e.amount <= 0 || !inRange(e, period) || !e.category_id) continue;
     const o = optionTotals.get(e.category_id) ?? { id: e.category_id, name: e.category, total: 0 };
     o.total += e.amount;
     optionTotals.set(e.category_id, o);
