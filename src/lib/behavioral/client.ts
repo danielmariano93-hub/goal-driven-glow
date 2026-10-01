@@ -1,31 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
 
-export type BehaviorDimensionKey =
-  | "awareness"
-  | "planning"
-  | "control"
-  | "consistency"
-  | "security"
-  | "wealth"
-  | "calm"
-  | "debt";
+import { BEHAVIOR_DIMENSIONS, emotionalScore, type BehaviorDimensionKey, type EmotionalCheckinRow } from "@/lib/engine/behaviorDimensions";
 
-export const BEHAVIOR_DIMENSIONS: Array<{
-  key: BehaviorDimensionKey;
-  label: string;
-  short: string;
-  question: string;
-}> = [
-  { key: "awareness", label: "Consciência", short: "Consciência", question: "Quanto você entende hoje para onde seu dinheiro vai e por que você decide gastar?" },
-  { key: "planning", label: "Planejamento", short: "Planejamento", question: "Quanto suas decisões financeiras costumam acontecer antes, e não depois do gasto?" },
-  { key: "control", label: "Controle de impulso", short: "Controle", question: "Quanto você sente que consegue escolher antes de agir quando surge vontade de gastar?" },
-  { key: "consistency", label: "Consistência", short: "Consistência", question: "Quanto seus bons hábitos financeiros sobrevivem às semanas mais corridas?" },
-  { key: "security", label: "Segurança", short: "Segurança", question: "Quanto você sente que consegue absorver imprevistos sem perder o controle do mês?" },
-  { key: "wealth", label: "Construção de patrimônio", short: "Patrimônio", question: "Quanto você está transformando renda em patrimônio de forma recorrente?" },
-  { key: "calm", label: "Tranquilidade com dinheiro", short: "Tranquilidade", question: "Quanto o dinheiro ocupa sua cabeça de forma tranquila, sem pressão desnecessária?" },
-  { key: "debt", label: "Relação com dívidas", short: "Dívidas", question: "Quanto você sente que suas dívidas e compromissos estão sob controle?" },
-];
+// Contrato das dimensões vive no motor canônico (espelhado para as Edge Functions).
+export { BEHAVIOR_DIMENSIONS, emotionalScore };
+export type { BehaviorDimensionKey, EmotionalCheckinRow };
 
 export type BehavioralAssessment = {
   id: string;
@@ -35,21 +15,6 @@ export type BehavioralAssessment = {
   source: string;
   version: string;
   created_at: string;
-};
-
-export type EmotionalCheckinRow = {
-  id: string;
-  occurred_at: string;
-  mood: number;
-  emotion_key?: string | null;
-  declared_emotion_key?: string | null;
-  trigger_label?: string | null;
-  notes?: string | null;
-  transaction_id?: string | null;
-  financial_calm_score?: number | null;
-  financial_control_score?: number | null;
-  spending_urge_score?: number | null;
-  context_key?: string | null;
 };
 
 export type BehaviorExperimentTemplate = {
@@ -163,11 +128,6 @@ function round(value: number | null, decimals = 1): number | null {
   if (value == null || !Number.isFinite(value)) return null;
   const p = 10 ** decimals;
   return Math.round(value * p) / p;
-}
-
-export function emotionalScore(row: EmotionalCheckinRow): number {
-  if (row.financial_calm_score != null) return Number(row.financial_calm_score);
-  return Math.max(0, Math.min(10, Number(row.mood || 0) * 2));
 }
 
 function normalizeExperiment(row: BehaviorExperiment): BehaviorExperiment {

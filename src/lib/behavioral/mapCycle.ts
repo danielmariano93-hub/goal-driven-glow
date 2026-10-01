@@ -20,29 +20,8 @@ export type ExtendedBehavioralAssessment = BehavioralAssessment & {
 };
 
 /** Um componente da nota de uma dimensão: o que entrou no cálculo e com que peso. */
-export type ObservedFactor = {
-  key: string;
-  label: string;
-  /** Nota 0–10 deste componente; null quando o Nino ainda não tem dado dele. */
-  value: number | null;
-  /** Peso fixo na nota; null quando o componente é só explicativo. */
-  weight: number | null;
-};
-
-export type ObservedDimension = {
-  score: number | null;
-  confidence: "low" | "medium" | "high";
-  evidence: string;
-  source: string;
-  factors?: ObservedFactor[];
-};
-
-export type ObservedBehaviorProfile = {
-  overallScore: number | null;
-  coverage: number;
-  asOf: string | null;
-  dimensions: Record<BehaviorDimensionKey, ObservedDimension>;
-};
+import type { ObservedBehaviorProfile, ObservedDimension, ObservedFactor } from "@/lib/engine/behaviorDimensions";
+export type { ObservedBehaviorProfile, ObservedDimension, ObservedFactor };
 
 export type AssessmentCycle = {
   cadenceDays: number;
