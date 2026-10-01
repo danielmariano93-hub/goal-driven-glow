@@ -236,3 +236,49 @@ export const DIMENSION_ACTION: Record<BehaviorDimensionKey, { label: string; to:
   calm: { label: "Testar um experimento", to: "#experimentos" },
   debt: { label: "Ver minhas dívidas", to: "/app/dividas" },
 };
+
+/** Versão gravada pela reconstrução histórica parcial (migração de backfill). */
+export const RECONSTRUCTED_METHODOLOGY_VERSION = "behavior_observed.v2_backfill";
+
+export function isReconstructedSnapshot(s: Pick<ObservedSnapshot, "methodology_version">): boolean {
+  return s.methodology_version === RECONSTRUCTED_METHODOLOGY_VERSION;
+}
+
+export type BehaviorHabitsReading = {
+  thisWeek: string;
+  /** Snapshots anteriores à semana atual (a semana atual é a leitura de agora). */
+  history: ObservedSnapshot[];
+  baseline: ObservedSnapshot | null;
+  changes: DimensionChange[];
+  verdict: BehaviorVerdict;
+  series: Record<BehaviorDimensionKey, HabitSeriesPoint[]>;
+  weeksOfHistory: number;
+  /** O histórico exibido inclui semanas reconstruídas (parciais). */
+  reconstructedWeeks: number;
+  baselineReconstructed: boolean;
+};
+
+/**
+ * Leitura completa da evolução — a MESMA usada pela página Emocional e pelo
+ * Nino/WhatsApp. Recebe a leitura observada de agora e os snapshots gravados;
+ * em modo degradado não compara com o passado.
+ */
+export function behaviorHabitsReading(args: {
+  profile: ObservedBehaviorProfile;
+  snapshots: ObservedSnapshot[];
+  today: string;
+  thisWeek: string;
+  degraded?: boolean;
+}): BehaviorHabitsReading {
+  const history = args.snapshots.filter((row) => row.week_start < args.thisWeek);
+  const baseline = args.degraded ? null : pickBaseline(history, args.today);
+  const changes = compareDimensions(args.profile, baseline);
+  const verdict = buildBehaviorVerdict(changes, baseline, args.profile.overallScore);
+  const series = habitSeries(history, args.profile, args.thisWeek);
+  const weeksOfHistory = new Set([...history.map((row) => row.week_start), args.thisWeek]).size;
+  return {
+    thisWeek: args.thisWeek, history, baseline, changes, verdict, series, weeksOfHistory,
+    reconstructedWeeks: history.filter(isReconstructedSnapshot).length,
+    baselineReconstructed: !!baseline && isReconstructedSnapshot(baseline),
+  };
+}

@@ -436,3 +436,34 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
     historyDays: txHistoryDays,
   } as ObservedBehaviorProfile;
 }
+
+/** Payload do RPC `behavioral_dashboard_snapshot` (subconjunto usado pelo motor). */
+export type BehavioralDashboardPayloadInput = {
+  checkins?: EmotionalCheckinRow[] | null;
+  financial_snapshot?: FinancialRow | null;
+  transaction_stats?: BehavioralTransactionStats | null;
+  app_activity?: BehavioralAppActivityStats | null;
+  goal_cycles?: BehavioralGoalCycle[] | null;
+  planning_stats?: BehavioralPlanningStats | null;
+  investment_stats?: BehavioralInvestmentStats | null;
+};
+
+/**
+ * Mapeamento único payload → entrada do motor. App (tela) e servidor (job
+ * semanal, Nino) usam esta função, então a leitura é a mesma nos dois lados.
+ */
+export function observedInputFromDashboardPayload(payload: BehavioralDashboardPayloadInput | null | undefined): ObservedProfileV2Input {
+  const p = payload ?? {};
+  return {
+    financialRow: p.financial_snapshot ?? null,
+    checkins: (p.checkins ?? []).filter((row) => Number.isFinite(new Date(row.occurred_at).getTime())),
+    txStats: p.transaction_stats ?? null,
+    appActivity: p.app_activity ?? null,
+    goalCycles: p.goal_cycles ?? [],
+    planningStats: p.planning_stats ?? null,
+    investmentStats: p.investment_stats ?? null,
+  };
+}
+
+/** Regra atual: leitura com menos de 3 dimensões medidas não é gravada. */
+export const OBSERVED_SNAPSHOT_MIN_COVERAGE = 3;
