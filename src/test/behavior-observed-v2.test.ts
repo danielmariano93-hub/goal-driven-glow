@@ -123,7 +123,9 @@ describe("behavior_observed.v2", () => {
   it("restores real emotion-spend pairing in the canonical dashboard", () => {
     expect(migration).toContain("'expense_days'");
     expect(dashboard).toContain("computeEmotionSpend");
-    expect(dashboard).toContain("pairedDays: paired.length");
+    // Pareamento real por janela de horário (emotion_spend_pairing.v2), nunca zerado.
+    expect(dashboard).toContain("computeEmotionSpendAssociation");
+    expect(dashboard).toContain("timedExpensesFromRows(payload.expense_transactions)");
     expect(dashboard).not.toContain("pairedDays: 0,\n      vulnerableDays: 0");
   });
 
