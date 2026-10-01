@@ -616,6 +616,10 @@ $$;
 revoke all on function public.behavior_observed_backfill_v2(uuid) from public, anon;
 grant execute on function public.behavior_observed_backfill_v2(uuid) to authenticated, service_role;
 
+-- Privilégios explícitos do histórico semanal (RLS por usuário inalterada).
+grant select, insert, update on public.behavior_observed_snapshots to authenticated;
+grant all on public.behavior_observed_snapshots to service_role;
+
 -- Usuários ativos para o snapshot semanal. Só service_role; nenhuma RLS muda.
 create or replace function public.behavior_observed_active_users(
   p_since_days int default 45,
