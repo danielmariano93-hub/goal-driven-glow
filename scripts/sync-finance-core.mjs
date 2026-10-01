@@ -53,6 +53,7 @@ export const FINANCE_CORE_MODULES = [
   "recurringSchedule",
   "categoryWeekdayHeatmap",
   "spendingGoals",
+  "goalHistory",
 ];
 
 export const REPORT_MODULES = [

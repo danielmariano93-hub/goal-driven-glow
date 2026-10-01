@@ -9,7 +9,7 @@
 import type { FinancialSituation, MultiFinanceProactiveContext, SituationSeverity } from "./contracts.ts";
 import { brlPt } from "./presentation.ts";
 import { summarizeClosedCycle, weekendAllowance } from "../finance-core/spendingGoals.ts";
-import type { GoalReading, SpendingGoalContext } from "../spendingGoals/runtime.ts";
+import { goalHistoryOf, type GoalReading, type SpendingGoalContext } from "../spendingGoals/runtime.ts";
 
 export const SPENDING_GOALS_COMM_VERSION = "nino_spending_goals_comm.v1";
 
@@ -275,11 +275,22 @@ function monthlySituation(ctx: MultiFinanceProactiveContext, sg: SpendingGoalCon
   const tail = savings > 0
     ? ` No total, a economia apurada frente à sua referência foi de ${brl(savings)}. Quer direcionar esse valor para uma reserva, um investimento ou para reduzir uma dívida?`
     : "";
+  // goal_history.v1 — além do mês, a tendência: reduziu ou aumentou desde o início?
+  const trend = (() => {
+    try {
+      return goalHistoryOf(sg).highlights
+        .filter((h) => h.id.startsWith("down:") || h.id.startsWith("up:") || h.id.startsWith("streak:") || h.id.startsWith("misses:"))
+        .slice(0, 2)
+        .map((h) => `${h.title}: ${h.body}`);
+    } catch {
+      return [];
+    }
+  })();
   return make(ctx, {
     type: "spending_goal_monthly",
     communication_kind: "spending_goal_monthly",
     title: `Fechamento de ${monthName(month)}: ${met} de ${summaries.length} meta${summaries.length > 1 ? "s" : ""} cumprida${met === 1 ? "" : "s"}`,
-    body: `${summaries.map((s) => s.text).join("\n")}${tail}`,
+    body: `${summaries.map((s) => s.text).join("\n")}${trend.length ? `\n${trend.join("\n")}` : ""}${tail}`,
     anchor: month,
     severity: "info",
     impact: savings,

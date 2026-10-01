@@ -3,6 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { qk } from "@/lib/db/queryKeys";
 import type { GoalBreakdown, MerchantTargetKind, SpendingHistoryAdvice } from "@/lib/engine/spendingGoals";
+import type { GoalHistory } from "@/lib/engine/goalHistory";
 
 // Metas hierárquicas de gasto (`spending_goals.v1`): a leitura vem do servidor,
 // a mesma que alimenta o Nino e a comunicação ativa.
@@ -36,7 +37,8 @@ export type MerchantOption = {
   last_date: string;
 };
 
-type GoalsResponse = { ok: boolean; as_of: string; goals: GoalReading[]; advice: SpendingHistoryAdvice | null };
+type GoalsResponse = { ok: boolean; as_of: string; goals: GoalReading[]; history: GoalHistory | null; advice: SpendingHistoryAdvice | null };
+type GoalsOverview = { goals: GoalReading[]; history: GoalHistory | null };
 
 const KEY = qk.spendingGoalReadings[0];
 
@@ -47,16 +49,30 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data as T;
 }
 
-/** Leitura das metas de gasto (categoria + submetas + Outros). */
-export function useSpendingGoalReadings() {
+/** Uma única leitura do servidor: metas do mês (com submetas) + histórico. */
+function useGoalsOverview<T>(select: (data: GoalsOverview) => T) {
   const { user } = useAuth();
-  return useQuery<GoalReading[]>({
+  return useQuery<GoalsOverview, Error, T>({
     queryKey: [KEY, user?.id],
     enabled: !!user,
     staleTime: 60_000,
     retry: 1,
-    queryFn: async () => (await invoke<GoalsResponse>({ action: "goals" })).goals ?? [],
+    queryFn: async () => {
+      const res = await invoke<GoalsResponse>({ action: "goals" });
+      return { goals: res.goals ?? [], history: res.history ?? null };
+    },
+    select,
   });
+}
+
+/** Leitura das metas de gasto (categoria + submetas + Outros). */
+export function useSpendingGoalReadings() {
+  return useGoalsOverview((data) => data.goals);
+}
+
+/** Histórico mês a mês das metas (série por categoria, placar e highlights). */
+export function useGoalHistory() {
+  return useGoalsOverview((data) => data.history);
 }
 
 /** Análise do histórico: referência, tendência, atípicos, recomendado e impacto. */

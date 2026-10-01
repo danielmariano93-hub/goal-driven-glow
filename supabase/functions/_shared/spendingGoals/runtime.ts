@@ -4,6 +4,7 @@
 // histórico que sustenta as sugestões.
 // deno-lint-ignore-file no-explicit-any
 import { fetchAllPages } from "../derived/pagedSelect.ts";
+import { buildGoalHistory, type GoalHistory } from "../finance-core/goalHistory.ts";
 import type { TransactionRow } from "../finance-core/facts.ts";
 import { buildMerchantResolver, type MerchantAliasRow, type MerchantResolver } from "../finance-core/merchant.ts";
 import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "../finance-core/metrics.ts";
@@ -158,6 +159,28 @@ export function readGoals(ctx: SpendingGoalContext): GoalReading[] {
       savings_goal_id: (goal as any).savings_goal_id ?? null,
       breakdown,
     };
+  });
+}
+
+/** Histórico das metas como série por categoria (placar, KPIs e highlights). */
+export function goalHistoryOf(ctx: SpendingGoalContext, readings: GoalReading[] = readGoals(ctx)): GoalHistory {
+  return buildGoalHistory({
+    today: ctx.as_of,
+    goals: ctx.goals.map((g) => ({
+      id: g.id,
+      category_id: g.category_id,
+      computed_limit: Number(g.computed_limit || 0),
+      baseline_value: g.baseline_value ?? null,
+      start_date: g.start_date,
+      end_date: g.end_date ?? null,
+      period_type: g.period_type ?? null,
+      recurrence_end_date: g.recurrence_end_date ?? null,
+      status: g.status,
+      created_at: (g as unknown as { created_at?: string }).created_at ?? null,
+    })),
+    entries: ctx.entries,
+    categories: ctx.categories,
+    current: Object.fromEntries(readings.map((r) => [r.goal_id, { projected: r.projected, status: r.status }])),
   });
 }
 
