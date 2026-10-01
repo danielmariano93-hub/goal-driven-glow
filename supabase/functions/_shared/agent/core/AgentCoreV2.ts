@@ -50,6 +50,7 @@ import {
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
+import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate.ts";
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
@@ -487,6 +488,44 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     conversation_id: input.conversation_id,
   }).catch(() => null as any);
   const session_id = session?.id as string | undefined;
+
+  // Leitura canônica fora do Financial ActionIR (evolução dos hábitos): o
+  // veredito sai do mesmo motor da página Emocional; a LLM não conclui nada.
+  const canonicalRead = resolveV2DeterministicReadCapability(input.text);
+  if (canonicalRead) {
+    const readTurn = await executeDeterministicCapability(sb, {
+      user_id: input.user_id,
+      conversation_id: input.conversation_id,
+      user_text: input.text,
+      capability: canonicalRead,
+    }).catch(() => null);
+    const okCall = (readTurn?.toolCalls ?? []).find((call: any) => call.ok === true);
+    if (readTurn?.reply && okCall) {
+      const readContract = normalizeConversationTurnContract({
+        version: "conversation_turn_contract.v2", act: "new_request", mode: "converse",
+        domain: "conversation",
+        canonical_request: null, inherit_focus: false,
+        focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
+        action: null,
+        direct_reply: "Leitura canônica de evolução dos hábitos.",
+        clarification_question: null,
+        resolution: {
+          intent: "resolved", reference: "not_applicable", time: "not_applicable",
+          entity: "not_applicable", action: "not_applicable",
+        },
+        reference: null,
+        advisory_kind: null,
+      })!;
+      return await finishV2({
+        sb, input, contract: readContract, reply: readTurn.reply,
+        reply_kind: "info", path: "deterministic_tool", started_at: started,
+        tokens_in: 0, tokens_out: 0, session_id,
+        result: (okCall as any).result ?? null,
+        tools: [String(canonicalRead.required_tool)],
+        tool_calls: (readTurn.toolCalls ?? []).map((call: any) => ({ tool_name: call.tool_name, args: call.args, result: call.result, ok: call.ok })),
+      });
+    }
+  }
 
   const threadsEnabled = await isEnabled("conversation_threads_v1", input.user_id).catch(() => false);
   const topicRepo = threadsEnabled
