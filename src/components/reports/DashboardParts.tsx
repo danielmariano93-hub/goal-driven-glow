@@ -196,11 +196,14 @@ export function VerdictCard({ verdict, filtered, periodLabel, previousLabel }: {
 export function KpiStrip({ d }: { d: ReportDashboard }) {
   const t = d.totals;
   const dl = d.deltas;
-  const cards: Array<{ label: string; value: string; delta: Delta | null; upIsGood: boolean; extra?: string }> = [];
+  const cards: Array<{ label: string; value: string; delta: Delta | null; upIsGood: boolean; extra?: string; note?: string }> = [];
   if (!d.filtered) {
     cards.push({ label: "Entrou", value: formatBRL(t.income), delta: dl?.income ?? null, upIsGood: true });
   }
-  cards.push({ label: "Saiu", value: formatBRL(t.expense), delta: dl?.expense ?? null, upIsGood: false });
+  cards.push({
+    label: "Saiu", value: formatBRL(t.expense), delta: dl?.expense ?? null, upIsGood: false,
+    note: t.refunds > 0 ? `+ ${formatBRL(t.refunds)} de estorno que voltou` : undefined,
+  });
   if (!d.filtered) {
     cards.push({ label: "Sobrou", value: `${t.net < 0 ? "−" : ""}${formatBRL(Math.abs(t.net))}`, delta: dl?.net ?? null, upIsGood: true });
     cards.push({
@@ -218,6 +221,7 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
           {c.extra ? (
             <p className={`text-[11px] font-semibold tabular-nums ${c.extra.startsWith("+") ? "text-emerald-700" : "text-red-700"}`}>{c.extra}</p>
           ) : <DeltaBadge delta={c.delta} upIsGood={c.upIsGood} label={d.previous ? undefined : "sem comparação"} />}
+          {c.note ? <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{c.note}</p> : null}
         </div>
       ))}
     </section>
