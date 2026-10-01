@@ -144,3 +144,16 @@ describe("validação do pedido no servidor", () => {
     expect((parseDashboardParams({ start: "2026-10-01", end: "2026-10-02", compare: "x" }, "2026-10-15") as { compare: string }).compare).toBe("previous");
   });
 });
+
+describe("report_dashboard.v1 – bordas encontradas com dados reais", () => {
+  it("não dá veredito nem projeção nos primeiros dias do período em andamento", () => {
+    const entries: DashEntry[] = [
+      { date: "2026-09-10", kind: "expense", amount: 500, category_id: "c1", category: "Lazer", merchant_key: "x", merchant: "X" },
+      ...Array.from({ length: 6 }, (_, i) => ({ date: `2026-09-${10 + i}`, kind: "expense" as const, amount: 50, category_id: "c1", category: "Lazer", merchant_key: "x", merchant: "X" })),
+      { date: "2026-10-01", kind: "expense", amount: 10, category_id: "c1", category: "Lazer", merchant_key: "x", merchant: "X" },
+    ];
+    const d = buildReportDashboard(entries, { today: "2026-10-01", start: "2026-10-01", end: "2026-10-01", compare: "previous", categoryIds: [], merchant: "" });
+    expect(d.verdict?.kind).toBe("insufficient");
+    expect(d.projection).toBeNull();
+  });
+});
