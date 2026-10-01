@@ -30,6 +30,61 @@ export type CheckinSpendWindow = {
   txIds: string[];
 };
 
+/** Linha bruta de gasto como vem do banco (RPC do dashboard ou leitura direta). */
+export type ExpenseRowForTiming = {
+  id: string;
+  amount: number | string;
+  occurred_at: string;
+  local_occurred_at?: string | null;
+  occurred_at_time?: string | null;
+  created_at?: string | null;
+  origin?: string | null;
+};
+
+export type ExpenseTimingPrecision = "exact" | "entry_time";
+
+const SP_OFFSET = "-03:00"; // America/Sao_Paulo sem horário de verão desde 2019
+
+function spDayOf(iso: string): string | null {
+  const t = new Date(iso);
+  if (!Number.isFinite(t.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+}
+
+/**
+ * Instante confiável de um gasto, ou null quando o horário não é conhecido.
+ * Regra única (app e servidor):
+ *  1. `local_occurred_at` (captura automática com horário) → exato;
+ *  2. `occurred_at_time` informado → data + hora no fuso de São Paulo;
+ *  3. lançamento manual/Nino/divisão registrado NO MESMO DIA da compra → hora do registro;
+ *  4. senão (extrato bancário, recorrência, registro retroativo) → sem horário: fica fora.
+ */
+export function expenseInstant(row: ExpenseRowForTiming): { at: string; precision: ExpenseTimingPrecision } | null {
+  if (row.local_occurred_at && Number.isFinite(new Date(row.local_occurred_at).getTime())) {
+    return { at: new Date(row.local_occurred_at).toISOString(), precision: "exact" };
+  }
+  const day = String(row.occurred_at ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const time = String(row.occurred_at_time ?? "").match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (time) {
+    const at = new Date(`${day}T${time[1]}:${time[2]}:${time[3] ?? "00"}${SP_OFFSET}`);
+    if (Number.isFinite(at.getTime())) return { at: at.toISOString(), precision: "exact" };
+  }
+  if (row.created_at && ["manual", "agent", "split"].includes(String(row.origin ?? "")) && spDayOf(row.created_at) === day) {
+    return { at: new Date(row.created_at).toISOString(), precision: "entry_time" };
+  }
+  return null;
+}
+
+export function timedExpensesFromRows(rows: ExpenseRowForTiming[] | null | undefined): TimedExpense[] {
+  const out: TimedExpense[] = [];
+  for (const row of rows ?? []) {
+    const instant = expenseInstant(row);
+    if (instant) out.push({ id: String(row.id), at: instant.at, amount: row.amount });
+  }
+  return out;
+}
+
 function ms(value: string): number {
   const t = new Date(value).getTime();
   return Number.isFinite(t) ? t : NaN;

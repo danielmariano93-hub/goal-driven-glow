@@ -17,7 +17,7 @@ import {
   type ExtendedBehavioralAssessment,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
-import { computeEmotionSpendAssociation, type TimedExpense } from "@/lib/engine/emotionSpendPairing";
+import { computeEmotionSpendAssociation, timedExpensesFromRows, type ExpenseRowForTiming, type TimedExpense } from "@/lib/engine/emotionSpendPairing";
 import {
   buildObservedProfileV2,
   observedInputFromDashboardPayload,
@@ -48,7 +48,7 @@ type DashboardPayload = {
   hypotheses?: BehaviorHypothesis[];
   financial_snapshot?: FinancialRow | null;
   transaction_stats?: BehavioralTransactionStats | null;
-  expense_transactions?: TimedExpense[];
+  expense_transactions?: ExpenseRowForTiming[];
   app_activity?: BehavioralAppActivityStats | null;
   goal_cycles?: BehavioralGoalCycle[];
   planning_stats?: BehavioralPlanningStats | null;
@@ -211,7 +211,7 @@ export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashb
   const recentAvg = avg(recent14);
   const previousAvg = avg(previous14);
   const moodTrend14 = recentAvg != null && previousAvg != null ? round(recentAvg - previousAvg) : null;
-  const emotionSpend = computeEmotionSpend(checkins, payload.expense_transactions ?? []);
+  const emotionSpend = computeEmotionSpend(checkins, timedExpensesFromRows(payload.expense_transactions));
 
   const highlights: BehaviorHighlight[] = [];
   if (emotionSpend.sufficient && emotionSpend.upliftPct != null && Math.abs(emotionSpend.upliftPct) >= 20) {
