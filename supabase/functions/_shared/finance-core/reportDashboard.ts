@@ -230,6 +230,8 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 const brl = (n: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(n || 0));
 const pctText = (ratio: number) => `${Math.round(Math.abs(ratio) * 100)}%`;
+/** Taxa com sinal: poupança negativa (gastou mais do que entrou) aparece como −83%, nunca como 83%. */
+const rateText = (ratio: number) => `${ratio < 0 ? "−" : ""}${Math.round(Math.abs(ratio) * 100)}%`;
 const norm = (s: string) => String(s ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
 const ESSENTIAL_RX = /moradia|aluguel|condom|energia|luz\b|agua|internet|telefon|saude|educa|escola|faculdade|divida|emprestimo|financiamento|imposto|tributo|seguro|mercado|supermercado|dizimo|oferta|doa[cç]|pens[aã]o|tarifa|juros/;
@@ -428,11 +430,11 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   const habits = filtered ? [] : buildHabits({ entries: scoped, period, previous, totals, previousTotals, categories, req, elapsedDays: elapsed(period) });
 
   // Veredito
-  const verdict = filtered ? null : buildVerdict({ totals, previousTotals, deltas, categories, habits, trend, comparing: previous != null });
+  const verdict = filtered ? null : buildVerdict({ totals, previousTotals, deltas, categories, habits, trend, comparing: previous != null, tooEarly: period.end >= req.today && elapsed(period) < 3 });
 
   // Projeção do mês em andamento
   let projection: ReportDashboard["projection"] = null;
-  if (period.start.slice(8, 10) === "01" && period.end >= req.today && monthOf(period.start) === monthOf(req.today) && monthOf(period.end) === monthOf(req.today)) {
+  if (elapsed(period) >= 3 && totals.expense > 0 && period.start.slice(8, 10) === "01" && period.end >= req.today && monthOf(period.start) === monthOf(req.today) && monthOf(period.end) === monthOf(req.today)) {
     const daysElapsed = Math.max(1, daysBetween(period.start, req.today));
     const daysInMonth = daysBetween(period.start, endOfMonth(period.start));
     const prevMonth = shiftMonthKey(monthOf(period.start), -1);
@@ -487,8 +489,8 @@ function trendOf(closed: TrendMonth[], filtered: boolean): ReportDashboard["tren
       return {
         months: closed, direction: dir,
         detail: dir === "same"
-          ? `Sua taxa de poupança está estável em torno de ${pctText(after)}.`
-          : `Sua taxa de poupança ${dir === "better" ? "subiu" : "caiu"} de ${pctText(before)} para ${pctText(after)} nos meses mais recentes.`,
+          ? `Sua taxa de poupança está estável em torno de ${rateText(after)}.`
+          : `Sua taxa de poupança ${dir === "better" ? "subiu" : "caiu"} de ${rateText(before)} para ${rateText(after)} nos meses mais recentes.`,
       };
     }
   }
@@ -543,7 +545,7 @@ function buildHabits(a: {
     value: totals.savingsRate, previous: previousTotals?.savingsRate ?? null,
     delta: totals.savingsRate != null && previousTotals?.savingsRate != null ? round2((totals.savingsRate - previousTotals.savingsRate) * 100) : null,
     direction: direction(totals.savingsRate, previousTotals?.savingsRate ?? null, true, 0, 0.02),
-    detail: totals.savingsRate == null ? "Sem renda registrada no período." : `Sobrou ${pctText(totals.savingsRate)} do que entrou.`,
+    detail: totals.savingsRate == null ? "Sem renda registrada no período." : totals.savingsRate < 0 ? `Gastou ${pctText(totals.savingsRate)} a mais do que entrou.` : `Sobrou ${pctText(totals.savingsRate)} do que entrou.`,
   }));
   out.push(habit({
     key: "flexible", label: "Gasto flexível", unit: "brl", value: flexCur, previous: flexPrev,
@@ -593,10 +595,18 @@ function buildHabits(a: {
 
 function buildVerdict(a: {
   totals: Totals; previousTotals: Totals | null; deltas: ReportDashboard["deltas"]; categories: DashCategoryRow[];
-  habits: Habit[]; trend: ReportDashboard["trend"]; comparing: boolean;
+  habits: Habit[]; trend: ReportDashboard["trend"]; comparing: boolean; tooEarly: boolean;
 }): Verdict {
   const { totals, previousTotals, deltas, categories, habits, trend } = a;
   const noData = totals.count < 5 && (previousTotals?.count ?? 0) < 5;
+  if (a.tooEarly) {
+    return {
+      kind: "insufficient",
+      headline: "Ainda é cedo para dizer",
+      summary: "O período mal começou. Com mais alguns dias de lançamentos, o Nino compara com o anterior e diz como você está.",
+      points: 0, signals: [],
+    };
+  }
   if (!a.comparing || !previousTotals || !deltas || noData || (previousTotals.expense <= 0 && previousTotals.income <= 0)) {
     return {
       kind: "insufficient",
@@ -614,7 +624,7 @@ function buildVerdict(a: {
   const pp = deltas.savingsRatePoints;
   if (pp != null) {
     const points = pp >= 3 ? 2 : pp >= 1 ? 1 : pp <= -3 ? -2 : pp <= -1 ? -1 : 0;
-    push("savings", "Poupança", points, `Taxa de poupança ${pp >= 0 ? "+" : "−"}${Math.abs(Math.round(pp))} p.p. (${totals.savingsRate != null ? pctText(totals.savingsRate) : "—"}).`);
+    push("savings", "Poupança", points, `Taxa de poupança ${pp >= 0 ? "+" : "−"}${Math.abs(Math.round(pp))} p.p. (${totals.savingsRate != null ? rateText(totals.savingsRate) : "—"}).`);
   }
   if (previousTotals.net !== 0 || totals.net !== 0) {
     const base = Math.max(1, Math.abs(previousTotals.net));
@@ -700,8 +710,8 @@ function buildHighlights(a: {
   if (savings && savings.value != null && savings.previous != null && savings.direction !== "same" && savings.direction !== "unknown") {
     out.push({
       id: "savings", tone: savings.direction === "better" ? "positive" : "negative", weight: 80,
-      title: `Taxa de poupança ${savings.direction === "better" ? "subiu" : "caiu"} para ${pctText(savings.value)}`,
-      body: `Era ${pctText(savings.previous)} no período anterior.`,
+      title: `Taxa de poupança ${savings.direction === "better" ? "subiu" : "caiu"} para ${rateText(savings.value)}`,
+      body: `Era ${rateText(savings.previous)} no período anterior.`,
       action: savings.direction === "worse" ? { label: "Ver metas", route: "/app/metas" } : null,
     });
   }
