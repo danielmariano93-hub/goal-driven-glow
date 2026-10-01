@@ -128,7 +128,6 @@ describe("behavior_observed.v2", () => {
   });
 
   it("does not present a relative 5/10 high as a consolidated strength", () => {
-    expect(page).toContain("ainda não significa um ponto forte consolidado");
     expect(wheel).toContain("Sua maior nota hoje");
     expect(wheel).toContain("não um ponto forte consolidado");
   });

@@ -1,5 +1,5 @@
 import { emotionalScore, type BehaviorDimensionKey, type EmotionalCheckinRow } from "@/lib/behavioral/client";
-import type { ObservedBehaviorProfile, ObservedDimension } from "@/lib/behavioral/mapCycle";
+import type { ObservedBehaviorProfile, ObservedDimension, ObservedFactor } from "@/lib/behavioral/mapCycle";
 
 const DAY_MS = 86_400_000;
 export const OBSERVED_METHODOLOGY_VERSION = "behavior_observed.v2";
@@ -364,6 +364,51 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
           : `O Nino compara a trajetória do saldo devedor com o peso da dívida sobre os ativos; uma dívida controlada não é penalizada apenas por existir.`,
         source: "debt_trajectory+debt_burden",
       };
+
+  const f = (key: string, label: string, value: number | null, weight: number | null): ObservedFactor => ({
+    key, label, weight, value: value == null || !Number.isFinite(value) ? null : round(value),
+  });
+  awareness.factors = [
+    f("app_days", "Dias acompanhando o app (30d)", awarenessAccess, 0.45),
+    f("movement_views", "Consultas aos Movimentos", awarenessInspection, 0.20),
+    f("checkins", "Check-ins no mês", awarenessCheckins, 0.25),
+    f("categorized", "Lançamentos categorizados", awarenessCoverage, 0.10),
+  ];
+  planning.factors = [
+    f("goals", "Metas de redução ativas", planningComponents[0].value, 0.45),
+    f("recurring", "Compromissos recorrentes", planningComponents[1].value, 0.30),
+    f("planning_views", "Acessos ao planejamento", planningComponents[2].value, 0.25),
+  ];
+  control.factors = [
+    f("closed_cycles", "Ciclos de meta fechados dentro do limite", goalCycleScore, 0.55),
+    f("current_goals", "Metas atuais no ritmo", currentGoalScore, 0.30),
+    f("rhythm", "Ritmo de gasto diário", rhythmControl, 0.15),
+  ];
+  consistency.factors = [
+    f("rhythm", "Estabilidade do gasto diário", rhythmConsistency, 0.55),
+    f("checkin_weeks", "Semanas com check-in", checkinConsistency, 0.25),
+    f("app_days", "Regularidade de acesso", activityConsistency, 0.20),
+  ];
+  security.factors = [
+    f("reserve", "Meses de despesa cobertos pela reserva", reserveScore, 0.40),
+    f("free_after_commitments", "Folga após compromissos", freeScore, 0.25),
+    f("debt_buffer", "Dívidas frente aos ativos", debtBufferScore, 0.20),
+    f("projection", "Saldo projetado no fim do mês", projectionScore, 0.15),
+  ];
+  wealth.factors = [
+    f("contribution_days", "Regularidade dos aportes (90d)", contributionRegularity, 0.45),
+    f("contribution_rate", "Aportes sobre a renda", contributionRate, 0.30),
+    f("savings", "Poupança do mês", currentSavings, 0.20),
+    f("assets", "Patrimônio positivo", currentInvestmentValue > 0 || net > 0 ? 7 : null, 0.05),
+  ];
+  calm.factors = [
+    f("direct", "Tranquilidade informada nos check-ins", directAvg, directValues.length >= 3 ? 1 : 0.7),
+    f("legacy", "Check-ins antigos (estimativa)", legacyAvg, directValues.length >= 3 ? 0 : 0.3),
+  ];
+  debt.factors = [
+    f("reduction", "Redução do saldo devedor", debtReduction == null ? null : clamp(5 + debtReduction * 15), null),
+    f("burden", "Peso da dívida sobre os ativos", debtBurden == null ? null : clamp(10 - debtBurden * 3), null),
+  ];
 
   const dimensions: Record<BehaviorDimensionKey, ObservedDimension> = {
     awareness, planning, control, consistency, security, wealth, calm, debt,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Eye, Flame, Loader2, Sparkles, Target } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
@@ -9,6 +9,10 @@ import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
+import { BehaviorVerdictCard, HabitTrend, MoneyImpactCard, WhatChanged } from "@/components/behavioral/EvolutionParts";
+import { buildBehaviorVerdict, compareDimensions, habitSeries, moneyImpactOf, pickBaseline, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
+import { useObservedSnapshots, useSaveObservedSnapshot } from "@/lib/behavioral/observedSnapshots";
+import { todayISO } from "@/lib/engine/facts";
 import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
 import {
   BEHAVIOR_DIMENSIONS,
@@ -77,6 +81,12 @@ export default function Emocoes() {
     refetchOnWindowFocus: true,
     retry: 1,
   });
+
+  const snapshotsQuery = useObservedSnapshots();
+  useSaveObservedSnapshot(
+    dashboardQuery.data?.observed ?? null,
+    !!dashboardQuery.data && dashboardQuery.data.degradedSources.length === 0,
+  );
 
   const refresh = async () => {
     await Promise.all([
@@ -151,22 +161,28 @@ export default function Emocoes() {
   }
 
   const latest = dashboard.latestAssessment;
-  const weakest = dashboard.lowestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.lowestDimension) : null;
-  const strongest = dashboard.strongestDimension ? BEHAVIOR_DIMENSIONS.find((dimension) => dimension.key === dashboard.strongestDimension) : null;
-  const strongestScore = strongest && latest ? Number(latest.scores?.[strongest.key] ?? 0) : null;
-  const checkins30 = dashboard.checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000).length;
   const degraded = dashboard.degradedSources.length > 0;
   const confidence = observedMeta.overallConfidence ?? "low";
   const confidenceLabel = confidence === "high" ? "alta" : confidence === "medium" ? "média" : "baixa";
   const maturing = observed.coverage > 0 && confidence !== "high";
 
+  // Snapshots anteriores (a semana atual é a leitura de agora, não um ponto de comparação).
+  const thisWeek = weekStartOf();
+  const history = (snapshotsQuery.data ?? []).filter((row) => row.week_start < thisWeek);
+  const baseline = degraded ? null : pickBaseline(history, todayISO());
+  const changes = compareDimensions(observed, baseline);
+  const verdict = buildBehaviorVerdict(changes, baseline, observed.overallScore);
+  const series = habitSeries(history, observed, thisWeek);
+  const weeksOfHistory = new Set([...history.map((row) => row.week_start), thisWeek]).size;
+  const impact = moneyImpactOf(dashboard.emotionSpend);
+
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
       <header>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Evolução</p>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">Seu dinheiro, seus hábitos.</h1>
+        <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">Seus hábitos com dinheiro</h1>
         <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-muted-foreground">
-          O Nino junta como você se sente, o que realmente acontece nas finanças e pequenos experimentos para ajudar você a mudar sem julgamento.
+          O que melhorou, o que piorou, por quê e quanto isso pesa no seu bolso.
         </p>
       </header>
 
@@ -175,55 +191,33 @@ export default function Emocoes() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-foreground">Uma parte da análise está em modo seguro.</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Seus registros principais continuam visíveis; apenas fontes auxiliares indisponíveis ficam sem estimativa.</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Seus registros principais continuam visíveis; a comparação com o passado fica pausada até a leitura completa voltar.</p>
             </div>
             <button type="button" onClick={() => dashboardQuery.refetch()} className="shrink-0 text-[11px] font-semibold text-primary">Atualizar</button>
           </div>
         </section>
       ) : maturing ? (
-        <section className="rounded-[20px] border border-primary/15 bg-primary/5 p-4">
-          <p className="text-xs font-semibold text-foreground">O Nino ainda está amadurecendo esta leitura.</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            A confiança geral é {confidenceLabel}{observedMeta.historyDays ? ` com ${observedMeta.historyDays} dias de histórico financeiro observado` : ""}. As notas já são úteis como sinal, mas podem mudar conforme novos ciclos, acessos e check-ins entram na base.
-          </p>
-        </section>
+        <p className="rounded-[20px] border border-primary/15 bg-primary/5 px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
+          <strong className="text-foreground">Leitura em amadurecimento.</strong> Confiança geral {confidenceLabel}{observedMeta.historyDays ? ` com ${observedMeta.historyDays} dias de histórico` : ""}. As notas já servem de sinal, mas podem mudar conforme entram novos dados.
+        </p>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <p className="mt-2 font-display text-xl font-bold">{latest ? Number(latest.overall_score).toFixed(1) : "—"}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Sua percepção</p>
-        </div>
-        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
-          <Eye className="h-4 w-4 text-success" />
-          <p className="mt-2 font-display text-xl font-bold">{observed.overallScore == null ? "—" : observed.overallScore.toFixed(1)}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Nino observa · {confidenceLabel}</p>
-        </div>
-        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
-          <Flame className="h-4 w-4 text-brand-coral" />
-          <p className="mt-2 font-display text-xl font-bold">{checkins30}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Check-ins 30d</p>
-        </div>
-        <div className="rounded-[20px] border border-border bg-card p-3 shadow-card">
-          <Target className="h-4 w-4 text-primary" />
-          <p className="mt-2 font-display text-xl font-bold">{dashboard.activeExperiments.length}</p>
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Experimentos</p>
-        </div>
-      </section>
+      <BehaviorVerdictCard verdict={verdict} overall={observed.overallScore} moodTrend14={dashboard.moodTrend14} />
 
-      {latest && (weakest || strongest) ? (
-        <section className="rounded-[22px] border border-primary/15 bg-gradient-to-br from-primary/10 to-card p-4">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {strongest && strongestScore != null ? (
-              strongestScore >= 7
-                ? <>Hoje você percebe <strong className="text-foreground">{strongest.label}</strong> como um ponto forte ({strongestScore.toFixed(1)}/10). </>
-                : <>Sua maior nota hoje é <strong className="text-foreground">{strongest.label}</strong> ({strongestScore.toFixed(1)}/10), mas isso ainda não significa um ponto forte consolidado. </>
-            ) : null}
-            {weakest ? <>O Nino vai priorizar experiências pequenas em <strong className="text-foreground">{weakest.label}</strong>, sem transformar isso em cobrança.</> : null}
-          </p>
-        </section>
-      ) : null}
+      <BehaviorWheel
+        latest={latest}
+        previous={dashboard.previousAssessment}
+        assessments={dashboard.assessments}
+        observed={observed}
+        cycle={cycle}
+        onSave={saveWheel}
+        saving={assessmentSaving}
+        baseline={baseline ? { date: baseline.week_start, scores: Object.fromEntries(BEHAVIOR_DIMENSIONS.map((d) => [d.key, baseline.dimensions[d.key]?.score ?? null])) } : null}
+      />
+
+      <WhatChanged changes={changes} hasBaseline={!!baseline} />
+      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} />
+      <MoneyImpactCard impact={impact} />
 
       {dashboard.activeExperiments.length > 0 ? (
         <div id="experimentos" className="scroll-mt-24">
@@ -231,18 +225,8 @@ export default function Emocoes() {
         </div>
       ) : null}
 
-      <EmotionalCheckinCard />
+      <div id="checkin" className="scroll-mt-24"><EmotionalCheckinCard /></div>
       <MoneyMoodTimeline snapshot={dashboard} />
-      <BehaviorWheel
-        latest={dashboard.latestAssessment}
-        previous={dashboard.previousAssessment}
-        assessments={dashboard.assessments}
-        observed={observed}
-        cycle={cycle}
-        onSave={saveWheel}
-        saving={assessmentSaving}
-      />
-      <CoachHighlights snapshot={dashboard} />
 
       {dashboard.activeExperiments.length === 0 ? (
         <div id="experimentos" className="scroll-mt-24">
@@ -250,11 +234,15 @@ export default function Emocoes() {
         </div>
       ) : null}
 
+      <CoachHighlights snapshot={dashboard} />
       <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
 
-      <section className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
-        <strong className="text-foreground">Como o Nino usa isso:</strong> sua percepção vem das respostas que você deu. A leitura observada usa comportamento financeiro, uso das superfícies do app, metas, reserva, histórico de check-ins e outros fatos disponíveis, sempre com confiança explícita. Qualidade do modelo ou categorização automática não valem como comportamento por si só. A comparação orienta experimentos — não é diagnóstico psicológico e não trata correlação como causa.
-      </section>
+      <details className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
+        <summary className="cursor-pointer font-semibold text-foreground">Como o Nino calcula isso</summary>
+        <p className="mt-2">
+          Sua percepção vem das respostas do mapa. A leitura observada usa comportamento financeiro, uso do app, metas, reserva e check-ins, sempre com confiança explícita; cada dimensão mostra os componentes e o peso de cada um. Toda semana o Nino guarda essa leitura para comparar com a de agora. A comparação orienta experimentos: não é diagnóstico psicológico e não trata correlação como causa.
+        </p>
+      </details>
     </div>
   );
 }

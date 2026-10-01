@@ -15,7 +15,7 @@ describe("behavioral map cycle v2", () => {
     expect(dashboard).toContain("emotionalScore(row)");
     expect(dashboard).toContain("moodHistory");
     expect(page).toContain("<MoneyMoodTimeline snapshot={dashboard}");
-    expect(page).toContain("const checkins30 = dashboard.checkins.filter");
+    expect(page).toContain("<BehaviorVerdictCard");
   });
 
   it("keeps self-perception separate from Nino observed evidence", () => {
