@@ -4,7 +4,7 @@
 --    'superseded') e todo o núcleo financeiro (insights/executive/load.ts)
 --    filtra 'confirmed'. As funções do PR #161 passaram a filtrar 'posted',
 --    que não existe no enum versionado: o backfill (status::text) casava zero
---    linhas e os experimentos (t.status = 'posted') falhariam no cast. Para não
+--    linhas e os experimentos (status igual a posted) falhariam no cast. Para não
 --    depender de qual rótulo o ambiente tem, o subsistema comportamental compara
 --    em texto contra os dois rótulos de "lançamento efetivado" — nunca inclui
 --    'planned' nem 'superseded'.
