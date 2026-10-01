@@ -173,7 +173,7 @@ function Sparkline({ points }: { points: HabitSeriesPoint[] }) {
 }
 
 /** Evolução: nota por semana de cada dimensão, com mínimo, máximo e variação. */
-export function HabitTrend({ series, changes, weeks }: { series: Record<BehaviorDimensionKey, HabitSeriesPoint[]>; changes: DimensionChange[]; weeks: number }) {
+export function HabitTrend({ series, changes, weeks, reconstructedWeeks = 0 }: { series: Record<BehaviorDimensionKey, HabitSeriesPoint[]>; changes: DimensionChange[]; weeks: number; reconstructedWeeks?: number }) {
   return (
     <section aria-label="Evolução dos hábitos" className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Evolução dos hábitos</p>
@@ -183,6 +183,11 @@ export function HabitTrend({ series, changes, weeks }: { series: Record<Behavior
           ? `${weeks} semanas de leitura guardadas. A linha ganha corpo a cada semana.`
           : "O Nino começou a guardar a leitura agora. A partir da próxima semana a linha de cada hábito aparece aqui."}
       </p>
+      {reconstructedWeeks > 0 ? (
+        <p className="mt-2 rounded-2xl bg-secondary/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          <strong className="text-foreground">Parte do passado foi reconstruída.</strong> {reconstructedWeeks} semana{reconstructedWeeks === 1 ? "" : "s"} vêm dos seus registros (check-ins, metas, dívidas e aportes); uso do app, planejamento e reserva só são medidos daqui para frente. Por isso a comparação com o passado usa menos dimensões e tem confiança menor.
+        </p>
+      ) : null}
       <ul className="mt-3 divide-y divide-border">
         {changes.filter((c) => c.score != null).map((c) => {
           const pts = series[c.key] ?? [];
