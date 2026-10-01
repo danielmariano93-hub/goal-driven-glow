@@ -55,6 +55,10 @@ export const FINANCE_CORE_MODULES = [
   "spendingGoals",
   "goalHistory",
   "reportDashboard",
+  "behaviorDimensions",
+  "behaviorObserved",
+  "behaviorEvolution",
+  "emotionSpendPairing",
 ];
 
 export const REPORT_MODULES = [

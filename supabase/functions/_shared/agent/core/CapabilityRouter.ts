@@ -48,6 +48,7 @@ export type CapabilityName =
   | "debt_status"
   | "emotional_checkin"
   | "emotion_finance"
+  | "behavior_evolution"
 
   | "insights"
   | "shared_goals"
@@ -271,6 +272,20 @@ export function hasEntryIntent(text: string): boolean {
 }
 
 
+/**
+ * Pergunta sobre a evolução dos HÁBITOS/comportamento financeiro ("como estão
+ * meus hábitos?", "meus hábitos melhoraram?", "como evoluiu meu comportamento
+ * financeiro?"). Exige o objeto (hábitos/comportamento) E um pedido de leitura
+ * de estado/evolução, para não capturar pedidos de criar hábito ou registrar.
+ */
+export function isBehaviorEvolutionQuestion(normalized: string): boolean {
+  const t = normalized;
+  const subject = /\b(meus? habitos?|habitos? (financeiros?|com (o )?dinheiro)|meu comportamento( financeiro| com (o )?dinheiro)?|comportamento financeiro|minha relacao com (o )?dinheiro)\b/.test(t);
+  if (!subject) return false;
+  if (/\b(cria\w*|criar|registr\w+|anot\w+|lanc\w+|quero (ter|criar|comecar)|comecar (um|o) habito)\b/.test(t)) return false;
+  return /\b(como (estao|esta|anda|andam|vai|vao|ficou|ficaram|foi|foram|evolu\w+|mud\w+)|melhor\w*|pior\w*|evolu\w+|mudou|mudaram|progred\w+|progresso|avanc\w+|regred\w+)\b/.test(t);
+}
+
 export function classifyCapability(
   text: string,
   parsed: ParsedIntent,
@@ -286,6 +301,16 @@ export function classifyCapability(
       name: "audio_status", execution: "deterministic", allowed_tools: [], required_tool: null,
       context: {}, clarification: "Sim — já estou ouvindo e transcrevendo seus áudios normalmente 🎧 Pode mandar o próximo.",
       reason: "runtime_audio_capability_status",
+    };
+  }
+
+  // Evolução dos hábitos: mesmo veredito determinístico da página Emocional.
+  // Vem antes de desempenho/evolução financeira, que medem dinheiro, não hábito.
+  if (isBehaviorEvolutionQuestion(t)) {
+    return {
+      name: "behavior_evolution", execution: "deterministic",
+      allowed_tools: ["get_behavior_evolution"], required_tool: "get_behavior_evolution",
+      context: {}, reason: "canonical_behavior_evolution",
     };
   }
 

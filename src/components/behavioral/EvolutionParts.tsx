@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Minus, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, History, Minus, Sparkles } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 import {
   DIMENSION_ACTION,
@@ -18,6 +18,22 @@ import type { BehaviorDimensionKey } from "@/lib/behavioral/client";
 const fmt = (v: number) => v.toFixed(1).replace(".", ",");
 const dateBR = (iso: string) => iso.split("-").reverse().join("/");
 
+/** Aviso acessível de histórico reconstruído (ícone + texto, nunca só cor). */
+export function ReconstructedHistoryNote({ weeks, compact = false }: { weeks?: number; compact?: boolean }) {
+  return (
+    <div role="note" aria-label="Histórico reconstruído (parcial)" className="mt-3 flex items-start gap-2 rounded-2xl border border-border bg-secondary/40 p-3">
+      <History size={14} aria-hidden className="mt-0.5 shrink-0 text-muted-foreground" />
+      <p className="min-w-0 break-words text-[11px] leading-relaxed text-muted-foreground">
+        <strong className="text-foreground">Histórico reconstruído (parcial)</strong>
+        {weeks ? ` · ${weeks} semana${weeks === 1 ? "" : "s"}` : ""}
+        {compact
+          ? ". A base de comparação vem dessa reconstrução."
+          : ". Para semanas antigas, o Nino só reconstruiu as evidências que existiam na época (check-ins, metas, dívidas e aportes). Leituras novas já são completas."}
+      </p>
+    </div>
+  );
+}
+
 const VERDICT_STYLE = {
   better: { wrap: "border-success/30 bg-success/5", chip: "bg-success/15 text-success", label: "Melhorando", Icon: ArrowUp },
   worse: { wrap: "border-brand-coral/30 bg-brand-coral/5", chip: "bg-brand-coral/15 text-brand-coral", label: "Piorando", Icon: ArrowDown },
@@ -25,7 +41,7 @@ const VERDICT_STYLE = {
   insufficient: { wrap: "border-border bg-card", chip: "bg-secondary text-muted-foreground", label: "Em observação", Icon: Sparkles },
 } as const;
 
-export function BehaviorVerdictCard({ verdict, overall, moodTrend14 }: { verdict: BehaviorVerdict; overall: number | null; moodTrend14: number | null }) {
+export function BehaviorVerdictCard({ verdict, overall, moodTrend14, baselineReconstructed = false }: { verdict: BehaviorVerdict; overall: number | null; moodTrend14: number | null; baselineReconstructed?: boolean }) {
   const style = VERDICT_STYLE[verdict.kind];
   const Icon = style.Icon;
   return (
@@ -56,6 +72,7 @@ export function BehaviorVerdictCard({ verdict, overall, moodTrend14 }: { verdict
           <dd className="mt-0.5 font-display text-xl font-bold tabular-nums">{moodTrend14 == null ? "—" : `${moodTrend14 > 0 ? "+" : moodTrend14 < 0 ? "−" : ""}${fmt(Math.abs(moodTrend14))}`}</dd>
         </div>
       </dl>
+      {baselineReconstructed ? <ReconstructedHistoryNote compact /> : null}
     </section>
   );
 }
@@ -183,11 +200,7 @@ export function HabitTrend({ series, changes, weeks, reconstructedWeeks = 0 }: {
           ? `${weeks} semanas de leitura guardadas. A linha ganha corpo a cada semana.`
           : "O Nino começou a guardar a leitura agora. A partir da próxima semana a linha de cada hábito aparece aqui."}
       </p>
-      {reconstructedWeeks > 0 ? (
-        <p className="mt-2 rounded-2xl bg-secondary/50 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          <strong className="text-foreground">Parte do passado foi reconstruída.</strong> {reconstructedWeeks} semana{reconstructedWeeks === 1 ? "" : "s"} vêm dos seus registros (check-ins, metas, dívidas e aportes); uso do app, planejamento e reserva só são medidos daqui para frente. Por isso a comparação com o passado usa menos dimensões e tem confiança menor.
-        </p>
-      ) : null}
+      {reconstructedWeeks > 0 ? <ReconstructedHistoryNote weeks={reconstructedWeeks} /> : null}
       <ul className="mt-3 divide-y divide-border">
         {changes.filter((c) => c.score != null).map((c) => {
           const pts = series[c.key] ?? [];
@@ -209,36 +222,36 @@ export function HabitTrend({ series, changes, weeks, reconstructedWeeks = 0 }: {
   );
 }
 
-/** Quanto o contexto emocional custa no dia a dia financeiro. */
+/** Gasto associado ao estado emocional, por janela de horário de cada check-in. */
 export function MoneyImpactCard({ impact }: { impact: MoneyImpact }) {
   return (
     <section aria-label="Impacto no dinheiro" className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Impacto no dinheiro</p>
-      <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Quando você está assim, gasta assim</h2>
+      <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Emoção e gasto andam juntos?</h2>
       {impact.sufficient ? (
         <>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-2xl border border-brand-coral/20 bg-brand-coral/5 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Dia sensível</p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Momento sensível</p>
               <p className="mt-0.5 font-display text-xl font-bold tabular-nums">{formatBRL(impact.sensitiveAvg)}</p>
-              <p className="text-[10px] text-muted-foreground">gasto médio por dia</p>
+              <p className="text-[10px] text-muted-foreground">gasto médio por check-in</p>
             </div>
             <div className="rounded-2xl border border-success/20 bg-success/5 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Dia tranquilo</p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Momento tranquilo</p>
               <p className="mt-0.5 font-display text-xl font-bold tabular-nums">{formatBRL(impact.calmAvg)}</p>
-              <p className="text-[10px] text-muted-foreground">gasto médio por dia</p>
+              <p className="text-[10px] text-muted-foreground">gasto médio por check-in</p>
             </div>
           </div>
           <p className="mt-3 text-[13px] leading-relaxed">
             {impact.extraPerDay > 0
-              ? <>Nos {impact.sensitiveDays} dias sensíveis, você gastou <strong>{formatBRL(impact.extraPerDay)} a mais por dia</strong> ({Math.round(impact.upliftPct)}% acima), cerca de <strong>{formatBRL(impact.extraTotal)}</strong> no total.</>
-              : <>Seus dias sensíveis não estão virando gasto maior: a média é {formatBRL(Math.abs(impact.extraPerDay))} menor por dia.</>}
+              ? <>Perto dos {impact.sensitiveDays} check-ins sensíveis, o gasto foi <strong>{formatBRL(impact.extraPerDay)} maior por momento</strong> ({Math.round(impact.upliftPct)}% acima), cerca de <strong>{formatBRL(impact.extraTotal)}</strong> no total.</>
+              : <>Seus momentos sensíveis não aparecem junto de gasto maior: a média é {formatBRL(Math.abs(impact.extraPerDay))} menor por momento.</>}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Baseado em {impact.pairedDays} dias com check-in e lançamentos. É associação, não causa.</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">Baseado em {impact.pairedDays} check-ins, contando gastos de 3h antes a 12h depois de cada um (cada gasto entra uma vez só). É associação, não causa.</p>
         </>
       ) : (
         <p className="mt-3 rounded-2xl bg-secondary/40 p-3 text-xs leading-relaxed text-muted-foreground">
-          Há {impact.pairedDays} dia{impact.pairedDays === 1 ? "" : "s"} com check-in e lançamentos. Com {MONEY_IMPACT_MIN_DAYS} dias pareados, incluindo dias sensíveis e tranquilos, o Nino mostra aqui quanto o seu estado emocional custa em reais.
+          Há {impact.pairedDays} check-in{impact.pairedDays === 1 ? "" : "s"} com horário de gasto observável. Com {MONEY_IMPACT_MIN_DAYS}, incluindo momentos sensíveis e tranquilos, o Nino mostra aqui quanto você costuma gastar perto de cada estado — associação, não causa.
         </p>
       )}
     </section>

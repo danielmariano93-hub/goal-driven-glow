@@ -17,8 +17,10 @@ import {
   type ExtendedBehavioralAssessment,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
+import { computeEmotionSpendAssociation, timedExpensesFromRows, type ExpenseRowForTiming, type TimedExpense } from "@/lib/engine/emotionSpendPairing";
 import {
   buildObservedProfileV2,
+  observedInputFromDashboardPayload,
   type BehavioralAppActivityStats,
   type BehavioralGoalCycle,
   type BehavioralInvestmentStats,
@@ -35,7 +37,6 @@ type FinancialRow = {
   available_balance?: number | null;
 };
 
-type ExpenseDay = { day: string; amount: number | string; tx_count?: number };
 
 type DashboardPayload = {
   server_now?: string;
@@ -47,7 +48,7 @@ type DashboardPayload = {
   hypotheses?: BehaviorHypothesis[];
   financial_snapshot?: FinancialRow | null;
   transaction_stats?: BehavioralTransactionStats | null;
-  expense_days?: ExpenseDay[];
+  expense_transactions?: ExpenseRowForTiming[];
   app_activity?: BehavioralAppActivityStats | null;
   goal_cycles?: BehavioralGoalCycle[];
   planning_stats?: BehavioralPlanningStats | null;
@@ -146,37 +147,13 @@ function dedupeHypotheses(rows: BehaviorHypothesis[]): BehaviorHypothesis[] {
     });
 }
 
-function computeEmotionSpend(checkins: EmotionalCheckinRow[], expenseDays: ExpenseDay[]) {
-  const checkinByDay = new Map<string, EmotionalCheckinRow>();
-  for (const row of checkins) {
-    const day = safeDay(row.occurred_at);
-    if (!checkinByDay.has(day)) checkinByDay.set(day, row);
-  }
-  const spendByDay = new Map<string, number>();
-  for (const row of expenseDays) {
-    const value = Number(row.amount);
-    if (Number.isFinite(value)) spendByDay.set(String(row.day).slice(0, 10), value);
-  }
-  const paired = [...checkinByDay.entries()]
-    .filter(([day]) => spendByDay.has(day))
-    .map(([day, checkin]) => ({ day, checkin, spend: spendByDay.get(day) ?? 0 }));
-  const vulnerable = paired.filter(({ checkin }) => emotionalScore(checkin) <= 4 || Number(checkin.spending_urge_score ?? 0) >= 7);
-  const comparison = paired.filter(({ checkin }) => emotionalScore(checkin) >= 6 && Number(checkin.spending_urge_score ?? 0) < 7);
-  const vulnerableAverage = avg(vulnerable.map((row) => row.spend));
-  const comparisonAverage = avg(comparison.map((row) => row.spend));
-  const sufficient = vulnerable.length >= 3 && comparison.length >= 3 && paired.length >= 8 && (comparisonAverage ?? 0) > 0;
-  const upliftPct = sufficient && vulnerableAverage != null && comparisonAverage != null
-    ? round((vulnerableAverage / comparisonAverage - 1) * 100)
-    : null;
-  return {
-    sufficient,
-    pairedDays: paired.length,
-    vulnerableDays: vulnerable.length,
-    comparisonDays: comparison.length,
-    vulnerableAverage: round(vulnerableAverage, 2),
-    comparisonAverage: round(comparisonAverage, 2),
-    upliftPct,
-  };
+/**
+ * Emoção × gasto: pareamento por janela de horário (`emotion_spend_pairing.v2`)
+ * com as transações brutas timestamped do RPC. Sem horários disponíveis, a
+ * associação fica insuficiente — nunca volta ao agregado por dia.
+ */
+function computeEmotionSpend(checkins: EmotionalCheckinRow[], expenses: TimedExpense[]) {
+  return computeEmotionSpendAssociation(checkins, expenses);
 }
 
 export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashboardState> {
@@ -234,7 +211,7 @@ export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashb
   const recentAvg = avg(recent14);
   const previousAvg = avg(previous14);
   const moodTrend14 = recentAvg != null && previousAvg != null ? round(recentAvg - previousAvg) : null;
-  const emotionSpend = computeEmotionSpend(checkins, payload.expense_days ?? []);
+  const emotionSpend = computeEmotionSpend(checkins, timedExpensesFromRows(payload.expense_transactions));
 
   const highlights: BehaviorHighlight[] = [];
   if (emotionSpend.sufficient && emotionSpend.upliftPct != null && Math.abs(emotionSpend.upliftPct) >= 20) {
@@ -260,15 +237,7 @@ export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashb
     highlights.push({ id: `hypothesis-${hypothesis.id}`, tone: "neutral", title: hypothesis.title, body: hypothesis.explanation, evidence: hypothesis.evidence });
   }
 
-  const observed = buildObservedProfileV2({
-    financialRow: payload.financial_snapshot ?? null,
-    checkins,
-    txStats: payload.transaction_stats ?? null,
-    appActivity: payload.app_activity ?? null,
-    goalCycles: payload.goal_cycles ?? [],
-    planningStats: payload.planning_stats ?? null,
-    investmentStats: payload.investment_stats ?? null,
-  });
+  const observed = buildObservedProfileV2(observedInputFromDashboardPayload(payload));
   const activeExperiments = experiments.filter((row) => row.status === "active");
   const latest = checkins[0] ?? null;
   const latestAgeHours = latest ? (Date.now() - new Date(latest.occurred_at).getTime()) / 3_600_000 : Infinity;

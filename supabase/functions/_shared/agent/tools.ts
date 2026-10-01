@@ -1677,6 +1677,7 @@ import {
   analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
+import { loadBehaviorHabitsReading, OBSERVED_RUNTIME_VERSION } from "../behavioral/observedRuntime.ts";
 
 export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
@@ -2739,6 +2740,38 @@ async function loadEmotionFinanceSettings(ctx: ToolContext) {
 }
 
 /**
+ * Evolução dos hábitos (`behavior_observed.v2`) — o MESMO veredito da página
+ * Emocional: mesma leitura observada, mesmos snapshots, base de comparação,
+ * confiança e limiar. Read-only; a LLM nunca decide a conclusão.
+ */
+async function get_behavior_evolution(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const { profile, reading } = await loadBehaviorHabitsReading(ctx.sb, ctx.user_id);
+    return {
+      ok: true,
+      result: {
+        engine: "behavior_evolution",
+        version: OBSERVED_RUNTIME_VERSION,
+        verdict: reading.verdict,
+        overall_score: profile.overallScore,
+        coverage: profile.coverage,
+        overall_confidence: (profile as any).overallConfidence ?? "low",
+        baseline_date: reading.baseline?.week_start ?? null,
+        baseline_reconstructed: reading.baselineReconstructed,
+        reconstructed_weeks: reading.reconstructedWeeks,
+        weeks_of_history: reading.weeksOfHistory,
+        changes: reading.changes.map((c) => ({
+          key: c.key, label: c.label, score: c.score, previous: c.previous, delta: c.delta,
+          direction: c.direction, confidence: c.confidence, why: c.why,
+        })),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: "behavior_evolution_failed", details: String((error as Error)?.message ?? error).slice(0, 240) };
+  }
+}
+
+/**
  * Padrões emoção × gasto do próprio usuário (`emotion_finance.v1`).
  * O cálculo é 100% determinístico e comparado ao baseline pessoal por dia da
  * semana. Associação observada — nunca causa.
@@ -3665,6 +3698,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_emotional_checkins,
+  },
+  {
+    name: "get_behavior_evolution",
+    description: "Evolução dos hábitos financeiros do usuário: o mesmo veredito da página Emocional (melhorando, parecido, piorando ou ainda sem comparação), com as dimensões que mudaram e o porquê. Use para 'como estão meus hábitos?', 'meus hábitos melhoraram?', 'como evoluiu meu comportamento financeiro?'. Read-only.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: get_behavior_evolution,
   },
   {
     name: "get_emotion_finance_patterns",
