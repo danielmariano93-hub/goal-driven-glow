@@ -4,16 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import type { ObservedBehaviorProfile } from "@/lib/behavioral/mapCycle";
 import { snapshotFromProfile, weekStartOf, type ObservedSnapshot } from "@/lib/behavioral/behaviorEvolution";
+import { OBSERVED_SNAPSHOT_MIN_COVERAGE } from "@/lib/engine/behaviorObserved";
 
 // Histórico semanal da leitura "Nino observa". A leitura de agora é gravada
 // (uma linha por semana, atualizada no dia) sempre que a página carrega com
 // dados canônicos; a tabela tem RLS por usuário.
 
-// TODO Entrega 2: remover este cast assim que o arquivo gerado do Supabase for
-// atualizado com behavior_observed_snapshots. Mantido isolado aqui para não
-// espalhar tipo frouxo pelo app.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const table = () => (supabase.from as unknown as (name: string) => any)("behavior_observed_snapshots");
+const table = () => supabase.from("behavior_observed_snapshots");
 export const OBSERVED_SNAPSHOTS_KEY = "behavior-observed-snapshots";
 
 export function useObservedSnapshots() {
@@ -29,8 +26,10 @@ export function useObservedSnapshots() {
         .order("week_start", { ascending: false })
         .limit(40);
       if (error) throw error;
-      return ((data ?? []) as ObservedSnapshot[]).map((row) => ({
+      return (data ?? []).map((row) => ({
         ...row,
+        confidence: row.confidence as ObservedSnapshot["confidence"],
+        dimensions: (row.dimensions ?? {}) as ObservedSnapshot["dimensions"],
         overall_score: row.overall_score == null ? null : Number(row.overall_score),
       }));
     },
@@ -45,7 +44,7 @@ export function useSaveObservedSnapshot(profile: ObservedBehaviorProfile | null,
     mutationFn: async (p: ObservedBehaviorProfile) => {
       const snap = snapshotFromProfile(p);
       const { error } = await table().upsert(
-        { user_id: user!.id, week_start: weekStartOf(), ...snap, updated_at: new Date().toISOString() },
+        { user_id: user!.id, week_start: weekStartOf(), ...snap, dimensions: snap.dimensions as never, updated_at: new Date().toISOString() },
         { onConflict: "user_id,week_start" },
       );
       if (error) throw error;
@@ -56,7 +55,7 @@ export function useSaveObservedSnapshot(profile: ObservedBehaviorProfile | null,
   const asOf = profile?.asOf ?? null;
   const overall = profile?.overallScore ?? null;
   useEffect(() => {
-    if (!user || !profile || !enabled || profile.coverage < 3) return;
+    if (!user || !profile || !enabled || profile.coverage < OBSERVED_SNAPSHOT_MIN_COVERAGE) return;
     mutate(profile);
     // uma gravação por carga de leitura (asOf/nota mudam quando o dado muda)
     // eslint-disable-next-line react-hooks/exhaustive-deps

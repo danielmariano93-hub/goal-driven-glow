@@ -2016,6 +2016,45 @@ export type Database = {
           },
         ]
       }
+      behavior_observed_snapshots: {
+        Row: {
+          confidence: string
+          coverage: number
+          created_at: string
+          dimensions: Json
+          id: string
+          methodology_version: string
+          overall_score: number | null
+          updated_at: string
+          user_id: string
+          week_start: string
+        }
+        Insert: {
+          confidence?: string
+          coverage?: number
+          created_at?: string
+          dimensions?: Json
+          id?: string
+          methodology_version?: string
+          overall_score?: number | null
+          updated_at?: string
+          user_id: string
+          week_start: string
+        }
+        Update: {
+          confidence?: string
+          coverage?: number
+          created_at?: string
+          dimensions?: Json
+          id?: string
+          methodology_version?: string
+          overall_score?: number | null
+          updated_at?: string
+          user_id?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
       behavioral_cycle_facts: {
         Row: {
           created_at: string
@@ -13693,6 +13732,22 @@ export type Database = {
       }
     }
     Functions: {
+      behavior_observed_active_users: {
+        Args: { p_after?: string; p_limit?: number; p_since_days?: number }
+        Returns: {
+          user_id: string
+        }[]
+      }
+      behavior_observed_backfill_v2: {
+        Args: { p_user_id?: string }
+        Returns: Json
+      }
+      behavior_observed_weekly_tick: { Args: never; Returns: number }
+      behavioral_dashboard_snapshot: { Args: never; Returns: Json }
+      behavioral_dashboard_snapshot_for_user: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       _break_glass_allowed_fields: { Args: never; Returns: string[] }
       _cron_secret: { Args: never; Returns: string }
       _envelope: {

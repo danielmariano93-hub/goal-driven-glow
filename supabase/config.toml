@@ -85,3 +85,7 @@ verify_jwt = false
 [functions.nino-insights]
 # Valida o JWT do usuário no próprio handler (e aceita o segredo interno de cron).
 verify_jwt = false
+
+[functions.behavior-observed-weekly]
+# Somente cron (x-cron-secret validado no handler).
+verify_jwt = false

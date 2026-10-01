@@ -1,31 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
+import { computeEmotionSpendAssociation, timedExpensesFromRows, type ExpenseRowForTiming } from "@/lib/engine/emotionSpendPairing";
 
-export type BehaviorDimensionKey =
-  | "awareness"
-  | "planning"
-  | "control"
-  | "consistency"
-  | "security"
-  | "wealth"
-  | "calm"
-  | "debt";
+import { BEHAVIOR_DIMENSIONS, emotionalScore, type BehaviorDimensionKey, type EmotionalCheckinRow } from "@/lib/engine/behaviorDimensions";
 
-export const BEHAVIOR_DIMENSIONS: Array<{
-  key: BehaviorDimensionKey;
-  label: string;
-  short: string;
-  question: string;
-}> = [
-  { key: "awareness", label: "Consciência", short: "Consciência", question: "Quanto você entende hoje para onde seu dinheiro vai e por que você decide gastar?" },
-  { key: "planning", label: "Planejamento", short: "Planejamento", question: "Quanto suas decisões financeiras costumam acontecer antes, e não depois do gasto?" },
-  { key: "control", label: "Controle de impulso", short: "Controle", question: "Quanto você sente que consegue escolher antes de agir quando surge vontade de gastar?" },
-  { key: "consistency", label: "Consistência", short: "Consistência", question: "Quanto seus bons hábitos financeiros sobrevivem às semanas mais corridas?" },
-  { key: "security", label: "Segurança", short: "Segurança", question: "Quanto você sente que consegue absorver imprevistos sem perder o controle do mês?" },
-  { key: "wealth", label: "Construção de patrimônio", short: "Patrimônio", question: "Quanto você está transformando renda em patrimônio de forma recorrente?" },
-  { key: "calm", label: "Tranquilidade com dinheiro", short: "Tranquilidade", question: "Quanto o dinheiro ocupa sua cabeça de forma tranquila, sem pressão desnecessária?" },
-  { key: "debt", label: "Relação com dívidas", short: "Dívidas", question: "Quanto você sente que suas dívidas e compromissos estão sob controle?" },
-];
+// Contrato das dimensões vive no motor canônico (espelhado para as Edge Functions).
+export { BEHAVIOR_DIMENSIONS, emotionalScore };
+export type { BehaviorDimensionKey, EmotionalCheckinRow };
 
 export type BehavioralAssessment = {
   id: string;
@@ -35,21 +16,6 @@ export type BehavioralAssessment = {
   source: string;
   version: string;
   created_at: string;
-};
-
-export type EmotionalCheckinRow = {
-  id: string;
-  occurred_at: string;
-  mood: number;
-  emotion_key?: string | null;
-  declared_emotion_key?: string | null;
-  trigger_label?: string | null;
-  notes?: string | null;
-  transaction_id?: string | null;
-  financial_calm_score?: number | null;
-  financial_control_score?: number | null;
-  spending_urge_score?: number | null;
-  context_key?: string | null;
 };
 
 export type BehaviorExperimentTemplate = {
@@ -165,11 +131,6 @@ function round(value: number | null, decimals = 1): number | null {
   return Math.round(value * p) / p;
 }
 
-export function emotionalScore(row: EmotionalCheckinRow): number {
-  if (row.financial_calm_score != null) return Number(row.financial_calm_score);
-  return Math.max(0, Math.min(10, Number(row.mood || 0) * 2));
-}
-
 function normalizeExperiment(row: BehaviorExperiment): BehaviorExperiment {
   return {
     ...row,
@@ -214,7 +175,7 @@ export async function loadBehavioralEvolution(userId: string): Promise<Behaviora
   const templatesTable = fromUntyped("behavior_experiment_templates");
 
   const transactionsPromise = fetchAllPages<TxForBehavior>((from, to) => supabase.from("transactions")
-    .select("id,amount,occurred_at,behavioral_day,status,type,movement_kind")
+    .select("id,amount,occurred_at,behavioral_day,status,type,movement_kind,local_occurred_at,occurred_at_time,created_at,origin")
     .eq("user_id", userId)
     .eq("status", "confirmed")
     .eq("type", "expense")
@@ -289,23 +250,15 @@ export async function loadBehavioralEvolution(userId: string): Promise<Behaviora
   const previousAvg = avg(previous14);
   const moodTrend14 = recentAvg != null && previousAvg != null ? round(recentAvg - previousAvg) : null;
 
-  const checkinByDay = new Map<string, EmotionalCheckinRow>();
-  for (const row of checkins) if (!checkinByDay.has(spDay(row.occurred_at))) checkinByDay.set(spDay(row.occurred_at), row);
-  const spendByDay = new Map<string, number>();
-  for (const row of txRows) {
-    if ((row.movement_kind ?? "transaction") !== "transaction") continue;
-    const day = String(row.behavioral_day ?? row.occurred_at).slice(0, 10);
-    spendByDay.set(day, (spendByDay.get(day) ?? 0) + Number(row.amount || 0));
-  }
-  const paired = [...checkinByDay.entries()].map(([day, checkin]) => ({ day, checkin, spend: spendByDay.get(day) ?? 0 }));
-  const vulnerable = paired.filter(({ checkin }) => emotionalScore(checkin) <= 4 || Number(checkin.spending_urge_score ?? 0) >= 7);
-  const comparison = paired.filter(({ checkin }) => emotionalScore(checkin) >= 6 && Number(checkin.spending_urge_score ?? 0) < 7);
-  const vulnerableAverage = avg(vulnerable.map((row) => row.spend));
-  const comparisonAverage = avg(comparison.map((row) => row.spend));
-  const sufficient = vulnerable.length >= 3 && comparison.length >= 3 && paired.length >= 8 && (comparisonAverage ?? 0) > 0;
-  const upliftPct = sufficient && vulnerableAverage != null && comparisonAverage != null
-    ? round((vulnerableAverage / comparisonAverage - 1) * 100)
-    : null;
+  // Mesmo pareamento por janela de horário do dashboard canônico.
+  const association = computeEmotionSpendAssociation(
+    checkins,
+    timedExpensesFromRows(txRows.filter((row) => (row.movement_kind ?? "transaction") === "transaction") as unknown as ExpenseRowForTiming[]),
+  );
+  const { sufficient, upliftPct, vulnerableAverage, comparisonAverage } = association;
+  const paired = { length: association.pairedCheckins };
+  const vulnerable = { length: association.vulnerableCheckins };
+  const comparison = { length: association.comparisonCheckins };
 
   const highlights: BehaviorHighlight[] = [];
   if (sufficient && upliftPct != null && Math.abs(upliftPct) >= 20) {
@@ -374,8 +327,8 @@ export async function loadBehavioralEvolution(userId: string): Promise<Behaviora
       pairedDays: paired.length,
       vulnerableDays: vulnerable.length,
       comparisonDays: comparison.length,
-      vulnerableAverage: round(vulnerableAverage, 2),
-      comparisonAverage: round(comparisonAverage, 2),
+      vulnerableAverage,
+      comparisonAverage,
       upliftPct,
     },
     experiments,
