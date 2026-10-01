@@ -211,7 +211,7 @@ export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashb
   const recentAvg = avg(recent14);
   const previousAvg = avg(previous14);
   const moodTrend14 = recentAvg != null && previousAvg != null ? round(recentAvg - previousAvg) : null;
-  const emotionSpend = computeEmotionSpend(checkins, payload.expense_days ?? []);
+  const emotionSpend = computeEmotionSpend(checkins, payload.expense_transactions ?? []);
 
   const highlights: BehaviorHighlight[] = [];
   if (emotionSpend.sufficient && emotionSpend.upliftPct != null && Math.abs(emotionSpend.upliftPct) >= 20) {
