@@ -6,7 +6,7 @@ import { isBehaviorEvolutionQuestion, classifyCapability } from "../../supabase/
 import { resolveV2DeterministicReadCapability } from "../../supabase/functions/_shared/agent/core/V2DeterministicHumanGate";
 import { formatBehaviorEvolution } from "../../supabase/functions/_shared/agent/core/DeterministicAnswersImpl";
 import { CAPABILITIES } from "../../supabase/functions/_shared/agent/core/CapabilityRegistry";
-import { interpret } from "../../supabase/functions/_shared/agent/core/SemanticInterpreter";
+import { interpret } from "../../supabase/functions/_shared/agent/parser";
 
 const read = (p: string) => readFileSync(p, "utf8");
 const migration = read("supabase/migrations/20261001320000_behavior_observed_weekly_and_timed_pairing.sql");
