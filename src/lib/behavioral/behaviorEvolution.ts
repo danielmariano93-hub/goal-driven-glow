@@ -9,13 +9,16 @@ import type { ObservedBehaviorProfile, ObservedDimension, ObservedFactor } from 
 export const BEHAVIOR_CHANGE_THRESHOLD = 0.5;
 const DAY_MS = 86_400_000;
 
-export type SnapshotDimension = { score: number | null; confidence: "low" | "medium" | "high"; factors?: ObservedFactor[] };
+type Confidence = "low" | "medium" | "high";
+
+export type SnapshotDimension = { score: number | null; confidence: Confidence; factors?: ObservedFactor[] };
 
 export type ObservedSnapshot = {
   week_start: string;
   overall_score: number | null;
   coverage: number;
-  confidence: "low" | "medium" | "high";
+  confidence: Confidence;
+  methodology_version?: string;
   dimensions: Partial<Record<BehaviorDimensionKey, SnapshotDimension>>;
 };
 
@@ -30,7 +33,8 @@ export type DimensionChange = {
   previous: number | null;
   delta: number | null;
   direction: ChangeDirection;
-  confidence: "low" | "medium" | "high";
+  /** Menor confiança entre a leitura atual e a base. */
+  confidence: Confidence;
   evidence: string;
   factors: FactorChange[];
   /** Componentes que mais explicam a variação (ou, sem base, os que mais pesam na nota). */
@@ -53,6 +57,12 @@ export type BehaviorVerdict = {
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
 const fmt = (v: number) => v.toFixed(1).replace(".", ",");
+const CONFIDENCE_RANK: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
+
+function weakestConfidence(current: Confidence, baseline?: Confidence): Confidence {
+  if (!baseline) return current;
+  return CONFIDENCE_RANK[current] <= CONFIDENCE_RANK[baseline] ? current : baseline;
+}
 
 /** Segunda-feira (America/Sao_Paulo) da semana da data. */
 export function weekStartOf(date: Date = new Date()): string {
@@ -63,14 +73,22 @@ export function weekStartOf(date: Date = new Date()): string {
 }
 
 /** Linha gravável do perfil observado de agora. */
-export function snapshotFromProfile(profile: ObservedBehaviorProfile & { overallConfidence?: "low" | "medium" | "high" }): Omit<ObservedSnapshot, "week_start"> {
+export function snapshotFromProfile(
+  profile: ObservedBehaviorProfile & { overallConfidence?: Confidence; methodologyVersion?: string },
+): Omit<ObservedSnapshot, "week_start"> {
   const dimensions: ObservedSnapshot["dimensions"] = {};
   for (const dim of BEHAVIOR_DIMENSIONS) {
     const row = profile.dimensions[dim.key];
     if (!row) continue;
     dimensions[dim.key] = { score: row.score, confidence: row.confidence, factors: row.factors };
   }
-  return { overall_score: profile.overallScore, coverage: profile.coverage, confidence: profile.overallConfidence ?? "low", dimensions };
+  return {
+    overall_score: profile.overallScore,
+    coverage: profile.coverage,
+    confidence: profile.overallConfidence ?? "low",
+    methodology_version: profile.methodologyVersion ?? "behavior_observed.v2",
+    dimensions,
+  };
 }
 
 /**
@@ -136,7 +154,10 @@ export function compareDimensions(profile: ObservedBehaviorProfile, baseline: Ob
     const direction = directionOf(delta);
     const base = {
       key: dim.key, label: dim.label, score, previous, delta, direction,
-      confidence: cur?.confidence ?? "low", evidence: cur?.evidence ?? "", factors, drivers: ranked.slice(0, 3),
+      // Uma reconstrução histórica de baixa confiança nunca pode virar, só porque
+      // a leitura atual é forte, uma afirmação de que o hábito melhorou/piorou.
+      confidence: weakestConfidence(cur?.confidence ?? "low", prevDim?.confidence),
+      evidence: cur?.evidence ?? "", factors, drivers: ranked.slice(0, 3),
     };
     return { ...base, why: whyText(base) };
   });
@@ -144,7 +165,7 @@ export function compareDimensions(profile: ObservedBehaviorProfile, baseline: Ob
 
 /**
  * Veredito: se melhorou, piorou ou ficou parecido. Considera as dimensões com
- * dois pontos comparáveis; baixa confiança não conta como mudança.
+ * dois pontos comparáveis; baixa confiança em qualquer um dos pontos não conta.
  */
 export function buildBehaviorVerdict(changes: DimensionChange[], baseline: ObservedSnapshot | null, overall: number | null): BehaviorVerdict {
   const comparable = changes.filter((c) => c.delta != null && c.confidence !== "low");
