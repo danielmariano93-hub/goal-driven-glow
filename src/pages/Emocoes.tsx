@@ -10,7 +10,7 @@ import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
 import { BehaviorVerdictCard, HabitTrend, MoneyImpactCard, WhatChanged } from "@/components/behavioral/EvolutionParts";
-import { buildBehaviorVerdict, compareDimensions, habitSeries, moneyImpactOf, pickBaseline, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
+import { behaviorHabitsReading, moneyImpactOf, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
 import { useObservedSnapshots, useSaveObservedSnapshot } from "@/lib/behavioral/observedSnapshots";
 import { todayISO } from "@/lib/engine/facts";
 import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
@@ -168,12 +168,9 @@ export default function Emocoes() {
 
   // Snapshots anteriores (a semana atual é a leitura de agora, não um ponto de comparação).
   const thisWeek = weekStartOf();
-  const history = (snapshotsQuery.data ?? []).filter((row) => row.week_start < thisWeek);
-  const baseline = degraded ? null : pickBaseline(history, todayISO());
-  const changes = compareDimensions(observed, baseline);
-  const verdict = buildBehaviorVerdict(changes, baseline, observed.overallScore);
-  const series = habitSeries(history, observed, thisWeek);
-  const weeksOfHistory = new Set([...history.map((row) => row.week_start), thisWeek]).size;
+  const { baseline, changes, verdict, series, weeksOfHistory, reconstructedWeeks, baselineReconstructed } = behaviorHabitsReading({
+    profile: observed, snapshots: snapshotsQuery.data ?? [], today: todayISO(), thisWeek, degraded,
+  });
   const impact = moneyImpactOf(dashboard.emotionSpend);
 
   return (
@@ -202,7 +199,7 @@ export default function Emocoes() {
         </p>
       ) : null}
 
-      <BehaviorVerdictCard verdict={verdict} overall={observed.overallScore} moodTrend14={dashboard.moodTrend14} />
+      <BehaviorVerdictCard verdict={verdict} overall={observed.overallScore} moodTrend14={dashboard.moodTrend14} baselineReconstructed={baselineReconstructed} />
 
       <BehaviorWheel
         latest={latest}
@@ -216,7 +213,7 @@ export default function Emocoes() {
       />
 
       <WhatChanged changes={changes} hasBaseline={!!baseline} />
-      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} />
+      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
       <MoneyImpactCard impact={impact} />
 
       {dashboard.activeExperiments.length > 0 ? (
