@@ -8,11 +8,12 @@ const triggerPrivileges = readFileSync("supabase/migrations/20260920035043_behav
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");
 const checkin = readFileSync("src/components/home/EmotionalCheckinCard.tsx", "utf8");
 const client = readFileSync("src/lib/behavioral/client.ts", "utf8");
+const copy = readFileSync("src/lib/behavioral/experimentCopy.ts", "utf8");
 const pairing = readFileSync("src/lib/engine/emotionSpendPairing.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const mood = readFileSync("src/components/behavioral/MoneyMoodTimeline.tsx", "utf8");
 const experiments = readFileSync("src/components/behavioral/ExperimentsBoard.tsx", "utf8");
-const highlights = readFileSync("src/components/behavioral/CoachHighlights.tsx", "utf8");
+const highlights = readFileSync("src/components/behavioral/EvolutionParts.tsx", "utf8");
 
 describe("behavioral evolution — three waves", () => {
   it("wave 1 quantifies money mood without claiming a clinical score", () => {
@@ -38,8 +39,10 @@ describe("behavioral evolution — three waves", () => {
       expect(migration).toContain(kind);
     }
     expect(client).toContain("recommendedForDimension");
-    expect(experiments).toContain('experiment.tracking_kind === "manual"');
-    expect(experiments).toContain("Você não precisa marcar tarefa manualmente");
+    // experimentos medidos pelo Nino não pedem marcação; os demais comprovam com lançamento/uso
+    expect(experiments).toContain("copy.mode");
+    expect(copy).toContain("Automático: o Nino");
+    expect(copy).toContain("Vincular");
     expect(page).toContain('id="experimentos"');
   });
 
@@ -49,7 +52,7 @@ describe("behavioral evolution — three waves", () => {
     expect(pairing).toContain("EMOTION_SPEND_MIN_PAIRED = 8");
     expect(pairing).toContain("vulnerable.length >= EMOTION_SPEND_MIN_PER_GROUP");
     expect(client).toContain("não uma relação de causa");
-    expect(highlights).toContain("Correlação emocional nunca é apresentada como diagnóstico ou causa");
+    expect(highlights).toContain("É associação, não causa");
     expect(page).toContain("confiança explícita");
     expect(page).toContain("não trata correlação como causa");
   });

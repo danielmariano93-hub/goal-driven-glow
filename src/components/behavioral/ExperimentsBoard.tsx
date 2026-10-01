@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { ArrowRight, CalendarDays, CheckCircle2, Clock3, FlaskConical, Loader2, RotateCcw, Sparkles, Target, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
@@ -6,6 +8,9 @@ import type {
   BehavioralEvolutionSnapshot,
 } from "@/lib/behavioral/client";
 import { experimentOutcome } from "@/lib/behavioral/experimentOutcome";
+import { evidenceItems, experimentCopy, progressLabel } from "@/lib/behavioral/experimentCopy";
+import { useExperimentEvents, useUnlinkEvent } from "@/lib/behavioral/experimentEvidence";
+import { EvidenceList, LinkTransactionSheet, PauseSheet, WeeklyReviewSheet } from "@/components/behavioral/ExperimentParts";
 
 const DAY_MS = 86_400_000;
 
@@ -42,11 +47,6 @@ function formatOutcomeValue(experiment: BehaviorExperiment, value: number | null
   return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1).replace(".", ",");
 }
 
-function progressText(experiment: BehaviorExperiment) {
-  if (experiment.tracking_kind === "spend_reduction_pct") return `${Math.max(0, Number(experiment.current_value)).toFixed(0)}% de redução observada`;
-  return `${Number(experiment.current_value).toFixed(0)} de ${Number(experiment.target_value).toFixed(0)}`;
-}
-
 function recommendationCopy(experiment: BehaviorExperiment) {
   const outcome = experimentOutcome(experiment);
   if (outcome.recommendation === "continue") {
@@ -62,14 +62,19 @@ export function ExperimentsBoard({
   snapshot,
   busy,
   onStart,
-  onLog,
+  onChanged,
 }: {
   snapshot: BehavioralEvolutionSnapshot;
   busy: string | null;
   onStart: (template: BehaviorExperimentTemplate) => Promise<void>;
-  onLog: (experiment: BehaviorExperiment) => Promise<void>;
+  /** Recarrega a página depois de vincular, desfazer, registrar pausa ou concluir revisão. */
+  onChanged: () => Promise<void>;
 }) {
   const active = snapshot.activeExperiments;
+  const eventsQuery = useExperimentEvents(active.map((row) => row.id));
+  const unlink = useUnlinkEvent(onChanged);
+  const [sheet, setSheet] = useState<{ kind: "link" | "review" | "pause"; experiment: BehaviorExperiment } | null>(null);
+  const closeSheet = (open: boolean) => { if (!open) setSheet(null); };
   const finished = snapshot.experiments
     .filter((row) => row.status === "completed" || row.status === "expired" || row.status === "abandoned")
     .slice(0, 3);
@@ -89,9 +94,12 @@ export function ExperimentsBoard({
       {active.length > 0 && (
         <div className="space-y-3">
           {active.map((experiment) => {
-            const manual = experiment.tracking_kind === "manual";
+            const copy = experimentCopy(experiment.template_slug);
             const timing = experimentTiming(experiment);
             const habitProgress = Math.max(0, Math.min(100, Number(experiment.progress)));
+            const events = (eventsQuery.data ?? []).filter((e) => e.experiment_id === experiment.id);
+            const items = evidenceItems(experiment.template_slug, events);
+            const showEvidence = copy.mode !== "auto";
             return (
               <article key={experiment.id} className="overflow-hidden rounded-[26px] border border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-card">
                 <div className="p-4">
@@ -99,56 +107,73 @@ export function ExperimentsBoard({
                     <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><FlaskConical size={19} /></span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold">{experiment.title}</p>
-                          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                            {manual ? "Você registra as ações; o Nino acompanha a evolução." : "O Nino mede automaticamente usando seus dados confirmados."}
-                          </p>
-                        </div>
+                        <p className="text-sm font-semibold">{experiment.title}</p>
                         <span className="shrink-0 rounded-full bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground">
                           Dia {timing.elapsedDays} de {timing.durationDays}
                         </span>
                       </div>
+                      <p className="mt-1 text-xs leading-relaxed text-foreground">{copy.what}</p>
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-[20px] border border-border/70 bg-background/75 p-3">
-                    <div className="flex items-center justify-between gap-3 text-[10px] font-medium text-muted-foreground">
-                      <span className="flex items-center gap-1"><CalendarDays size={12} /> {formatDate(experiment.started_at)}</span>
-                      <span className="flex items-center gap-1"><Clock3 size={12} /> {timing.remainingDays} dias restantes</span>
-                      <span>{formatDate(experiment.ends_at)}</span>
-                    </div>
-                    <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-                      <div className="h-full rounded-full bg-primary/45 transition-all duration-500" style={{ width: `${timing.timeProgress}%` }} />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[9px] uppercase tracking-wider text-muted-foreground">
-                      <span>Início</span><span>Tempo do experimento</span><span>Fim</span>
-                    </div>
+                  <div className="mt-3 rounded-2xl bg-secondary/40 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">O que conta</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] leading-relaxed text-foreground">
+                      {copy.counts.map((line) => <li key={line}>{line}</li>)}
+                    </ul>
+                    <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{copy.measured}</p>
                   </div>
 
                   <div className="mt-4">
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Progresso do hábito</p>
-                        <p className="mt-1 text-xs font-medium text-foreground">{progressText(experiment)}</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Progresso</p>
+                        <p className="mt-1 text-xs font-medium text-foreground">{progressLabel(experiment.template_slug, Number(experiment.current_value), Number(experiment.target_value))}</p>
                       </div>
                       <span className="font-display text-xl font-bold text-primary">{Math.round(habitProgress)}%</span>
                     </div>
                     <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-secondary">
                       <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${habitProgress}%` }} />
                     </div>
+                    <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1"><CalendarDays size={11} /> {formatDate(experiment.started_at)}</span>
+                      <span className="flex items-center gap-1"><Clock3 size={11} /> {timing.remainingDays} dias restantes</span>
+                      <span>{formatDate(experiment.ends_at)}</span>
+                    </div>
                   </div>
 
-                  {manual ? (
-                    <Button type="button" variant="outline" className="mt-4 min-h-10 w-full rounded-full text-xs font-semibold" disabled={busy === experiment.id} onClick={() => onLog(experiment)}>
-                      {busy === experiment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      Marcar uma ação feita
-                    </Button>
-                  ) : (
-                    <div className="mt-4 rounded-2xl bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                      Você não precisa marcar tarefa manualmente. O progresso é recalculado a partir dos lançamentos e check-ins confirmados.
+                  {showEvidence ? (
+                    <div className="mt-4">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Já contou</p>
+                      <EvidenceList items={items} busy={unlink.isPending} onUnlink={(eventId) => unlink.mutate({ eventId })} />
                     </div>
-                  )}
+                  ) : null}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {copy.mode === "auto_or_link" ? (
+                      <>
+                        {copy.route ? <Button asChild className="min-h-10 flex-1 rounded-full text-xs font-semibold"><Link to={copy.route.to}>{copy.route.label}</Link></Button> : null}
+                        <Button type="button" variant="outline" className="min-h-10 flex-1 rounded-full text-xs font-semibold" onClick={() => setSheet({ kind: "link", experiment })}>{copy.linkLabel}</Button>
+                      </>
+                    ) : null}
+                    {copy.mode === "auto_or_guided" ? (
+                      <>
+                        <Button type="button" className="min-h-10 flex-1 rounded-full text-xs font-semibold" onClick={() => setSheet({ kind: "review", experiment })}>Fazer a revisão guiada</Button>
+                        {copy.route ? <Button asChild variant="outline" className="min-h-10 flex-1 rounded-full text-xs font-semibold"><Link to={copy.route.to}>{copy.route.label}</Link></Button> : null}
+                      </>
+                    ) : null}
+                    {copy.mode === "manual_pause" ? (
+                      <>
+                        <Button type="button" className="min-h-10 flex-1 rounded-full text-xs font-semibold" onClick={() => setSheet({ kind: "pause", experiment })}>Registrar uma pausa</Button>
+                        <Button type="button" variant="outline" className="min-h-10 flex-1 rounded-full text-xs font-semibold" onClick={() => setSheet({ kind: "link", experiment })}>{copy.linkLabel}</Button>
+                      </>
+                    ) : null}
+                    {copy.mode === "auto" && copy.route ? (
+                      copy.route.to.startsWith("#")
+                        ? <Button asChild variant="outline" className="min-h-10 w-full rounded-full text-xs font-semibold"><a href={copy.route.to}>{copy.route.label}</a></Button>
+                        : <Button asChild variant="outline" className="min-h-10 w-full rounded-full text-xs font-semibold"><Link to={copy.route.to}>{copy.route.label}</Link></Button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             );
@@ -156,22 +181,38 @@ export function ExperimentsBoard({
         </div>
       )}
 
+      {sheet?.kind === "link" ? (
+        <LinkTransactionSheet experiment={sheet.experiment} open label={experimentCopy(sheet.experiment.template_slug).linkLabel ?? "Vincular um lançamento"} onOpenChange={closeSheet} onChanged={onChanged} />
+      ) : null}
+      {sheet?.kind === "review" ? (
+        <WeeklyReviewSheet experiment={sheet.experiment} events={(eventsQuery.data ?? []).filter((e) => e.experiment_id === sheet.experiment.id)} open onOpenChange={closeSheet} onChanged={onChanged} />
+      ) : null}
+      {sheet?.kind === "pause" ? <PauseSheet experiment={sheet.experiment} open onOpenChange={closeSheet} onChanged={onChanged} /> : null}
+
       {recommended.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2">
-          {recommended.map((template) => (
-            <article key={template.slug} className="rounded-[22px] border border-border bg-card p-4 shadow-card">
-              <div className="flex items-center justify-between gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-secondary text-primary"><Target size={16} /></span>
-                <span className="rounded-full bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{template.duration_days} dias</span>
-              </div>
-              <p className="mt-3 text-sm font-semibold">{template.title}</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{template.description}</p>
-              <Button type="button" className="mt-3 min-h-10 w-full rounded-full text-xs font-semibold" disabled={busy === template.slug} onClick={() => onStart(template)}>
-                {busy === template.slug ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {String(template.config?.cta ?? "Testar")}
-              </Button>
-            </article>
-          ))}
+          {recommended.map((template) => {
+            const copy = experimentCopy(template.slug);
+            return (
+              <article key={template.slug} className="rounded-[22px] border border-border bg-card p-4 shadow-card">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-secondary text-primary"><Target size={16} /></span>
+                  <span className="rounded-full bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">{template.duration_days} dias</span>
+                </div>
+                <p className="mt-3 text-sm font-semibold">{template.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-foreground">{copy.what}</p>
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">O que conta</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-muted-foreground">
+                  {copy.counts.map((line) => <li key={line}>{line}</li>)}
+                </ul>
+                <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">{copy.measured}</p>
+                <Button type="button" className="mt-3 min-h-10 w-full rounded-full text-xs font-semibold" disabled={busy === template.slug} onClick={() => onStart(template)}>
+                  {busy === template.slug ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {String(template.config?.cta ?? "Testar")}
+                </Button>
+              </article>
+            );
+          })}
         </div>
       )}
 

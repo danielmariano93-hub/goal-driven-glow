@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -7,7 +8,6 @@ import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
-import { CoachHighlights } from "@/components/behavioral/CoachHighlights";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
 import { BehaviorVerdictCard, HabitTrend, MoneyImpactCard, WhatChanged } from "@/components/behavioral/EvolutionParts";
 import { behaviorHabitsReading, moneyImpactOf, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
@@ -16,10 +16,8 @@ import { todayISO } from "@/lib/engine/facts";
 import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
 import {
   BEHAVIOR_DIMENSIONS,
-  logBehaviorExperiment,
   startBehaviorExperiment,
   type BehaviorDimensionKey,
-  type BehaviorExperiment,
   type BehaviorExperimentTemplate,
 } from "@/lib/behavioral/client";
 import {
@@ -133,18 +131,6 @@ export default function Emocoes() {
     } finally { setExperimentBusy(null); }
   }
 
-  async function logExperiment(experiment: BehaviorExperiment) {
-    setExperimentBusy(experiment.id);
-    try {
-      const updated = await logBehaviorExperiment(experiment.id);
-      toast.success(Number(updated.progress) >= 100 ? "Experimento concluído!" : "Ação registrada.");
-      await refresh();
-    } catch (error) {
-      console.error("[behavior:experiment:log]", error);
-      toast.error("Não deu para registrar essa ação agora.");
-    } finally { setExperimentBusy(null); }
-  }
-
   if (!user || dashboardQuery.isLoading) {
     return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
@@ -199,6 +185,14 @@ export default function Emocoes() {
         </p>
       ) : null}
 
+      {dashboard.momentSignal ? (
+        <section className="rounded-[22px] border border-brand-coral/25 bg-brand-coral/5 p-4" aria-label="Sinal do momento">
+          <p className="text-sm font-semibold">{dashboard.momentSignal.title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{dashboard.momentSignal.body}</p>
+          <Link to="/app/planejamento" className="mt-2 inline-block text-xs font-semibold text-primary">Antes de comprar</Link>
+        </section>
+      ) : null}
+
       <BehaviorVerdictCard verdict={verdict} overall={observed.overallScore} moodTrend14={dashboard.moodTrend14} baselineReconstructed={baselineReconstructed} />
 
       <BehaviorWheel
@@ -218,7 +212,7 @@ export default function Emocoes() {
 
       {dashboard.activeExperiments.length > 0 ? (
         <div id="experimentos" className="scroll-mt-24">
-          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
+          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
         </div>
       ) : null}
 
@@ -227,12 +221,11 @@ export default function Emocoes() {
 
       {dashboard.activeExperiments.length === 0 ? (
         <div id="experimentos" className="scroll-mt-24">
-          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onLog={logExperiment} />
+          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
         </div>
       ) : null}
 
-      <CoachHighlights snapshot={dashboard} />
-      <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
+            <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
 
       <details className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
         <summary className="cursor-pointer font-semibold text-foreground">Como o Nino calcula isso</summary>
