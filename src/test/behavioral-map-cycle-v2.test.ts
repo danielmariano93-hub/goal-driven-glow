@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const mapCycle = readFileSync("src/lib/behavioral/mapCycle.ts", "utf8");
 const dashboard = readFileSync("src/lib/behavioral/dashboardSnapshot.ts", "utf8");
-const observedV2 = readFileSync("src/lib/behavioral/observedProfileV2.ts", "utf8");
+const observedV2 = readFileSync("src/lib/engine/behaviorObserved.ts", "utf8");
 const wheel = readFileSync("src/components/behavioral/BehaviorWheel.tsx", "utf8");
 const moodTimeline = readFileSync("src/components/behavioral/MoneyMoodTimeline.tsx", "utf8");
 const page = readFileSync("src/pages/Emocoes.tsx", "utf8");

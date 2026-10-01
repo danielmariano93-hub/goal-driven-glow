@@ -55,6 +55,7 @@ export const FINANCE_CORE_MODULES = [
   "spendingGoals",
   "goalHistory",
   "reportDashboard",
+  "behaviorObserved",
 ];
 
 export const REPORT_MODULES = [

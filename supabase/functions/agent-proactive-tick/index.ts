@@ -17,6 +17,7 @@ import { markProactiveScan, selectProactiveUserIds } from "../_shared/intelligen
 import { loadProactiveWhatsappCadence } from "../_shared/intelligence/proactiveWhatsappCadence.ts";
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
+import { saveWeeklyObservedSnapshot } from "../_shared/behavior/observedSnapshot.ts";
 import { runMultiFinanceProactive, type MultiFinanceRunResult } from "../_shared/proactive/pipeline.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -215,6 +216,12 @@ Deno.serve(async (req) => {
         errors.push(...experimentResult.errors);
       } catch (error) {
         errors.push(stageError("behavior_experiments", error));
+      }
+
+      try {
+        await saveWeeklyObservedSnapshot(sb, uid);
+      } catch (error) {
+        errors.push(stageError("behavior_snapshot", error));
       }
     }
 

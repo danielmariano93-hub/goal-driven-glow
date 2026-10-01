@@ -1,15 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
 
-export type BehaviorDimensionKey =
-  | "awareness"
-  | "planning"
-  | "control"
-  | "consistency"
-  | "security"
-  | "wealth"
-  | "calm"
-  | "debt";
+export type { BehaviorDimensionKey } from "@/lib/engine/behaviorObserved";
+import type { BehaviorDimensionKey } from "@/lib/engine/behaviorObserved";
 
 export const BEHAVIOR_DIMENSIONS: Array<{
   key: BehaviorDimensionKey;

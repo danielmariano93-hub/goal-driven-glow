@@ -37,5 +37,6 @@ export * from "./categoryWeekdayHeatmap.ts";
 export * from "./spendingGoals.ts";
 export * from "./goalHistory.ts";
 export * from "./reportDashboard.ts";
+export * from "./behaviorObserved.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
 export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";
