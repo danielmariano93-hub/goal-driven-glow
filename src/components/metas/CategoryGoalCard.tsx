@@ -117,11 +117,21 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
 
       <p className="mt-2 text-[12px] text-foreground">{evaluation.message}</p>
       {evaluation.remainingDays > 0 && !overLimit && evaluation.status !== "scheduled" && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          Você pode gastar até{" "}
-          <span className="font-medium tabular-nums text-foreground">{formatBRL(evaluation.dailyAllowance)}/dia</span>{" "}
-          nos próximos {evaluation.remainingDays} dia(s).
-        </p>
+        // R$/dia só existe em categoria de consumo contínuo; em categoria de
+        // compromisso (ou sem histórico) mostrar "R$ 0,00/dia" era falso.
+        evaluation.supportsDailyBudget && evaluation.dailyAllowance > 0 ? (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Você pode gastar até{" "}
+            <span className="font-medium tabular-nums text-foreground">{formatBRL(evaluation.dailyAllowance)}/dia</span>{" "}
+            nos próximos {evaluation.remainingDays} {evaluation.remainingDays === 1 ? "dia" : "dias"}.
+          </p>
+        ) : (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Restam{" "}
+            <span className="font-medium tabular-nums text-foreground">{formatBRL(Math.max(0, evaluation.remainingAmount))}</span>{" "}
+            até o fim do período ({evaluation.remainingDays} {evaluation.remainingDays === 1 ? "dia" : "dias"}).
+          </p>
+        )
       )}
       {overLimit && evaluation.remainingDays > 0 && (
         <p className="mt-0.5 text-[11px] text-muted-foreground">

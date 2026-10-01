@@ -16,7 +16,7 @@ import { httpContext } from "../_shared/http.ts";
 import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared/insights/executive/engine.ts";
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
-import { adviseGoals, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
+import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -141,10 +141,12 @@ Deno.serve(async (req) => {
       const onlyCategoryIds = Array.isArray(body.category_ids)
         ? body.category_ids.filter((id): id is string => typeof id === "string").slice(0, 30)
         : undefined;
+      const readings = readGoals(ctx);
       return h.ok({
         ok: true,
         as_of: ctx.as_of,
-        goals: readGoals(ctx),
+        goals: readings,
+        history: goalHistoryOf(ctx, readings),
         advice: body.advice === true ? adviseGoals(ctx, { onlyCategoryIds }) : null,
       });
     }

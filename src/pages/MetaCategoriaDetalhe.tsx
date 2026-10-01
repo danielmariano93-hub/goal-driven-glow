@@ -21,6 +21,7 @@ import type { MerchantTargetEvaluation } from "@/lib/engine/spendingGoals";
 import {
   useSaveMerchantTarget,
   useSetSavingsDestination,
+  useGoalHistory,
   useSpendingGoalAdvice,
   useSpendingGoalReadings,
   useUpdateMerchantTargetStatus,
@@ -28,6 +29,7 @@ import {
 import { GoalMerchantBreakdown } from "@/components/metas/GoalMerchantBreakdown";
 import { MerchantTargetForm } from "@/components/metas/MerchantTargetForm";
 import { CategoryHistoryInsight } from "@/components/metas/CategoryHistoryInsight";
+import { GoalHistoryPanel } from "@/components/metas/GoalHistoryViews";
 
 export default function MetaCategoriaDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -46,6 +48,7 @@ export default function MetaCategoriaDetalhe() {
   const [openForm, setOpenForm] = useState(false);
   const { data: readings, isLoading: readingsLoading, isError: readingsError } = useSpendingGoalReadings();
   const { data: advice } = useSpendingGoalAdvice();
+  const { data: goalHistory } = useGoalHistory();
   const { data: savingGoals } = useGoals();
   const saveTarget = useSaveMerchantTarget();
   const targetStatus = useUpdateMerchantTargetStatus();
@@ -65,6 +68,11 @@ export default function MetaCategoriaDetalhe() {
   );
 
   const reading = useMemo(() => (readings ?? []).find((r) => r.goal_id === id) ?? null, [readings, id]);
+  // A meta é uma série por categoria: setembro e outubro contam a mesma história.
+  const historySeries = useMemo(
+    () => goalHistory?.series.find((s) => s.category_id === goal?.category_id) ?? null,
+    [goalHistory, goal?.category_id],
+  );
   const categoryAdvice = useMemo(
     () => advice?.categories.find((c) => c.category_id === goal?.category_id) ?? null,
     [advice, goal?.category_id],
@@ -157,6 +165,8 @@ export default function MetaCategoriaDetalhe() {
       ) : readingsError ? (
         <p className="mt-5 text-xs text-muted-foreground">Não consegui carregar o detalhamento por estabelecimento agora.</p>
       ) : null}
+
+      {historySeries ? <GoalHistoryPanel series={historySeries} /> : null}
 
       {categoryAdvice ? (
         <section className="mt-5">

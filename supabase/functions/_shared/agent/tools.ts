@@ -8,6 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
+import { goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
 import { readPriorityFeed } from "../proactive/priorityFeed.ts";
 import {
   behavioralMetricAmount,
@@ -1291,7 +1292,27 @@ export async function get_financial_snapshot(ctx: ToolContext): Promise<ToolResu
 export async function list_category_spending_goals(ctx: ToolContext): Promise<ToolResult> {
   try {
     const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
-    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length } };
+    // goal_history.v1 — a mesma leitura mês a mês da tela de Metas: o Nino
+    // responde "como fui nas metas?" com placar, tendência e highlights.
+    const history = snap.active_category_goals.length
+      ? await loadSpendingGoalContext(ctx.sb, ctx.user_id, snap.today)
+        .then((sg) => goalHistoryOf(sg))
+        .then((h) => ({
+          highlights: h.highlights.map((x) => ({ tone: x.tone, title: x.title, body: x.body })),
+          series: h.series.map((s) => ({
+            category: s.category_name,
+            baseline: s.baseline,
+            met_months: s.kpis.met_months,
+            closed_months: s.kpis.closed_months,
+            streak: s.kpis.streak,
+            savings_total: s.kpis.savings_total,
+            change_vs_baseline: s.kpis.change_vs_baseline,
+            months: s.months.filter((m) => m.goal_id).map((m) => ({ month: m.month, status: m.status, limit: m.limit, actual: m.actual })),
+          })),
+        }))
+        .catch(() => null)
+      : null;
+    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length, history } };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
