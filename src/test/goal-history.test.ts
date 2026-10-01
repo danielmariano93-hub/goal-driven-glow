@@ -61,7 +61,8 @@ describe("histórico das metas como série por categoria", () => {
     const titles = history.highlights.map((h) => h.title);
     expect(titles).toContain("Transporte subiu 26%");
     expect(titles).toContain("Transporte fechou setembro acima");
-    expect(titles.some((t) => t.includes("acima da referência desde setembro"))).toBe(true);
+    expect(history.highlights[0].id).toBe("impact");
+    expect(history.impact.estimated_savings).toBeLessThan(0);
   });
 
   it("meta recorrente: sequência, economia e queda frente à referência", () => {
@@ -80,7 +81,8 @@ describe("histórico das metas como série por categoria", () => {
     const titles = h.highlights.map((x) => x.title);
     expect(titles).toContain("Lazer caiu 35%");
     expect(titles).toContain("Lazer: 3 meses seguidos na meta");
-    expect(titles.some((t) => /^R\$\s1\.050,00 economizados desde julho$/.test(t))).toBe(true);
+    expect(h.impact.estimated_savings).toBe(1050);
+    expect(h.highlights[0].title).toMatch(/^As metas evitaram cerca de R\$\s1\.050,00 em gastos$/);
   });
 
   it("sem mês fechado ainda: avisa quando sai o primeiro fechamento", () => {
@@ -90,5 +92,50 @@ describe("histórico das metas como série por categoria", () => {
       entries: [], categories,
     });
     expect(h.highlights.map((x) => x.id)).toContain("first_close");
+  });
+
+  it("meses guardados no histórico voltam quando a meta foi editada ou excluída", () => {
+    const r = [tx("2026-07-10", 900, "Uber"), tx("2026-08-10", 800, "Uber"), tx("2026-09-10", 1300, "Uber"), tx("2026-09-12", 500, "Bar", L), tx("2026-08-12", 400, "Bar", L)];
+    const h = buildGoalHistory({
+      today: "2026-10-01", entries: buildSpendingLedger(r), categories,
+      // Transporte: a meta de agosto foi editada para setembro (viva) e agosto ficou guardado.
+      goals: [goal({ id: "live", start_date: "2026-09-01", end_date: "2026-09-30", computed_limit: 1222.86 })],
+      cycles: [
+        goal({ id: "c-ago-t", start_date: "2026-08-01", end_date: "2026-08-31", computed_limit: 824.98 }),
+        // Lazer: meta excluída, só existe no histórico.
+        goal({ id: "c-ago-l", category_id: L, start_date: "2026-08-01", end_date: "2026-08-31", computed_limit: 668.01 }),
+        goal({ id: "c-set-l", category_id: L, start_date: "2026-09-01", end_date: "2026-09-30", computed_limit: 1272.79 }),
+      ],
+    });
+    const t = h.series.find((s) => s.category_id === T)!;
+    const l = h.series.find((s) => s.category_id === L)!;
+    expect(t.months.filter((m) => m.goal_id).map((m) => [m.month, m.status, m.limit])).toEqual([
+      ["2026-08", "met", 824.98], ["2026-09", "missed", 1222.86], ["2026-10", "no_goal", null],
+    ].filter((x) => x[2] !== null));
+    expect(l.months.filter((m) => m.goal_id).map((m) => [m.month, m.status])).toEqual([["2026-08", "met"], ["2026-09", "met"]]);
+  });
+
+  it("impacto desconta o quanto os gastos sem meta variaram (diferenças em diferenças)", () => {
+    const M = "cat-mercado";
+    const r = [
+      // Transporte (com meta a partir de julho): 1000/mês antes, 700 depois.
+      tx("2026-04-10", 1000, "Uber"), tx("2026-05-10", 1000, "Uber"), tx("2026-06-10", 1000, "Uber"),
+      tx("2026-07-10", 700, "Uber"), tx("2026-08-10", 700, "Uber"),
+      // Mercado (sem meta): subiu 10% no mesmo período.
+      tx("2026-04-10", 500, "Extra", M), tx("2026-05-10", 500, "Extra", M), tx("2026-06-10", 500, "Extra", M),
+      tx("2026-07-10", 550, "Extra", M), tx("2026-08-10", 550, "Extra", M),
+    ];
+    const h = buildGoalHistory({
+      today: "2026-09-05", entries: buildSpendingLedger(r), alertsDelivered: 4,
+      categories: [...categories, { id: M, name: "Mercado" }],
+      goals: [goal({ id: "g", start_date: "2026-07-01", period_type: "monthly_recurring", computed_limit: 800 })],
+    });
+    expect(h.impact.control_change).toBe(0.1);
+    expect(h.impact.expected_without_goals).toBe(2200);
+    expect(h.impact.actual_with_goals).toBe(1400);
+    expect(h.impact.estimated_savings).toBe(800);
+    expect(h.impact.net_effect).toBe(-0.4);
+    expect(h.impact.alerts_delivered).toBe(4);
+    expect(h.impact.explanation).toContain("subiram 10%");
   });
 });
