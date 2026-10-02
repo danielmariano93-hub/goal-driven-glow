@@ -74,6 +74,7 @@ const MetaConjuntaDetalhe = lazyRoute(() => import("./pages/MetaConjuntaDetalhe"
 
 // Platform admin (lazy)
 const AdminCockpit = lazyRoute(() => import("./pages/admin/Cockpit"));
+const AdminCentralDeComando = lazyRoute(() => import("./pages/admin/CentralDeComando"));
 const AdminCrescimentoHub = lazyRoute(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazyRoute(() => import("./pages/admin/Clientes"));
 const AdminClienteFicha = lazyRoute(() => import("./pages/admin/ClienteFicha"));
@@ -205,8 +206,9 @@ const App = () => (
                 element={<PlatformAdminRoute><AdminLayout /></PlatformAdminRoute>}
               >
                 {/* Centro de decisão — 6 destinos */}
-                <Route index element={<AdminCockpit />} />
-                <Route path="visao-geral" element={<AdminCockpit />} />
+                <Route index element={<AdminCentralDeComando />} />
+                <Route path="visao-geral" element={<AdminCentralDeComando />} />
+                <Route path="painel-antigo" element={<AdminCockpit />} />
                 <Route path="clientes" element={<AdminClientes />} />
                 <Route path="clientes/:pseudoId" element={<AdminClienteFicha />} />
                 <Route path="produto" element={<AdminCrescimentoHub />} />
