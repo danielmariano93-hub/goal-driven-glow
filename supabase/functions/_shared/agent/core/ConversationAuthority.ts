@@ -193,6 +193,7 @@ function humanSemanticClarification(
   input: AuthorityInput,
   reason: string,
   telemetry: SemanticTelemetry | null,
+  question = "Quero confirmar só um ponto antes de seguir. Qual período ou item você quer considerar?",
 ): ConversationBrainOutcome {
   const contract = normalizeConversationTurnContract({
     version: "conversation_turn_contract.v2",
@@ -210,7 +211,7 @@ function humanSemanticClarification(
     },
     action: null,
     direct_reply: null,
-    clarification_question: "Quero confirmar só um ponto antes de seguir. Qual período ou item você quer considerar?",
+    clarification_question: question,
     resolution: {
       intent: "ambiguous", reference: "not_applicable", time: "ambiguous",
       entity: "not_applicable", action: "not_applicable",
@@ -284,6 +285,14 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   ).slice(0, 220);
   console.warn("[ConversationAuthority] semantic authority unavailable", reason);
 
+  // As duas leituras independentes divergiram numa ESCRITA: nada é registrado às cegas,
+  // mas a pessoa recebe uma pergunta objetiva em vez de uma falha genérica.
+  if (/semantic_tier_disagreement/.test(reason)) {
+    return humanSemanticClarification(
+      input, reason, semantic.telemetry,
+      "Quero registrar certinho. Pode me dizer o valor e onde foi o gasto? Por exemplo: “gastei 35 no almoço hoje”.",
+    );
+  }
   if (isProviderCapacityFailure(reason) || isProviderStructuredFailure(reason)) {
     return humanTechnicalFallback(input, reason, semantic.telemetry);
   }
