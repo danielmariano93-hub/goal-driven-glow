@@ -45,3 +45,20 @@ describe("central de comando: o que exige ação", () => {
     expect(errorLabel("algo_novo")).toBe("algo novo");
   });
 });
+
+import { servicesAttention, serviceState } from "../lib/admin/commandCenter";
+describe("rotinas do sistema", () => {
+  const now = Date.parse("2026-10-02T12:00:00Z");
+  const svc = (over: object) => ({ job_key: "x", last_run_at: "2026-10-02T11:00:00Z", next_run_at: null, last_ok: true, processed: 1, failed: 0, last_error_code: null, ...over });
+  it("estados", () => {
+    expect(serviceState(svc({}) as never, now)).toBe("ok");
+    expect(serviceState(svc({ last_run_at: "2026-09-30T00:00:00Z" }) as never, now)).toBe("stale");
+    expect(serviceState(svc({ last_ok: false }) as never, now)).toBe("failing");
+    expect(serviceState(svc({ last_run_at: null }) as never, now)).toBe("stale");
+  });
+  it("só gera atenção para o que parou ou falha", () => {
+    const items = servicesAttention([svc({}), svc({ job_key: "a", last_run_at: "2026-09-30T00:00:00Z" }), svc({ job_key: "b", last_ok: false, last_error_code: "timeout" })] as never, (k) => `Job ${k}`, now);
+    expect(items.map((i) => i.severity)).toEqual(["critical", "warning"]);
+    expect(items[1].detail).toContain("timeout");
+  });
+});

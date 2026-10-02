@@ -8,9 +8,10 @@ import { SkeletonTable } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage } from "@/lib/admin/adminRpc";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { PRESET_LABELS, resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
-import { useCommandCenter } from "@/lib/admin/useCommandCenter";
+import { useCommandCenter, useOpsHealth } from "@/lib/admin/useCommandCenter";
+import { dict } from "@/lib/admin/displayDictionary";
 import {
-  buildAttention, errorLabel, modelName, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
+  buildAttention, errorLabel, modelName, serviceState, servicesAttention, type OpsService, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
 } from "@/lib/admin/commandCenter";
 
@@ -189,9 +190,43 @@ export function AiPerformance({ data }: { data: CommandCenterData }) {
   );
 }
 
+function SystemRoutines({ services }: { services: OpsService[] }) {
+  if (!services.length) return null;
+  const rows = [...services].sort((a, b) => {
+    const rank = { stale: 0, failing: 1, ok: 2 } as const;
+    return rank[serviceState(a)] - rank[serviceState(b)];
+  });
+  const bad = rows.filter((s) => serviceState(s) !== "ok").length;
+  return (
+    <details className="surface-card p-4 md:p-5" open={bad > 0}>
+      <summary className="cursor-pointer font-display text-base font-semibold">
+        Rotinas do sistema <span className="ml-1 text-xs font-normal text-muted-foreground">{bad ? `${bad} com problema` : `${rows.length} saudáveis`}</span>
+      </summary>
+      <ul className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+        {rows.map((s) => {
+          const st = serviceState(s);
+          return (
+            <li key={s.job_key} className="flex items-center justify-between gap-3">
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${st === "ok" ? "bg-success" : st === "failing" ? "bg-warning" : "bg-destructive"}`} aria-hidden />
+                <span className="truncate">{dict.job(s.job_key)}</span>
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">{s.last_run_at ? new Date(s.last_run_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "nunca"}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
 function Overview({ data }: { data: CommandCenterData }) {
   const t = data.totals;
-  const attention = useMemo(() => buildAttention(data), [data]);
+  const ops = useOpsHealth();
+  const attention = useMemo(
+    () => buildAttention(data, servicesAttention(ops.data?.services ?? [], (k) => dict.job(k))),
+    [data, ops.data],
+  );
   const daily = data.daily;
   const success = 1 - t.err_rate;
   const successPrev = 1 - t.err_rate_prev;
@@ -229,6 +264,8 @@ function Overview({ data }: { data: CommandCenterData }) {
       </div>
 
       <AiPerformance data={data} />
+
+      <SystemRoutines services={ops.data?.services ?? []} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="O que mais dá errado" subtitle="Causas das conversas com falha, da mais frequente para a menos">

@@ -78,7 +78,6 @@ const AdminCentralDeComando = lazyRoute(() => import("./pages/admin/CentralDeCom
 const AdminCrescimentoHub = lazyRoute(() => import("./pages/admin/CrescimentoHub"));
 const AdminClientes = lazyRoute(() => import("./pages/admin/Clientes"));
 const AdminClienteFicha = lazyRoute(() => import("./pages/admin/ClienteFicha"));
-const AdminOperacoesHub = lazyRoute(() => import("./pages/admin/OperacoesHub"));
 const AdminAdministracaoHub = lazyRoute(() => import("./pages/admin/AdministracaoHub"));
 const AdminComunicacaoProativa = lazyRoute(() => import("./pages/admin/ComunicacaoProativa"));
 const AdminNinoIA = lazyRoute(() => import("./pages/admin/NinoIA"));
@@ -212,7 +211,7 @@ const App = () => (
                 <Route path="clientes" element={<AdminClientes />} />
                 <Route path="clientes/:pseudoId" element={<AdminClienteFicha />} />
                 <Route path="produto" element={<AdminCrescimentoHub />} />
-                <Route path="operacoes" element={<AdminOperacoesHub />} />
+                <Route path="operacoes" element={<Navigate to="/admin/visao-geral" replace />} />
                 <Route path="comunicacoes" element={<AdminComunicacaoProativa />} />
                 <Route path="nino-ia" element={<AdminNinoIA />} />
                 <Route path="administracao" element={<AdminAdministracaoHub />} />
@@ -228,8 +227,8 @@ const App = () => (
                 <Route path="financeiro" element={<Navigate to="/admin/produto" replace />} />
                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
 
-                <Route path="operacao" element={<Navigate to="/admin/operacoes" replace />} />
-                <Route path="operacao/saude" element={<Navigate to="/admin/operacoes" replace />} />
+                <Route path="operacao" element={<Navigate to="/admin/visao-geral" replace />} />
+                <Route path="operacao/saude" element={<Navigate to="/admin/visao-geral" replace />} />
                 <Route path="operacao/whatsapp" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="whatsapp" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="mensagens" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />

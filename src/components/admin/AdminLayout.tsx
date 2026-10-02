@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Users, Sparkles, MessageCircle,
-  Activity, ShieldCheck, LogOut, Menu, Bot,
+  ShieldCheck, LogOut, Menu, Bot,
 
   PanelLeftClose, PanelLeftOpen, X,
 } from "lucide-react";
@@ -42,7 +42,6 @@ const GROUPS: Group[] = [
     items: [
       { to: "/admin/comunicacoes", label: "Mensageria", icon: MessageCircle, action: "messaging.read" },
       { to: "/admin/nino-ia", label: "Nino & IA", icon: Bot, action: "operations.read" },
-      { to: "/admin/operacoes", label: "Saúde da plataforma", icon: Activity, action: "operations.read" },
     ],
   },
   {

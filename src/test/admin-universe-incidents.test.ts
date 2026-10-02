@@ -87,7 +87,7 @@ describe("incidentes acionáveis", () => {
     });
     const wa = incidents.find((i) => i.id === "whatsapp-channel")!;
     expect(wa.severity).toBe("critical");
-    expect(wa.action?.to).toBe("/admin/operacoes?secao=whatsapp");
+    expect(wa.action?.to).toBe("/admin/comunicacoes?aba=mensagens");
     expect(wa.title).not.toMatch(/disconnected/);
   });
 

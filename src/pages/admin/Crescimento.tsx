@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
-import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
+import { growthInsights, retentionTone } from "@/lib/admin/growthInsights";
 import { adminErrorMessage, callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
@@ -113,27 +112,27 @@ export default function Crescimento() {
         <EmptyState title="Não foi possível carregar o resumo" description={error} />
       ) : summary ? (
         <>
-          <section>
-            <div className="mb-2 flex items-center gap-2">
-              <h2 className="text-xs uppercase tracking-wider text-muted-foreground">Estoque atual</h2>
-              <span className="rounded-full border border-border bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
-                agora
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-2">
-              <AdminMetricCard label="Clientes totais" value={summary.total_clients} tone="brand" />
-              <AdminMetricCard label="Com dados financeiros" value={summary.with_financial_data} tone="positive" />
-            </div>
-          </section>
-
-          <section>
-            <h2 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Fluxo no período</h2>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <AdminMetricCard label="Novos clientes" value={summary.new_clients} tone="brand" />
-              <AdminMetricCard label="Ativados" value={summary.activated_clients} tone="positive" />
-              <AdminMetricCard label="Ativos" value={summary.active_clients} tone="positive" />
-              <AdminMetricCard label="Dormant" value={summary.dormant_clients} tone="warning" />
-            </div>
+          <ul className="grid gap-3 md:grid-cols-2" aria-label="Leitura do crescimento">
+            {growthInsights(summary).map((i) => (
+              <li key={i.key} className={`rounded-2xl border p-4 ${i.tone === "danger" ? "border-destructive/40 bg-destructive/5" : i.tone === "warning" ? "border-warning/50 bg-warning/5" : i.tone === "success" ? "border-success/30 bg-success/5" : "border-border bg-card"}`}>
+                <p className="font-semibold leading-snug">{i.title}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{i.detail}</p>
+              </li>
+            ))}
+          </ul>
+          <section className="surface-card space-y-3 p-4 md:p-5">
+            <h2 className="font-display text-base font-semibold">Da chegada ao uso</h2>
+            <p className="text-xs text-muted-foreground">Quantos clientes existem em cada estágio agora e quantos chegaram no período.</p>
+            <FunnelBars
+              title=""
+              steps={[
+                { label: "Clientes cadastrados", users: summary.total_clients, events: 0 },
+                { label: "Com dados financeiros", users: summary.with_financial_data, events: 0 },
+                { label: "Ativados no período", users: summary.activated_clients, events: 0 },
+                { label: "Ativos no período", users: summary.active_clients, events: 0 },
+              ]}
+            />
+            <p className="text-xs text-muted-foreground">Novos no período: <b className="text-foreground">{summary.new_clients}</b> · Dormentes: <b className="text-foreground">{summary.dormant_clients}</b></p>
           </section>
         </>
       ) : null}
@@ -180,16 +179,7 @@ export default function Crescimento() {
         {loading ? (
           <AdminSkeleton />
         ) : cohorts?.cohorts?.length ? (
-          <AdminResponsiveList
-            rows={cohorts.cohorts}
-            rowKey={(row, index) => `${row.cohort_week}-${row.week_offset}-${index}`}
-            columns={[
-              { key: "cohort", label: "Coorte", render: (row) => row.cohort_week },
-              { key: "week", label: "Semana", render: (row) => `W${row.week_offset}` },
-              { key: "activated", label: "Ativados", render: (row) => row.activated_users, align: "right" },
-              { key: "retained", label: "Retidos", render: (row) => row.retained_users, align: "right" },
-            ]}
-          />
+          <RetentionGrid rows={cohorts.cohorts} />
         ) : (
           <EmptyState
             title="Ainda não há histórico suficiente para calcular retenção"
@@ -197,6 +187,42 @@ export default function Crescimento() {
           />
         )}
       </section>
+    </div>
+  );
+}
+
+function RetentionGrid({ rows }: { rows: CohortRow[] }) {
+  const weeks = [...new Set(rows.map((r) => r.cohort_week))].sort();
+  const offsets = [...new Set(rows.map((r) => r.week_offset))].sort((a, b) => a - b);
+  const cell = (w: string, o: number) => rows.find((r) => r.cohort_week === w && r.week_offset === o);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[420px] text-center text-xs">
+        <thead>
+          <tr className="text-muted-foreground">
+            <th className="py-1 pr-2 text-left font-medium">Entrada</th>
+            <th className="px-1 font-medium">Ativados</th>
+            {offsets.map((o) => <th key={o} className="px-1 font-medium">Sem. {o}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((w) => {
+            const base = cell(w, offsets[0]);
+            return (
+              <tr key={w}>
+                <td className="py-1 pr-2 text-left tabular-nums">{w.slice(5).split("-").reverse().join("/")}</td>
+                <td className="px-1 tabular-nums">{base?.activated_users ?? "—"}</td>
+                {offsets.map((o) => {
+                  const c = cell(w, o);
+                  const rate = c ? (c.retention_rate > 1 ? c.retention_rate / 100 : c.retention_rate) : null;
+                  return <td key={o} className="p-0.5"><div className={`rounded-md py-1 tabular-nums ${retentionTone(rate)}`}>{rate == null ? "·" : `${Math.round(rate * 100)}%`}</div></td>;
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[11px] text-muted-foreground">Cada linha é uma semana de entrada; cada coluna, a fração que continuou usando depois de N semanas. Verde = retém bem, vermelho = perde rápido.</p>
     </div>
   );
 }

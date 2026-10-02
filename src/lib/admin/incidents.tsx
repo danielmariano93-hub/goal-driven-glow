@@ -44,7 +44,7 @@ export function buildIncidents({
       probableCause: statusView.label,
       action: {
         label: disconnected ? "Reconectar agora" : "Verificar canal",
-        to: "/admin/operacoes?secao=whatsapp",
+        to: "/admin/comunicacoes?aba=mensagens",
       },
       technical: (
         <span>
@@ -79,7 +79,7 @@ export function buildIncidents({
       title: `${broken.length} automação(ões) fora do ritmo`,
       impact: "Lembretes e envios programados podem não sair no horário combinado com o cliente.",
       probableCause: broken.map(([key]) => dict.job(key)).join(", "),
-      action: { label: "Ver automações", to: "/admin/operacoes" },
+      action: { label: "Ver automações", to: "/admin/visao-geral" },
       technical: (
         <ul>
           {broken.map(([key, j]) => (

@@ -10,7 +10,7 @@ import { SkeletonStats } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage, callAdminRpc } from "@/lib/admin/adminRpc";
 import { ProactiveEnginePanelV2 } from "@/components/admin/ProactiveEnginePanelV2";
 import { AdminTabs } from "@/components/admin/AdminTabs";
-import { AdminChart } from "@/components/admin/AdminChart";
+import { SmoothChart } from "@/components/admin/kit/SmoothChart";
 import { dict } from "@/lib/admin/displayDictionary";
 import { SplitReminderJourney } from "@/components/admin/SplitReminderJourney";
 import { FlowsBoard } from "@/components/admin/messaging/FlowsBoard";
@@ -44,9 +44,13 @@ type QualitySummary = {
 };
 
 const PERIODS = [
+  { days: 1, label: "24 horas" },
   { days: 7, label: "7 dias" },
+  { days: 14, label: "14 dias" },
   { days: 30, label: "30 dias" },
   { days: 90, label: "90 dias" },
+  { days: 180, label: "6 meses" },
+  { days: 365, label: "12 meses" },
 ];
 
 const CHANNELS = [
@@ -254,7 +258,8 @@ function Overview() {
             icon={Radio}
             description="Candidatas geradas, entregas e retenções por dia no período selecionado."
           >
-            <AdminChart
+            <SmoothChart
+              height={240}
               data={(q.data?.daily ?? []).map((item) => ({
                 ...item,
                 day: new Date(`${item.day}T12:00:00`).toLocaleDateString("pt-BR", {
@@ -264,13 +269,13 @@ function Overview() {
               }))}
               xKey="day"
               series={[
-                { key: "total", label: "Candidatas geradas", color: "#6D4AFF" },
-                { key: "delivered", label: "Entregues", color: "#2FC99A" },
-                { key: "suppressed", label: "Retidas por regra", color: "#FFB020" },
-                { key: "failed", label: "Falhas de envio", color: "#FF6B5F" },
+                { key: "total", label: "Candidatas geradas", kind: "area", color: "hsl(var(--primary))" },
+                { key: "delivered", label: "Entregues", kind: "line", color: "hsl(var(--success))" },
+                { key: "suppressed", label: "Retidas por regra", kind: "line", color: "hsl(var(--warning))", dashed: true },
+                { key: "failed", label: "Falhas de envio", kind: "line", color: "hsl(var(--destructive))" },
               ]}
-              caption={`${days} dias · ${channel ? dict.channel(channel) : "todos os canais"} · dados de entrega reais`}
             />
+            <p className="mt-2 text-[11px] text-muted-foreground">{days === 1 ? "Últimas 24 horas" : `${days} dias`} · {channel ? dict.channel(channel) : "todos os canais"} · dados de entrega reais</p>
           </Section>
 
 
