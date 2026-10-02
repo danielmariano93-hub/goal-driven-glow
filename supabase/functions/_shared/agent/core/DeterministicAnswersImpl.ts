@@ -43,17 +43,27 @@ export function formatFinancialSnapshot(s: any): string {
 export function formatGoalsOverview(result: any): string {
   const filter = result?.category_filter;
   if (filter?.applied) {
+    const own = Array.isArray(result.items) ? result.items : [];
     const rows = Array.isArray(result.category_goals) ? result.category_goals : [];
-    if (!rows.length) {
+    const joint = Array.isArray(result.shared_goals) ? result.shared_goals : [];
+    if (!own.length && !rows.length && !joint.length) {
       return `Você ainda não tem uma meta de ${filter.requested} cadastrada. Quer que eu crie uma com você?`;
     }
-    return rows.slice(0, 3).map((item: any) => {
+    const lines: string[] = [];
+    for (const item of rows.slice(0, 3)) {
       const used = Number(item.used_pct ?? 0);
       const state = item.over_limit
         ? `passou do limite em ${money(Math.abs(Number(item.remaining ?? 0)))}`
         : `ainda ${money(item.remaining)} disponíveis`;
-      return `Meta de ${item.name}: você usou ${money(item.achieved)} de ${money(item.target)} (${used}%) — ${state}.`;
-    }).join("\n");
+      lines.push(`Meta de ${item.name}: você usou ${money(item.achieved)} de ${money(item.target)} (${used}%) — ${state}.`);
+    }
+    for (const item of own.slice(0, 3)) {
+      lines.push(`Meta ${item.name}: ${money(item.achieved)} de ${money(item.target)} (${PCT.format(Number(item.attainment_pct ?? 0))}%). Falta ${money(item.remaining)}.`);
+    }
+    for (const item of joint.slice(0, 3)) {
+      lines.push(`Meta conjunta ${item.title}: alvo de ${money(item.target_amount)}${item.deadline ? ` até ${item.deadline}` : ""}.`);
+    }
+    return lines.join("\n");
   }
   const personal = Array.isArray(result.items) ? result.items : [];
   const categories = Array.isArray(result.category_goals) ? result.category_goals : [];
@@ -66,7 +76,9 @@ export function formatGoalsOverview(result: any): string {
     lines.push(`• ${item.name}: ${money(item.achieved)} de ${money(item.target)} (${PCT.format(Number(item.attainment_pct ?? 0))}%). Falta ${money(item.remaining)}.`);
   }
   for (const item of categories.slice(0, 8)) {
-    lines.push(`• Categoria ${item.name}: ${money(item.achieved)} usados de ${money(item.target)}; ${money(item.remaining)} disponíveis.`);
+    lines.push(Number(item.remaining) < 0
+      ? `• Categoria ${item.name}: ${money(item.achieved)} usados de ${money(item.target)}; passou ${money(Math.abs(Number(item.remaining)))} do limite.`
+      : `• Categoria ${item.name}: ${money(item.achieved)} usados de ${money(item.target)}; ${money(item.remaining)} disponíveis.`);
   }
   for (const item of shared.slice(0, 5)) {
     lines.push(`• Meta conjunta ${item.title}: alvo de ${money(item.target_amount)}${item.deadline ? ` até ${item.deadline}` : ""}.`);
