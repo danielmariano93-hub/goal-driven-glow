@@ -620,7 +620,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       memory,
       workflow,
       user_context: userContext,
-      model: BRAIN_MODEL,
+      // Sem modelo explícito: o interpretador semântico usa NINO_SEMANTIC_PRIMARY_MODEL
+      // (benchmark real: qwen3.6-27b). Fixar aqui sobrescrevia a configuração.
+      model: null,
       sb,
       user_id: input.user_id,
       run_id: null,
