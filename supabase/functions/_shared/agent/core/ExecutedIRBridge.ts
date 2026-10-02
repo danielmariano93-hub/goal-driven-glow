@@ -212,7 +212,9 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
 const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health"]);
 
 function fromStateEngine(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
-  if (!STATE_METRICS.has(String(requested.metric))) return null;
+  const isForecast = requested.operation === "forecast" && result != null && typeof result === "object"
+    && Number.isFinite(Number((result as Record<string, unknown>).point));
+  if (!isForecast && !STATE_METRICS.has(String(requested.metric))) return null;
   if (!result || typeof result !== "object" || Array.isArray(result)) return null;
   const r = result as Record<string, unknown>;
   if (r.error || r.ok === false || Object.keys(r).length === 0) return null;
