@@ -40,6 +40,7 @@ import { assessDataQuality } from "../_shared/proactive/dataQuality.ts";
 
 
 import { canGenerateNow, dedupKeyForTip, selectTip, type LedgerRow, type TipCandidate } from "../_shared/intelligence/tipPolicy.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const cronHeader = req.headers.get("x-cron-secret") ?? "";
-  const isCron = CRON_SECRET !== "" && cronHeader === CRON_SECRET;
+  const isCron = CRON_SECRET !== "" && safeEqual(cronHeader, CRON_SECRET);
   const auth = req.headers.get("Authorization") ?? "";
   if (!isCron && !auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 

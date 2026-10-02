@@ -19,6 +19,7 @@ import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
 import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDashboard/runtime.ts";
 import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
+import { matchesAnySecret } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -79,7 +80,7 @@ Deno.serve(async (req) => {
 
   let userId: string | null = null;
   const cronHeader = req.headers.get("x-cron-secret") ?? "";
-  if (cronHeader && CRON_SECRETS.includes(cronHeader) && typeof body.user_id === "string") {
+  if (cronHeader && matchesAnySecret(cronHeader, CRON_SECRETS) && typeof body.user_id === "string") {
     userId = body.user_id;
   } else {
     const auth = req.headers.get("Authorization") ?? "";

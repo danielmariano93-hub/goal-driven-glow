@@ -15,6 +15,7 @@ import { shift, today as localToday } from "../_shared/finance-core/ninoClock.ts
 
 const FN = "finance-backfill-runner";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
 
   const cronHdr = req.headers.get("x-cron-secret") ?? "";
   const authHdr = req.headers.get("Authorization") ?? "";
-  const okCron = CRON_SECRET.length > 0 && cronHdr === CRON_SECRET;
+  const okCron = CRON_SECRET.length > 0 && safeEqual(cronHdr, CRON_SECRET);
   const okService = authHdr === `Bearer ${SERVICE_ROLE}`;
   if (!okCron && !okService) return fail("unauthorized", { status: 401, functionName: FN });
 

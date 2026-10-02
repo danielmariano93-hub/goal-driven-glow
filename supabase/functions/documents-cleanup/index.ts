@@ -9,6 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
   const providedSecret = req.headers.get("x-internal-secret") ?? req.headers.get("x-cron-secret") ?? "";
   const authorized =
     auth === `Bearer ${SERVICE_ROLE}` ||
-    (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
+    (INTERNAL_SECRET.length > 0 && safeEqual(providedSecret, INTERNAL_SECRET));
   if (!authorized) return h.fail("unauthorized", 401);
 
 

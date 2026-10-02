@@ -13,6 +13,7 @@ import {
 import { normalizedPattern } from "../_shared/categorization/normalize.ts";
 import { materializePreferencesFromHistory, type LearnableRow } from "../_shared/categorization/personalHistory.ts";
 import { fetchAllPages } from "../_shared/derived/pagedSelect.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL=Deno.env.get("SUPABASE_URL")??"";
 const ANON_KEY=Deno.env.get("SUPABASE_ANON_KEY")??"";
@@ -281,7 +282,7 @@ Deno.serve(async(req)=>{
   try{
     const parsed=BodySchema.safeParse(await req.json()); if(!parsed.success)return response({error:"Entrada inválida",details:parsed.error.flatten().fieldErrors},400); const body=parsed.data;
     const admin=createClient(SUPABASE_URL,SERVICE_ROLE,{auth:{persistSession:false}});
-    const cronHeader=req.headers.get("x-cron-secret")??""; const isCron=CRON_SECRET!==""&&cronHeader===CRON_SECRET;
+    const cronHeader=req.headers.get("x-cron-secret")??""; const isCron=CRON_SECRET!==""&&safeEqual(cronHeader,CRON_SECRET);
     let userId:string|null=null;
     if(!isCron){const auth=req.headers.get("Authorization")??"";const client=createClient(SUPABASE_URL,ANON_KEY,{global:{headers:{Authorization:auth}}});const {data:{user},error:authError}=await client.auth.getUser();if(authError||!user)return response({error:"Não autenticado"},401);userId=user.id;}
     if(body.operation==="process_queue_global"){

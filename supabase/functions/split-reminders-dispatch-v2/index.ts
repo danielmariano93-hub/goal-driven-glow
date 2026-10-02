@@ -11,6 +11,7 @@ import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from ".
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
 import { activeReceivables, buildInstallmentSchedule, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -191,7 +192,7 @@ Deno.serve(async (req) => {
 
   const cronHeader = req.headers.get("x-cron-secret") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
-  const validCron = CRON_SECRET.length > 0 && cronHeader === CRON_SECRET;
+  const validCron = CRON_SECRET.length > 0 && safeEqual(cronHeader, CRON_SECRET);
   const validService = authHeader === `Bearer ${SERVICE_ROLE}`;
   const caller = (!validCron && !validService)
     ? await authenticatedCaller(authHeader)

@@ -7,6 +7,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { fetchWahaAck } from "../_shared/messaging/wahaAck.ts";
 import { getProvider, getWahaAccess, loadWahaConfig, validateWahaCredentials } from "../_shared/messaging/waha.ts";
 import { classifyRepairOutcome, decideSelfHeal } from "../_shared/messaging/webhookSelfHeal.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -57,7 +58,7 @@ Deno.serve(async (req) => {
   const providedSecret = req.headers.get("x-internal-secret") ?? req.headers.get("x-cron-secret") ?? "";
   const authorized =
     auth === `Bearer ${SERVICE_ROLE}` ||
-    (INTERNAL_SECRET.length > 0 && providedSecret === INTERNAL_SECRET);
+    (INTERNAL_SECRET.length > 0 && safeEqual(providedSecret, INTERNAL_SECRET));
   if (!authorized) return h.fail("unauthorized", 401);
 
 

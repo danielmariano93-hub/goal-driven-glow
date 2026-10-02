@@ -37,6 +37,7 @@ import { REPORT_SCHEMA_CONTRACT_VERSION, projection } from "./projections.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordGatewayCall } from "../_shared/aiUsageLedger.ts";
 import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 
 const FN = "financial-reports-generate";
@@ -634,7 +635,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const cronHeader = req.headers.get("x-cron-secret") ?? "";
-  const isCron = CRON_SECRET !== "" && cronHeader === CRON_SECRET;
+  const isCron = CRON_SECRET !== "" && safeEqual(cronHeader, CRON_SECRET);
   const auth = req.headers.get("Authorization") ?? "";
   if (!isCron && !auth.startsWith("Bearer ")) return fail("unauthorized", { status: 401, functionName: FN });
 

@@ -1,13 +1,14 @@
 // One-shot admin bootstrap. Called manually by the project owner via HTTPS.
 // Guardrails:
 //   - Requires JWT of an existing authenticated user (verify_jwt = true) OR service role.
-//   - Requires header X-Bootstrap-Secret === CRON_SECRET.
+//   - Requires header X-Bootstrap-Secret igual a CRON_SECRET (comparação em tempo constante).
 //   - Env BOOTSTRAP_DISABLED=1 hard-disables the function.
 //   - Reads target credentials from env only. Never accepts password from request body.
 //   - Never logs or returns the password.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -26,7 +27,7 @@ Deno.serve(async (req) => {
   const bootHeader = req.headers.get("x-bootstrap-secret") ?? "";
   const tokenHeader = req.headers.get("x-bootstrap-token") ?? "";
   const bootToken = Deno.env.get("BOOTSTRAP_TOKEN") ?? "";
-  const okBySecret = CRON_SECRET && bootHeader === CRON_SECRET;
+  const okBySecret = !!CRON_SECRET && safeEqual(bootHeader, CRON_SECRET);
   const okByToken = bootToken && tokenHeader === bootToken;
   if (!okBySecret && !okByToken) {
     return h.fail("forbidden", 403);

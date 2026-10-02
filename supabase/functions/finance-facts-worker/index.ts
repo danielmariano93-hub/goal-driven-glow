@@ -17,6 +17,7 @@ import {
   FACTS_FORMULA_VERSION,
   fetchMonthRows,
 } from "../_shared/derived/monthlyFacts.ts";
+import { matchesAnySecret } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -34,7 +35,7 @@ Deno.serve(async (req) => {
     .filter((v) => v.length > 0);
   const provided = req.headers.get("x-cron-secret") ?? "";
   const authHeader = req.headers.get("Authorization") ?? "";
-  if (secrets.length > 0 && !secrets.includes(provided) && !authHeader) {
+  if (secrets.length > 0 && !matchesAnySecret(provided, secrets) && !authHeader) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 
