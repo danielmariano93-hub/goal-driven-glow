@@ -75,6 +75,7 @@ function addEngineEnvelopeFacts(
 export const STATE_ENGINES = new Set([
   "get_financial_snapshot", "get_goals_overview", "get_net_worth",
   "get_debt_status", "get_future_installments", "assess_financial_health", "get_account_balance",
+  "forecast_month_close",
 ]);
 const STATE_CLAIM_LIMIT = 600;
 

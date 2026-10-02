@@ -167,3 +167,16 @@ describe("rede de segurança de texto", () => {
       .toMatch(/Não encontrei uma conta chamada \*XP\*.*Itaú, Nubank/);
   });
 });
+
+describe("projeção do mês (\"quanto sobra até o fim do mês?\")", () => {
+  it("forecast_month_close responde e passa nos gates", async () => {
+    FIXTURES.forecast_month_close = () => ({
+      month: "2026-10", point: 4200.5, low: 3900, high: 4700,
+      drivers: { mtd_expense: 1889.9, recurring_future: 620, day_of_month: 2, days_in_month: 31 },
+      provenance: { row_count: 19, confidence: "medium" }, notes: [],
+    });
+    const r = await answer([{ metric: "expense_amount", operation: "forecast" }]);
+    expect(r.out.errors).toEqual([]);
+    expect(r.reply).toMatch(/4\.200,50/);
+  });
+});
