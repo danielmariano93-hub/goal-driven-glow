@@ -1423,7 +1423,9 @@ async function executeContract(
     tools: semantic.engines,
     tool_calls: toolCalls,
     error: fulfillmentBlocked
-      ? `contract_fulfillment_blocked:${fulfillment!.violations.map((v) => v.code).join(",")}`.slice(0, 300)
+      // O motivo vai junto do código: sem ele o log só dizia "mismatch" e era
+      // preciso reproduzir o turno para descobrir o que o gate recusou.
+      ? `contract_fulfillment_blocked:${[...new Set(fulfillment!.violations.map((v) => `${v.code}(${String(v.detail ?? "").slice(0, 48)})`))].join(",")}`.slice(0, 300)
       : semanticContractFailed
         ? `semantic_contract_failed_closed:${semantic.status}`.slice(0, 300)
       : semanticUnsupported

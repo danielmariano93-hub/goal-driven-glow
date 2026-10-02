@@ -41,6 +41,20 @@ export function formatFinancialSnapshot(s: any): string {
 }
 
 export function formatGoalsOverview(result: any): string {
+  const filter = result?.category_filter;
+  if (filter?.applied) {
+    const rows = Array.isArray(result.category_goals) ? result.category_goals : [];
+    if (!rows.length) {
+      return `Você ainda não tem uma meta de ${filter.requested} cadastrada. Quer que eu crie uma com você?`;
+    }
+    return rows.slice(0, 3).map((item: any) => {
+      const used = Number(item.used_pct ?? 0);
+      const state = item.over_limit
+        ? `passou do limite em ${money(Math.abs(Number(item.remaining ?? 0)))}`
+        : `ainda ${money(item.remaining)} disponíveis`;
+      return `Meta de ${item.name}: você usou ${money(item.achieved)} de ${money(item.target)} (${used}%) — ${state}.`;
+    }).join("\n");
+  }
   const personal = Array.isArray(result.items) ? result.items : [];
   const categories = Array.isArray(result.category_goals) ? result.category_goals : [];
   const shared = Array.isArray(result.shared_goals) ? result.shared_goals : [];

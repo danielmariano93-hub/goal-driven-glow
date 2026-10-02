@@ -43,6 +43,7 @@ Documentos complementares: `docs/emocional-redesign-handoff.md` (aba Emocional),
 | **Job semanal falhando** | RPC existia com parâmetro `p_uid` e o código chamava `p_user_id`. | Validar o job de ponta a ponta em produção (chamar a função e ler `net._http_response`), não só testar a lógica. |
 | **CI da `main` quebrado** | Testes leem código-fonte com `readFileSync`; mover lógica de arquivo os quebrou. | Ao mover/renomear: `grep -rn "<arquivo antigo>" src/test`. Atualize o teste ao novo contrato **preservando a intenção**. |
 | **Relatórios: "Saiu R$ 0,00" com gastos no dia** | Estorno de R$ 291 (compra de setembro) foi subtraído dos gastos de hoje (R$ 285); o líquido ficou negativo e foi cortado em zero, enquanto a lista de categorias mostrava os gastos. | Estorno é **entrada de dinheiro**, não "gasto negativo". `Saiu` = bruto (igual à Home), estorno aparece separado. Sempre cheque se totais e detalhamentos batem entre si. |
+| **WhatsApp: "qual meu saldo atual?" e "como está minha meta de alimentação?" sem resposta** | Com `v3_first_authority_v1` (100% desde 29/09) o LLM decide primeiro e toda leitura passa pelos gates. A ferramenta buscava o dado certo, mas `executedIRFrom` só sabia derivar relatórios de gasto/comparações/comerciantes (saldo, metas, patrimônio, dívida davam `executed_ir_missing`) e `buildEvidenceClaims` só registrava campos de gasto (todo valor de saldo virava `money_not_in_evidence`). Meta com filtro de categoria nem tinha capacidade mapeada. | Todo recurso novo de LEITURA precisa nascer com: (1) derivação do "executado" no `ExecutedIRBridge`, (2) evidência no `EvidenceClaims`, (3) mapeamento no `IRCapabilityAdapter`, (4) teste em `nino-state-metrics-gates.test.ts`. Gate fail-closed é correto; o erro é a engine não provar o que fez. O log agora traz o motivo: `contract_fulfillment_blocked:codigo(detalhe)`. |
 | **Tela de Metas com meses sumidos** | Metas eram registros únicos editados/apagados; o passado desaparecia. | Histórico precisa de registro permanente (`category_spending_goal_cycles`), não de "estado atual". |
 
 ---
@@ -71,6 +72,12 @@ Documentos complementares: `docs/emocional-redesign-handoff.md` (aba Emocional),
 - `src/test/` — testes (Vitest). `scripts/` — sincronização e utilitários.
 
 ---
+
+### Diagnosticar uma falha do agente (WhatsApp/chat)
+1. `agent_runs` do usuário (`error_sanitized`, `path`, `tools_used`, `capability`) e a pergunta em `conversation_messages` (mesmo `conversation_id`, direção `inbound`).
+2. `semantic_gate_blocked` = a resposta determinística não passou nos gates; `contract_fulfillment_blocked:...` = preservação/grounding/escopo (veja o detalhe entre parênteses); `semantic_unsupported:...` = nenhuma capacidade mapeada para aquela IR.
+3. Reproduza SEM o LLM: monte a IR da pergunta e rode `runSemanticTurn` com um `runEngine` que devolve o resultado REAL da ferramenta (modelo: `src/test/nino-state-metrics-gates.test.ts`). Só depois corrija.
+4. `agent_tool_calls` com `evidence_unavailable_in_v2_bridge` é só o registro posterior de um turno que falhou; não é a causa.
 
 ## 4. Verdade financeira canônica (nunca contorne)
 

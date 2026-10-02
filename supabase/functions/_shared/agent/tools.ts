@@ -1356,7 +1356,7 @@ export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
   }
 }
 
-export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> {
+export async function get_goals_overview(ctx: ToolContext, args: { category?: string } = {}): Promise<ToolResult> {
   try {
     const month = todaySaoPaulo().slice(0, 7);
     const [snap, goalsRes, contribsRes, investmentsRes, ownedSharedRes, memberRes, incomeRes] = await Promise.all([
@@ -1416,6 +1416,35 @@ export async function get_goals_overview(ctx: ToolContext): Promise<ToolResult> 
     const sharedById = new Map<string, any>();
     for (const goal of [...((ownedSharedRes.data ?? []) as any[]), ...((memberSharedRes.data ?? []) as any[])]) {
       sharedById.set(goal.id, goal);
+    }
+    // Meta de UMA categoria ("como está minha meta de alimentação?"): a engine
+    // aplica o filtro e confirma, para o gate de preservação não tratar como
+    // resposta de outro recorte.
+    const requestedCategory = String(args?.category ?? "").trim();
+    if (requestedCategory) {
+      const fold = (v: string) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const want = fold(requestedCategory);
+      const matched = categoryItems
+        .filter((c) => { const name = fold(String(c.name ?? "")); return name === want || name.includes(want) || want.includes(name); })
+        .map((c) => ({
+          ...c,
+          used_pct: Number(c.target) > 0 ? Math.round(Number(c.achieved) / Number(c.target) * 100) : 0,
+          over_limit: Number(c.achieved) > Number(c.target),
+        }));
+      return {
+        ok: true,
+        result: {
+          formula_version: "goals_overview.v2",
+          month,
+          items: [],
+          category_goals: matched,
+          shared_goals: [],
+          category_filter: { requested: requestedCategory, applied: true, matched: matched.length },
+          overall_attainment_pct: matched.length
+            ? Math.round(matched.reduce((sum, item) => sum + Number(item.attainment_pct || 0), 0) / matched.length * 100) / 100
+            : 0,
+        },
+      };
     }
     return {
       ok: true,
@@ -2990,7 +3019,11 @@ export const AGENT_TOOLS: ToolSpec[] = [
   {
     name: "get_goals_overview",
     description: "Retorna uma visão consolidada e calculada das metas financeiras, de categoria, de doação e conjuntas do usuário, com alvo, realizado, restante e percentual de atingimento.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: { category: { type: "string", description: "Opcional: nome de UMA categoria para ver só a meta dela (ex.: Alimentação)." } },
+      additionalProperties: false,
+    },
     execute: get_goals_overview,
   },
   {

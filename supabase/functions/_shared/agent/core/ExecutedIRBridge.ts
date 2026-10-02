@@ -199,6 +199,47 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
   };
 }
 
+/**
+ * Métricas de ESTADO (o que você tem agora): saldo, patrimônio, dívida, metas,
+ * parcelas futuras e saúde financeira. As engines delas não carregam período
+ * nem filtros no resultado, então antes disso o gate de preservação devolvia
+ * `executed_ir_missing` e bloqueava perguntas básicas como "qual meu saldo?".
+ * Aqui só declaramos o que de fato rodou: a engine devolveu um resultado
+ * estruturado e, quando houve filtro de categoria (metas), ela confirmou que o
+ * aplicou (`category_filter.applied`). Filtro pedido e não aplicado continua
+ * falhando fechado (`filter_lost`).
+ */
+const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health"]);
+
+function fromStateEngine(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  if (!STATE_METRICS.has(String(requested.metric))) return null;
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const r = result as Record<string, unknown>;
+  if (r.error || r.ok === false || Object.keys(r).length === 0) return null;
+  let filters: FinancialFilter[] = [];
+  if (requested.metric === "goal_progress") {
+    const applied = r.category_filter as Record<string, unknown> | undefined;
+    if (applied && applied.applied === true && applied.requested) {
+      filters = [{ field: "category", op: "eq", value: String(applied.requested) }];
+    }
+  }
+  return {
+    metric: String(requested.metric),
+    filters,
+    time: {
+      aspect: requested.time.aspect,
+      from: requested.time.from ?? null,
+      to: requested.time.to ?? null,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: [],
+    partial: false,
+  };
+}
+
 export function executedIRFrom(
   requested: FinancialQueryV3,
   result: unknown,
@@ -208,5 +249,6 @@ export function executedIRFrom(
     ?? fromPeriodComparison(requested, result)
     ?? fromMerchantDistribution(requested, result)
     ?? fromMerchantProfile(requested, result)
-    ?? fromSpendingReport(requested, result);
+    ?? fromSpendingReport(requested, result)
+    ?? fromStateEngine(requested, result);
 }
