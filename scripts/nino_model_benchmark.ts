@@ -48,7 +48,7 @@ async function discover(): Promise<string[]> {
   return ids;
 }
 
-const SKIP = /whisper|tts|guard|playai|distil|compound|orpheus|safeguard|prompt-guard|embed/i;
+const SKIP = /whisper|tts|guard|playai|distil|compound|orpheus|safeguard|prompt-guard|embed|allam/i;
 const explicit = (Deno.env.get("BENCH_MODELS") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 const models = explicit.length ? explicit : (await discover()).filter((id) => !SKIP.test(id));
 
