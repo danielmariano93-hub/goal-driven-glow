@@ -287,6 +287,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 35i. "Saldo da conta Itaú", "quanto tenho no Nubank?" = financial_query metric=balance, operation=value, filtro account=<nome dito>.
 35j. "Como está minha saúde financeira?", "estou bem financeiramente?", "como estão minhas finanças?" = financial_query metric=financial_health, operation=value (NÃO period_review).
 35k. "Qual categoria mais cresceu/aumentou de agosto pra setembro?", "onde mais gastei a mais?", "o que subiu?" = financial_query expense_amount operation=compare group_by=[category] limit=1 comparison.direction=increase, periods=[os dois meses ditos]. "Qual caiu mais?" = direction=decrease.
+35l. "Quanto sobra até o fim do mês?", "como vou fechar o mês?", "projeção do mês", "vou terminar o mês no azul?" = financial_query metric=expense_amount operation=forecast, filters=[], group_by=[], periods=["este mês"]. Nunca peça esclarecimento.
 35. Desabafo, preocupação, planos de vida ou conversa pessoal sem pedido de dado ("tô preocupado com dinheiro", "vou viajar em dezembro") = kind=conversation com direct_reply acolhedor, curto e sem inventar números.
 
 36. FORMATO DE CADA ITEM DE tasks (sempre o envelope completo, nunca o payload solto):
