@@ -175,6 +175,9 @@ function compatibleWriteShapes(a: Record<string, unknown>, b: Record<string, unk
     if (slotsA.has(key) && slotsA.get(key) !== slotsB.get(key)) return false;
   }
   for (const [key, value] of slotsA) {
+    // A categoria é reclassificada pelo motor de categorização e aparece no rascunho
+    // para confirmação: rótulos diferentes ("Alimentação" x "Restaurante") não movem dinheiro.
+    if (key === "category") continue;
     if (slotsB.has(key) && slotsB.get(key) !== value) return false;
   }
   return true;
