@@ -17,6 +17,7 @@ import { trustedActivePeriod } from "./ConversationMemory.ts";
 import { interpretWithSingleSemanticAuthorityV3 } from "../v3/SemanticAuthorityV3.ts";
 import { bridgeTurnSpecV3ToRuntime, bridgeTurnSpecV3ToRuntimePlan } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
+import { actionForTool } from "./ActionIR.ts";
 
 export { dialogueActsFromContract } from "./ConversationBrain.ts";
 export type { ConversationTurnContract } from "./ConversationBrain.ts";
@@ -224,6 +225,34 @@ function humanSemanticClarification(
 }
 
 export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
+  // Resposta curta a uma pergunta de CONTA ("Itaú") preenche o slot pendente do rascunho,
+  // sem nova interpretação: o modelo podia ler "Itaú" como uma escrita nova e as duas leituras divergiam.
+  const pending = input.workflow;
+  const answer = String(input.text ?? "").trim();
+  if (pending?.asked_slot === "account" && answer && answer.length <= 40 && !/\d{2,}/.test(answer) && answer.split(/\s+/).length <= 4) {
+    const action = actionForTool(pending.kind);
+    if (action) {
+      const contract = normalizeConversationTurnContract({
+        version: "conversation_turn_contract.v2",
+        act: "follow_up",
+        mode: "write",
+        domain: "financial_write",
+        canonical_request: answer,
+        inherit_focus: true,
+        focus: { category: null, merchant: null, goal: null, period_expression: null, period_expressions: [] },
+        action: { version: "action_ir.v1", action, slots: { account: answer } },
+        direct_reply: null,
+        clarification_question: null,
+        resolution: { intent: "resolved", reference: "not_applicable", time: "not_applicable", entity: "not_applicable", action: "resolved" },
+        reference: null,
+        financial_read: null,
+        advisory_kind: null,
+      });
+      if (contract) {
+        return { contract, telemetry: { ...fallbackTelemetry(null, "pending_slot_answer"), model: "pending-slot-answer", ok: true, error: null } };
+      }
+    }
+  }
   const semantic = await interpretWithSingleSemanticAuthorityV3({
     text: input.text,
     history_text: historyText(input.history),
