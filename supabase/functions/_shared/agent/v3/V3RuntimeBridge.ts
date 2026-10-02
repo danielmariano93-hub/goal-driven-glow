@@ -75,6 +75,9 @@ function periodExpressions(tasks: SemanticTaskV3[], now: Date): string[] {
         const canonical = canonicalPeriod(period, now);
         if (canonical) values.push(canonical);
       }
+      // "Gráfico mês a mês" sem período: série mensal precisa de uma janela, não de um mês só.
+      if (!task.periods.length && task.operation === "trend" && task.group_by[0] === "month") values.push("últimos 6 meses");
+      if (!task.periods.length && task.operation === "trend" && task.group_by[0] === "quarter") values.push("últimos 12 meses");
       if (task.comparison?.baseline.kind === "period") {
         const canonical = canonicalPeriod(task.comparison.baseline.period, now);
         if (canonical) values.push(canonical);
