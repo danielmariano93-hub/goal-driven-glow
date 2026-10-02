@@ -122,6 +122,12 @@ export type BudgetInput = {
   budget?: AttentionBudget;
   /** Fingerprints já comunicados sem mudança material desde então. */
   alreadyDelivered?: Set<string>;
+  /**
+   * Fingerprints já ENVIADOS pelo WhatsApp. Quando informado, o WhatsApp usa este
+   * conjunto em vez de `alreadyDelivered`: o aviso entregue só no app (ou que perdeu
+   * a vaga única do WhatsApp) não pode ser dado como "comunicado" nas rodadas seguintes.
+   */
+  alreadyDeliveredWhatsapp?: Set<string>;
   /** Entregas recentes por tipo/canal (janela anti-repetição por assunto). */
   recentDeliveries?: RecentDelivery[];
   now?: Date;
@@ -158,7 +164,10 @@ export function allocateAttention(input: BudgetInput): {
         effective_score: situation.effective_score ?? situation.priority_score,
         defer_until: situation.defer_until ?? null,
       } as ProactiveDecision & Record<string, unknown>;
-      if (input.alreadyDelivered?.has(situation.fingerprint)) {
+      const delivered = channel === "whatsapp" && input.alreadyDeliveredWhatsapp
+        ? input.alreadyDeliveredWhatsapp
+        : input.alreadyDelivered;
+      if (delivered?.has(situation.fingerprint)) {
         decisions.push({ ...base, decision: "suppress", reason: "already_communicated_no_material_change" });
         continue;
       }

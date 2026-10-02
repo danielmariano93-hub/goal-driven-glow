@@ -89,6 +89,43 @@ export const DISCOVERY_TIPS: Tip[] = [
     body: "Pra registrar um gasto não precisa abrir o app: é só me mandar aqui do seu jeito, tipo “almoço 35” ou “uber 22 ontem”. Eu categorizo e já conto no seu mês.",
     route: "/app/nino",
   },
+  // Dicas "sempre úteis": valem também para quem já usa o básico. Entram por último e
+  // só saem uma por semana, então quem domina o Nino continua recebendo novidades.
+  {
+    id: "what_if",
+    applies: () => true,
+    title: "Simule antes de decidir",
+    body: "Sabia que eu simulo cenários? Pergunte “e se eu cortar metade do lazer?” ou “e se eu guardar R$ 500 por mês?” e eu mostro quanto sobra e o que muda na sua meta, sem mexer em nada seu.",
+    route: "/app/nino",
+  },
+  {
+    id: "compare_months",
+    applies: () => true,
+    title: "Compare meses em uma frase",
+    body: "Quer saber se está gastando mais ou menos? Me pergunte “compara setembro com agosto” ou “qual categoria mais cresceu?” e eu mostro o que mudou, categoria por categoria.",
+    route: "/app/nino",
+  },
+  {
+    id: "account_balance",
+    applies: () => true,
+    title: "Saldo por conta, na hora",
+    body: "Você pode me perguntar “qual o saldo da conta Itaú?” ou “quanto sobra até o fim do mês?” a qualquer momento, e eu respondo com os seus números de hoje.",
+    route: "/app/nino",
+  },
+  {
+    id: "habits_reading",
+    applies: () => true,
+    title: "Como estão seus hábitos?",
+    body: "Pergunte “como estão meus hábitos?” e eu mostro como seu comportamento com o dinheiro evoluiu semana a semana, com base no que você realmente fez. Os detalhes ficam na aba Emocional do app.",
+    route: "/app/emocoes",
+  },
+  {
+    id: "spending_goals_plan",
+    applies: () => true,
+    title: "Metas de gasto sob medida",
+    body: "Peça “analise meus gastos e me ajude a criar metas” e eu sugiro limites por categoria e por estabelecimento com base no seu histórico, para você aprovar antes de criar.",
+    route: "/app/metas",
+  },
 ];
 
 /** Id da dica a partir da chave de deduplicação da entrega. */
