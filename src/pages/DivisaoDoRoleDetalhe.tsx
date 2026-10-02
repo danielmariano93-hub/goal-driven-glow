@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, Clock3, Copy, Loader2, MessageCircle, Pencil, RefreshCw, RotateCcw, Send, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bell, CheckCircle2, Clock3, Copy, Loader2, MessageCircle, Pause, Pencil, Play, RefreshCw, RotateCcw, Send, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { supabase } from "@/integrations/supabase/client";
@@ -99,6 +99,13 @@ export default function DivisaoDoRoleDetalhe() {
   };
   const resume=async()=>{setBusy(true);try{await kick();}finally{setBusy(false)}};
   const retry=async(pid:string,kind:string)=>{setBusy(true);try{const{error}=await supabase.rpc("split_enqueue_message" as never,{p_expense_id:id,p_participant_id:pid,p_kind:kind||"reminder",p_when:new Date().toISOString()} as never);if(error)throw error;await kick();}catch(e:any){toast.error(friendlyError(e));}finally{setBusy(false)}};
+  const toggleParticipantReminders=async(pid:string,paused:boolean)=>{
+    const reason=paused?prompt("Motivo da pausa (opcional):")??"":null;
+    await act(
+      ()=>supabase.rpc("split_set_participant_reminders_paused" as never,{p_participant_id:pid,p_paused:paused,p_reason:reason} as never),
+      paused?"Cobranças pausadas para esta pessoa":"Cobranças retomadas para esta pessoa",
+    );
+  };
   const cancel=async()=>{const reason=prompt("Motivo do cancelamento (opcional):")??"";if(!confirm("Cancelar as cobranças e preservar este rolê no histórico? O lançamento financeiro será mantido."))return;await act(()=>supabase.rpc("split_cancel" as never,{p_id:id,p_reason:reason||null,p_remove_transaction:false} as never),"Divisão cancelada");};
   const remove=async()=>{if(!confirm("Excluir este rolê e remover o lançamento financeiro? O gasto sairá das movimentações, da conta e do patrimônio."))return;await act(()=>supabase.rpc("split_delete" as never,{p_id:id} as never),"Rolê excluído e lançamento removido");nav("/app/divisao-do-role",{replace:true});};
   const sendAll=async()=>{setBusy(true);try{const{data,error}=await supabase.rpc("split_send_reminders" as never,{p_shared_expense_id:id} as never);if(error)throw error;if(Number(data??0)===0){toast.info("Nenhum novo lembrete precisava ser enviado agora.");await load();return;}await kick();}catch(e:any){toast.error(friendlyError(e));}finally{setBusy(false)}};
@@ -162,7 +169,76 @@ export default function DivisaoDoRoleDetalhe() {
     <section className="surface-card p-4"><div className="grid grid-cols-3 gap-3"><Metric label="Total" value={formatBRL(Number(split.total_amount))}/><Metric label="Recebido" value={formatBRL(received)} tone="text-success"/><Metric label="Falta" value={formatBRL(pending)} tone={pending?"text-destructive":"text-success"}/></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gradient-to-r from-primary to-brand-coral transition-all" style={{width:`${progress}%`}}/></div><p className="mt-1 text-right text-[11px] text-muted-foreground">{progress}% recebido</p>{summary.nextDueDate&&<p className="mt-2 text-[11px] text-muted-foreground">Próximo vencimento: <strong className="text-foreground">{formatCivil(summary.nextDueDate)}</strong>{summary.overdue>0?` · ${formatBRL(summary.overdue)} em atraso`:""}</p>}</section>
     {overdue&&<div className="flex gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive"><AlertTriangle size={16}/> Há pessoas com pagamento atrasado.</div>}
     {isOwner&&split.status==="active"&&<button disabled={busy||pendingInvite} onClick={sendAll} className="btn-primary w-full disabled:opacity-50"><Bell size={14}/> {pendingInvite?"Enviando convite inicial…":"Lembrar quem ainda não pagou"}</button>}
-    <section className="surface-card divide-y divide-border overflow-hidden">{parts.map((p)=>{const left=Math.max(0,Number(p.amount_due)-Number(p.amount_paid));const msg=messages[p.id];const isOwnerRow=!p.phone_e164;const messageStatus=msg?.outbound_status??msg?.job_status;const stalled=msg&&!["sent","delivered","read","failed","dead","skipped"].includes(messageStatus)&&Date.now()-new Date(msg.updated_at).getTime()>120000;const canRetry=["failed","dead","skipped"].includes(messageStatus);const attempts=Number(msg?.outbound_attempts??msg?.attempts??0);const ack=ackInfo(p);return <article key={p.id} className="space-y-2 p-4"><div className="flex justify-between gap-2"><div><p className="text-sm font-semibold">{isOwnerRow?`${p.name} (você)`:p.name}</p><p className="text-[11px] text-muted-foreground">{isOwnerRow?"Sua parte":p.phone_masked??"Sem WhatsApp"} · {formatBRL(Number(p.amount_paid))} de {formatBRL(Number(p.amount_due))}</p></div><span className={`h-fit rounded-full px-2 py-1 text-[10px] ${p.status==="paid"?"bg-success/15 text-success":"bg-secondary text-muted-foreground"}`}>{labels[p.status]??p.status}</span></div>{isOwner&&!isOwnerRow&&msg&&<div className={`rounded-xl px-3 py-2 text-[11px] ${canRetry||stalled?"bg-destructive/5 text-destructive":"bg-secondary/60"}`}><div className="flex items-center justify-between gap-2"><span className="font-medium">{stalled?"O envio está demorando":deliveryLabel(msg)}</span><span className="text-[10px] opacity-70">{new Date(msg.updated_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span></div><p className={`mt-1 text-[10px] font-medium ${ack.tone}`}>{ack.text}</p><p className="mt-1 text-[10px] opacity-75">{attempts>0?`${attempts} tentativa${attempts===1?"":"s"}`:"Ainda sem tentativa de envio"}{msg.last_attempt_at?` · última ${new Date(msg.last_attempt_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`:""}</p>{(canRetry||stalled)&&<p className="mt-1">{stalled?"Você pode retomar o processamento sem criar outra cobrança.":"Não conseguimos concluir. Você pode tentar novamente."}</p>}</div>}{(byParticipant.get(p.id)??[]).length>1&&<InstallmentList rows={byParticipant.get(p.id)??[]} canPay={isOwner&&!isOwnerRow&&split.status!=="cancelled"} busy={busy} onPay={payInstallment}/>}{isOwner&&left>0&&split.status==="active"&&<div className="flex flex-wrap gap-2"><button disabled={busy} onClick={()=>payment(p.id,left)} className="rounded-full bg-success/15 px-3 py-1 text-xs text-success"><CheckCircle2 size={12} className="inline"/> Marcar {formatBRL(left)}</button><button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="rounded-full border px-3 py-1 text-xs">Valor parcial</button>{!isOwnerRow&&stalled&&<button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>}{!isOwnerRow&&canRetry&&<button disabled={busy} onClick={()=>retry(p.id,msg?.kind??"reminder")} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Tentar novamente</button>}</div>}{isOwner&&!isOwnerRow&&msg?.outbound_status==="queued"&&<button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>}{isOwner&&Number(p.amount_paid)>0&&!isOwnerRow&&<button disabled={busy} onClick={()=>act(()=>supabase.rpc("split_reverse_payment_v2" as never,{p_participant_id:p.id} as never),"Pagamento desfeito")} className="text-xs text-muted-foreground"><RotateCcw size={11} className="inline"/> Desfazer</button>}</article>})}</section>
+    <section className="surface-card divide-y divide-border overflow-hidden">
+      {parts.map((p)=>{
+        const left=Math.max(0,Number(p.amount_due)-Number(p.amount_paid));
+        const msg=messages[p.id];
+        const isOwnerRow=!p.phone_e164;
+        const messageStatus=msg?.outbound_status??msg?.job_status;
+        const stalled=msg&&!["sent","delivered","read","failed","dead","skipped"].includes(messageStatus)&&Date.now()-new Date(msg.updated_at).getTime()>120000;
+        const canRetry=["failed","dead","skipped"].includes(messageStatus);
+        const attempts=Number(msg?.outbound_attempts??msg?.attempts??0);
+        const ack=ackInfo(p);
+        const remindersPaused=Boolean(p.reminders_paused_at);
+
+        return <article key={p.id} className="space-y-2 p-4">
+          <div className="flex justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold">{isOwnerRow?`${p.name} (você)`:p.name}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {isOwnerRow?"Sua parte":p.phone_masked??"Sem WhatsApp"} · {formatBRL(Number(p.amount_paid))} de {formatBRL(Number(p.amount_due))}
+              </p>
+              {isOwner&&!isOwnerRow&&remindersPaused&&(
+                <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <Pause size={10}/> Cobranças pausadas
+                </p>
+              )}
+            </div>
+            <span className={`h-fit rounded-full px-2 py-1 text-[10px] ${p.status==="paid"?"bg-success/15 text-success":"bg-secondary text-muted-foreground"}`}>{labels[p.status]??p.status}</span>
+          </div>
+
+          {isOwner&&!isOwnerRow&&msg&&(
+            <div className={`rounded-xl px-3 py-2 text-[11px] ${canRetry||stalled?"bg-destructive/5 text-destructive":"bg-secondary/60"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{stalled?"O envio está demorando":deliveryLabel(msg)}</span>
+                <span className="text-[10px] opacity-70">{new Date(msg.updated_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+              </div>
+              <p className={`mt-1 text-[10px] font-medium ${ack.tone}`}>{ack.text}</p>
+              <p className="mt-1 text-[10px] opacity-75">
+                {attempts>0?`${attempts} tentativa${attempts===1?"":"s"}`:"Ainda sem tentativa de envio"}
+                {msg.last_attempt_at?` · última ${new Date(msg.last_attempt_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}`:""}
+              </p>
+              {(canRetry||stalled)&&<p className="mt-1">{stalled?"Você pode retomar o processamento sem criar outra cobrança.":"Não conseguimos concluir. Você pode tentar novamente."}</p>}
+            </div>
+          )}
+
+          {(byParticipant.get(p.id)??[]).length>1&&(
+            <InstallmentList rows={byParticipant.get(p.id)??[]} canPay={isOwner&&!isOwnerRow&&split.status!=="cancelled"} busy={busy} onPay={payInstallment}/>
+          )}
+
+          {isOwner&&left>0&&split.status==="active"&&(
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy} onClick={()=>payment(p.id,left)} className="rounded-full bg-success/15 px-3 py-1 text-xs text-success"><CheckCircle2 size={12} className="inline"/> Marcar {formatBRL(left)}</button>
+              <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="rounded-full border px-3 py-1 text-xs">Valor parcial</button>
+              {!isOwnerRow&&(
+                <button disabled={busy} onClick={()=>toggleParticipantReminders(p.id,!remindersPaused)} className="rounded-full border px-3 py-1 text-xs">
+                  {remindersPaused?<Play size={12} className="inline"/>:<Pause size={12} className="inline"/>} {remindersPaused?"Retomar cobranças":"Pausar cobranças"}
+                </button>
+              )}
+              {!isOwnerRow&&stalled&&!remindersPaused&&<button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>}
+              {!isOwnerRow&&canRetry&&!remindersPaused&&<button disabled={busy} onClick={()=>retry(p.id,msg?.kind??"reminder")} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Tentar novamente</button>}
+            </div>
+          )}
+
+          {isOwner&&!isOwnerRow&&msg?.outbound_status==="queued"&&!remindersPaused&&(
+            <button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>
+          )}
+          {isOwner&&Number(p.amount_paid)>0&&!isOwnerRow&&(
+            <button disabled={busy} onClick={()=>act(()=>supabase.rpc("split_reverse_payment_v2" as never,{p_participant_id:p.id} as never),"Pagamento desfeito")} className="text-xs text-muted-foreground"><RotateCcw size={11} className="inline"/> Desfazer</button>
+          )}
+        </article>;
+      })}
+    </section>
     {isOwner&&!split.deleted_at&&<div className="grid grid-cols-2 gap-2"><button onClick={()=>navigator.clipboard.writeText(`${split.title} · ${formatBRL(pending)} pendente${split.pix_key?` · Pix ${split.pix_key}`:""}`).then(()=>toast.success("Dados copiados"))} className="btn-ghost-brand"><Copy size={14}/> Copiar dados</button>{split.status!=="cancelled"&&<button onClick={cancel} className="inline-flex items-center justify-center gap-2 rounded-full border border-destructive/30 px-4 py-2 text-sm text-destructive"><XCircle size={14}/> Cancelar</button>}{canDelete&&<button onClick={remove} className="col-span-2 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-xs text-muted-foreground"><Trash2 size={13}/> Excluir rolê e remover lançamento</button>}</div>}
     {isOwner&&events.length>0&&<details className="surface-card p-4"><summary className="cursor-pointer text-xs font-semibold">Histórico da divisão</summary><ul className="mt-3 space-y-2 text-[11px] text-muted-foreground">{events.map((e)=><li key={e.id}>{new Date(e.created_at).toLocaleString("pt-BR")} · {eventLabel(e.event_type)}</li>)}</ul></details>}
   </div>;
@@ -193,5 +269,5 @@ function InstallmentList({rows,canPay,busy,onPay}:{rows:ReceivableRow[];canPay:b
 }
 function Metric({label,value,tone=""}:{label:string;value:string;tone?:string}){return <div><p className="text-[10px] text-muted-foreground">{label}</p><p className={`text-sm font-bold ${tone}`}>{value}</p></div>}
 function JourneyStep({icon,label,active}:{icon:ReactNode;label:string;active:boolean}){return <div className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] ${active?"bg-primary/10 font-semibold text-primary":"text-muted-foreground"}`}><span>{icon}</span><span>{label}</span></div>}
-function eventLabel(v:string){return ({created:"Divisão criada",updated:"Divisão editada",payment:"Pagamento registrado",reverse_payment:"Pagamento desfeito",message_queued:"Mensagem preparada",message_enqueued:"Mensagem entrou na fila do WhatsApp",cancelled:"Divisão cancelada",deleted:"Divisão excluída",reminders_scheduled:"Lembretes preparados"} as Record<string,string>)[v]??v.replace(/_/g," ")}
-function friendlyError(error: unknown){const message=error instanceof Error?error.message:typeof error==="string"?error:"";if(message.includes("Há pagamentos recebidos"))return "Esta divisão já recebeu pagamentos. Para preservar o histórico, cancele sem remover o lançamento.";if(message.includes("Divisão encerrada"))return "Esta divisão já foi encerrada.";if(message.includes("reminders_disabled"))return "Os lembretes estão desativados nesta divisão.";return message||"Não consegui concluir";}
+function eventLabel(v:string){return ({created:"Divisão criada",updated:"Divisão editada",payment:"Pagamento registrado",reverse_payment:"Pagamento desfeito",message_queued:"Mensagem preparada",message_enqueued:"Mensagem entrou na fila do WhatsApp",cancelled:"Divisão cancelada",deleted:"Divisão excluída",reminders_scheduled:"Lembretes preparados",participant_reminders_paused:"Cobranças pausadas para uma pessoa",participant_reminders_resumed:"Cobranças retomadas para uma pessoa"} as Record<string,string>)[v]??v.replace(/_/g," ")}
+function friendlyError(error: unknown){const message=error instanceof Error?error.message:typeof error==="string"?error:"";if(message.includes("Há pagamentos recebidos"))return "Esta divisão já recebeu pagamentos. Para preservar o histórico, cancele sem remover o lançamento.";if(message.includes("Divisão encerrada"))return "Esta divisão já foi encerrada.";if(message.includes("reminders_disabled"))return "Os lembretes estão desativados nesta divisão.";if(message.includes("not_found"))return "Não encontrei esta pessoa neste rolê.";return message||"Não consegui concluir";}
