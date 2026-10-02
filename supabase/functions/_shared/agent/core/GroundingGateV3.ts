@@ -132,9 +132,9 @@ export function groundReply(args: {
     });
   }
 
-  for (const match of reply.matchAll(/(-?\d{1,3}(?:,\d{1,2})?)\s?%/g)) {
+  for (const match of reply.matchAll(/(-?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)\s?%/g)) {
     const token = match[1];
-    const value = Number(token.replace(",", "."));
+    const value = Number(token.replace(/\./g, "").replace(",", "."));
     const pctClaims = claims.filter((c) => c.type === "percentage" && c.value != null).map((c) => Number(c.value));
     const exact = pctClaims.some((v) => Math.abs(v - value) < 0.05);
     const share = values.some((a) => values.some((b) =>

@@ -225,7 +225,9 @@ function fromStateEngine(requested: FinancialQueryV3, result: unknown): Executed
   }
   if (requested.metric === "balance") {
     const applied = r.account_filter as Record<string, unknown> | undefined;
-    if (applied && applied.applied === true && applied.requested) {
+    // Conta inexistente também foi "executada" fielmente: a ferramenta procurou o
+    // filtro pedido e o formatter responde honestamente que ela não existe.
+    if (applied && applied.requested) {
       filters = [{ field: "account", op: "eq", value: String(applied.requested) }];
     }
   }
