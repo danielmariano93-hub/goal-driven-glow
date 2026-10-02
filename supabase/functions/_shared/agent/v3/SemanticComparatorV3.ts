@@ -121,9 +121,30 @@ const RELATIVE_DATES: Record<string, string> = {
   anteontem: "day_before_yesterday",
 };
 
+function isoFromDateText(text: string): string | null {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (br) return `${br[3]}-${br[2].padStart(2, "0")}-${br[1].padStart(2, "0")}`;
+  return null;
+}
+
 function normalizeWriteSlotValue(key: string, value: unknown): string {
   const normalized = normalizeSlotValue(value);
-  if (key === "date") return RELATIVE_DATES[normalized] ?? normalized;
+  if (key === "date") {
+    // "hoje" e "2026-10-02" (ou "02/10/2026") são a mesma data: sem isso as duas leituras "divergiam".
+    const iso = isoFromDateText(normalized);
+    if (iso) {
+      const spToday = new Date(Date.now() - 3 * 3600_000);
+      const dayMs = 86_400_000;
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      if (iso === fmt(spToday)) return "today";
+      if (iso === fmt(new Date(spToday.getTime() - dayMs))) return "yesterday";
+      if (iso === fmt(new Date(spToday.getTime() - 2 * dayMs))) return "day_before_yesterday";
+      return iso;
+    }
+    return RELATIVE_DATES[normalized] ?? normalized;
+  }
   return normalized;
 }
 
