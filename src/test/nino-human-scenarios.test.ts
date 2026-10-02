@@ -152,3 +152,18 @@ describe("casamento do nome da meta", () => {
     expect(goalNameMatches("Meta", "meta")).toBe(false);
   });
 });
+
+import { humanizeStatusCodes } from "../../supabase/functions/_shared/agent/v3/ConversationalComposerV3";
+import { semanticBlockText } from "../../supabase/functions/_shared/agent/core/SemanticAnswerFormatter";
+
+describe("rede de segurança de texto", () => {
+  it("códigos técnicos de status nunca chegam ao usuário", () => {
+    expect(humanizeStatusCodes("A meta está at_risk e outra on_track")).toBe("A meta está em risco e outra no ritmo");
+  });
+  it("saldo por conta responde a conta pedida e é honesto quando ela não existe", () => {
+    expect(semanticBlockText("get_account_balance", { accounts: [{ name: "Itaú", balance: 1234.5 }], account_filter: { requested: "Itaú", applied: true } }))
+      .toMatch(/Itaú.*1\.234,50/);
+    expect(semanticBlockText("get_account_balance", { accounts: [], account_filter: { requested: "XP", applied: false }, available_accounts: ["Itaú", "Nubank"] }))
+      .toMatch(/Não encontrei uma conta chamada \*XP\*.*Itaú, Nubank/);
+  });
+});

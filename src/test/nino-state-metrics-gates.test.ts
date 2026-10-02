@@ -115,7 +115,14 @@ describe("executedIRFrom e mapeamento de capacidade", () => {
     ]) as never);
     expect(twoFilters.capability).toBeNull();
     const balanceWithAccount = capabilityFromFinancialIR(ir("balance", [{ field: "account", op: "eq", value: "Itaú" }]) as never);
-    expect(balanceWithAccount.capability).toBeNull();
+    expect(balanceWithAccount.capability?.required_tool).toBe("get_account_balance");
+    expect(balanceWithAccount.capability?.tool_args).toEqual({ account: "Itaú" });
+  });
+  it("saldo por conta: executado confirma o filtro de conta; conta inexistente não prova nada", () => {
+    const ok = executedIRFrom(q("balance"), { accounts: [{ name: "Itaú", balance: 10 }], account_filter: { requested: "Itaú", applied: true } });
+    expect(ok?.filters).toEqual([{ field: "account", op: "eq", value: "Itaú" }]);
+    const none = executedIRFrom(q("balance"), { accounts: [], account_filter: { requested: "XP", applied: false } });
+    expect(none?.filters).toEqual([]);
   });
 });
 

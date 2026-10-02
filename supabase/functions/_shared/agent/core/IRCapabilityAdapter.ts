@@ -277,6 +277,14 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
   }
 
+  // "Saldo da conta Itaú": UM filtro de conta, aplicado e confirmado pela ferramenta.
+  if (q.metric === "balance" && !q.group_by.length && ["value", "sum"].includes(q.operation)) {
+    const only = q.filters.length === 1 ? q.filters[0] : null;
+    if (only && only.field === "account" && only.op === "eq" && String(only.value ?? "").trim()) {
+      return { tool: "get_account_balance", capability: "financial_snapshot", execution: "deterministic", args: { account: String(only.value).trim() } };
+    }
+  }
+
   if (q.filters.length || q.group_by.length || !["value", "sum"].includes(q.operation)) return null;
   if (q.metric === "balance") {
     return { tool: "get_financial_snapshot", capability: "financial_snapshot", execution: "deterministic", args: {} };

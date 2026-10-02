@@ -46,6 +46,19 @@ function formatNetWorth(result: any): string | null {
   return lines.join("\n");
 }
 
+/** Saldo por conta: a(s) conta(s) pedida(s), ou aviso honesto quando o nome não existe. */
+function formatAccountBalance(result: any): string | null {
+  const accounts = Array.isArray(result?.accounts) ? result.accounts : [];
+  const filter = result?.account_filter;
+  if (filter && filter.applied !== true) {
+    const names = Array.isArray(result?.available_accounts) ? result.available_accounts.filter(Boolean) : [];
+    return `Não encontrei uma conta chamada *${filter.requested}*.${names.length ? ` Suas contas: ${names.join(", ")}.` : ""}`;
+  }
+  if (!accounts.length) return "Você ainda não tem contas cadastradas.";
+  if (accounts.length === 1) return `O saldo da conta *${accounts[0].name}* é de *${BRL.format(Number(accounts[0].balance))}*.`;
+  return ["Saldo por conta:", ...accounts.map((a: any) => `• ${a.name}: ${BRL.format(Number(a.balance))}`)].join("\n");
+}
+
 /** Parcelas futuras de cartão: total, mês a mês e quantas são. */
 function formatFutureInstallments(result: any): string | null {
   const count = Number(result?.count ?? 0);
@@ -62,6 +75,7 @@ function formatFutureInstallments(result: any): string | null {
 
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_net_worth: formatNetWorth,
+  get_account_balance: formatAccountBalance,
   get_future_installments: formatFutureInstallments,
   analyze_spending: formatSpendingAnalysis,
   merchant_distribution: formatMerchantDistribution,

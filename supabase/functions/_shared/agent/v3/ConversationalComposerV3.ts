@@ -17,6 +17,16 @@ import { resolveAiProvider, type AiProviderConfig } from "../../ai-runtime.ts";
 import { BANNED_WORDS } from "../../copy/ninoVoice.ts";
 import { citedNumbers, matchesEvidence } from "../narrative/NarrativeGuard.ts";
 
+const STATUS_CODE_PT: Record<string, string> = {
+  at_risk: "em risco", on_track: "no ritmo", over_limit: "acima do limite", exceeded: "estourada",
+  em_risco: "em risco", no_ritmo: "no ritmo", atencao: "em atenção", estourou: "estourada",
+};
+
+/** Rede de segurança: nenhum código interno de status chega ao usuário. */
+export function humanizeStatusCodes(text: string): string {
+  return text.replace(/\b(at_risk|on_track|over_limit|exceeded|em_risco|no_ritmo|atencao|estourou)\b/g, (m) => STATUS_CODE_PT[m] ?? m);
+}
+
 export const COMPOSER_VERSION = "nino_conversational_composer.v1";
 export const COMPOSER_DEADLINE_MS = 10_000;
 
@@ -163,6 +173,7 @@ export function buildComposerPrompt(input: ComposeInput): { system: string; user
     "- Não invente fatos pessoais, taxas de juros, rendimentos de mercado ou datas.",
     "- Nunca julgue moralmente o usuário, nunca dê bronca, nunca use tom de cobrança.",
     "- Nunca mencione modelo, IA, sistema, ferramenta, motor, banco de dados ou qualquer detalhe interno.",
+    "- Nunca escreva códigos técnicos de status (at_risk, on_track, over_limit, exceeded, ok...). Traduza: at_risk = \"em risco\", on_track = \"no ritmo\", over_limit = \"estourou o limite\".",
     "- Não diga que registrou, alterou ou agendou nada: você só conversa sobre o que já está nos fatos.",
     input.allow_offer
       ? "- No máximo UMA pergunta ou oferta de próximo passo, no final, específica ao assunto. Oferta sempre no formato \"Quer que eu …?\" (ex.: \"Quer que eu compare com o mês passado?\"), para que um \"sim\" do usuário seja entendido."
@@ -448,7 +459,7 @@ export async function composeConversationalReply(input: ComposeInput): Promise<C
 
   let parsed: any = null;
   try { parsed = JSON.parse(result.arguments); } catch { /* handled below */ }
-  const text = String(parsed?.reply ?? "").trim().replace(/^["“]|["”]$/g, "");
+  const text = humanizeStatusCodes(String(parsed?.reply ?? "").trim().replace(/^["“]|["”]$/g, ""));
   const notes = input.capture_memory ? sanitizeRelationshipNotes(parsed?.remember) : [];
   const guard = guardComposedReply({ text, input });
   if (!guard.ok) {

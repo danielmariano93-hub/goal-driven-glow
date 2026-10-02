@@ -223,6 +223,12 @@ function fromStateEngine(requested: FinancialQueryV3, result: unknown): Executed
       filters = [{ field: "category", op: "eq", value: String(applied.requested) }];
     }
   }
+  if (requested.metric === "balance") {
+    const applied = r.account_filter as Record<string, unknown> | undefined;
+    if (applied && applied.applied === true && applied.requested) {
+      filters = [{ field: "account", op: "eq", value: String(applied.requested) }];
+    }
+  }
   return {
     metric: String(requested.metric),
     filters,
