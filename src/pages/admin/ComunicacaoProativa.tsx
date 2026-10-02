@@ -66,26 +66,24 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
-          { id: "inteligencia", label: "Inteligência", render: () => <IntelligenceFunnelBoard /> },
-          { id: "regras", label: "Regras", render: () => <RulesBoard /> },
-          { id: "fluxos", label: "Fluxos", render: () => <FlowsBoard /> },
-          { id: "lembretes", label: "Lembretes", render: () => <RemindersBoard /> },
-          { id: "emocoes", label: "Emoção × gasto", render: () => <EmotionEngineBoard /> },
-
-          { id: "mensagens", label: "Mensagens", render: () => <MessageMonitor /> },
-          { id: "canais", label: "Canais", render: () => <ChannelsBoard /> },
-          {
-            id: "jornadas",
-            label: "Jornadas",
-            render: () => (
-              <div className="space-y-6">
-                <SplitReminderJourney />
-                <ProactiveEnginePanelV2 sections={["engine", "queue"]} />
-              </div>
-            ),
-          },
+          { id: "mensagens", label: "Entrega", render: () => (
+            <div className="space-y-6">
+              <ChannelsBoard />
+              <MessageMonitor />
+            </div>
+          ) },
+          { id: "inteligencia", label: "Proativas", render: () => <IntelligenceFunnelBoard /> },
+          { id: "regras", label: "Regras e fluxos", render: () => (
+            <div className="space-y-6">
+              <ProactiveEnginePanelV2 sections={["engine", "queue"]} />
+              <RulesBoard />
+              <FlowsBoard />
+              <RemindersBoard />
+              <EmotionEngineBoard />
+              <SplitReminderJourney />
+            </div>
+          ) },
         ]}
-
       />
     </div>
   );

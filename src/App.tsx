@@ -224,19 +224,19 @@ const App = () => (
                 <Route path="engajamento" element={<Navigate to="/admin/produto" replace />} />
                 <Route path="inteligencia-produto" element={<Navigate to="/admin/produto?aba=produto" replace />} />
                 <Route path="ia" element={<Navigate to="/admin/nino-ia" replace />} />
-                <Route path="receita" element={<Navigate to="/admin/produto?aba=receita" replace />} />
-                <Route path="financeiro" element={<Navigate to="/admin/produto?aba=receita" replace />} />
+                <Route path="receita" element={<Navigate to="/admin/produto" replace />} />
+                <Route path="financeiro" element={<Navigate to="/admin/produto" replace />} />
                 <Route path="usuarios" element={<Navigate to="/admin/clientes" replace />} />
 
                 <Route path="operacao" element={<Navigate to="/admin/operacoes" replace />} />
                 <Route path="operacao/saude" element={<Navigate to="/admin/operacoes" replace />} />
-                <Route path="operacao/whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
-                <Route path="whatsapp" element={<Navigate to="/admin/comunicacoes?aba=canais" replace />} />
+                <Route path="operacao/whatsapp" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
+                <Route path="whatsapp" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="mensagens" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
                 <Route path="operacao/mensageria" element={<Navigate to="/admin/comunicacoes?aba=mensagens" replace />} />
-                <Route path="operacao/assistente" element={<Navigate to="/admin/nino-ia?aba=qualidade" replace />} />
+                <Route path="operacao/assistente" element={<Navigate to="/admin/nino-ia?aba=custo" replace />} />
                 <Route path="agente" element={<Navigate to="/admin/nino-ia?aba=modelos" replace />} />
-                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/nino-ia?aba=documentos" replace />} />
+                <Route path="operacao/ia-ocr" element={<Navigate to="/admin/nino-ia?aba=custo" replace />} />
                 <Route path="operacao/assistente/simulador" element={<Navigate to="/admin/nino-ia?aba=simulador" replace />} />
                 <Route path="agente/simulador" element={<Navigate to="/admin/nino-ia?aba=simulador" replace />} />
                 <Route path="operacao/comunicacao-proativa" element={<Navigate to="/admin/comunicacoes" replace />} />

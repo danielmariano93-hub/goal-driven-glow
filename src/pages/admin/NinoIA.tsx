@@ -10,12 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { adminToast } from "@/components/admin/adminToast";
 import IAInteligencia from "./IAInteligencia";
-import Assistente from "./operacao/Assistente";
-import IaOcr from "./operacao/IaOcr";
 import Simulador from "./AgenteSimulador";
-import AgenticObservabilityBoard from "./agente/AgenticObservabilityBoard";
 import CustoLatencia from "./CustoLatencia";
-import AprendizadoGlobal from "./AprendizadoGlobal";
 
 
 /**
@@ -25,18 +21,13 @@ import AprendizadoGlobal from "./AprendizadoGlobal";
 export default function NinoIA() {
   return (
     <div className="space-y-6">
-      <PageHeader title="Nino & IA" description="Qualidade das respostas, custo por modelo, conhecimento oficial, leitura de documentos e simulador." />
+      <PageHeader title="Nino & IA" description="Desempenho dos modelos (qualidade, tempo, tokens e custo), configuração, conhecimento oficial, inspeção de um cliente e simulador." />
       <AdminTabs tabs={[
-        { id: "qualidade", label: "Qualidade", render: () => <Assistente /> },
-        { id: "custo", label: "Custo e latência", render: () => <CustoLatencia /> },
-        { id: "aprendizado", label: "Aprendizado global", render: () => <AprendizadoGlobal /> },
-        { id: "inspetor", label: "Inspetor", render: () => <IAInteligencia /> },
+        { id: "custo", label: "Desempenho", render: () => <CustoLatencia /> },
         { id: "modelos", label: "Modelos", render: () => <Models /> },
         { id: "conhecimento", label: "Conhecimento", render: () => <Knowledge /> },
-        { id: "documentos", label: "Documentos", render: () => <IaOcr /> },
-        { id: "autonomia", label: "Autonomia do agente", render: () => <AgenticObservabilityBoard /> },
+        { id: "inspetor", label: "Inspetor de cliente", render: () => <IAInteligencia /> },
         { id: "simulador", label: "Simulador", render: () => <Simulador /> },
-
       ]} />
     </div>
   );

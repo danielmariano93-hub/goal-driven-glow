@@ -12,7 +12,15 @@ export type CcTotals = {
 };
 export type CcDaily = { day: string; turns: number; errors: number; p50: number | null; p95: number | null; tokens_in: number; tokens_out: number; cost_usd: number; users: number };
 export type CcPath = { path: string; turns: number; p95: number | null; error_rate: number };
-export type CcModel = { model_family: string; turns: number; p50: number | null; p95: number | null; tokens: number; cost_usd: number; error_rate: number };
+export type CcModel = {
+  model: string; turns: number; p50: number | null; p95: number | null; tokens: number; cost_usd: number; error_rate: number;
+  /** Quantas vezes foi o primeiro modelo tentado. */
+  attempts: number;
+  /** Em quantas dessas o Nino precisou trocar de modelo. */
+  failed_first: number;
+  escalated: number;
+  first_try_failure_rate: number | null;
+};
 export type CcChannel = { channel: string; turns: number; p95: number | null; error_rate: number };
 export type CcError = { reason: string; n: number; last_at: string; sample: string | null };
 export type CcMessaging = {
@@ -21,7 +29,7 @@ export type CcMessaging = {
   fail_reasons: Array<{ reason: string; n: number }>;
 };
 export type CommandCenterData = {
-  window_days: number; generated_at: string; cost_note: string;
+  from: string; to: string; granularity: "hour" | "day"; window_days: number; generated_at: string; cost_note: string;
   totals: CcTotals; daily: CcDaily[]; by_path: CcPath[]; by_model: CcModel[]; by_channel: CcChannel[];
   top_errors: CcError[]; messaging: CcMessaging;
 };
@@ -55,6 +63,16 @@ export function pctDelta(current: number | null | undefined, previous: number | 
 
 const pct = (v: number) => `${(v * 100).toFixed(1).replace(".", ",")}%`;
 export const formatPct = pct;
+/** "openai/gpt-oss-120b" → "gpt-oss-120b". */
+export const modelName = (id: string) => id.replace(/^[^/]+\//, "");
+
+/** Converte datas do filtro (dia civil de São Paulo) em instantes para o RPC. */
+export function rangeToInstants(range: { from: string; to: string }, now: Date = new Date()): { p_from: string; p_to: string } {
+  const start = new Date(`${range.from}T00:00:00-03:00`);
+  const endOfDay = new Date(`${range.to}T23:59:59.999-03:00`);
+  const end = endOfDay.getTime() > now.getTime() ? now : endOfDay;
+  return { p_from: start.toISOString(), p_to: end.toISOString() };
+}
 export const formatMs = (v: number | null | undefined) => (v == null ? "—" : v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} s` : `${Math.round(v)} ms`);
 export const formatInt = (v: number | null | undefined) => (v == null ? "—" : new Intl.NumberFormat("pt-BR").format(Math.round(v)));
 export const formatCompact = (v: number | null | undefined) => (v == null ? "—" : new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(v));
@@ -99,16 +117,16 @@ export function buildAttention(data: CommandCenterData): AttentionItem[] {
       detail: worst
         ? `Maior causa: ${errorLabel(worst.reason)} (${worst.n}). Antes eram ${pct(t.err_rate_prev)}.`
         : `Antes eram ${pct(t.err_rate_prev)}.`,
-      to: "/admin/nino-ia?aba=qualidade",
+      to: "/admin/nino-ia?aba=custo",
     });
   }
-  const modelBad = data.by_model.find((m) => m.turns >= 10 && m.error_rate >= 0.25 && m.model_family !== "sem LLM");
+  const modelBad = data.by_model.find((m) => m.attempts >= 15 && (m.first_try_failure_rate ?? 0) >= 0.15);
   if (modelBad) {
     out.push({
       key: "model_error",
       severity: "warning",
-      title: `${modelBad.model_family} falha em ${pct(modelBad.error_rate)} das chamadas`,
-      detail: `${modelBad.turns} conversas no período. Vale revisar a rota ou o fallback desse modelo.`,
+      title: `${modelName(modelBad.model)} falha de primeira em ${pct(modelBad.first_try_failure_rate ?? 0)} das tentativas`,
+      detail: `${modelBad.failed_first} de ${modelBad.attempts} vezes o Nino precisou trocar de modelo. Vale revisar o modelo principal.`,
       to: "/admin/nino-ia?aba=modelos",
     });
   }
@@ -168,7 +186,7 @@ export function buildAttention(data: CommandCenterData): AttentionItem[] {
       severity: "critical",
       title: `${m.stuck_queue} mensagen${m.stuck_queue === 1 ? "" : "s"} parada${m.stuck_queue === 1 ? "" : "s"} na fila há mais de 15 min`,
       detail: "O envio pode estar travado. Verifique o canal do WhatsApp.",
-      to: "/admin/comunicacoes?aba=canais",
+      to: "/admin/comunicacoes?aba=mensagens",
     });
   }
   const order = { critical: 0, warning: 1, info: 2 } as const;

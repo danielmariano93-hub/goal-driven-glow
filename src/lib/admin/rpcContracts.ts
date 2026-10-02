@@ -15,7 +15,7 @@ export const ADMIN_TZ = "America/Sao_Paulo";
 /** Assinaturas reais (validadas contra `pg_get_function_identity_arguments`). */
 export const ADMIN_RPC_ARGS = {
   admin_v2_cockpit: ["_from", "_to"],
-  admin_v4_command_center: ["p_days"],
+  admin_v4_command_center: ["p_from", "p_to"],
   admin_v2_metrics_universe: [],
   admin_v2_client_profile: ["_pseudo_id"],
   admin_v2_daily_evolution: ["_from", "_to", "_tz"],

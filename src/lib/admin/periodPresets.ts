@@ -7,7 +7,11 @@ export type PeriodPresetKey =
   | "today"
   | "yesterday"
   | "7d"
+  | "14d"
   | "30d"
+  | "90d"
+  | "180d"
+  | "365d"
   | "current_month"
   | "previous_month"
   | "custom";
@@ -18,7 +22,11 @@ export const PRESET_LABELS: Record<PeriodPresetKey, string> = {
   today: "Hoje",
   yesterday: "Ontem",
   "7d": "Últimos 7 dias",
+  "14d": "Últimos 14 dias",
   "30d": "Últimos 30 dias",
+  "90d": "Últimos 90 dias",
+  "180d": "Últimos 6 meses",
+  "365d": "Últimos 12 meses",
   current_month: "Mês atual",
   previous_month: "Mês anterior",
   custom: "Personalizado",
@@ -69,8 +77,16 @@ export function resolvePreset(
     }
     case "7d":
       return { from: addDays(today, -6), to: today };
+    case "14d":
+      return { from: addDays(today, -13), to: today };
     case "30d":
       return { from: addDays(today, -29), to: today };
+    case "90d":
+      return { from: addDays(today, -89), to: today };
+    case "180d":
+      return { from: addDays(today, -179), to: today };
+    case "365d":
+      return { from: addDays(today, -364), to: today };
     case "current_month":
       return { from: firstDayOfMonth(today), to: today };
     case "previous_month": {
