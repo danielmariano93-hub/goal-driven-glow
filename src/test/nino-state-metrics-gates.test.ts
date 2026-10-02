@@ -139,3 +139,14 @@ describe("formatGoalsOverview com categoria", () => {
     expect(text).toContain("Você ainda não tem uma meta de Viagem");
   });
 });
+
+describe("projeção do mês no gate de preservação", () => {
+  it("executedIRFrom aceita forecast_month_close para consulta de projeção", () => {
+    const irF: any = ir("expense_amount");
+    irF.queries[0].operation = "forecast";
+    const requested = normalizeToV3(irF as never, { today: "2026-10-01" }).queries[0];
+    expect(requested.time.aspect).toBe("projection");
+    const executed = executedIRFrom(requested, { point: 4200.5, month: "2026-10" });
+    expect(executed?.time.aspect).toBe("projection");
+  });
+});

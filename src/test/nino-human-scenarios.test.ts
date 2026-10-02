@@ -180,3 +180,15 @@ describe("projeção do mês (\"quanto sobra até o fim do mês?\")", () => {
     expect(r.reply).toMatch(/4\.200,50/);
   });
 });
+
+import { compareSemanticSignaturesV3, semanticSignatureV3 } from "../../supabase/functions/_shared/agent/v3/SemanticComparatorV3";
+describe("escrita: leituras equivalentes não divergem por formato de data", () => {
+  const turnWith = (date: string) => ({
+    version: "nino_turn_spec.v3", kind: "task", response_intent: "execute", act: "new_request", canonical_request: "x", inherit_topic: false, references: [],
+    tasks: [{ kind: "financial_write", family: "financial.write", action: "transaction.create", slots: [{ key: "amount", value: "35" }, { key: "date", value: date }] }],
+  }) as never;
+  it("\"hoje\" equivale à data ISO de hoje", () => {
+    const today = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+    expect(compareSemanticSignaturesV3(semanticSignatureV3(turnWith("hoje")), semanticSignatureV3(turnWith(today))).semantic_match).toBe(true);
+  });
+});
