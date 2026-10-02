@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <title>Meu Nino.IA — Market Landscape 2026</title>
+  <meta name="description" content="Benchmark competitivo entre Meu Nino.IA, Meu Assessor e Pierre — setembro de 2026." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f8f7fc;
+      --surface: #ffffff;
+      --ink: #171321;
+      --ink-2: #6f687d;
+      --brand: #6d3bff;
+      --brand-2: #4338ff;
+      --coral: #ff6b5f;
+      --success: #16a37a;
+      --warning: #e9a23b;
+      --risk: #dc4c64;
+      --border: #ece8f3;
+      --soft: #f4f1ff;
+      --soft-2: #fff4f1;
+      --shadow: 0 14px 40px rgba(33, 22, 79, 0.08);
+      --shadow-soft: 0 8px 24px rgba(32, 22, 48, 0.05);
+      --gradient: linear-gradient(135deg, #6d4aff 0%, #4338ff 54%, #ff6b5f 100%);
+      --gradient-soft: linear-gradient(135deg, rgba(109,74,255,.12) 0%, rgba(255,107,95,.10) 100%);
+      --gradient-dark: linear-gradient(135deg, #21164f 0%, #3d2177 55%, #5d2bb8 100%);
+      --radius: 24px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% -8%, rgba(109,59,255,.12), transparent 27%),
+        radial-gradient(circle at 95% 5%, rgba(255,107,95,.09), transparent 23%),
+        var(--bg);
+      line-height: 1.5;
+    }
+
+    a { color: inherit; }
+    .page { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 30px 0 64px; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 8px 2px 28px;
+    }
+    .logo { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo img { width: 34px; height: 34px; }
+    .wordmark { display: inline-flex; align-items: baseline; font-weight: 700; letter-spacing: -.035em; font-size: 1.2rem; }
+    .wordmark small { color: var(--brand); font-size: .56em; transform: translateY(-.32em); margin-left: 2px; letter-spacing: -.01em; }
+    .meta { color: var(--ink-2); font-size: .82rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .meta-pill { border: 1px solid var(--border); background: rgba(255,255,255,.7); border-radius: 999px; padding: 7px 11px; }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: white;
+      background: var(--gradient-dark);
+      border-radius: 32px;
+      padding: 54px 54px 50px;
+      box-shadow: var(--shadow);
+    }
+    .hero:before, .hero:after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(2px);
+      pointer-events: none;
+    }
+    .hero:before { width: 330px; height: 330px; right: -120px; top: -110px; background: rgba(109,74,255,.34); }
+    .hero:after { width: 230px; height: 230px; right: 160px; bottom: -170px; background: rgba(255,107,95,.21); }
+    .eyebrow { font-size: .76rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; opacity: .72; }
+    h1 { margin: 14px 0 16px; font-size: clamp(2.35rem, 5vw, 4.6rem); line-height: .98; letter-spacing: -.055em; max-width: 890px; }
+    .hero p { max-width: 760px; font-size: 1.08rem; color: rgba(255,255,255,.78); margin: 0; }
+    .hero-tags { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
+    .hero-tag { padding: 8px 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.07); border-radius: 999px; font-size: .82rem; color: rgba(255,255,255,.9); }
+
+    section { margin-top: 42px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: 0 2px 16px; }
+    .section-head h2 { margin: 0; font-size: clamp(1.7rem, 3vw, 2.35rem); letter-spacing: -.045em; }
+    .section-head p { margin: 0; color: var(--ink-2); max-width: 620px; font-size: .95rem; }
+
+    .thesis {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 16px;
+    }
+    .card { background: rgba(255,255,255,.92); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-soft); }
+    .thesis-main { padding: 30px; background: linear-gradient(135deg, white, #fbf9ff 65%, #fff9f7); }
+    .thesis-main h3 { margin: 0 0 12px; font-size: 1.38rem; letter-spacing: -.03em; }
+    .thesis-main strong { color: #38218e; }
+    .thesis-side { padding: 28px; }
+    .thesis-side .label { color: var(--ink-2); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+    .thesis-side .big { margin-top: 9px; font-size: 1.24rem; font-weight: 700; letter-spacing: -.02em; }
+    .thesis-side .small { margin-top: 10px; color: var(--ink-2); font-size: .9rem; }
+
+    .players { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .player { padding: 26px; position: relative; overflow: hidden; }
+    .player.nino { border-color: rgba(109,59,255,.25); background: linear-gradient(180deg, #fff 0%, #faf8ff 100%); }
+    .player .badge { display: inline-flex; border-radius: 999px; padding: 6px 10px; font-size: .72rem; font-weight: 700; background: var(--soft); color: #5231c7; }
+    .player h3 { font-size: 1.35rem; margin: 14px 0 4px; letter-spacing: -.035em; }
+    .player .position { color: var(--ink-2); font-size: .92rem; min-height: 44px; }
+    .player .signal { display: flex; gap: 9px; align-items: flex-start; margin-top: 18px; font-size: .88rem; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: .32rem; flex: 0 0 auto; background: var(--brand); }
+    .dot.green { background: var(--success); }
+    .dot.orange { background: var(--warning); }
+    .player .metric { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--ink-2); font-size: .78rem; }
+    .player .metric strong { color: var(--ink); font-size: .94rem; }
+
+    .matrix-wrap { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--shadow-soft); border: 1px solid var(--border); }
+    table { border-collapse: collapse; width: 100%; min-width: 850px; background: white; }
+    th, td { padding: 16px 18px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
+    th { background: #fbfaff; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+    th:first-child { width: 22%; }
+    td { font-size: .88rem; }
+    tr:last-child td { border-bottom: 0; }
+    .yes { color: var(--success); font-weight: 700; }
+    .gap { color: var(--risk); font-weight: 700; }
+    .mid { color: #7c5e00; font-weight: 700; }
+    .tiny { display: block; color: var(--ink-2); font-size: .76rem; margin-top: 3px; }
+
+    .swot-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .swot { padding: 24px; }
+    .swot-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+    .swot-head h3 { margin: 0; font-size: 1.24rem; letter-spacing: -.03em; }
+    .scoreless { font-size: .72rem; color: var(--ink-2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 8px; }
+    .swot-block + .swot-block { margin-top: 18px; }
+    .swot-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .075em; font-weight: 700; margin-bottom: 8px; }
+    .swot-title.s { color: var(--success); }
+    .swot-title.w { color: var(--risk); }
+    .swot-title.o { color: var(--brand); }
+    ul { margin: 0; padding-left: 18px; }
+    li { margin: 7px 0; color: #3d3747; font-size: .87rem; }
+
+    .map {
+      position: relative;
+      min-height: 500px;
+      background:
+        linear-gradient(to right, transparent calc(50% - .5px), var(--border) calc(50% - .5px), var(--border) calc(50% + .5px), transparent calc(50% + .5px)),
+        linear-gradient(to bottom, transparent calc(50% - .5px), var(--border) calc(50% - .5px), var(--border) calc(50% + .5px), transparent calc(50% + .5px)),
+        white;
+      border: 1px solid var(--border);
+      border-radius: 30px;
+      overflow: hidden;
+      box-shadow: var(--shadow-soft);
+    }
+    .axis-y, .axis-x { position: absolute; color: var(--ink-2); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+    .axis-y { left: 18px; top: 50%; transform: rotate(-90deg) translateX(-50%); transform-origin: left top; }
+    .axis-x { bottom: 15px; left: 50%; transform: translateX(-50%); }
+    .corner { position: absolute; font-size: .74rem; color: #9a93a4; }
+    .corner.tl { top: 18px; left: 24px; }
+    .corner.tr { top: 18px; right: 24px; }
+    .corner.bl { bottom: 36px; left: 24px; }
+    .corner.br { bottom: 36px; right: 24px; }
+    .bubble { position: absolute; min-width: 150px; max-width: 210px; padding: 13px 15px; border-radius: 18px; background: white; border: 1px solid var(--border); box-shadow: 0 12px 28px rgba(31, 22, 57, .10); }
+    .bubble strong { display: block; font-size: .95rem; }
+    .bubble span { display: block; color: var(--ink-2); font-size: .74rem; margin-top: 3px; }
+    .bubble.nino { left: 41%; top: 16%; border: 2px solid rgba(109,59,255,.5); background: linear-gradient(135deg, #fff, #f7f4ff); }
+    .bubble.assessor { left: 66%; top: 42%; }
+    .bubble.pierre { left: 70%; top: 15%; }
+    .bubble.target { left: 53%; top: 6%; transform: translateX(-50%); border-style: dashed; border-color: rgba(22,163,122,.5); background: #f8fffc; }
+
+    .bets { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; }
+    .bet-list { padding: 28px; }
+    .bet { display: grid; grid-template-columns: 38px 1fr; gap: 14px; padding: 17px 0; border-bottom: 1px solid var(--border); }
+    .bet:last-child { border-bottom: 0; padding-bottom: 0; }
+    .num { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--gradient); color: white; font-weight: 700; font-size: .8rem; }
+    .bet h4 { margin: 0; font-size: 1rem; }
+    .bet p { margin: 5px 0 0; color: var(--ink-2); font-size: .84rem; }
+    .guardrail { padding: 28px; background: var(--gradient-soft); border-color: rgba(109,59,255,.16); }
+    .guardrail h3 { margin: 0 0 12px; font-size: 1.24rem; letter-spacing: -.03em; }
+    .guardrail p { color: #514a5e; font-size: .9rem; }
+    .quote { margin-top: 22px; padding: 18px; border-radius: 18px; background: rgba(255,255,255,.72); border: 1px solid rgba(109,59,255,.12); font-weight: 700; line-height: 1.35; }
+
+    .sources { padding: 24px 28px; }
+    .sources h3 { margin: 0 0 12px; font-size: 1rem; }
+    .sources ol { margin: 0; padding-left: 20px; }
+    .sources li { margin: 6px 0; font-size: .78rem; color: var(--ink-2); }
+    .sources a { color: #5130ca; text-decoration: none; }
+    .sources a:hover { text-decoration: underline; }
+
+    .footer { display: flex; justify-content: space-between; gap: 16px; align-items: center; color: var(--ink-2); font-size: .76rem; padding: 28px 2px 0; }
+
+    @media (max-width: 900px) {
+      .hero { padding: 42px 28px; }
+      .players, .swot-grid { grid-template-columns: 1fr; }
+      .thesis, .bets { grid-template-columns: 1fr; }
+      .map { min-height: 620px; }
+      .bubble.nino { left: 20%; top: 17%; }
+      .bubble.pierre { left: 58%; top: 18%; }
+      .bubble.assessor { left: 53%; top: 48%; }
+      .bubble.target { left: 50%; top: 5%; }
+    }
+    @media (max-width: 620px) {
+      .page { width: min(100% - 20px, 1180px); padding-top: 18px; }
+      .topbar { align-items: flex-start; }
+      .meta { display: none; }
+      h1 { font-size: 2.55rem; }
+      .hero { border-radius: 26px; padding: 36px 22px; }
+      .section-head { align-items: flex-start; flex-direction: column; gap: 6px; }
+      .map { min-height: 720px; }
+      .bubble { min-width: 130px; max-width: 155px; }
+      .bubble.nino { left: 10%; top: 17%; }
+      .bubble.pierre { left: 52%; top: 20%; }
+      .bubble.assessor { left: 48%; top: 48%; }
+      .footer { flex-direction: column; align-items: flex-start; }
+    }
+
+    @media print {
+      body { background: white; }
+      .page { width: 100%; padding: 0; }
+      .hero, .card, .map, .matrix-wrap { box-shadow: none; }
+      .hero { break-inside: avoid; }
+      section { break-inside: avoid; margin-top: 26px; }
+      a { text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="topbar">
+      <a class="logo" href="/" aria-label="Meu Nino.IA">
+        <img src="/brand/meu-nino-symbol.svg" alt="" />
+        <span class="wordmark"><span>Meu Nino</span><small>.IA</small></span>
+      </a>
+      <div class="meta">
+        <span class="meta-pill">Market Landscape</span>
+        <span class="meta-pill">20 set 2026</span>
+        <span class="meta-pill">Brasil · Finanças pessoais + IA</span>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="eyebrow">Competitive intelligence · v1.0</div>
+      <h1>Nino × Meu Assessor × Pierre</h1>
+      <p>Uma leitura de mercado orientada a produto: onde cada player é forte, onde existem lacunas reais e qual espaço estratégico o Nino pode ocupar sem virar uma cópia de agregadores financeiros já consolidados.</p>
+      <div class="hero-tags">
+        <span class="hero-tag">Dados & automação</span>
+        <span class="hero-tag">IA conversacional</span>
+        <span class="hero-tag">Planejamento</span>
+        <span class="hero-tag">Comportamento financeiro</span>
+        <span class="hero-tag">Distribuição & escala</span>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Tese executiva</h2></div>
+        <p>O mercado já está ficando bom em <strong>capturar e organizar dinheiro</strong>. A oportunidade menos ocupada é transformar dados em mudança de comportamento verificável.</p>
+      </div>
+      <div class="thesis">
+        <article class="card thesis-main">
+          <h3>O espaço mais defensável do Nino não é “mais um app que conecta bancos”.</h3>
+          <p><strong>É ser o sistema que entende o comportamento financeiro da pessoa, ajuda a decidir antes da ação e acompanha se a mudança realmente aconteceu.</strong> Pierre tem vantagem estrutural em Open Finance e infraestrutura financeira; Meu Assessor tem vantagem de distribuição e execução pelo WhatsApp. O Nino pode construir vantagem em contexto longitudinal, hábitos, emoções, metas e ciclo de mudança.</p>
+        </article>
+        <aside class="card thesis-side">
+          <div class="label">Gap que não pode ser romantizado</div>
+          <div class="big">Automação de dados + confiança operacional</div>
+          <div class="small">Sem ingestão automática robusta e números reconciliados, a camada comportamental perde credibilidade. Open Finance é uma lacuna competitiva objetiva, não apenas um “nice to have”.</div>
+        </aside>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Postura de cada player</h2></div>
+        <p>Não existe “vencedor geral”: os produtos estão construindo vantagens em dimensões diferentes.</p>
+      </div>
+      <div class="players">
+        <article class="card player nino">
+          <span class="badge">Behavior-first</span>
+          <h3>Meu Nino.IA</h3>
+          <div class="position">Finanças pessoais orientadas a decisão, comportamento e evolução ao longo do tempo.</div>
+          <div class="signal"><span class="dot green"></span><span>Motor comportamental com check-ins, sinais de uso, emoções e confiança da evidência.</span></div>
+          <div class="signal"><span class="dot green"></span><span>Metas, planejamento, recorrências, dívidas, investimentos, desafios e camada consultiva.</span></div>
+          <div class="signal"><span class="dot orange"></span><span>Automação bancária ainda atrás dos concorrentes com Open Finance nativo.</span></div>
+          <div class="metric"><strong>Moat possível:</strong> contexto longitudinal + loop de mudança.</div>
+        </article>
+
+        <article class="card player">
+          <span class="badge">WhatsApp-first</span>
+          <h3>Meu Assessor</h3>
+          <div class="position">“Equipe de assessores de IA” que resolve finanças, agenda, tarefas, cobranças e rotina no WhatsApp.</div>
+          <div class="signal"><span class="dot green"></span><span>Open Finance com 114 bancos divulgado no site e operação muito orientada a baixa fricção.</span></div>
+          <div class="signal"><span class="dot green"></span><span>Escopo horizontal forte: agenda, tarefas, documentos, links de cobrança e NFS-e.</span></div>
+          <div class="signal"><span class="dot orange"></span><span>Amplitude cria risco de menor profundidade em comportamento financeiro e planejamento de longo prazo.</span></div>
+          <div class="metric"><strong>Empresa declara:</strong> +200 mil usuários e +1,5 mi de registros processados.</div>
+        </article>
+
+        <article class="card player">
+          <span class="badge">Finance platform</span>
+          <h3>Pierre</h3>
+          <div class="position">Agregador financeiro com IA, agentes especializados e distribuição de produtos financeiros.</div>
+          <div class="signal"><span class="dot green"></span><span>Open Finance com 100+ instituições, app/web/WhatsApp e API/MCP documentados.</span></div>
+          <div class="signal"><span class="dot green"></span><span>Investimentos, cartão Pierre One, alertas, agentes e plano grátis de entrada.</span></div>
+          <div class="signal"><span class="dot orange"></span><span>Complexidade e preço sobem rápido nos planos avançados; Premium divulgado a R$ 199/mês.</span></div>
+          <div class="metric"><strong>Google Play:</strong> +1 milhão de downloads.</div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Matriz competitiva</h2></div>
+        <p>Leitura funcional e estratégica. “Não identificado” significa que a capacidade não foi encontrada nas fontes públicas ou no estado atual do repositório.</p>
+      </div>
+      <div class="matrix-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Dimensão</th>
+              <th>Meu Nino.IA</th>
+              <th>Meu Assessor</th>
+              <th>Pierre</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Proposta central</td>
+              <td><strong>Decidir e mudar comportamento</strong><span class="tiny">Mais do que registrar: entender, planejar, agir e acompanhar.</span></td>
+              <td><strong>Delegar a rotina</strong><span class="tiny">Assessores executam tarefas e organização via WhatsApp.</span></td>
+              <td><strong>Consolidar e automatizar finanças</strong><span class="tiny">Contas, cartões, investimentos e agentes em uma camada única.</span></td>
+            </tr>
+            <tr>
+              <td>Open Finance</td>
+              <td><span class="gap">Não identificado no repo atual</span><span class="tiny">Hoje há importação/ingestão por documentos, CSV/OFX e WhatsApp.</span></td>
+              <td><span class="yes">Sim · 114 bancos divulgados</span></td>
+              <td><span class="yes">Sim · 100+ instituições</span></td>
+            </tr>
+            <tr>
+              <td>IA conversacional</td>
+              <td><span class="yes">Sim</span><span class="tiny">App + WhatsApp; capacidades financeiras roteadas e cálculos determinísticos.</span></td>
+              <td><span class="yes">Sim</span><span class="tiny">WhatsApp como canal principal, com agentes por função.</span></td>
+              <td><span class="yes">Sim</span><span class="tiny">App, web e WhatsApp; agentes especializados.</span></td>
+            </tr>
+            <tr>
+              <td>Planejamento e metas</td>
+              <td><span class="yes">Profundo</span><span class="tiny">Metas, planejamento, compromissos, dívidas, recorrências e desafios.</span></td>
+              <td><span class="mid">Presente</span><span class="tiny">Orçamentos, contas fixas, recorrências e organização.</span></td>
+              <td><span class="mid">Presente</span><span class="tiny">Orçamento inteligente, relatórios, alertas e acompanhamento.</span></td>
+            </tr>
+            <tr>
+              <td>Comportamento / emoções</td>
+              <td><span class="yes">Diferencial atual</span><span class="tiny">Check-in multidimensional, perfil observado e relação emoção-gasto.</span></td>
+              <td><span class="gap">Não evidenciado publicamente</span></td>
+              <td><span class="mid">Parcial</span><span class="tiny">Padrões, alertas, missões e agentes; metodologia comportamental não é o centro público.</span></td>
+            </tr>
+            <tr>
+              <td>Proatividade</td>
+              <td><span class="yes">Sim</span><span class="tiny">Pipeline proativo + recomendações + acompanhamento de mudança.</span></td>
+              <td><span class="yes">Sim</span><span class="tiny">Avisos, lembretes e ações operacionais.</span></td>
+              <td><span class="yes">Sim</span><span class="tiny">Alertas de anomalia, gasto, assinatura e oportunidade.</span></td>
+            </tr>
+            <tr>
+              <td>Investimentos</td>
+              <td><span class="mid">Acompanhamento</span><span class="tiny">Tela e contexto de investimentos; sem distribuição própria identificada.</span></td>
+              <td><span class="gap">Não é o foco público</span></td>
+              <td><span class="yes">Forte</span><span class="tiny">Visão consolidada + CDB próprio divulgado.</span></td>
+            </tr>
+            <tr>
+              <td>Execução fora de finanças</td>
+              <td><span class="gap">Baixa</span></td>
+              <td><span class="yes">Muito forte</span><span class="tiny">Agenda, tarefas, documentos, cobranças, NFS-e.</span></td>
+              <td><span class="mid">Moderada</span><span class="tiny">Pierre Computer e agentes ampliam o escopo, mas finanças seguem no centro.</span></td>
+            </tr>
+            <tr>
+              <td>Preço público</td>
+              <td><strong>Em definição / não usado neste benchmark</strong></td>
+              <td><strong>R$ 59,90/mês</strong><span class="tiny">Anual divulgado a R$ 358,80 (12× R$ 29,90).</span></td>
+              <td><strong>Grátis · Pro R$ 39 · Premium R$ 199/mês</strong><span class="tiny">Valores anuais equivalentes divulgados com desconto.</span></td>
+            </tr>
+            <tr>
+              <td>Escala pública</td>
+              <td><span class="gap">Ainda não comparável publicamente</span></td>
+              <td><strong>+200 mil usuários</strong><span class="tiny">Número declarado pela empresa.</span></td>
+              <td><strong>+1 mi downloads</strong><span class="tiny">Google Play; 7 mil+ avaliações na App Store brasileira.</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Fortalezas, fraquezas e oportunidades</h2></div>
+        <p>SWOT enxuto por player, separado de “ranking”. O objetivo é entender mecanismo competitivo, não produzir uma nota.</p>
+      </div>
+      <div class="swot-grid">
+        <article class="card swot">
+          <div class="swot-head"><h3>Meu Nino.IA</h3><span class="scoreless">behavior-first</span></div>
+          <div class="swot-block"><div class="swot-title s">Fortalezas</div><ul>
+            <li>Arquitetura orientada a verdade financeira: cálculos determinísticos e IA explicando, não “inventando conta”.</li>
+            <li>Camada comportamental rara: emoções, impulso, calma financeira, consistência, uso real e evolução longitudinal.</li>
+            <li>Produto une controle, planejamento e ação — potencial para um loop fechado de mudança.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title w">Fraquezas</div><ul>
+            <li>Gap objetivo em Open Finance e sincronização bancária automática.</li>
+            <li>Confiabilidade ainda precisa ser provada continuamente; qualquer divergência de saldo destrói valor percebido do “advisor”.</li>
+            <li>Menor escala e distribuição pública frente a concorrentes já massificados.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title o">Oportunidades</div><ul>
+            <li>Posicionar como “sistema de mudança financeira”, não como categorizador de gastos.</li>
+            <li>Conectar Open Finance sem perder o diferencial comportamental.</li>
+            <li>Tornar evidência, confiança e explicabilidade parte visível da UX.</li>
+          </ul></div>
+        </article>
+
+        <article class="card swot">
+          <div class="swot-head"><h3>Meu Assessor</h3><span class="scoreless">life ops</span></div>
+          <div class="swot-block"><div class="swot-title s">Fortalezas</div><ul>
+            <li>Fricção baixíssima: WhatsApp como “interface universal”.</li>
+            <li>Open Finance, conta compartilhada e amplo conjunto de ações operacionais.</li>
+            <li>Distribuição forte e proposta simples de entender: “mande a mensagem e está feito”.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title w">Fraquezas</div><ul>
+            <li>Escopo horizontal muito amplo pode diluir profundidade em finanças pessoais.</li>
+            <li>Valor depende de integrações externas (WhatsApp, Google, Open Finance e parceiros operacionais).</li>
+            <li>Camada pública enfatiza execução e organização; mudança comportamental longitudinal não é um diferencial demonstrado.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title o">Oportunidades</div><ul>
+            <li>Virar um “operating system pessoal” e capturar rotinas de família e pequenos negócios.</li>
+            <li>Transformar automação operacional em inteligência financeira mais profunda.</li>
+            <li>Expandir monetização sobre pagamentos, cobranças e serviços empresariais.</li>
+          </ul></div>
+        </article>
+
+        <article class="card swot">
+          <div class="swot-head"><h3>Pierre</h3><span class="scoreless">finance OS</span></div>
+          <div class="swot-block"><div class="swot-title s">Fortalezas</div><ul>
+            <li>Automação de dados madura: Open Finance, múltiplos bancos, cartões e investimentos.</li>
+            <li>Distribuição, capital e infraestrutura da CloudWalk; plano grátis acelera aquisição.</li>
+            <li>Agentes + API/MCP + produtos financeiros criam plataforma, não apenas app.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title w">Fraquezas</div><ul>
+            <li>Planos avançados têm custo alto e aumentam complexidade do produto.</li>
+            <li>Múltiplos agentes podem fragmentar a experiência se o contexto não parecer unificado.</li>
+            <li>Próprio termo reconhece natureza probabilística e possibilidade de outputs imprecisos — confiança continua crítica.</li>
+          </ul></div>
+          <div class="swot-block"><div class="swot-title o">Oportunidades</div><ul>
+            <li>Virar camada universal de acesso a dados financeiros via API/MCP.</li>
+            <li>Distribuir cada vez mais produtos financeiros dentro do contexto do usuário.</li>
+            <li>Aprofundar aconselhamento de comportamento para além de alertas e categorização.</li>
+          </ul></div>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Mapa de posicionamento</h2></div>
+        <p>Eixo horizontal: automação/integração dos dados. Eixo vertical: profundidade de mudança comportamental. A posição é qualitativa, baseada nas capacidades observadas — não é um score.</p>
+      </div>
+      <div class="map" aria-label="Mapa qualitativo de posicionamento competitivo">
+        <div class="axis-y">Profundidade comportamental →</div>
+        <div class="axis-x">Automação & integração de dados →</div>
+        <div class="corner tl">coach / mudança</div>
+        <div class="corner tr">autonomous financial coach</div>
+        <div class="corner bl">controle manual</div>
+        <div class="corner br">agregador automatizado</div>
+        <div class="bubble target"><strong>Whitespace</strong><span>comportamento profundo + dados automáticos + confiança verificável</span></div>
+        <div class="bubble nino"><strong>Meu Nino.IA</strong><span>profundidade de comportamento alta; automação bancária ainda incompleta</span></div>
+        <div class="bubble pierre"><strong>Pierre</strong><span>integração e plataforma muito fortes; comportamento ainda não é o centro</span></div>
+        <div class="bubble assessor"><strong>Meu Assessor</strong><span>automação e execução altas; proposta horizontal de vida/rotina</span></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>O que eu priorizaria no Nino</h2></div>
+        <p>Não são “features para igualar concorrente”. São apostas para fechar o gap mínimo e, em seguida, aprofundar a diferenciação.</p>
+      </div>
+      <div class="bets">
+        <article class="card bet-list">
+          <div class="bet"><div class="num">01</div><div><h4>Open Finance como infraestrutura, não como posicionamento</h4><p>Eliminar input manual, melhorar cobertura e tornar saldo/fatura/transações automaticamente reconciliados. Isso fecha um gap — não cria moat sozinho.</p></div></div>
+          <div class="bet"><div class="num">02</div><div><h4>Loop fechado de mudança</h4><p>Diagnóstico → escolha de comportamento → compromisso → nudges → resultado real → aprendizado. Essa é a camada que Pierre e Meu Assessor não demonstram publicamente com a mesma profundidade.</p></div></div>
+          <div class="bet"><div class="num">03</div><div><h4>Trust UX como produto</h4><p>Mostrar período, fontes, atualização, confiança e “por que o Nino concluiu isso”. Em finanças, explicabilidade pode valer mais do que parecer inteligente.</p></div></div>
+          <div class="bet"><div class="num">04</div><div><h4>Decisão antes do gasto</h4><p>“Posso gastar?”, “devo parcelar?”, “qual meta sacrifico?”, “o que muda se eu comprar?”. Levar a inteligência do retrospectivo para o momento de decisão.</p></div></div>
+        </article>
+        <aside class="card guardrail">
+          <h3>Guardrail estratégico</h3>
+          <p>Se o Nino tentar vencer em quantidade de agentes, número de integrações ou catálogo financeiro, tende a entrar em uma corrida cara contra players com mais capital e distribuição.</p>
+          <div class="quote">“O Nino precisa saber mais sobre <em>como eu lido com dinheiro</em>, e não apenas saber mais dados sobre o meu dinheiro.”</div>
+        </aside>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div><h2>Fontes e método</h2></div>
+        <p>Snapshot em 20/09/2026. Concorrentes: páginas oficiais, termos e lojas de aplicativos. Nino: estado atual do repositório.</p>
+      </div>
+      <article class="card sources">
+        <h3>Fontes públicas principais</h3>
+        <ol>
+          <li><a href="https://www.meuassessor.com/" target="_blank" rel="noreferrer">Meu Assessor — site oficial</a> (Open Finance, escopo, automações, conta compartilhada e métricas declaradas).</li>
+          <li><a href="https://ajuda.meuassessor.com/pt-BR/articles/16141001-como-funciona-a-assinatura-do-meu-assessor" target="_blank" rel="noreferrer">Meu Assessor — Central de Ajuda</a> (preços e assinatura).</li>
+          <li><a href="https://lp.pierre.finance/" target="_blank" rel="noreferrer">Pierre — site oficial</a> (Open Finance, agentes, investimentos, cartão e preços).</li>
+          <li><a href="https://pierre.finance/privacy-policy" target="_blank" rel="noreferrer">Pierre — Termos e Política</a> (API/MCP, canais, capacidades e limitações da IA).</li>
+          <li><a href="https://play.google.com/store/apps/details?id=io.cloudwalk.pierre" target="_blank" rel="noreferrer">Pierre — Google Play</a> (downloads e descrição atual).</li>
+        </ol>
+        <p style="margin:14px 0 0;color:var(--ink-2);font-size:.76rem">Observação: métricas de usuários divulgadas por empresas são tratadas como declarações das próprias empresas; não foram auditadas independentemente neste material. Capacidades podem mudar após a data do snapshot.</p>
+      </article>
+    </section>
+
+    <footer class="footer">
+      <span>Meu Nino.IA · Competitive Intelligence</span>
+      <span>Design alinhado aos tokens oficiais do produto · uso interno</span>
+    </footer>
+  </main>
+</body>
+</html>
