@@ -1356,7 +1356,7 @@ export async function get_weekday_spending_pattern(ctx: ToolContext, args: {
   }
 }
 
-export async function get_goals_overview(ctx: ToolContext, args: { category?: string } = {}): Promise<ToolResult> {
+export async function get_goals_overview(ctx: ToolContext, args: { category?: string; goal?: string } = {}): Promise<ToolResult> {
   try {
     const month = todaySaoPaulo().slice(0, 7);
     const [snap, goalsRes, contribsRes, investmentsRes, ownedSharedRes, memberRes, incomeRes] = await Promise.all([
@@ -1417,31 +1417,33 @@ export async function get_goals_overview(ctx: ToolContext, args: { category?: st
     for (const goal of [...((ownedSharedRes.data ?? []) as any[]), ...((memberSharedRes.data ?? []) as any[])]) {
       sharedById.set(goal.id, goal);
     }
-    // Meta de UMA categoria ("como está minha meta de alimentação?"): a engine
-    // aplica o filtro e confirma, para o gate de preservação não tratar como
-    // resposta de outro recorte.
-    const requestedCategory = String(args?.category ?? "").trim();
-    if (requestedCategory) {
-      const fold = (v: string) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-      const want = fold(requestedCategory);
-      const matched = categoryItems
-        .filter((c) => { const name = fold(String(c.name ?? "")); return name === want || name.includes(want) || want.includes(name); })
-        .map((c) => ({
-          ...c,
-          used_pct: Number(c.target) > 0 ? Math.round(Number(c.achieved) / Number(c.target) * 100) : 0,
-          over_limit: Number(c.achieved) > Number(c.target),
-        }));
+    // Meta NOMEADA ("como está minha meta de alimentação?", "e a da viagem?"): a
+    // engine resolve o nome entre metas de categoria, metas de guardar e metas
+    // conjuntas, aplica o recorte e CONFIRMA o escopo (`category_filter.applied`)
+    // para o gate de preservação não tratar como resposta de outro recorte.
+    const requestedName = String(args?.category ?? args?.goal ?? "").trim();
+    if (requestedName) {
+      const hit = (name: unknown) => goalNameMatches(name, requestedName);
+      const matchedCategories = categoryItems.filter((c) => hit(c.name)).map((c) => ({
+        ...c,
+        used_pct: Number(c.target) > 0 ? Math.round(Number(c.achieved) / Number(c.target) * 100) : 0,
+        over_limit: Number(c.achieved) > Number(c.target),
+      }));
+      const matchedPersonal = items.filter((g) => hit(g.name));
+      const matchedShared = [...sharedById.values()].filter((g) => hit(g.title));
+      const matchedCount = matchedCategories.length + matchedPersonal.length + matchedShared.length;
+      const pool = [...matchedPersonal, ...matchedCategories];
       return {
         ok: true,
         result: {
           formula_version: "goals_overview.v2",
           month,
-          items: [],
-          category_goals: matched,
-          shared_goals: [],
-          category_filter: { requested: requestedCategory, applied: true, matched: matched.length },
-          overall_attainment_pct: matched.length
-            ? Math.round(matched.reduce((sum, item) => sum + Number(item.attainment_pct || 0), 0) / matched.length * 100) / 100
+          items: matchedPersonal,
+          category_goals: matchedCategories,
+          shared_goals: matchedShared,
+          category_filter: { requested: requestedName, applied: true, matched: matchedCount },
+          overall_attainment_pct: pool.length
+            ? Math.round(pool.reduce((sum, item) => sum + Number(item.attainment_pct || 0), 0) / pool.length * 100) / 100
             : 0,
         },
       };
@@ -1706,6 +1708,7 @@ import {
   analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
+import { goalNameMatches } from "./core/GoalNameMatch.ts";
 import { loadBehaviorHabitsReading, OBSERVED_RUNTIME_VERSION } from "../behavioral/observedRuntime.ts";
 
 export {

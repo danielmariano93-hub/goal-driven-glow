@@ -72,7 +72,7 @@ function addEngineEnvelopeFacts(
  * Antes, só campos de gasto (`total_metric`, `totals`…) viravam claim e todo
  * valor de saldo/meta aparecia como `money_not_in_evidence`.
  */
-const STATE_ENGINES = new Set([
+export const STATE_ENGINES = new Set([
   "get_financial_snapshot", "get_goals_overview", "get_net_worth",
   "get_debt_status", "get_future_installments", "assess_financial_health",
 ]);

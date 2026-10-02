@@ -436,8 +436,10 @@ export async function computeAgentSnapshot(
     })),
     source_transaction_count: txs.length,
     reconciliation_id: snap.audit.reconciliationId,
-    active_category_goals: snap.activeCategoryGoals.map(flattenGoal),
-    top_category_goal: snap.topCategoryGoal ? flattenGoal(snap.topCategoryGoal) : null,
+    // Vigentes: meta de período encerrado (ex.: setembro) segue com status "active"
+    // até o ciclo ser arquivado e não pode aparecer como meta atual no agente.
+    active_category_goals: snap.activeCategoryGoals.filter((g) => g.period.end >= todayIso).map(flattenGoal),
+    top_category_goal: snap.topCategoryGoal && snap.topCategoryGoal.period.end >= todayIso ? flattenGoal(snap.topCategoryGoal) : null,
     cash_bridge: {
       opening_cash: snap.cashBridge.openingCash,
       closing_cash: snap.cashBridge.confirmedClosingCash,

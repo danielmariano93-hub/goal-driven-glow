@@ -3,6 +3,7 @@
 // Gate #2 do caminho semântico: TEMOS EVIDÊNCIA SUFICIENTE para responder tudo
 // que foi pedido? Nunca responder A+B como completo tendo só A.
 // (O Grounding, depois, verifica se a resposta respeitou essa evidência.)
+import { STATE_ENGINES } from "./EvidenceClaims.ts";
 import type { CompletenessTarget, FinancialQueryIRv2 } from "./FinancialQueryIR.ts";
 import type { EvidenceClaimSet } from "./EvidenceClaims.ts";
 import type { SemanticExecutionResult } from "./SemanticQueryExecutor.ts";
@@ -54,7 +55,12 @@ export function checkCompleteness(args: {
       });
       continue;
     }
-    const direct = claims.claims.some((c) => c.query_id === target.query_id && c.type === target.claim);
+    // Engine de ESTADO (saldo, metas, patrimônio, saúde...) com resultado
+    // estruturado responde por si: um veredito ("você está melhorando") não tem
+    // claim monetário e antes era barrado como "incompleto".
+    const stateAnswer = !!outcome.engine && STATE_ENGINES.has(outcome.engine)
+      && !!outcome.result && typeof outcome.result === "object" && Object.keys(outcome.result as object).length > 0;
+    const direct = stateAnswer || claims.claims.some((c) => c.query_id === target.query_id && c.type === target.claim);
     // Ausência é evidência válida: "não houve gasto nesse recorte" responde.
     const absence = claims.claims.some((c) => c.query_id === target.query_id && c.type === "absence");
     if (direct || absence || derivable(target, claims)) fulfilled.push(target.id);

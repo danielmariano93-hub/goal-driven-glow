@@ -162,11 +162,17 @@ function financialQuery(task: FinancialQueryTaskV3, now: Date): FinancialReadSem
 
 function goalQuery(task: GoalQueryTaskV3): FinancialReadSemanticQuery | null {
   if (task.operation === "projection") return null;
+  // "Como está minha meta de alimentação?": o nome citado NO TURNO delimita a
+  // resposta. Antes ele era descartado (`filters: []`) e toda pergunta sobre uma
+  // meta específica virava a visão geral de todas. O nome pode ser de uma
+  // categoria, de uma meta de guardar ou de uma meta conjunta: a ferramenta
+  // resolve entre os três e confirma o escopo aplicado.
+  const named = task.operation === "progress" ? String(task.goal?.value ?? "").trim() : "";
   return {
     metric: "goal_progress",
     operation: "value",
     group_by: [],
-    filters: [],
+    filters: named ? [{ field: "category", op: "eq", value: named }] : [],
     limit: null,
     comparison_direction: "any",
     comparison_baseline: "period",

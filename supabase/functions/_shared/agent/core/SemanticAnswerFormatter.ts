@@ -30,7 +30,39 @@ function formatDebtStatus(result: any): string | null {
   return `Você tem ${count} dívida(s) ativa(s), com saldo total de ${BRL.format(total)}.${visible ? `\n\n${visible}${more}` : ""}`;
 }
 
+/** Patrimônio líquido: o total e de onde ele vem (tudo sai do resultado da engine). */
+function formatNetWorth(result: any): string | null {
+  const total = Number(result?.net_worth);
+  if (!Number.isFinite(total)) return null;
+  const c = result?.composition ?? {};
+  const lines = [`Seu patrimônio líquido hoje é de *${BRL.format(total)}*.`];
+  const parts: string[] = [];
+  if (Number(c.cash)) parts.push(`• Dinheiro em conta: ${BRL.format(Number(c.cash))}`);
+  if (Number(c.invested)) parts.push(`• Investido: ${BRL.format(Number(c.invested))}`);
+  if (Number(c.account_overdraft)) parts.push(`• Cheque especial: −${BRL.format(Number(c.account_overdraft))}`);
+  if (Number(c.cards_owed)) parts.push(`• Fatura de cartão em aberto: −${BRL.format(Number(c.cards_owed))}`);
+  if (Number(c.other_debts)) parts.push(`• Outras dívidas: −${BRL.format(Number(c.other_debts))}`);
+  if (parts.length) lines.push("", ...parts);
+  return lines.join("\n");
+}
+
+/** Parcelas futuras de cartão: total, mês a mês e quantas são. */
+function formatFutureInstallments(result: any): string | null {
+  const count = Number(result?.count ?? 0);
+  const total = Number(result?.total);
+  if (!Number.isFinite(total)) return null;
+  if (count <= 0 || total <= 0) return "Você não tem parcelas futuras no cartão registradas.";
+  const months = Array.isArray(result?.by_month) ? result.by_month : [];
+  const label = (m: string) => { const [y, mo] = String(m).split("-"); return mo && y ? `${mo}/${y}` : String(m); };
+  const lines = [`Você tem *${BRL.format(total)}* em ${count} parcela${count === 1 ? "" : "s"} futura${count === 1 ? "" : "s"} no cartão.`];
+  const rows = months.slice(0, 6).map((row: any) => `• ${label(row.competence_month)}: ${BRL.format(Number(row.total ?? row.amount ?? 0))}`);
+  if (rows.length) lines.push("", ...rows);
+  return lines.join("\n");
+}
+
 const FORMATTERS: Record<string, (result: any) => string | null> = {
+  get_net_worth: formatNetWorth,
+  get_future_installments: formatFutureInstallments,
   analyze_spending: formatSpendingAnalysis,
   merchant_distribution: formatMerchantDistribution,
   compare_to_monthly_average: formatAverageComparisonEnhanced,
