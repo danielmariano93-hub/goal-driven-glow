@@ -3,27 +3,14 @@ import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
-import { AdminResponsiveList } from "@/components/admin/AdminResponsiveList";
+import { ArrowRight } from "lucide-react";
+import { SEGMENTS, clientNarrative, clientNextAction, segmentCounts, segmentsOf, type ClientRow, type SegmentKey } from "@/lib/admin/clientSegments";
 import { adminErrorMessage, callAdminRpc, withPeriod } from "@/lib/admin/adminRpc";
 import { usePlatformPermissions } from "@/hooks/usePlatformPermissions";
-import { dict } from "@/lib/admin/displayDictionary";
-import { formatDateTime } from "@/lib/admin/formulas";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 
-type Lifecycle = "new" | "activated" | "active" | "dormant" | "deleted";
-
-type Client = {
-  pseudo_id: string;
-  registered_at: string;
-  onboarding_completed_at: string | null;
-  first_event_at: string | null;
-  last_event_at: string | null;
-  total_events: number;
-  significant_actions: number;
-  has_financial_data: boolean;
-  lifecycle_status: Lifecycle;
-};
+type Client = ClientRow;
 
 type Identity = {
   pseudo_id: string;
@@ -38,15 +25,18 @@ type ClientResponse = {
   universe?: string;
 };
 
-const LIFECYCLE_OPTIONS: Array<{ key: "all" | Lifecycle; label: string }> = [
-  { key: "all", label: "Todos" },
-  { key: "new", label: "Novos" },
-  { key: "activated", label: "Ativados" },
-  { key: "active", label: "Ativos" },
-  { key: "dormant", label: "Dormant" },
-];
-
-type FinancialFilter = "all" | "with" | "without";
+const TONE: Record<string, string> = {
+  danger: "border-destructive/40 bg-destructive/5",
+  warning: "border-warning/50 bg-warning/5",
+  info: "border-border bg-card",
+  success: "border-success/30 bg-success/5",
+};
+const CHIP: Record<string, string> = {
+  danger: "bg-destructive/10 text-destructive",
+  warning: "bg-warning/15 text-warning",
+  info: "bg-secondary text-muted-foreground",
+  success: "bg-success/10 text-success",
+};
 
 export default function Clientes() {
   const { permissions, ready: permsReady } = usePlatformPermissions();
@@ -65,8 +55,7 @@ export default function Clientes() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [lifecycleFilter, setLifecycleFilter] = useState<"all" | Lifecycle>("all");
-  const [financialFilter, setFinancialFilter] = useState<FinancialFilter>("all");
+  const [segment, setSegment] = useState<SegmentKey | null>(null);
 
   useEffect(() => {
     if (!permsReady) return;
@@ -77,8 +66,8 @@ export default function Clientes() {
       "admin_v2_clients_list",
       withPeriod(range, {
         _limit: 200,
-        _lifecycle: lifecycleFilter === "all" ? null : lifecycleFilter,
-        _financial: financialFilter === "all" ? null : financialFilter,
+        _lifecycle: null,
+        _financial: null,
       }),
     )
       .then(async (response) => {
@@ -109,9 +98,14 @@ export default function Clientes() {
       .catch((e) => { if (!cancelled) setError(adminErrorMessage(e, "Falha ao carregar clientes")); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [permsReady, canReadIdentity, canReadMaskedIdentity, range.from, range.to, lifecycleFilter, financialFilter]);
+  }, [permsReady, canReadIdentity, canReadMaskedIdentity, range.from, range.to]);
 
-  const clients = useMemo(() => rows ?? [], [rows]);
+  const all = useMemo(() => rows ?? [], [rows]);
+  const counts = useMemo(() => segmentCounts(all), [all]);
+  const clients = useMemo(
+    () => (segment ? all.filter((c) => segmentsOf(c).includes(segment)) : all),
+    [all, segment],
+  );
 
   if (loading || !permsReady) return <AdminSkeleton />;
   if (error) return <EmptyState title="Não foi possível carregar os clientes" description={error} />;
@@ -141,99 +135,71 @@ export default function Clientes() {
       />
 
 
+      <section aria-label="Segmentos" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {(Object.keys(SEGMENTS) as SegmentKey[]).map((key) => {
+          const seg = SEGMENTS[key];
+          const active = segment === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setSegment(active ? null : key)}
+              aria-pressed={active}
+              className={`rounded-2xl border p-4 text-left transition ${TONE[seg.tone]} ${active ? "ring-2 ring-primary" : "hover:border-primary/40"}`}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{seg.label}</p>
+              <p className="mt-1 font-display text-3xl font-bold tabular-nums">{counts[key]}</p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{seg.hint}</p>
+            </button>
+          );
+        })}
+      </section>
+
       {totals && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">Clientes cadastrados</p>
-            <p className="mt-1 text-2xl font-semibold">{totals.registered}</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">Com perfil</p>
-            <p className="mt-1 text-2xl font-semibold">{totals.with_profile}</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <p className="text-xs text-muted-foreground">Com dados financeiros</p>
-            <p className="mt-1 text-2xl font-semibold">{totals.with_financial_data}</p>
-          </div>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          {totals.registered} clientes no total · {totals.with_financial_data} com dados financeiros · {totals.with_profile} com perfil.
+          {segment ? ` Mostrando só “${SEGMENTS[segment].label}”.` : " Toque num segmento para filtrar."}
+        </p>
       )}
 
-      {/* Filtros */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1">
-          {LIFECYCLE_OPTIONS.map((opt) => (
-            <button
-              key={opt.key}
-              type="button"
-              onClick={() => setLifecycleFilter(opt.key)}
-              className={`rounded-full border px-3 py-1 text-xs transition ${
-                lifecycleFilter === opt.key
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-secondary/50 hover:bg-secondary"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto flex gap-1">
-          {(
-            [
-              { key: "all", label: "Todos" },
-              { key: "with", label: "Com dados" },
-              { key: "without", label: "Sem dados" },
-            ] as Array<{ key: FinancialFilter; label: string }>
-          ).map((opt) => (
-            <button
-              key={opt.key}
-              type="button"
-              onClick={() => setFinancialFilter(opt.key)}
-              className={`rounded-full border px-3 py-1 text-xs transition ${
-                financialFilter === opt.key
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-secondary/50 hover:bg-secondary"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {clients.length ? (
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-          <AdminResponsiveList
-            rows={clients}
-            rowKey={(row) => row.pseudo_id}
-            columns={[
-              {
-                key: "client",
-                label: "Cliente",
-                render: (row) => {
-                  const identity = identities[row.pseudo_id];
-                  return (
-                    <Link to={`/admin/clientes/${row.pseudo_id}`} className="block focus-visible:ring-2 focus-visible:ring-primary/40">
-                      <p className="font-semibold underline-offset-2 hover:underline">
-                        {identity?.display_name || `Cliente ${row.pseudo_id.slice(0, 6)}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{identity?.email || "Identidade protegida"}</p>
-                    </Link>
-                  );
-                },
-              },
-              { key: "registered", label: "Cadastro", render: (row) => formatDateTime(row.registered_at) },
-              { key: "status", label: "Status", render: (row) => dict.status(row.lifecycle_status) },
-              { key: "onboarding", label: "Onboarding", render: (row) => (row.onboarding_completed_at ? "Concluído" : "Pendente") },
-              { key: "last", label: "Última atividade", render: (row) => formatDateTime(row.last_event_at) },
-              { key: "events", label: "Eventos", render: (row) => row.total_events, align: "right" },
-              { key: "financial", label: "Dados financeiros", render: (row) => (row.has_financial_data ? "Sim" : "Ainda não") },
-            ]}
-          />
-        </section>
+        <ul className="grid gap-3 lg:grid-cols-2">
+          {clients.map((row) => {
+            const identity = identities[row.pseudo_id];
+            const segs = segmentsOf(row);
+            const action = clientNextAction(row);
+            return (
+              <li key={row.pseudo_id} className="surface-card p-4">
+                <Link to={`/admin/clientes/${row.pseudo_id}`} className="block focus-visible:ring-2 focus-visible:ring-primary/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{identity?.display_name || `Cliente ${row.pseudo_id.slice(0, 6)}`}</p>
+                      <p className="truncate text-xs text-muted-foreground">{identity?.email || "Identidade protegida"}</p>
+                    </div>
+                    <ArrowRight size={15} className="mt-1 shrink-0 text-muted-foreground" aria-hidden />
+                  </div>
+                  <p className="mt-2 text-sm">{clientNarrative(row)}</p>
+                  <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <div><dt className="inline">Eventos </dt><dd className="inline font-semibold text-foreground tabular-nums">{row.total_events}</dd></div>
+                    <div><dt className="inline">Ações relevantes </dt><dd className="inline font-semibold text-foreground tabular-nums">{row.significant_actions}</dd></div>
+                    <div><dt className="inline">Onboarding </dt><dd className="inline font-semibold text-foreground">{row.onboarding_completed_at ? "concluído" : "pendente"}</dd></div>
+                    <div><dt className="inline">Dados financeiros </dt><dd className="inline font-semibold text-foreground">{row.has_financial_data ? "sim" : "ainda não"}</dd></div>
+                  </dl>
+                  {segs.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {segs.map((k) => <span key={k} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${CHIP[SEGMENTS[k].tone]}`}>{SEGMENTS[k].label}</span>)}
+                    </div>
+                  )}
+                  {action && <p className="mt-2 text-xs font-medium text-primary">→ {action}</p>}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
       ) : (
         <EmptyState
-          title="Nenhum cliente no filtro atual"
-          description="Ajuste os filtros para ver outros clientes ou aguarde novos cadastros."
+          title={segment ? "Ninguém neste segmento" : "Nenhum cliente no período"}
+          description={segment ? "Boa notícia: nenhum cliente precisa dessa ação agora." : "Ajuste o período ou aguarde novos cadastros."}
         />
       )}
     </div>

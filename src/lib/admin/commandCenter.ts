@@ -102,8 +102,47 @@ const PATH_LABEL: Record<string, string> = {
 };
 export const pathLabel = (path: string) => PATH_LABEL[path] ?? path.replace(/_/g, " ");
 
+export type OpsService = {
+  job_key: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_ok: boolean | null;
+  processed: number;
+  failed: number;
+  last_error_code: string | null;
+};
+
+const STALE_MS = 24 * 3_600_000;
+
+export function serviceState(s: OpsService, now: number = Date.now()): "ok" | "stale" | "failing" {
+  if (!s.last_run_at) return "stale";
+  const age = now - Date.parse(s.last_run_at);
+  if (Number.isFinite(age) && age > STALE_MS) return "stale";
+  if (s.last_ok === false || s.failed > 0) return "failing";
+  return "ok";
+}
+
+/** Rotinas do sistema (cron/workers) que pararam ou estão falhando. */
+export function servicesAttention(services: OpsService[], label: (key: string) => string, now: number = Date.now()): AttentionItem[] {
+  const items: AttentionItem[] = [];
+  for (const s of services) {
+    const st = serviceState(s, now);
+    if (st === "ok") continue;
+    const hours = s.last_run_at ? Math.round((now - Date.parse(s.last_run_at)) / 3_600_000) : null;
+    items.push({
+      key: `service_${s.job_key}`,
+      severity: st === "stale" ? "critical" : "warning",
+      title: st === "stale"
+        ? `${label(s.job_key)} sem execução ${hours == null ? "comprovada" : `há ${hours} h`}`
+        : `${label(s.job_key)} falhou na última execução`,
+      detail: s.last_error_code ? `Erro: ${s.last_error_code}.` : st === "stale" ? "A rotina pode ter parado. Verifique o agendamento." : `${s.failed} item(ns) com falha.`,
+    });
+  }
+  return items;
+}
+
 /** O que exige ação agora, do mais grave ao menos grave. Nunca devolve ruído. */
-export function buildAttention(data: CommandCenterData): AttentionItem[] {
+export function buildAttention(data: CommandCenterData, extra: AttentionItem[] = []): AttentionItem[] {
   const out: AttentionItem[] = [];
   const t = data.totals;
   const enough = t.turns >= LIMITS.minTurnsForRates;
@@ -189,6 +228,7 @@ export function buildAttention(data: CommandCenterData): AttentionItem[] {
       to: "/admin/comunicacoes?aba=mensagens",
     });
   }
+  out.push(...extra);
   const order = { critical: 0, warning: 1, info: 2 } as const;
   return out.sort((a, b) => order[a.severity] - order[b.severity]);
 }
