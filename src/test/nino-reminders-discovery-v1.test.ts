@@ -179,8 +179,6 @@ describe("engajamento: descoberta de funcionalidades", () => {
   });
 });
 
-import { allocateAttention } from "../../supabase/functions/_shared/proactive/ranking";
-import { DISCOVERY_TIPS } from "../../supabase/functions/_shared/proactive/featureDiscovery";
 
 describe("aviso do dia da semana: WhatsApp não é bloqueado por entrega só no app", () => {
   it("dicas 'sempre úteis' existem para quem já usa tudo", () => {
