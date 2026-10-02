@@ -7,6 +7,7 @@
 type SupabaseClient = any;
 
 import { applyIntradayBankAnchorAdjustments } from "../finance-core/intradayCash.ts";
+import { computeAccountBalances } from "../finance-core/facts.ts";
 import {
   computeFinancialSnapshot,
   round2,
@@ -115,6 +116,7 @@ export interface AgentFinancialSnapshot {
   month_start: string;
   month_end: string;
   available_today: number;
+  account_balances: Array<{ id: string; name: string; type: string; balance: number }>;
   cards_owed: number;
   cards_owed_estimated: boolean;
   card_future_installments: number;
@@ -360,6 +362,7 @@ export async function computeAgentSnapshot(
   const catNames: Record<string, string> = {};
   for (const c of ((catNamesRes.data ?? []) as any[])) catNames[c.id] = c.name;
 
+  const accountBalanceById = computeAccountBalances(accounts, txs, realtimeSnapshots, { asOf: todayIso });
   const snap = computeFinancialSnapshot({
     accounts,
     txs,
@@ -402,6 +405,10 @@ export async function computeAgentSnapshot(
     month_start: mr.start,
     month_end: mr.end,
     available_today: snap.availableToday,
+    account_balances: accounts.filter((a) => a.active !== false).map((a) => ({
+      id: a.id, name: a.name, type: String((a as { type?: string }).type ?? ""),
+      balance: round2(accountBalanceById[a.id] ?? 0),
+    })),
     cards_owed: snap.cardDebtToday,
     cards_owed_estimated: snap.cardDebtIsEstimated,
     card_future_installments: snap.cardFutureInstallments,

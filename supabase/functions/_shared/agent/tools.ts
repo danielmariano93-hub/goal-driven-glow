@@ -1289,6 +1289,24 @@ export async function get_financial_snapshot(ctx: ToolContext): Promise<ToolResu
   }
 }
 
+/** Saldo de UMA conta ("saldo da conta Itaú"): resolve o nome e confirma o filtro aplicado. */
+export async function get_account_balance(ctx: ToolContext, args: { account?: string }): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    const wanted = String(args?.account ?? "").trim();
+    const all = snap.account_balances ?? [];
+    if (!wanted) return { ok: true, result: { accounts: all, total: all.reduce((n, a) => n + a.balance, 0) } };
+    const matched = all.filter((a) => goalNameMatches(a.name, wanted));
+    return { ok: true, result: {
+      accounts: matched,
+      account_filter: { requested: wanted, applied: matched.length > 0, matched: matched.map((a) => a.name) },
+      available_accounts: all.map((a) => a.name),
+    } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function list_category_spending_goals(ctx: ToolContext): Promise<ToolResult> {
   try {
     const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
@@ -3252,6 +3270,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Retorna o mesmo painel que a Home mostra: disponível hoje, ritmo de gasto, projeção de fim de mês, entradas e compromissos futuros conhecidos, fatura em aberto e metas de categoria ativas. Use quando o usuário pedir 'como estou?', 'quanto sobra até o fim do mês?', 'projeção', 'ritmo', 'quanto gastei/quanto entrou este mês'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: get_financial_snapshot,
+  },
+  {
+    name: "get_account_balance",
+    description: "Saldo atual de uma conta específica (ex.: 'saldo da conta Itaú', 'quanto tenho no Nubank'). Sem 'account', lista o saldo de todas as contas.",
+    parameters: { type: "object", properties: { account: { type: "string" } }, additionalProperties: false },
+    execute: get_account_balance,
   },
   {
     name: "list_category_spending_goals",
