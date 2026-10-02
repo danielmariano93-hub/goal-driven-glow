@@ -1,0 +1,38 @@
+name: Nino Model Benchmark
+
+# Manual: compara modelos do provedor no interpretador semântico V3 (válido, correto,
+# latência, tokens). Não roda em push para não competir com a cota do deploy.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Modelos separados por vírgula (vazio = todos os de chat do provedor)"
+        required: false
+        default: ""
+      reps:
+        description: "Repetições por frase"
+        required: false
+        default: "2"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Benchmark
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NINO_AI_PROVIDER: groq
+          BENCH_MODELS: ${{ inputs.models }}
+          BENCH_REPS: ${{ inputs.reps }}
+        run: |
+          set -euo pipefail
+          test -n "$GROQ_API_KEY" || (echo 'Missing GROQ_API_KEY repository secret' && exit 1)
+          deno run --allow-env --allow-net scripts/nino_model_benchmark.ts
