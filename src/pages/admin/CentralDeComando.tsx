@@ -6,17 +6,18 @@ import { MetricTile } from "@/components/admin/kit/MetricTile";
 import { ChartLegend, SmoothChart, type SmoothSeries } from "@/components/admin/kit/SmoothChart";
 import { SkeletonTable } from "@/components/admin/AdminSkeleton";
 import { adminErrorMessage } from "@/lib/admin/adminRpc";
+import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
+import { PRESET_LABELS, resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { useCommandCenter } from "@/lib/admin/useCommandCenter";
 import {
-  buildAttention, errorLabel, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
+  buildAttention, errorLabel, modelName, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
 } from "@/lib/admin/commandCenter";
 
-const PERIODS = [7, 14, 30] as const;
-
 const dayLabel = (iso: string) => {
-  const [, m, d] = iso.split("-");
-  return `${d}/${m}`;
+  const [date, hour] = iso.split("T");
+  const [, m, d] = date.split("-");
+  return hour ? `${hour.slice(0, 2)}h` : `${d}/${m}`;
 };
 
 function Panel({ title, subtitle, legend, children }: { title: string; subtitle?: string; legend?: SmoothSeries[]; children: React.ReactNode }) {
@@ -108,6 +109,40 @@ function RankedBars({
   );
 }
 
+/** Comparativo de modelos: acerto de primeira, tempo, falha final e custo por 1.000 conversas. */
+export function ModelComparison({ models }: { models: CommandCenterData["by_model"] }) {
+  const rows = models.filter((m) => m.turns > 0 || m.attempts > 0);
+  if (!rows.length) return <p className="rounded-2xl bg-secondary/40 px-3 py-6 text-center text-xs text-muted-foreground">Sem chamadas de IA no período.</p>;
+  return (
+    <ul className="space-y-4">
+      {rows.map((m) => {
+        const firstTry = m.first_try_failure_rate == null ? null : 1 - m.first_try_failure_rate;
+        const per1k = m.turns > 0 ? (m.cost_usd / m.turns) * 1000 : null;
+        const tone = firstTry == null ? "bg-primary" : firstTry >= 0.9 ? "bg-success" : firstTry >= 0.75 ? "bg-warning" : "bg-destructive";
+        return (
+          <li key={m.model} className="space-y-2 rounded-2xl border border-border/60 p-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="min-w-0 truncate font-semibold">{modelName(m.model)}</p>
+              <p className="shrink-0 text-xs text-muted-foreground">{formatInt(m.turns)} atendidas · {formatInt(m.attempts)} tentativas</p>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Acerta de primeira</span><span className="font-semibold tabular-nums">{firstTry == null ? "—" : formatPct(firstTry)}</span></div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary"><div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(3, (firstTry ?? 1) * 100)}%` }} /></div>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
+              <div><dt className="text-muted-foreground">Típico</dt><dd className="font-semibold tabular-nums">{formatMs(m.p50)}</dd></div>
+              <div><dt className="text-muted-foreground">Mais lentas</dt><dd className="font-semibold tabular-nums">{formatMs(m.p95)}</dd></div>
+              <div><dt className="text-muted-foreground">Falha final</dt><dd className={`font-semibold tabular-nums ${m.error_rate >= 0.25 ? "text-destructive" : ""}`}>{m.turns ? formatPct(m.error_rate) : "—"}</dd></div>
+              <div><dt className="text-muted-foreground">Custo / 1.000</dt><dd className="font-semibold tabular-nums">{per1k == null ? "—" : formatUsd(per1k)}</dd></div>
+            </dl>
+            {m.escalated > 0 && <p className="text-[11px] text-muted-foreground">{m.escalated} vezes escalado para um modelo maior.</p>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** Gráficos e rankings de desempenho da IA (latência, tokens, custo, modelos). */
 export function AiPerformance({ data }: { data: CommandCenterData }) {
   const daily = data.daily;
@@ -133,18 +168,8 @@ export function AiPerformance({ data }: { data: CommandCenterData }) {
         </Panel>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Por modelo" subtitle="Quanto cada modelo responde, quão rápido e quanto falha">
-          <RankedBars
-            empty="Sem conversas no período."
-            rows={data.by_model.map((m) => ({
-              key: m.model_family,
-              label: m.model_family,
-              value: m.turns,
-              valueLabel: `${formatInt(m.turns)} conversas`,
-              danger: m.error_rate >= 0.25 && m.model_family !== "sem LLM",
-              meta: `típica ${formatMs(m.p50)} · lentas ${formatMs(m.p95)} · falha ${formatPct(m.error_rate)}${m.tokens ? ` · ${formatCompact(m.tokens)} tokens · ${formatUsd(m.cost_usd)}` : ""}`,
-            }))}
-          />
+        <Panel title="Eficiência por modelo" subtitle="Quem acerta de primeira, quão rápido responde e quanto custa">
+          <ModelComparison models={data.by_model} />
         </Panel>
         <Panel title="Por caminho de resposta" subtitle="Como o Nino resolveu cada pergunta">
           <RankedBars
@@ -237,29 +262,25 @@ function Overview({ data }: { data: CommandCenterData }) {
   );
 }
 
-export function PeriodSwitch({ days, onChange }: { days: number; onChange: (d: number) => void }) {
-  return (
-    <div className="inline-flex rounded-full border border-border bg-card p-0.5" role="group" aria-label="Período">
-      {PERIODS.map((d) => (
-        <button
-          key={d}
-          type="button"
-          onClick={() => onChange(d)}
-          aria-pressed={days === d}
-          className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${days === d ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          {d} dias
-        </button>
-      ))}
-    </div>
-  );
+export function usePeriodParams(defaultPreset: PeriodPresetKey = "7d") {
+  const [params, setParams] = useSearchParams();
+  const raw = params.get("periodo") as PeriodPresetKey | null;
+  const preset: PeriodPresetKey = raw && raw in PRESET_LABELS ? raw : defaultPreset;
+  const from = params.get("de");
+  const to = params.get("ate");
+  const range: PeriodRange = preset === "custom" && from && to ? { from, to } : resolvePreset(preset === "custom" ? defaultPreset : preset);
+  const setPeriod = (next: { preset: PeriodPresetKey; range: PeriodRange }) =>
+    setParams((p) => {
+      p.set("periodo", next.preset);
+      if (next.preset === "custom") { p.set("de", next.range.from); p.set("ate", next.range.to); } else { p.delete("de"); p.delete("ate"); }
+      return p;
+    }, { replace: true });
+  return { preset, range, setPeriod };
 }
 
 export default function CentralDeComando() {
-  const [params, setParams] = useSearchParams();
-  const requested = Number(params.get("dias"));
-  const days = (PERIODS as readonly number[]).includes(requested) ? requested : 7;
-  const q = useCommandCenter(days);
+  const { preset, range, setPeriod } = usePeriodParams("7d");
+  const q = useCommandCenter(range);
 
   return (
     <div className="space-y-6">
@@ -268,7 +289,7 @@ export default function CentralDeComando() {
         description="O que precisa de ação agora, e como o Nino está em qualidade, velocidade, custo e entrega. Usuários de teste e o simulador ficam de fora."
         actions={
           <>
-            <PeriodSwitch days={days} onChange={(d) => setParams({ dias: String(d) }, { replace: true })} />
+            <AdminDateFilter value={range} preset={preset} onChange={setPeriod} />
             <button
               type="button"
               onClick={() => void q.refetch()}
@@ -285,7 +306,7 @@ export default function CentralDeComando() {
       {q.data && <Overview data={q.data} />}
       {q.data && (
         <p className="text-[11px] text-muted-foreground">
-          Atualizado às {new Date(q.data.generated_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · atualiza sozinho a cada minuto · período anterior = os {days} dias antes.
+          Atualizado às {new Date(q.data.generated_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} · atualiza sozinho a cada minuto · comparação com o período anterior de mesmo tamanho · {q.data.granularity === "hour" ? "gráficos por hora" : "gráficos por dia"}.
         </p>
       )}
     </div>

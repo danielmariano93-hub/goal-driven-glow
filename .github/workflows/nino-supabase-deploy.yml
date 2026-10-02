@@ -24,6 +24,10 @@ env:
   NINO_AI_PROVIDER: groq
   NINO_AI_MODEL: openai/gpt-oss-120b
   NINO_AI_FAST_MODEL: openai/gpt-oss-20b
+  # Interpretador semântico: benchmark real de 02/10/2026 (24 frases × 2) → qwen3.6-27b 100% válido/correto,
+  # qwen3.8-27b 92%, gpt-oss-120b 17% e gpt-oss-20b 8% (structured_call_gateway_400). Ver scripts/nino_model_benchmark.ts.
+  NINO_SEMANTIC_PRIMARY_MODEL: qwen/qwen3.6-27b
+  NINO_SEMANTIC_REVIEW_MODEL: qwen/qwen3.8-27b
   NINO_AI_VISION_MODEL: qwen/qwen3.8-27b
   NINO_AI_TRANSCRIPTION_MODEL: whisper-large-v3-turbo
   NINO_SHADOW_AI_PROVIDER: groq
@@ -172,6 +176,8 @@ jobs:
           const wanted = [
             process.env.NINO_AI_MODEL,
             process.env.NINO_AI_FAST_MODEL,
+            process.env.NINO_SEMANTIC_PRIMARY_MODEL,
+            process.env.NINO_SEMANTIC_REVIEW_MODEL,
             process.env.NINO_AI_VISION_MODEL,
             process.env.NINO_AI_TRANSCRIPTION_MODEL,
           ];
@@ -202,6 +208,8 @@ jobs:
             NINO_AI_PROVIDER="$NINO_AI_PROVIDER" \
             NINO_AI_MODEL="$NINO_AI_MODEL" \
             NINO_AI_FAST_MODEL="$NINO_AI_FAST_MODEL" \
+            NINO_SEMANTIC_PRIMARY_MODEL="$NINO_SEMANTIC_PRIMARY_MODEL" \
+            NINO_SEMANTIC_REVIEW_MODEL="$NINO_SEMANTIC_REVIEW_MODEL" \
             NINO_AI_VISION_MODEL="$NINO_AI_VISION_MODEL" \
             NINO_AI_TRANSCRIPTION_MODEL="$NINO_AI_TRANSCRIPTION_MODEL" \
             NINO_SHADOW_AI_PROVIDER="$NINO_SHADOW_AI_PROVIDER" \

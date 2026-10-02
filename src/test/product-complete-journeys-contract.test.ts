@@ -43,7 +43,7 @@ describe("jornadas completas de produto", () => {
     const ai = read("src/pages/admin/NinoIA.tsx");
     expect(app).toContain('path="nino-ia"');
     expect(communications).toContain("SplitReminderJourney");
-    expect(communications).toContain("Jornadas");
+    expect(communications).toContain("Regras e fluxos");
     expect(ai).toContain("Modelos");
     expect(ai).toContain("Conhecimento");
   });

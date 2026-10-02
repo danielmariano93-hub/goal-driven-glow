@@ -109,14 +109,14 @@ describe("Admin hardening", () => {
     expect(migration).not.toContain("least(14");
   });
 
-  it("Admin separa custo, aprendizado global e inspetor", () => {
+  it("Admin separa desempenho e inspetor", () => {
     const ai = read("src/components/admin/AiEfficiencyHistoryBoard.tsx");
     const page = read("src/pages/admin/NinoIA.tsx");
     const latencyFix = read("supabase/migrations/20260901141458_6f4f92cf-bd9b-4a9c-8dd6-b2ab756a1ff3.sql");
     expect(ai).toContain('admin_v3_ai_history');
-    expect(page).toContain('id: "aprendizado"');
+    expect(page).toContain('id: "custo"');
     expect(page).toContain('id: "inspetor"');
-    expect(page).toContain("AprendizadoGlobal");
+    expect(page).not.toContain("AprendizadoGlobal");
     expect(latencyFix).toContain("latency_ms AS lat");
     expect(latencyFix).toContain("position('total_latency_ms' IN v_next) > 0");
     expect(latencyFix).toContain("l.ai_avg_latency_ms IS NOT NULL THEN ''ai_usage_ledger'' ELSE ''none'' END");

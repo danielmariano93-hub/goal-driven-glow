@@ -65,7 +65,7 @@ export function buildIncidents({
         ? `${agent.failures_24h} conversa(s) falharam nas últimas 24 horas.`
         : "Nenhuma falha registrada nas últimas 24 horas.",
       probableCause: agent.active_prompt ? undefined : "Nenhuma versão de instrução publicada.",
-      action: { label: "Abrir Nino", to: "/admin/nino-ia?aba=qualidade" },
+      action: { label: "Abrir Nino", to: "/admin/nino-ia?aba=custo" },
     });
   }
 
