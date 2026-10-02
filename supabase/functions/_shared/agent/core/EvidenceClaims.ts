@@ -224,6 +224,25 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     if (share != null) claims.push({ id: seq(), ...base, type: "percentage", value: share, label: name, rank: index + 1 });
   });
 
+  // Perfil de estabelecimento: o texto do motor cita ticket médio, total e variação
+  // do período anterior; todos nascem do próprio resultado, logo são evidência.
+  if (result.engine === "merchant_profile" && result.facts && typeof result.facts === "object") {
+    const f = result.facts as Record<string, unknown>;
+    for (const field of ["net_total", "gross_total", "avg_ticket", "previous_net_total", "previous_avg_ticket", "delta_abs", "avg_ticket_delta"]) {
+      const v = num(f[field]);
+      if (v != null) {
+        claims.push({ id: seq(), ...base, type: "money", value: v, label: `facts.${field}`, rank: null });
+        if (v < 0) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(v), label: `facts.${field}:abs`, rank: null });
+      }
+    }
+    for (const field of ["count", "previous_count", "count_delta"]) {
+      const v = num(f[field]);
+      if (v != null) claims.push({ id: seq(), ...base, type: "count", value: v, label: `facts.${field}`, rank: null });
+    }
+    const pct = num(f.delta_pct);
+    if (pct != null) claims.push({ id: seq(), ...base, type: "percentage", value: Math.abs(pct) <= 5 ? pct * 100 : pct, label: "facts.delta_pct", rank: null });
+  }
+
   const nestedCount = num((result.facts as Record<string, unknown> | undefined)?.debts_analyzed);
   if (rows.length === 0 && (count === 0 || nestedCount === 0 || num(result.total_metric) === 0)) {
     claims.push({ id: seq(), ...base, type: "absence", value: 0, label: "sem_dados_no_recorte", rank: null });

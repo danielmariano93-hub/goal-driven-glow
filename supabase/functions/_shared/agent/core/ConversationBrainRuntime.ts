@@ -157,6 +157,28 @@ export async function executeBrainWriteTurn(args: {
     { timeoutMs: 12_000, maxRetries: 0 },
   );
 
+  if (!exec.ok && exec.error === "account_not_found") {
+    // 2+ contas e nenhuma citada: é uma pergunta, não uma falha. Mantém a intenção viva.
+    const { data: accs } = await args.sb.from("accounts").select("name")
+      .eq("user_id", args.user_id).eq("active", true).order("name");
+    const names = ((accs ?? []) as Array<{ name: string | null }>).map((a) => a.name).filter(Boolean) as string[];
+    if (names.length) {
+      await saveWorkflow(args.sb, {
+        user_id: args.user_id,
+        conversation_id: args.conversation_id,
+        workflow: { ...built.workflow, asked_slot: "account" },
+      });
+      return {
+        handled: true,
+        reply: `Em qual conta eu registro? Você tem: ${names.join(", ")}.`,
+        reply_kind: "question",
+        tool_name: step.kind,
+        tool_args: step.args,
+        error: null,
+      };
+    }
+  }
+
   if (!exec.ok) {
     // Mantém workflow aberto: erro de execução não pode apagar a intenção.
     await saveWorkflow(args.sb, {
