@@ -5,6 +5,7 @@
 // o usuário quando os meses sujos já foram processados pelo finance-facts-worker.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { matchesAnySecret } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -25,7 +26,7 @@ Deno.serve(async (req) => {
 
   const secrets = [Deno.env.get("INTERNAL_CRON_SECRET") ?? "", Deno.env.get("CRON_SECRET") ?? ""].filter(Boolean);
   const provided = req.headers.get("x-cron-secret") ?? "";
-  if (!secrets.length || !secrets.includes(provided)) return json({ ok: false, error: "unauthorized" }, 401);
+  if (!secrets.length || !matchesAnySecret(provided, secrets)) return json({ ok: false, error: "unauthorized" }, 401);
 
   let body: { limit?: number } = {};
   try { body = await req.json(); } catch { body = {}; }

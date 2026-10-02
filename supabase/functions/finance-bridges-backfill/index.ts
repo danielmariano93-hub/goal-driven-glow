@@ -26,6 +26,7 @@ import {
   type InvestmentRow,
   type TransactionRow,
 } from "../_shared/finance-core/index.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const FN = "finance-bridges-backfill";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -162,7 +163,7 @@ Deno.serve(async (req) => {
   const months = Math.min(36, Math.max(1, Number(body.months ?? DEFAULT_MONTHS)));
 
   const internal = req.headers.get("x-internal-secret") ?? "";
-  const isInternal = INTERNAL_SECRET.length > 0 && internal === INTERNAL_SECRET;
+  const isInternal = INTERNAL_SECRET.length > 0 && safeEqual(internal, INTERNAL_SECRET);
 
   try {
     if (isInternal) {

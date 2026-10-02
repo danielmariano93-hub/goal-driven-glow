@@ -8,6 +8,7 @@ import { httpContext } from "../_shared/http.ts";
 import { getProvider, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -39,7 +40,7 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") ?? "";
   const isService = auth === `Bearer ${SERVICE_ROLE}`;
   const cronSecret = req.headers.get("x-cron-secret") ?? "";
-  const isCron = !!CRON_SECRET && cronSecret === CRON_SECRET;
+  const isCron = !!CRON_SECRET && safeEqual(cronSecret, CRON_SECRET);
   if (!isService && !isCron) {
     const gate = await requireAdmin(req);
     if (!gate.ok) return h.fail(gate.status === 401 ? "unauthorized" : "forbidden", gate.status);

@@ -18,6 +18,7 @@ import { loadProactiveWhatsappCadence } from "../_shared/intelligence/proactiveW
 import { refreshBehaviorHypotheses } from "../_shared/agent/core/BehaviorService.ts";
 import { generateAdvisorReviews } from "../_shared/agent/core/AdvisorReviewServiceV2.ts";
 import { runMultiFinanceProactive, type MultiFinanceRunResult } from "../_shared/proactive/pipeline.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -92,7 +93,7 @@ Deno.serve(async (req) => {
 
   const cron = req.headers.get("x-cron-secret") ?? "";
   const bearer = req.headers.get("Authorization") ?? "";
-  let authorised = CRON_SECRET !== "" && cron === CRON_SECRET;
+  let authorised = CRON_SECRET !== "" && safeEqual(cron, CRON_SECRET);
   let isAdmin = authorised;
   let selfUserId: string | null = null;
 
