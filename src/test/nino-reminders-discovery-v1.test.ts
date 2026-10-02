@@ -148,9 +148,10 @@ describe("engajamento: descoberta de funcionalidades", () => {
     expect(tipFor(fresh, { sent_tip_ids: ["recurring_bills"], last_sent_at: "2026-09-25T12:00:00Z" })).toBeNull();
   });
 
-  it("quem já usa tudo não recebe dica", () => {
+  it("quem já usa tudo recebe só dicas 'sempre úteis' (novidades), nunca as básicas", () => {
     const power: UsageProfile = { recurring_rules: 4, goals: 2, active_cards: 1, invoice_imports: 3, splits: 1, inbound_messages: 300, questions_asked: 40 };
-    expect(tipFor(power)).toBeNull();
+    const tip = tipFor(power);
+    expect(["what_if", "compare_months", "account_balance", "habits_reading", "spending_goals_plan"]).toContain((tip?.evidence as any)?.tip_id);
   });
 
   it("alerta urgente tem a vez; fora do horário também não sai", () => {
@@ -173,7 +174,31 @@ describe("engajamento: descoberta de funcionalidades", () => {
   });
 
   it("só anuncia rotas que existem no app", () => {
-    const routes = new Set(["/app/compromissos", "/app/cartoes", "/app/metas", "/app/nino", "/app/divisao-do-role"]);
+    const routes = new Set(["/app/compromissos", "/app/cartoes", "/app/metas", "/app/nino", "/app/divisao-do-role", "/app/emocoes"]);
     for (const tip of DISCOVERY_TIPS) expect(routes.has(tip.route)).toBe(true);
+  });
+});
+
+import { allocateAttention } from "../../supabase/functions/_shared/proactive/ranking";
+import { DISCOVERY_TIPS } from "../../supabase/functions/_shared/proactive/featureDiscovery";
+
+describe("aviso do dia da semana: WhatsApp não é bloqueado por entrega só no app", () => {
+  it("dicas 'sempre úteis' existem para quem já usa tudo", () => {
+    const heavyUser = { recurring_rules: 3, goals: 2, active_cards: 1, invoice_imports: 2, splits: 1, inbound_messages: 200, questions_asked: 50 };
+    expect(DISCOVERY_TIPS.filter((t) => t.applies(heavyUser as never)).length).toBeGreaterThanOrEqual(5);
+  });
+  it("allocateAttention usa o conjunto do WhatsApp quando informado", () => {
+    const situation: any = {
+      fingerprint: "nino_weekday_nudge.v1:Transporte:2026-10-02", type: "weekday_nudge", communication_kind: "weekday_spending_risk",
+      severity: "attention", title: "t", body: "b", primary_domain: "patterns", domains: ["patterns"], signals: [],
+      impact_amount: 490, days_until: 0, confidence: 0.9, actionable: true, route: "/", priority_score: 50, score_reasons: [], evidence: {},
+    };
+    const ctx: any = { monthly_income: 7800, as_of: "2026-10-02", domains: {}, learning: {} };
+    const fp = new Set([situation.fingerprint]);
+    const out = allocateAttention({ situations: [situation], ctx, channels: ["app", "whatsapp"], alreadyDelivered: fp, alreadyDeliveredWhatsapp: new Set() });
+    const wa = out.decisions.find((d) => d.channel === "whatsapp");
+    const app = out.decisions.find((d) => d.channel === "app");
+    expect(app?.reason).toBe("already_communicated_no_material_change");
+    expect(wa?.decision).toBe("deliver");
   });
 });

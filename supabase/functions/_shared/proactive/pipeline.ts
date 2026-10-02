@@ -113,6 +113,24 @@ async function loadAlreadyDelivered(sb: SupabaseClient, userId: string, days: nu
   return new Set(((data as any[]) ?? []).map((row) => String(row.fingerprint)));
 }
 
+/** Fingerprints que de fato saíram pelo WhatsApp na janela (fonte: fila de envio). */
+async function loadWhatsappDelivered(sb: SupabaseClient, userId: string, days: number) {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data } = await sb.from("outbound_messages")
+    .select("metadata,status")
+    .eq("user_id", userId)
+    .eq("kind", "proactive")
+    .gte("created_at", since)
+    .not("status", "in", "(failed,dead_letter)")
+    .limit(200);
+  const out = new Set<string>();
+  for (const row of ((data as any[]) ?? [])) {
+    const fp = row?.metadata?.evidence?.situation_fingerprint ?? row?.metadata?.situation_fingerprint;
+    if (fp) out.add(String(fp));
+  }
+  return out;
+}
+
 /** Highlights do snapshot vigente de `financial_performance.v1`. */
 async function loadPerformanceHighlights(sb: SupabaseClient, userId: string) {
   const { data } = await sb.from("financial_performance_snapshots")
@@ -363,12 +381,19 @@ export async function runMultiFinanceProactive(
     ? await loadAlreadyDelivered(sb, userId, opts.repeatWindowDays ?? 5)
     : new Set<string>();
 
+  // Aviso matinal e dica de uso: WhatsApp é medido pelo que saiu de fato por ele.
+  const alreadyDeliveredWhatsapp = persist && alreadyDelivered.size
+    ? await loadWhatsappDelivered(sb, userId, opts.repeatWindowDays ?? 5)
+        .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|discovery)\./.test(fp))))
+        .catch(() => undefined)
+    : undefined;
   const { decisions, selected, ranked } = allocateAttention({
     situations: timedSituations,
     ctx,
     channels,
     budget: opts.budget ?? DEFAULT_ATTENTION_BUDGET,
     alreadyDelivered,
+    alreadyDeliveredWhatsapp,
     recentDeliveries,
   });
 

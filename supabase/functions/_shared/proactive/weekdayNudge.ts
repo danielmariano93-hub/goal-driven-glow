@@ -15,9 +15,13 @@ export const WEEKDAY_NUDGE_RULES = {
   minOccurrences: 4,
   /** Valor mínimo típico do dia para valer um aviso. */
   minDailyAmount: 30,
-  /** Janela de envio (hora local, São Paulo): de manhã, antes do gasto. */
+  /**
+   * Janela de envio (hora local, São Paulo): de manhã até o início da tarde, antes
+   * do gasto. Janela maior = mais rodadas horárias para ganhar a vaga única do
+   * WhatsApp quando um alerta mais urgente ocupa a primeira.
+   */
   sendFromHour: 7,
-  sendUntilHour: 11,
+  sendUntilHour: 14,
 } as const;
 
 const WEEKDAY_NAMES = ["domingos", "segundas", "terças", "quartas", "quintas", "sextas", "sábados"];
