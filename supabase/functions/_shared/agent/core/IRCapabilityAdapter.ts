@@ -268,6 +268,15 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     return { tool: "assess_financial_health", capability: "holistic_assessment", execution: "deterministic", args: {} };
   }
 
+  // "Como está minha meta de alimentação?": metas aceitam UM filtro de categoria,
+  // que a ferramenta aplica e confirma (`category_filter.applied`).
+  if (q.metric === "goal_progress" && !q.group_by.length && ["value", "sum"].includes(q.operation)) {
+    const only = q.filters.length === 1 ? q.filters[0] : null;
+    if (only && only.field === "category" && only.op === "eq" && String(only.value ?? "").trim()) {
+      return { tool: "get_goals_overview", capability: "goals_overview", execution: "deterministic", args: { category: String(only.value).trim() } };
+    }
+  }
+
   if (q.filters.length || q.group_by.length || !["value", "sum"].includes(q.operation)) return null;
   if (q.metric === "balance") {
     return { tool: "get_financial_snapshot", capability: "financial_snapshot", execution: "deterministic", args: {} };

@@ -65,11 +65,52 @@ function addEngineEnvelopeFacts(
   }
 }
 
+/**
+ * Engines de ESTADO (saldo, metas, patrimônio, dívida, parcelas, saúde). A
+ * resposta delas é montada por formatador determinístico DIRETO do resultado,
+ * então todo número exibido nasce do próprio resultado: ele é a evidência.
+ * Antes, só campos de gasto (`total_metric`, `totals`…) viravam claim e todo
+ * valor de saldo/meta aparecia como `money_not_in_evidence`.
+ */
+const STATE_ENGINES = new Set([
+  "get_financial_snapshot", "get_goals_overview", "get_net_worth",
+  "get_debt_status", "get_future_installments", "assess_financial_health",
+]);
+const STATE_CLAIM_LIMIT = 600;
+
+function addStateEvidence(
+  node: unknown,
+  base: { query_id: string; engine: string | null },
+  seq: () => string,
+  claims: EvidenceClaim[],
+  depth = 0,
+  key = "",
+): void {
+  if (claims.length >= STATE_CLAIM_LIMIT || depth > 5) return;
+  if (typeof node === "number") {
+    if (!Number.isFinite(node)) return;
+    claims.push({ id: seq(), ...base, type: "money", value: node, label: key || "state", rank: null });
+    // Percentuais exibidos como "67%" e frações (0–1) guardadas como razão.
+    if (Math.abs(node) <= 1000) claims.push({ id: seq(), ...base, type: "percentage", value: Math.abs(node), label: key || "state", rank: null });
+    if (node > 0 && node <= 1) claims.push({ id: seq(), ...base, type: "percentage", value: node * 100, label: key || "state", rank: null });
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const item of node.slice(0, 60)) addStateEvidence(item, base, seq, claims, depth + 1, key);
+    return;
+  }
+  if (node && typeof node === "object") {
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) addStateEvidence(v, base, seq, claims, depth + 1, k);
+  }
+}
+
 function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): EvidenceClaim[] {
   const claims: EvidenceClaim[] = [];
   if (outcome.status !== "ok" || !outcome.result || typeof outcome.result !== "object") return claims;
   const result = outcome.result as Record<string, unknown>;
   const base = { query_id: outcome.query_id, engine: outcome.engine };
+  // Soma-se ao que o resto da função já extrai (entidades, facts, totais).
+  if (outcome.engine && STATE_ENGINES.has(outcome.engine)) addStateEvidence(result, base, seq, claims);
 
   for (const field of MONEY_FIELDS) {
     const v = num(result[field]);
