@@ -56,6 +56,15 @@ describe("rotinas do sistema", () => {
     expect(serviceState(svc({ last_ok: false }) as never, now)).toBe("failing");
     expect(serviceState(svc({ last_run_at: null }) as never, now)).toBe("stale");
   });
+  it("rotinas semanal/mensal respeitam a própria cadência; sob demanda nunca fica parada", () => {
+    const n = Date.parse("2026-10-04T12:30:00Z");
+    expect(serviceState(svc({ job_key: "financial-reports-weekly", last_run_at: "2026-09-28T10:00:00Z" }) as never, n)).toBe("ok");
+    expect(serviceState(svc({ job_key: "financial-reports-weekly", last_run_at: "2026-09-20T10:00:00Z" }) as never, n)).toBe("stale");
+    expect(serviceState(svc({ job_key: "financial-reports-monthly", last_run_at: "2026-10-01T10:30:00Z" }) as never, n)).toBe("ok");
+    expect(serviceState(svc({ job_key: "financial-reports-monthly_partial", last_run_at: "2026-09-28T13:00:00Z" }) as never, n)).toBe("ok");
+    expect(serviceState(svc({ job_key: "financial-reports-monthly_partial", last_run_at: null }) as never, n)).toBe("ok");
+    expect(serviceState(svc({ job_key: "financial-reports-monthly_partial", last_ok: false }) as never, n)).toBe("failing");
+  });
   it("só gera atenção para o que parou ou falha", () => {
     const items = servicesAttention([svc({}), svc({ job_key: "a", last_run_at: "2026-09-30T00:00:00Z" }), svc({ job_key: "b", last_ok: false, last_error_code: "timeout" })] as never, (k) => `Job ${k}`, now);
     expect(items.map((i) => i.severity)).toEqual(["critical", "warning"]);

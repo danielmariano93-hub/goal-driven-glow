@@ -113,11 +113,24 @@ export type OpsService = {
 };
 
 const STALE_MS = 24 * 3_600_000;
+const HOUR = 3_600_000;
+
+/**
+ * Cadência esperada por rotina (cron em supabase/migrations). O padrão de 24 h marcava
+ * como "parada" a rotina semanal/mensal, que só roda no seu dia. `null` = sob demanda
+ * (sem agendamento): nunca fica "parada" por tempo, só pode "falhar".
+ */
+const EXPECTED_INTERVAL_MS: Record<string, number | null> = {
+  "financial-reports-weekly": 8 * 24 * HOUR,
+  "financial-reports-monthly": 33 * 24 * HOUR,
+  "financial-reports-monthly_partial": null,
+};
 
 export function serviceState(s: OpsService, now: number = Date.now()): "ok" | "stale" | "failing" {
-  if (!s.last_run_at) return "stale";
+  const limit = s.job_key in EXPECTED_INTERVAL_MS ? EXPECTED_INTERVAL_MS[s.job_key] : STALE_MS;
+  if (!s.last_run_at) return limit === null ? "ok" : "stale";
   const age = now - Date.parse(s.last_run_at);
-  if (Number.isFinite(age) && age > STALE_MS) return "stale";
+  if (limit !== null && Number.isFinite(age) && age > limit) return "stale";
   if (s.last_ok === false || s.failed > 0) return "failing";
   return "ok";
 }
