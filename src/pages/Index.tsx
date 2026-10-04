@@ -4,6 +4,7 @@ import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
+import { GuideHomeCards } from "@/components/guide/GuideHomeCards";
 import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceSection } from "@/components/home/NinoGuidanceSection";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
@@ -53,6 +54,8 @@ export default function Index() {
   return (
     <div className="mx-auto w-full max-w-[720px] space-y-4 pb-16 [scroll-padding-bottom:8rem]" data-surface="home">
       <HomeHeader />
+
+      <GuideHomeCards />
 
       <PeriodPicker
         period={period}

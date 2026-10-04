@@ -52,6 +52,7 @@ const Perfil = lazyRoute(() => import("./pages/Perfil"));
 const Investimentos = lazyRoute(() => import("./pages/Investimentos"));
 const MaisMenu = lazyRoute(() => import("./pages/MaisMenu"));
 const WhatsApp = lazyRoute(() => import("./pages/WhatsApp"));
+const Guia = lazyRoute(() => import("./pages/Guia"));
 const Importar = lazyRoute(() => import("./pages/Importar"));
 const DivisaoDoRole = lazyRoute(() => import("./pages/DivisaoDoRole"));
 const DivisaoDoRoleNova = lazyRoute(() => import("./pages/DivisaoDoRoleNova"));
@@ -176,6 +177,7 @@ const App = () => (
                 <Route path="perfil" element={<Perfil />} />
                 <Route path="plano" element={<Plano />} />
                 <Route path="whatsapp" element={<WhatsApp />} />
+                <Route path="guia" element={<Guia />} />
                 <Route path="importar" element={<Importar />} />
                 <Route path="mais" element={<MaisMenu />} />
                 <Route path="divisao-do-role" element={<DivisaoDoRole />} />

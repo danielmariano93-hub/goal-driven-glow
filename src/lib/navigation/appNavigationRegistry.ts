@@ -17,7 +17,7 @@
 import {
   BadgeCheck, BarChart3, Bell, Calculator, CreditCard, Heart, HandCoins, House,
   ListChecks, PiggyBank, Repeat, Sparkles, Tag, Target, Trophy, Upload,
-  User, Users, Wallet, CalendarClock, LayoutDashboard, List,
+  User, Users, Wallet, CalendarClock, LayoutDashboard, List, Compass,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -81,6 +81,7 @@ export const APP_NAVIGATION: NavEntry[] = [
 
   // ---------- conta ----------
   e({ id: "perfil", path: "/app/perfil", label: "Perfil", desc: "Conta, conexões e privacidade", icon: User, group: "conta", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
+  e({ id: "guia", path: "/app/guia", label: "Guia do Nino", desc: "Primeiros passos e tutoriais", icon: Compass, group: "conta", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "plano", path: "/app/plano", label: "Seu plano", desc: "O que está incluído hoje", icon: BadgeCheck, group: "conta", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "notificacoes", path: "/app/notificacoes", label: "Notificações", desc: "Avisos e lembretes do Nino", icon: Bell, group: "conta", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "importar", path: "/app/importar", label: "Importar dados", desc: "CSV, OFX e legado", icon: Upload, group: "conta", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
