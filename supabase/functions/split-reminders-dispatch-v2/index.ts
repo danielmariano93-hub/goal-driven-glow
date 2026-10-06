@@ -10,7 +10,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
-import { activeReceivables, buildInstallmentSchedule, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
+import { activeReceivables, buildInstallmentSchedule, buildPaymentConfirmationParts, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
 import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -143,6 +143,13 @@ function messageFor(
   const scheduleLines = kind === "invite"
     ? buildInstallmentSchedule(activeSchedule as any)
     : "";
+  // Confirmação de pagamento: situação de todas as parcelas, para a pessoa não ficar perdida.
+  const ownerLabel = String(expense.owner_name ?? "A pessoa responsável pelo rolê");
+  const titleLabel = String(expense.title ?? "seu rolê");
+  const confirmation = kind === "payment_confirmation"
+    ? buildPaymentConfirmationParts(activeSchedule as any, receivable?.installment_id, { title: titleLabel, ownerName: ownerLabel })
+    : null;
+  const confirmationFallback = `Recebemos a sua *${installmentLabel(receivable)}* em “${titleLabel}”.${remainingSentence}`;
 
 
   return renderMessageTemplate(kind, persona, {
@@ -166,6 +173,9 @@ function messageFor(
     installment_schedule_block: scheduleLines ? `\n\n${scheduleLines}` : "",
     partial_sentence: partialSentence,
     remaining_sentence: remainingSentence,
+    confirmation_headline: confirmation?.headline ?? confirmationFallback,
+    confirmation_schedule_block: confirmation?.scheduleBlock ?? "",
+    confirmation_closing: confirmation?.closing ?? "",
     due_date: due ?? "",
     due_sentence: due ? ` O combinado é pagar até *${due}*.` : "",
     pix_key: String(expense.pix_key ?? ""),
@@ -386,7 +396,7 @@ Deno.serve(async (req) => {
       // O convite é por PARTICIPANTE (job sem installment_id): a agenda inteira
       // vem da fonte canônica, ordenada por parcela, sem recálculo.
       let schedule: Receivable[] = [];
-      if (kind === "invite") {
+      if (kind === "invite" || kind === "payment_confirmation") {
         const { data: scheduleRows, error: scheduleError } = await sb.from("split_receivables_v1")
           .select("installment_id,installment_number,total_installments,amount,paid_amount,balance_due,due_date,settlement_status,state")
           .eq("participant_id", job.participant_id)

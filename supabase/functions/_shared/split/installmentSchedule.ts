@@ -66,6 +66,71 @@ export function buildInstallmentSchedule(
     .join("\n");
 }
 
+/**
+ * Mensagem de confirmação de pagamento (`payment_confirmation`): diz o que foi
+ * recebido, mostra a situação de TODAS as parcelas e o que falta, sem prometer
+ * lembretes (eles podem estar pausados) e sem mencionar atraso.
+ * Tudo vem pronto da fonte canônica; nada é recalculado.
+ * Devolve `null` quando não há parcelas para descrever (usa-se o texto antigo).
+ */
+export function buildPaymentConfirmationParts(
+  rows: CanonicalReceivable[],
+  paidInstallmentId: string | null | undefined,
+  ctx: { title: string; ownerName: string },
+): { headline: string; scheduleBlock: string; closing: string } | null {
+  const list = activeReceivables(rows);
+  if (list.length === 0) return null;
+  const row = list.find((r) => r.installment_id === paidInstallmentId) ?? null;
+  if (!row) return null;
+  const multi = list.length > 1;
+  const where = `da divisão “${ctx.title}” com ${ctx.ownerName}`;
+  const balanceOf = (r: CanonicalReceivable) => Math.max(0, Number(r.balance_due ?? 0));
+  const isOpen = (r: CanonicalReceivable) => balanceOf(r) > 0.004;
+  const open = list.filter(isOpen);
+  const remainingTotal = round2(open.reduce((sum, r) => sum + balanceOf(r), 0));
+
+  const rowFullyPaid = !isOpen(row);
+  const amount = formatBRLSplit(Number(row.amount ?? 0));
+  let headline: string;
+  if (rowFullyPaid) {
+    headline = multi
+      ? `Recebemos o pagamento da *${row.installment_number}ª parcela (${amount})* ${where}. Obrigado! 🙌`
+      : `Recebemos o pagamento da sua parte (*${amount}*) ${where}. Obrigado! 🙌`;
+  } else {
+    const due = formatCivilBR(row.due_date);
+    headline = `Recebemos um pagamento ${multi ? `na *${row.installment_number}ª parcela* ` : "da sua parte "}${where}: ` +
+      `já foram pagos *${formatBRLSplit(Number(row.paid_amount ?? 0))}* e restam *${formatBRLSplit(balanceOf(row))}*` +
+      `${due ? `, com vencimento em *${due}*` : ""}. Obrigado! 🙌`;
+  }
+
+  const scheduleBlock = multi
+    ? "\n\n*Como está sua divisão:*\n" + list.map((r) => {
+        const label = `${r.installment_number}/${r.total_installments}`;
+        const value = formatBRLSplit(Number(r.amount ?? 0));
+        if (!isOpen(r)) return `✅ ${label} — ${value} — paga`;
+        const due = formatCivilBR(r.due_date);
+        const partial = Number(r.paid_amount ?? 0) > 0.004
+          ? `restam *${formatBRLSplit(balanceOf(r))}*${due ? `, vence em *${due}*` : ""}`
+          : due ? `vence em *${due}*` : "em aberto";
+        return `⏳ ${label} — ${value} — ${partial}`;
+      }).join("\n")
+    : "";
+
+  let closing: string;
+  if (open.length === 0) {
+    closing = multi
+      ? "\n\nEssa foi a última parcela: você está em dia com essa divisão. 🎉"
+      : "\n\nVocê está em dia com essa divisão. 🎉";
+  } else if (multi) {
+    const next = open[0];
+    const nextDue = formatCivilBR(next.due_date);
+    closing = `\n\nFalta *${formatBRLSplit(remainingTotal)}* no total${nextDue ? `; a próxima parcela vence em *${nextDue}*` : ""}.`;
+  } else {
+    closing = "";
+  }
+  return { headline, scheduleBlock, closing };
+}
+
 export type ScheduleSummary = {
   count: number;
   total: number;
