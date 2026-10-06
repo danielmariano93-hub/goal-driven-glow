@@ -28,6 +28,7 @@ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
+import { coalesceWindowFromEnv, resolveInboundTurn } from "../_shared/messaging/inboundCoalescing.ts";
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
 import { shouldAcknowledge } from "../_shared/agent/core/Conversational.ts";
@@ -709,9 +710,26 @@ Deno.serve(async (req) => {
     // Aviso calibrado pela latência real do usuário e pelo que está em curso.
     // Conversa casual ("o que você é?", "bom dia", "obrigado") NÃO recebe aviso:
     // não há motor financeiro rodando, então avisar é ruído.
-    const wantsAck = shouldAcknowledge(evt.body ?? "");
+    // Rajada de mensagens = um turno só: espera uma janela curta; se chegou
+    // texto mais novo, esta mensagem cede e a última responde com tudo junto.
+    const turn = await resolveInboundTurn(sb, {
+      fromPhone: evt.from_phone,
+      inboundId: inbound_message_id,
+      ownBody: evt.body ?? "",
+      hasMedia: Boolean(evt.media),
+      windowMs: coalesceWindowFromEnv(Deno.env.get("NINO_INBOUND_COALESCE_MS")),
+    });
+    if (turn.role === "follower") {
+      // Sem "parar de digitar": quem responde é a mensagem líder.
+      settled = true;
+      clearInterval(typingTimer);
+      console.log(JSON.stringify({ event: "inbound_coalesced_follower", inbound_message_id }));
+      return;
+    }
+    const turnText = turn.text || (evt.body ?? "");
+    const wantsAck = shouldAcknowledge(turnText);
     const ack = wantsAck
-      ? await planAcknowledgement(sb, { user_id: link.user_id as string, text: evt.body ?? "" })
+      ? await planAcknowledgement(sb, { user_id: link.user_id as string, text: turnText })
         .catch(() => ({ delay_ms: 4_000, message: "Só um instante — já estou com isso 👀", observed_p75_ms: null }))
       : null;
     const noticeTimer = ack
@@ -731,10 +749,11 @@ Deno.serve(async (req) => {
       await recordWhatsappPipelineEvent(sb, {
         stage: "agent_started", user_id: link.user_id as string,
         inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),
+        metadata: { coalesced_messages: turn.mergedIds.length },
       });
       const orchestrated = await runOrchestrator({
         user_id: link.user_id, conversation_id: conversationId,
-        inbound_message_id, text: evt.body, to_phone: evt.from_phone, source: "whatsapp",
+        inbound_message_id, text: turnText, to_phone: evt.from_phone, source: "whatsapp",
         // Resposta citada: só sinais estruturados (id + valor citado), nunca o
         // conteúdo bruto da mensagem citada no prompt.
         reply_context: evt.quoted
