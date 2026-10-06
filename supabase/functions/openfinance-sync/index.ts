@@ -20,6 +20,7 @@ import {
 } from "../_shared/openfinance/pluggyClient.ts";
 import { previewBatch, stageBatch, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
+import { today as ninoToday } from "../_shared/finance-core/ninoClock.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -28,7 +29,6 @@ const MAX_DAYS = 365;
 
 const addDays = (iso: string, days: number) =>
   new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-const todayUtc = () => new Date().toISOString().slice(0, 10);
 
 const MESSAGES: Record<string, string> = {
   not_configured: "A conexão com o Open Finance ainda não está configurada neste ambiente.",
@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
 
   // ---- preview | stage ----
   const days = Math.min(MAX_DAYS, Math.max(1, Math.floor(Number(body.days ?? DEFAULT_DAYS)) || DEFAULT_DAYS));
-  const to = todayUtc();
+  const to = ninoToday();
   const from = addDays(to, -days);
 
   const { data: links } = await sb.from("bank_account_links")
