@@ -154,7 +154,7 @@ describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
       totalAmount: 300,
       title: "Jantar",
     });
-    expect(paid).toContain("Pagamento registrado");
+    expect(paid).toContain("Pagamento recebido");
     expect(paid).not.toContain("dividido entre");
 
     const done = render("completed", {

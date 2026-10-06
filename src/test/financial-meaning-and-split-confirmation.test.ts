@@ -52,7 +52,7 @@ describe("split payment acknowledgement", () => {
     const templates = read("supabase/functions/_shared/agent/messageTemplates.ts");
     const paymentRpc = read("supabase/migrations/20260729110307_3ecb31aa-f9c9-4623-b067-3144d02737ab.sql");
     expect(templates).toContain("payment_confirmation:");
-    expect(templates).toContain("Pagamento registrado");
+    expect(templates).toContain("Pagamento recebido");
 
     expect(paymentRpc).toContain("'payment_confirmation'");
     expect(paymentRpc).toContain("quem já pagou não deve mais receber cobrança");

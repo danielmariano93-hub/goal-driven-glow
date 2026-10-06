@@ -19,7 +19,7 @@ const DEFAULTS: Record<string, string> = {
   due_soon: "💸 *{{title}} — vence amanhã*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence em *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
   due_today: "💸 *{{title}} — vence hoje*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, vence hoje, *{{due_date}}*.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
   overdue: "⚠️ *{{title}} — parcela em atraso*\n\nOi, {{participant_name}}! Na divisão “{{title}}” com {{owner_name}}, a *{{installment_label}}*, no valor de *{{amount}}*, com vencimento em *{{due_date}}*, ainda consta como pendente.{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}",
-  payment_confirmation: "✅ *Pagamento registrado*\n\nRecebemos a sua *{{installment_label}}* em “{{title}}”, {{participant_name}}.{{remaining_sentence}}",
+  payment_confirmation: "✅ *Pagamento recebido!*\n\nOi, {{participant_name}}! {{confirmation_headline}}{{confirmation_schedule_block}}{{confirmation_closing}}",
   completed: "🎉 *Rolê fechado*\n\nTodo mundo acertou a divisão “{{title}}”. Obrigado!",
   goal_invite: "Oi, {{participant_name}}! 👋 {{owner_name}} convidou você para a meta conjunta “{{title}}” (objetivo: {{amount}}).{{link_sentence}} Bora juntos?",
   goal_invite_followup: "Oi, {{participant_name}}! Só passando pra lembrar do convite da meta “{{title}}” com {{owner_name}}.{{link_sentence}} Se não quiser participar, é só ignorar 💛",
