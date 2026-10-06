@@ -89,6 +89,69 @@ function matchByName(list: Array<{ id: string; name: string }>, hint?: string | 
   return partial?.id ?? null;
 }
 
+export type PreviewRow = {
+  ordinal: number;
+  verdict: DupeVerdict["status"];
+  reason_code: string | null;
+  type: ImportItem["type"];
+  movement_kind: ImportItem["movement_kind"];
+  amount: number;
+  date: string;
+  description: string;
+};
+
+/**
+ * Prévia SEM efeitos: classifica o lote contra o histórico (mesmo motor do
+ * `stageBatch`) e devolve contagens e linhas. Não grava nada.
+ */
+export async function previewBatch(sb: SupabaseClient, args: {
+  user_id: string;
+  items: ImportItem[];
+}): Promise<{ counters: StageCounters; rows: PreviewRow[] }> {
+  const { user_id, items } = args;
+  const dated = items.map((item) => ({ item, date: item.occurred_at ?? item.purchase_date ?? item.posted_at ?? today() }));
+  const fingerprints = await Promise.all(dated.map((row) => fingerprint(user_id, row.item, row.date)));
+  const toInput = (row: { item: ImportItem; date: string }, i: number) => ({
+    ordinal: row.item.ordinal,
+    type: row.item.type,
+    amount: row.item.amount,
+    occurred_at: row.date,
+    posted_at: row.item.posted_at,
+    purchase_date: row.item.purchase_date,
+    description: row.item.description,
+    raw_description: row.item.raw_description,
+    merchant: row.item.merchant,
+    bank_reference: row.item.bank_reference,
+    external_id: row.item.external_id,
+    source_document_id: row.item.source_document_id,
+    source_line_index: row.item.source_line_index ?? row.item.ordinal,
+    fingerprint: fingerprints[i],
+  });
+  const existing = await fetchExistingCandidates(sb as any, user_id, dated.map(toInput));
+  const verdicts = classifyBatch(dated.map(toInput), existing);
+
+  const counters: StageCounters = {
+    total: items.length, new: 0, repeated_legitimate: 0, exact_duplicate: 0,
+    probable_duplicate: 0, needs_review: 0, invalid: 0,
+  };
+  const rows: PreviewRow[] = dated.map((row, i) => {
+    const v = verdicts[i];
+    const invalid = !(row.item.amount > 0) || !row.item.description;
+    if (invalid) counters.invalid++;
+    else if (v.status === "exact_duplicate") counters.exact_duplicate++;
+    else if (v.status === "probable_duplicate") counters.probable_duplicate++;
+    else if (v.status === "repeated_legitimate") counters.repeated_legitimate++;
+    else if (row.item.issues.length > 0 || row.item.confidence < 0.7) counters.needs_review++;
+    else counters.new++;
+    return {
+      ordinal: row.item.ordinal, verdict: v.status, reason_code: v.reason_code, type: row.item.type,
+      movement_kind: row.item.movement_kind, amount: row.item.amount, date: row.date,
+      description: row.item.description.slice(0, 60),
+    };
+  });
+  return { counters, rows };
+}
+
 /**
  * Grava o lote como um `document_imports` em `needs_review`, classificando cada
  * item contra o histórico já registrado. Não cria nenhum lançamento.
@@ -96,7 +159,7 @@ function matchByName(list: Array<{ id: string; name: string }>, hint?: string | 
 export async function stageBatch(sb: SupabaseClient, args: {
   user_id: string;
   conversation_id?: string | null;
-  source: "app" | "whatsapp";
+  source: "app" | "whatsapp" | "open_finance";
   items: ImportItem[];
   target: BatchTarget;
   raw_text?: string | null;
