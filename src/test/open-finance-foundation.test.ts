@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { previewBatch } from "../../supabase/functions/_shared/import/stage";
+import { adaptPluggyTransactions } from "../../supabase/functions/_shared/openfinance/pluggyAdapter";
+
+const read = (p: string) => readFileSync(p, "utf8");
+
+describe("Open Finance — fundação", () => {
+  const fn = read("supabase/functions/openfinance-sync/index.ts");
+  const sql = read("supabase/migrations/20261007100000_open_finance_foundation.sql");
+
+  it("exige JWT real e acesso beta antes de qualquer coisa", () => {
+    expect(fn).toContain("auth.getClaims");
+    expect(fn).toContain('rpc("open_finance_enabled")');
+    expect(fn.indexOf("open_finance_enabled")).toBeLessThan(fn.indexOf("pluggyAuth()"));
+  });
+
+  it("nunca cria lançamento: só prévia ou estágio de importação para revisão", () => {
+    expect(fn).not.toMatch(/from\("transactions"\)/);
+    expect(fn).not.toContain("confirmBatch");
+    expect(fn).not.toContain("confirm_document_import");
+    expect(fn).toContain('source: "open_finance"');
+    expect(fn).toContain("raw_text: null"); // nada do banco guardado como texto bruto
+  });
+
+  it("não registra dados bancários em log", () => {
+    expect(fn).not.toMatch(/console\.(log|error|warn)/);
+  });
+
+  it("banco: RLS própria, escrita só por RPC, anon sem acesso", () => {
+    for (const t of ["open_finance_access", "bank_connections", "bank_account_links", "bank_sync_runs"]) {
+      expect(sql).toContain(`alter table public.${t} enable row level security`);
+    }
+    expect(sql).toContain("grant select on public.open_finance_access");
+    expect(sql).not.toMatch(/grant (insert|update|delete)/i);
+    expect(sql).toMatch(/revoke all on function public\.bank_connection_save\(text, text\) from public, anon/);
+    expect(sql).toContain("open_finance_not_enabled");
+    // vínculo só com conta/cartão do próprio usuário
+    expect(sql).toContain("user_id = v_uid");
+  });
+
+  it("a prévia não escreve nada (cliente que falha em qualquer gravação)", async () => {
+    const writes: string[] = [];
+    const chain: any = new Proxy({}, {
+      get: (_t, prop: string) => {
+        if (["insert", "update", "upsert", "delete", "rpc"].includes(prop)) {
+          return () => { writes.push(prop); return chain; };
+        }
+        if (prop === "then") return (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+        return () => chain;
+      },
+    });
+    const sb = { from: () => chain, rpc: () => chain };
+    const { items } = adaptPluggyTransactions([
+      { id: "1", description: "Mercado", amount: -10, date: "2026-10-05T03:00:00Z", type: "DEBIT", status: "POSTED" },
+    ], { accountType: "BANK" });
+    const r = await previewBatch(sb as never, { user_id: "u", items });
+    expect(r.counters.total).toBe(1);
+    expect(writes).toEqual([]);
+  });
+});
