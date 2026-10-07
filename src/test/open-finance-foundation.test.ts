@@ -17,7 +17,8 @@ describe("Open Finance — fundação", () => {
   });
 
   it("nunca cria lançamento: só prévia ou estágio de importação para revisão", () => {
-    expect(fn).not.toMatch(/from\("transactions"\)/);
+    // Pode LER transactions (resumo da prévia), nunca escrever.
+    expect(fn).not.toMatch(/from\("transactions"\)\s*\.(insert|update|upsert|delete)/);
     expect(fn).not.toContain("confirmBatch");
     expect(fn).not.toContain("confirm_document_import");
     expect(fn).toContain('source: "open_finance"');
