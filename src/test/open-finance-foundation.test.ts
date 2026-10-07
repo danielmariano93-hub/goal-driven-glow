@@ -96,17 +96,23 @@ describe("autenticação das Edge Functions de usuário", () => {
   });
 });
 
-describe("openfinance-sync — todo símbolo usado do cliente Pluggy está importado", () => {
+describe("openfinance-sync — todo símbolo usado dos módulos compartilhados está importado", () => {
   it("evita ReferenceError em produção (a função não é verificada por tipo no CI)", () => {
     const fn = read("supabase/functions/openfinance-sync/index.ts");
-    const client = read("supabase/functions/_shared/openfinance/pluggyClient.ts");
-    const exported = [...client.matchAll(/export (?:async )?(?:function|class) (\w+)/g)].map((m) => m[1]);
-    const importBlock = /import \{([^}]*)\} from "\.\.\/_shared\/openfinance\/pluggyClient\.ts"/.exec(fn)?.[1] ?? "";
-    const imported = new Set(importBlock.split(",").map((s) => s.trim()).filter(Boolean));
-    const body = fn.replace(/import \{[^}]*\} from "[^"]+";/g, "");
-    for (const name of exported) {
-      if (new RegExp(`\\b${name}\\(`).test(body) || new RegExp(`instanceof ${name}\\b`).test(body)) {
-        expect(imported.has(name), name).toBe(true);
+    const body = fn.replace(/import (?:type )?\{[^}]*\} from "[^"]+";/g, "");
+    const modules = [
+      "openfinance/pluggyClient", "openfinance/pluggyAdapter", "openfinance/reconcile", "openfinance/previewAnalysis",
+      "import/stage", "import/dedupe", "derived/pagedSelect", "finance-core/ninoClock",
+    ];
+    for (const mod of modules) {
+      const src = read(`supabase/functions/_shared/${mod}.ts`);
+      const exported = [...src.matchAll(/export (?:async )?(?:function|class) (\w+)/g)].map((m) => m[1]);
+      const re = new RegExp(`import (?:type )?\\{([^}]*)\\} from "\\.\\./_shared/${mod.replace("/", "\\/")}\\.ts"`);
+      const imported = new Set((re.exec(fn)?.[1] ?? "").split(",").map((x) => x.trim().replace(/^type /, "").replace(/ as \w+$/, "")).filter(Boolean));
+      for (const name of exported) {
+        if (new RegExp(`(?<![\\w.])${name}\\(`).test(body) || new RegExp(`instanceof ${name}\\b`).test(body)) {
+          expect(imported.has(name), `${mod}:${name}`).toBe(true);
+        }
       }
     }
   });

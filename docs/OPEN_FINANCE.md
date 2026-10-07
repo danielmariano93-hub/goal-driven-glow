@@ -34,3 +34,9 @@ Para outros usuários (uso comercial) é preciso "Liberar dados reais" no plano 
 - O endpoint v1 `GET /transactions` foi desativado pelo Pluggy (HTTP 410); usamos `GET /v2/transactions` com cursor (`paginateTransactionsV2` em `pluggyClient.ts`).
 - O Meu Pluggy é de uso pessoal; para outros usuários é preciso o plano comercial do Pluggy.
 - Desconectar apenas pausa a conexão (preserva histórico); excluir a conta apaga tudo em cascata.
+
+## Conciliação do mês atual (decisão de produto)
+Só o mês atual é conciliado (corte no dia 1º); meses anteriores não são retroagidos.
+Lançamentos de WhatsApp/app continuam sendo registrados e editados normalmente (são **provisórios**). A cada atualização do banco (1x/dia no Meu Pluggy), o Nino casa o provisório com o movimento confirmado: o valor do banco prevalece, categoria e notas da pessoa ficam, e não entra segunda linha. Provisório sem par vira "não apareceu no banco" após 5 dias — nunca é apagado.
+Ação `reconcile` (somente relatório): `_shared/openfinance/reconcile.ts` (`planReconciliation`, `dedupeAcrossAccounts`). A gravação da conciliação só será liberada depois da conferência manual.
+Tradutor: aplicação = saída; resgate/rendimento = entrada; lado cartão do pagamento de fatura é ignorado; Pix enviado segue como consumo (a conferir); empréstimo nunca é confiável só pelo texto.

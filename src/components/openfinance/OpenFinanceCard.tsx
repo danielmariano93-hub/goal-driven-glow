@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useAccounts } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import {
-  useOpenFinanceActions, useOpenFinanceEnabled, useOpenFinanceStatus, type BankConnection, type BankLink, type SyncResult,
+  useOpenFinanceActions, useOpenFinanceEnabled, useOpenFinanceStatus, type BankConnection, type BankLink, type ReconcileReport, type SyncResult,
 } from "@/lib/openfinance/useOpenFinance";
 
 // O widget só é baixado quando a pessoa toca em "Conectar banco".
@@ -33,6 +33,7 @@ function OpenFinanceBody() {
   const [itemId, setItemId] = useState("");
   const [label, setLabel] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
+  const [recon, setRecon] = useState<ReconcileReport | null>(null);
   const [connectToken, setConnectToken] = useState<string | null>(null);
   const [trail, setTrail] = useState<string[]>([]);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -78,7 +79,7 @@ function OpenFinanceBody() {
           accounts={(accounts.data ?? []).map((a) => ({ id: a.id, name: a.name }))}
           cards={(cards.data ?? []).map((k) => ({ id: k.id, name: k.name }))}
           configured={!!status.data?.configured}
-          act={act} onResult={setResult} fail={fail}
+          act={act} onResult={setResult} onRecon={setRecon} fail={fail}
         />
       ))}
 
@@ -139,6 +140,7 @@ function OpenFinanceBody() {
       </form>
       </details>
 
+      {recon ? <ReconcileView report={recon} /> : null}
       {result ? <ResultView result={result} /> : null}
     </section>
   );
@@ -148,16 +150,16 @@ function ConnectionBlock(props: {
   connection: BankConnection; links: BankLink[];
   accounts: Array<{ id: string; name: string }>; cards: Array<{ id: string; name: string }>;
   configured: boolean; act: ReturnType<typeof useOpenFinanceActions>;
-  onResult: (r: SyncResult) => void; fail: (e: unknown) => void;
+  onResult: (r: SyncResult) => void; onRecon: (r: ReconcileReport) => void; fail: (e: unknown) => void;
 }) {
-  const { connection: c, links, accounts, cards, configured, act, onResult, fail } = props;
+  const { connection: c, links, accounts, cards, configured, act, onResult, onRecon, fail } = props;
   const mapped = links.some((l) => l.account_id || l.credit_card_id);
   const run = (mode: "preview" | "stage") =>
-    act.run.mutate({ connectionId: c.id, mode, days: 90 }, {
+    act.run.mutate({ connectionId: c.id, mode }, {
       onSuccess: (r) => { onResult(r); if (mode === "stage") toast.success("Enviado para revisão no Assessor."); },
       onError: fail,
     });
-  const busy = act.run.isPending || act.discover.isPending;
+  const busy = act.run.isPending || act.discover.isPending || act.reconcile.isPending;
 
   return (
     <div className="mt-4 rounded-xl border p-3">
@@ -197,8 +199,9 @@ function ConnectionBlock(props: {
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button disabled={!configured || busy} onClick={() => act.discover.mutate(c.id, { onSuccess: (r) => toast.success(`${r.accounts.length} conta(s) encontrada(s).`), onError: fail })} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Ler contas do banco</button>
-        <button disabled={!configured || !mapped || busy} onClick={() => run("preview")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Prévia (90 dias)</button>
-        <button disabled={!configured || !mapped || busy} onClick={() => run("stage")} className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">Enviar para revisão</button>
+        <button disabled={!configured || !mapped || busy} onClick={() => act.reconcile.mutate(c.id, { onSuccess: onRecon, onError: fail })} className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">Conciliar mês atual</button>
+        <button disabled={!configured || !mapped || busy} onClick={() => run("preview")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Prévia (mês atual)</button>
+        <button disabled={!configured || !mapped || busy} onClick={() => run("stage")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Enviar para revisão</button>
         {busy ? <Loader2 className="h-4 w-4 animate-spin self-center" /> : null}
       </div>
     </div>
@@ -251,4 +254,50 @@ function describeError(err: Loose): string {
     pick(itemError, "code") && `código ${pick(itemError, "code")}`,
     pick(itemError, "message"),
   ].filter(Boolean).join(" · ");
+}
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const LEVEL_LABEL: Record<string, string> = { alta: "casa", valor_diferente: "valor diferente", duvida: "dúvida" };
+
+/** Relatório da conciliação do mês atual. Somente leitura: nada foi gravado. */
+function ReconcileView({ report }: { report: ReconcileReport }) {
+  const c = report.counts;
+  const r = report.report;
+  return (
+    <div className="mt-4 rounded-xl bg-muted/60 p-3 text-xs" aria-live="polite">
+      <p className="font-semibold">Conciliação · {report.from} a {report.to} <span className="font-normal text-muted-foreground">(só relatório, nada foi gravado)</span></p>
+      <ul className="mt-1 space-y-0.5">
+        <li>{c.matched_alta + c.matched_valor + c.matched_duvida} lançamentos seus casam com o banco ({c.matched_alta} certos · {c.matched_valor} com valor diferente · {c.matched_duvida} em dúvida)</li>
+        <li>{c.new} movimentos do banco são novos: {brl(report.money.new_expense)} em saídas · {brl(report.money.new_income)} em entradas</li>
+        <li>{c.waiting} seus ainda aguardam o banco · {c.not_shown} não apareceram no banco (5+ dias)</li>
+        <li>{c.already_reconciled} já conciliados antes · {c.known_by_statement} já estão no Nino por extrato · {report.skipped_pending} pendentes ignorados</li>
+        {report.duplicated_accounts > 0 ? <li className="font-semibold text-destructive">{report.duplicated_accounts} conta(s) do banco repetida(s) foram ignoradas</li> : null}
+      </ul>
+
+      <Section title="Casam com o banco" empty="Nenhum.">
+        {r.matches.map((m, i) => (
+          <li key={i} className="truncate">{m.date} · {m.nino} ↔ {m.bank} · {brl(m.nino_amount)}{m.delta ? ` → ${brl(m.bank_amount)}` : ""} · {LEVEL_LABEL[m.level] ?? m.level}</li>
+        ))}
+      </Section>
+      <Section title="Novos do banco" empty="Nenhum.">
+        {r.new_items.map((n, i) => (
+          <li key={i} className="truncate">{n.date} · {n.description} · {n.type === "income" ? "+" : "−"}{brl(n.amount)}{n.issues.length ? ` · conferir` : ""}</li>
+        ))}
+      </Section>
+      <Section title="Seus lançamentos sem par" empty="Nenhum.">
+        {r.unmatched.map((u, i) => (
+          <li key={i} className="truncate">{u.date} · {u.description} · {brl(u.amount)} · {u.status === "nao_apareceu" ? `não apareceu (${u.age_days} dias)` : "aguardando"}</li>
+        ))}
+      </Section>
+    </div>
+  );
+}
+
+function Section({ title, empty, children }: { title: string; empty: string; children: React.ReactNode[] }) {
+  return (
+    <details className="mt-2">
+      <summary className="cursor-pointer font-semibold">{title} ({children.length})</summary>
+      <ul className="mt-1 space-y-0.5 text-[11px]">{children.length ? children : <li className="text-muted-foreground">{empty}</li>}</ul>
+    </details>
+  );
 }
