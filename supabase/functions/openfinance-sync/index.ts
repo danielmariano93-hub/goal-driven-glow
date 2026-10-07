@@ -19,6 +19,7 @@ import { adaptPluggyTransactions, maskedAccountName } from "../_shared/openfinan
 import {
   createConnectToken, getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, pluggyMissingSecrets, PluggyError,
 } from "../_shared/openfinance/pluggyClient.ts";
+import { fetchAllPages } from "../_shared/derived/pagedSelect.ts";
 import { aggregateBankRows, aggregateNinoRows } from "../_shared/openfinance/previewAnalysis.ts";
 import { previewBatch, stageBatch, type PreviewRow, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
@@ -214,11 +215,13 @@ Deno.serve(async (req) => {
       const ninoRows: any[] = [];
       for (const [column, ids] of [["account_id", accountIds], ["credit_card_id", cardIds]] as const) {
         if (ids.length === 0) continue;
-        const { data: txs } = await sb.from("transactions")
+        const txs = await fetchAllPages<any>((a, b) => sb.from("transactions")
           .select("occurred_at,origin,movement_kind,type,amount")
           .eq("user_id", userId).in(column, ids).gte("occurred_at", from).lte("occurred_at", to)
-          .neq("status", "superseded").limit(5000);
-        ninoRows.push(...(txs ?? []));
+          .neq("status", "superseded")
+          .order("occurred_at", { ascending: true }).order("id", { ascending: true })
+          .range(a, b), { source: "open_finance_analysis" });
+        ninoRows.push(...txs);
       }
       analysis = { bank: aggregateBankRows(allRows), nino: aggregateNinoRows(ninoRows) };
     }
