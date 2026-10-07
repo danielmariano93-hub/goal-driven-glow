@@ -11,6 +11,9 @@ import {
 // O widget só é baixado quando a pessoa toca em "Conectar banco".
 const PluggyConnect = lazy(() => import("react-pluggy-connect").then((m) => ({ default: m.PluggyConnect })));
 
+/** Uso pessoal gratuito: só o conector MeuPluggy (id 200). Contas de teste não conectam bancos diretos. */
+const MEU_PLUGGY_CONNECTOR_ID = 200;
+
 const VERDICT_LABEL: Record<string, string> = {
   new: "novo", repeated_legitimate: "repetido legítimo", exact_duplicate: "duplicado exato", probable_duplicate: "possível duplicado",
 };
@@ -79,7 +82,12 @@ function OpenFinanceBody() {
         />
       ))}
 
-      <div className="mt-4">
+      <ol className="mt-3 list-decimal space-y-0.5 pl-4 text-[11px] text-muted-foreground">
+        <li>Conecte seus bancos em <span className="font-medium">meu.pluggy.ai</span> (gratuito).</li>
+        <li>No painel do Pluggy, ative o conector <span className="font-medium">MeuPluggy</span>.</li>
+        <li>Toque em “Conectar banco” e entre com o seu cadastro do Meu Pluggy.</li>
+      </ol>
+      <div className="mt-3">
         <button
           disabled={!status.data?.configured || act.connectToken.isPending}
           onClick={startConnect}
@@ -94,6 +102,8 @@ function OpenFinanceBody() {
           <PluggyConnect
             connectToken={connectToken}
             includeSandbox={false}
+            connectorIds={[MEU_PLUGGY_CONNECTOR_ID]}
+            selectedConnectorId={MEU_PLUGGY_CONNECTOR_ID}
             onSuccess={({ item }: { item: { id: string } }) => onConnected(item.id)}
             onEvent={(e) => setTrail((t) => [...t.slice(-9), describeEvent(e as unknown as Record<string, unknown>)])}
             onError={(err) => {

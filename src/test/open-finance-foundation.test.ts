@@ -110,3 +110,15 @@ describe("openfinance-sync — todo símbolo usado do cliente Pluggy está impor
     }
   });
 });
+
+describe("Open Finance — uso pessoal gratuito (MeuPluggy)", () => {
+  it("o widget fica restrito ao conector MeuPluggy (id 200)", () => {
+    const card = read("src/components/openfinance/OpenFinanceCard.tsx");
+    expect(card).toContain("MEU_PLUGGY_CONNECTOR_ID = 200");
+    expect(card).toContain("connectorIds={[MEU_PLUGGY_CONNECTOR_ID]}");
+    expect(card).toContain("selectedConnectorId={MEU_PLUGGY_CONNECTOR_ID}");
+  });
+  it("a ficha do item é opcional no discover (não existe para Meu Pluggy)", () => {
+    expect(read("supabase/functions/openfinance-sync/index.ts")).toMatch(/getItem\(apiKey[\s\S]*?\)\.catch\(/);
+  });
+});
