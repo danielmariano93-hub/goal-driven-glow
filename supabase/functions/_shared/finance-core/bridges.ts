@@ -702,3 +702,60 @@ export function explainBalanceChange(
 
   return { headline, body, tone, steps, confidence: bridge.confidence };
 }
+
+// ---------------------------------------------------------------------------
+// Resumo de revisão de importação (Assessor / Open Finance)
+// ---------------------------------------------------------------------------
+// A tela de revisão e o relatório de importação NÃO somam por tipo (entrada/saída):
+// isso transformaria resgate em "receita" e pagamento de fatura em "gasto". O balde
+// de cada linha vem do mapa canônico MOVEMENT_SEMANTICS.
+
+export type ReviewBucket =
+  | "income" | "expense" | "refund" | "internal_transfer" | "card_payment"
+  | "external_transfer_in" | "external_transfer_out"
+  | "investment_application" | "investment_redemption" | "investment_yield"
+  | "loan_proceeds" | "debt_payment" | "adjustment";
+
+export type ReviewSummary = Record<ReviewBucket, number> & { cash_net: number };
+
+const BUCKET_BY_KIND: Record<string, ReviewBucket> = {
+  refund: "refund", internal_transfer: "internal_transfer", card_payment: "card_payment",
+  external_transfer_in: "external_transfer_in", external_transfer_out: "external_transfer_out",
+  investment_application: "investment_application", investment_redemption: "investment_redemption",
+  investment_yield: "investment_yield", loan_proceeds: "loan_proceeds", debt_payment: "debt_payment",
+  adjustment: "adjustment",
+};
+
+export function reviewBucketOf(item: { type?: string | null; movement_kind?: string | null }): ReviewBucket {
+  const kind = String(item.movement_kind ?? "").trim();
+  if (BUCKET_BY_KIND[kind]) return BUCKET_BY_KIND[kind];
+  const sem = semanticsOf({
+    type: item.type as TransactionRow["type"], movement_kind: kind || null,
+    settles_card_id: null, payment_method: null, credit_card_id: null,
+  } as Parameters<typeof semanticsOf>[0]);
+  return sem.performanceImpact > 0 ? "income" : "expense";
+}
+
+/** Soma por balde (em módulo) + efeito líquido no caixa (cashImpact do mapa canônico). */
+export function summarizeReviewItems(
+  items: Array<{ type?: string | null; movement_kind?: string | null; amount: number | string }>,
+): ReviewSummary {
+  const out = {
+    income: 0, expense: 0, refund: 0, internal_transfer: 0, card_payment: 0,
+    external_transfer_in: 0, external_transfer_out: 0,
+    investment_application: 0, investment_redemption: 0, investment_yield: 0,
+    loan_proceeds: 0, debt_payment: 0, adjustment: 0, cash_net: 0,
+  } as ReviewSummary;
+  for (const item of items) {
+    const amount = Math.abs(Number(item.amount));
+    if (!Number.isFinite(amount)) continue;
+    out[reviewBucketOf(item)] += amount;
+    const sem = semanticsOf({
+      type: item.type as TransactionRow["type"], movement_kind: item.movement_kind ?? null,
+      settles_card_id: null, payment_method: null, credit_card_id: null,
+    } as Parameters<typeof semanticsOf>[0]);
+    out.cash_net += sem.cashImpact * amount;
+  }
+  for (const key of Object.keys(out) as Array<keyof ReviewSummary>) out[key] = round2(out[key]);
+  return out;
+}

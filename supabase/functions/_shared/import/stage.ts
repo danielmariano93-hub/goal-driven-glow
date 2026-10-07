@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { normalizeDescription, merchantCanonical } from "../categorization/normalize.ts";
 import { classifyBatch, fetchExistingCandidates, linkRefunds, type DupeVerdict } from "./dedupe.ts";
 import type { ImportItem } from "./schema.ts";
+import { summarizeReviewItems } from "../finance-core/bridges.ts";
 import { today as localToday } from "../finance-core/ninoClock.ts";
 
 export type BatchTarget = {
@@ -37,6 +38,7 @@ export type StagedBatch = {
   total_income: number;
   total_transfer: number;
   total_refund: number;
+  review: ReturnType<typeof summarizeReviewItems>;
 };
 
 function fold(value: string): string {
@@ -226,6 +228,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
   let total_income = 0;
   let total_transfer = 0;
   let total_refund = 0;
+  const reviewItems: Array<{ type: string; movement_kind: string; amount: number }> = [];
 
   const { data: doc, error: docError } = await sb.from("document_imports").insert({
     user_id,
@@ -288,10 +291,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
     }
 
     if (verdict.status === "new" || verdict.status === "repeated_legitimate") {
-      if (item.movement_kind === "internal_transfer") total_transfer += item.amount;
-      else if (item.movement_kind === "refund") total_refund += item.amount;
-      else if (item.type === "income") total_income += item.amount;
-      else total_expense += item.amount;
+      reviewItems.push({ type: item.type, movement_kind: item.movement_kind, amount: item.amount });
     }
 
     rows.push({
@@ -342,8 +342,15 @@ export async function stageBatch(sb: SupabaseClient, args: {
     if (itemsError) throw new Error(`stage_items_failed:${itemsError.message}`);
   }
 
+  // Totais pelo mapa canônico (resgate/fatura/transferência não viram receita/gasto).
+  const review = summarizeReviewItems(reviewItems);
+  total_income = review.income;
+  total_expense = review.expense;
+  total_transfer = review.internal_transfer;
+  total_refund = review.refund;
+
   await sb.from("document_imports").update({
-    counters: { ...counters, total_expense, total_income, total_transfer, total_refund },
+    counters: { ...counters, total_expense, total_income, total_transfer, total_refund, review },
   }).eq("id", document_id);
 
   const { data: readyRows } = await sb.from("extracted_items")
@@ -355,5 +362,5 @@ export async function stageBatch(sb: SupabaseClient, args: {
     .filter((row) => !row.duplicate_reason && ((row.confidence?.issues ?? []).length === 0))
     .map((row) => String(row.id));
 
-  return { document_id, counters, ready_item_ids, total_expense, total_income, total_transfer, total_refund };
+  return { document_id, counters, ready_item_ids, total_expense, total_income, total_transfer, total_refund, review };
 }

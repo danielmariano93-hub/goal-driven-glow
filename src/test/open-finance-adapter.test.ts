@@ -61,13 +61,21 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0].installments_total).toBeNull();
   });
 
-  it("Pix enviado continua sendo consumo (como o Nino já tratava), para conferir; Pix recebido é transferência externa", () => {
+  it("Pix: a empresa é gasto; a pessoa fica 'a classificar' (transferência a terceiro); recebido é transferência externa", () => {
     const out = adaptPluggyTransactions([
       tx({ id: "a", description: "Pix enviado Maria", amount: -80 }),
       tx({ id: "b", description: "Pix recebido Joao", amount: 80, type: "CREDIT" }),
+      tx({ id: "c", description: "Pix enviado Padaria", amount: -30, paymentData: { receiver: { documentNumber: { type: "CNPJ", value: "x" } } } }),
+      tx({ id: "d", description: "Pix enviado Thales", amount: -211, paymentData: { receiver: { documentNumber: { type: "CPF", value: "y" } } } }),
+      tx({ id: "e", description: "Pix QR Code Mercado", amount: -50 }),
+      tx({ id: "f", description: "Pix Automatico Ebanx", amount: -103.4 }),
     ], bank).items;
-    expect(out[0]).toMatchObject({ movement_kind: "transaction", type: "expense", confidence: 0.6, issues: ["pix_confirmar_destino"] });
+    expect(out[0]).toMatchObject({ movement_kind: "external_transfer_out", type: "expense", confidence: 0.6, issues: ["pix_pessoa_a_classificar"] });
     expect(out[1]).toMatchObject({ movement_kind: "external_transfer_in", issues: ["transferencia_confirmar_destino"] });
+    expect(out[2]).toMatchObject({ movement_kind: "transaction", issues: [] });
+    expect(out[3]).toMatchObject({ movement_kind: "external_transfer_out", issues: ["pix_pessoa_a_classificar"] });
+    expect(out[4]).toMatchObject({ movement_kind: "transaction", issues: [] });
+    expect(out[5]).toMatchObject({ movement_kind: "transaction", issues: [] });
   });
 
   it("investimentos", () => {

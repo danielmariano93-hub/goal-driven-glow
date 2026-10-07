@@ -65,6 +65,16 @@ const YIELD = /rendimento|rend\.?\s*(pago|liq)|juros\s*(recebidos|s\/|sobre capi
 const REDEMPTION = /resgate|resg\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*resg/;
 const APPLICATION = /aplicacao|aplic\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*(compra|aplic)|invest.*aplic/;
 
+/** Destino é empresa/comércio? Usa o documento do favorecido (CNPJ), o estabelecimento ou o texto (QR, Pix Automático). */
+function isBusinessPayee(tx: PluggyTransaction, text: string): boolean {
+  const receiver = (tx.paymentData as any)?.receiver;
+  const docType = String(receiver?.documentNumber?.type ?? "").toUpperCase();
+  if (docType === "CNPJ") return true;
+  if (docType === "CPF") return false;
+  if (tx.merchant?.name || tx.merchant?.businessName) return true;
+  return /pix\s*(qr|automatico|por aproximacao)|qr\s*code|debito automatico|pagamento\s*(de\s*)?(conta|boleto)|\b(ltda|s\/a|eireli|mei)\b/.test(text);
+}
+
 function classify(
   tx: PluggyTransaction,
   type: "income" | "expense",
@@ -101,11 +111,12 @@ function classify(
   }
   const isTransfer = /\b(pix|ted|doc|transferencia|transf)\b/.test(text) || fold(tx.category ?? "").includes("transfer");
   if (isTransfer) {
-    // Entrada: transferência externa. Saída: continua sendo CONSUMO (como o Nino já tratava Pix a
-    // comércios e pessoas) até a pessoa dizer que o destino é conta própria; fica para conferir.
-    return type === "income"
-      ? { kind: "external_transfer_in", confident: false, issue: "transferencia_confirmar_destino" }
-      : { kind: "transaction", confident: false, issue: "pix_confirmar_destino" };
+    if (type === "income") return { kind: "external_transfer_in", confident: false, issue: "transferencia_confirmar_destino" };
+    // Saída: para empresa (CNPJ, QR de comércio, Pix Automático/débito) é gasto; para pessoa é
+    // transferência a terceiro "a classificar" (pode ser presente, rolê, aluguel…): a pessoa decide.
+    return isBusinessPayee(tx, text)
+      ? { kind: "transaction", confident: true, issue: null }
+      : { kind: "external_transfer_out", confident: false, issue: "pix_pessoa_a_classificar" };
   }
   return { kind: "transaction", confident: true, issue: null };
 }
