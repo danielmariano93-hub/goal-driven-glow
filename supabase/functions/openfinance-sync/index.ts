@@ -19,7 +19,8 @@ import { adaptPluggyTransactions, maskedAccountName } from "../_shared/openfinan
 import {
   createConnectToken, getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, pluggyMissingSecrets, PluggyError,
 } from "../_shared/openfinance/pluggyClient.ts";
-import { previewBatch, stageBatch, type StageCounters } from "../_shared/import/stage.ts";
+import { aggregateBankRows, aggregateNinoRows } from "../_shared/openfinance/previewAnalysis.ts";
+import { previewBatch, stageBatch, type PreviewRow, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
 import { today as ninoToday } from "../_shared/finance-core/ninoClock.ts";
 
@@ -168,6 +169,7 @@ Deno.serve(async (req) => {
     const perAccount: Array<Record<string, unknown>> = [];
     const sample: unknown[] = [];
     const documents: string[] = [];
+    const allRows: PreviewRow[] = [];
     let skippedPending = 0;
     let skippedInvalid = 0;
 
@@ -191,6 +193,7 @@ Deno.serve(async (req) => {
       } else {
         const preview = await previewBatch(sb as any, { user_id: userId, items });
         counters = preview.counters;
+        allRows.push(...preview.rows);
         // Amostra enxuta só dos itens que exigem atenção (para o dono validar o mapeamento).
         for (const row of preview.rows) {
           if (sample.length < 20 && (row.verdict !== "new" && row.verdict !== "exact_duplicate")) sample.push(row);
@@ -203,9 +206,25 @@ Deno.serve(async (req) => {
     await sb.from("bank_connections").update({
       last_synced_at: new Date().toISOString(), last_error: null, status: "active", updated_at: new Date().toISOString(),
     }).eq("id", (connection as any).id);
+    // Prévia: guarda um resumo só com números (banco x Nino) para análise de impacto. Sem descrições.
+    let analysis: Record<string, unknown> | null = null;
+    if (mode === "preview") {
+      const accountIds = (mapped as any[]).map((l) => l.account_id).filter(Boolean);
+      const cardIds = (mapped as any[]).map((l) => l.credit_card_id).filter(Boolean);
+      const ninoRows: any[] = [];
+      for (const [column, ids] of [["account_id", accountIds], ["credit_card_id", cardIds]] as const) {
+        if (ids.length === 0) continue;
+        const { data: txs } = await sb.from("transactions")
+          .select("occurred_at,origin,movement_kind,type,amount")
+          .eq("user_id", userId).in(column, ids).gte("occurred_at", from).lte("occurred_at", to)
+          .neq("status", "superseded").limit(5000);
+        ninoRows.push(...(txs ?? []));
+      }
+      analysis = { bank: aggregateBankRows(allRows), nino: aggregateNinoRows(ninoRows) };
+    }
     await sb.from("bank_sync_runs").update({
       status: "ok", finished_at: new Date().toISOString(), document_id: documents[0] ?? null,
-      counters: { ...totals, skipped_pending: skippedPending, skipped_invalid: skippedInvalid, from, to, accounts: perAccount.length },
+      counters: { ...totals, skipped_pending: skippedPending, skipped_invalid: skippedInvalid, from, to, accounts: perAccount.length, ...(analysis ? { analysis } : {}) },
     }).eq("id", runId);
 
     return h.ok({

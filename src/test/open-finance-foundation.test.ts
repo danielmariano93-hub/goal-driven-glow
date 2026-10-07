@@ -133,3 +133,21 @@ describe("Open Finance — diagnóstico de erro do Pluggy", () => {
     expect(fn).toMatch(/error: technical \? `\$\{code\} \(\$\{technical\}\)` : code/);
   });
 });
+
+import { aggregateBankRows, aggregateNinoRows } from "../../supabase/functions/_shared/openfinance/previewAnalysis";
+describe("Open Finance — resumo agregado da prévia", () => {
+  it("agrega por mês/resultado/natureza e nunca carrega descrição", () => {
+    const bank = aggregateBankRows([
+      { verdict: "new", movement_kind: "transaction", type: "expense", amount: 10, date: "2026-09-02" },
+      { verdict: "new", movement_kind: "transaction", type: "expense", amount: 5.5, date: "2026-09-20" },
+      { verdict: "probable_duplicate", movement_kind: "transaction", type: "expense", amount: 7, date: "2026-10-01" },
+    ]);
+    expect(bank).toEqual([
+      { month: "2026-09", verdict: "new", kind: "transaction", type: "expense", n: 2, total: 15.5 },
+      { month: "2026-10", verdict: "probable_duplicate", kind: "transaction", type: "expense", n: 1, total: 7 },
+    ]);
+    expect(JSON.stringify(bank)).not.toMatch(/description/);
+    const nino = aggregateNinoRows([{ occurred_at: "2026-09-03", origin: "agent", movement_kind: null, type: "expense", amount: 12 }]);
+    expect(nino[0]).toMatchObject({ month: "2026-09", origin: "agent", kind: "transaction", n: 1, total: 12 });
+  });
+});
