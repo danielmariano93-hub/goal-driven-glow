@@ -226,3 +226,25 @@ describe("explainBalanceChange", () => {
     expect(e.tone).toBe("attention");
   });
 });
+
+import { summarizeReviewItems as __summarizeReview } from "@/lib/engine/bridges";
+describe("summarizeReviewItems (resumo de revisão pelo mapa canônico)", () => {
+  it("resgate, fatura e Pix a terceiro não viram receita/gasto", () => {
+    const s = __summarizeReview([
+      { type: "income", movement_kind: "investment_redemption", amount: 6000 },
+      { type: "expense", movement_kind: "card_payment", amount: 4252.02 },
+      { type: "expense", movement_kind: "external_transfer_out", amount: 211 },
+      { type: "income", movement_kind: "investment_yield", amount: 0.07 },
+      { type: "income", movement_kind: "refund", amount: 154 },
+      { type: "expense", movement_kind: "transaction", amount: 100 },
+      { type: "income", movement_kind: "transaction", amount: 5000 },
+    ]);
+    expect(s.income).toBe(5000);
+    expect(s.expense).toBe(100);
+    expect(s.investment_redemption).toBe(6000);
+    expect(s.card_payment).toBe(4252.02);
+    expect(s.external_transfer_out).toBe(211);
+    expect(s.refund).toBe(154);
+    expect(s.cash_net).toBe(Math.round((6000 - 4252.02 - 211 + 0.07 + 154 - 100 + 5000) * 100) / 100);
+  });
+});

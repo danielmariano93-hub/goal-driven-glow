@@ -38,7 +38,7 @@ export type AdaptContext = {
 
 export type AdaptResult = {
   items: ImportItem[];
-  skipped: { pending: number; invalid: number; card_side: number };
+  skipped: { pending: number; invalid: number; card_side: number; auto_sweep: number };
 };
 
 const fold = (value: string) =>
@@ -55,9 +55,25 @@ const PATTERNS: Array<{ kind: MovementKind; match: RegExp }> = [
   { kind: "loan_proceeds", match: /credito\s*(de\s*)?(emprestimo|consignado)|emprestimo\s*(contratado|liberado)/ },
 ];
 
+// "Aplicação Automática" (varre-conta): o banco aplica a sobra e resgata sozinho quando falta saldo.
+// A API do Open Finance expõe as pontas (RES/APL APLIC AUT), mas o app e o extrato do cliente não;
+// são equivalentes de caixa, sem efeito no patrimônio, então não entram. O rendimento ("REND PAGO")
+// e os resgates/aplicações manuais continuam entrando.
+const AUTO_SWEEP = /\b(res|apl|resg|aplic)\.?\s*(de\s*)?aplic\.?\s*aut/;
+
 const YIELD = /rendimento|rend\.?\s*(pago|liq)|juros\s*(recebidos|s\/|sobre capital)|dividendo/;
 const REDEMPTION = /resgate|resg\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*resg/;
 const APPLICATION = /aplicacao|aplic\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*(compra|aplic)|invest.*aplic/;
+
+/** Destino é empresa/comércio? Usa o documento do favorecido (CNPJ), o estabelecimento ou o texto (QR, Pix Automático). */
+function isBusinessPayee(tx: PluggyTransaction, text: string): boolean {
+  const receiver = (tx.paymentData as any)?.receiver;
+  const docType = String(receiver?.documentNumber?.type ?? "").toUpperCase();
+  if (docType === "CNPJ") return true;
+  if (docType === "CPF") return false;
+  if (tx.merchant?.name || tx.merchant?.businessName) return true;
+  return /pix\s*(qr|automatico|por aproximacao)|qr\s*code|debito automatico|pagamento\s*(de\s*)?(conta|boleto)|\b(ltda|s\/a|eireli|mei)\b/.test(text);
+}
 
 function classify(
   tx: PluggyTransaction,
@@ -95,17 +111,18 @@ function classify(
   }
   const isTransfer = /\b(pix|ted|doc|transferencia|transf)\b/.test(text) || fold(tx.category ?? "").includes("transfer");
   if (isTransfer) {
-    // Entrada: transferência externa. Saída: continua sendo CONSUMO (como o Nino já tratava Pix a
-    // comércios e pessoas) até a pessoa dizer que o destino é conta própria; fica para conferir.
-    return type === "income"
-      ? { kind: "external_transfer_in", confident: false, issue: "transferencia_confirmar_destino" }
-      : { kind: "transaction", confident: false, issue: "pix_confirmar_destino" };
+    if (type === "income") return { kind: "external_transfer_in", confident: false, issue: "transferencia_confirmar_destino" };
+    // Saída: para empresa (CNPJ, QR de comércio, Pix Automático/débito) é gasto; para pessoa é
+    // transferência a terceiro "a classificar" (pode ser presente, rolê, aluguel…): a pessoa decide.
+    return isBusinessPayee(tx, text)
+      ? { kind: "transaction", confident: true, issue: null }
+      : { kind: "external_transfer_out", confident: false, issue: "pix_pessoa_a_classificar" };
   }
   return { kind: "transaction", confident: true, issue: null };
 }
 
 export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptContext): AdaptResult {
-  const skipped = { pending: 0, invalid: 0, card_side: 0 };
+  const skipped = { pending: 0, invalid: 0, card_side: 0, auto_sweep: 0 };
   const items: ImportItem[] = [];
 
   txs.forEach((tx) => {
@@ -123,6 +140,10 @@ export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptCont
       return;
     }
 
+    if (AUTO_SWEEP.test(fold(`${tx.description ?? ""} ${tx.descriptionRaw ?? ""}`))) {
+      skipped.auto_sweep++;
+      return;
+    }
     const type: "income" | "expense" = rawType === "CREDIT" ? "income" : "expense";
     const nature = classify(tx, type, ctx);
     // O pagamento da fatura aparece nos dois lados (saída da conta e entrada no cartão): só o

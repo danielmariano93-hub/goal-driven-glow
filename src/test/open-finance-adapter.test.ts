@@ -61,13 +61,21 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0].installments_total).toBeNull();
   });
 
-  it("Pix enviado continua sendo consumo (como o Nino já tratava), para conferir; Pix recebido é transferência externa", () => {
+  it("Pix: a empresa é gasto; a pessoa fica 'a classificar' (transferência a terceiro); recebido é transferência externa", () => {
     const out = adaptPluggyTransactions([
       tx({ id: "a", description: "Pix enviado Maria", amount: -80 }),
       tx({ id: "b", description: "Pix recebido Joao", amount: 80, type: "CREDIT" }),
+      tx({ id: "c", description: "Pix enviado Padaria", amount: -30, paymentData: { receiver: { documentNumber: { type: "CNPJ", value: "x" } } } }),
+      tx({ id: "d", description: "Pix enviado Thales", amount: -211, paymentData: { receiver: { documentNumber: { type: "CPF", value: "y" } } } }),
+      tx({ id: "e", description: "Pix QR Code Mercado", amount: -50 }),
+      tx({ id: "f", description: "Pix Automatico Ebanx", amount: -103.4 }),
     ], bank).items;
-    expect(out[0]).toMatchObject({ movement_kind: "transaction", type: "expense", confidence: 0.6, issues: ["pix_confirmar_destino"] });
+    expect(out[0]).toMatchObject({ movement_kind: "external_transfer_out", type: "expense", confidence: 0.6, issues: ["pix_pessoa_a_classificar"] });
     expect(out[1]).toMatchObject({ movement_kind: "external_transfer_in", issues: ["transferencia_confirmar_destino"] });
+    expect(out[2]).toMatchObject({ movement_kind: "transaction", issues: [] });
+    expect(out[3]).toMatchObject({ movement_kind: "external_transfer_out", issues: ["pix_pessoa_a_classificar"] });
+    expect(out[4]).toMatchObject({ movement_kind: "transaction", issues: [] });
+    expect(out[5]).toMatchObject({ movement_kind: "transaction", issues: [] });
   });
 
   it("investimentos", () => {
@@ -99,6 +107,19 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0]).toMatchObject({ movement_kind: "loan_proceeds", confidence: 0.6, issues: ["emprestimo_confirmar"] });
   });
 
+  it("aplicação automática (varre-conta) é ignorada; rendimento e resgate manual continuam", () => {
+    const r = adaptPluggyTransactions([
+      tx({ id: "a1", description: "RES APLIC AUT MAIS", amount: 557.17, type: "CREDIT" }),
+      tx({ id: "a2", description: "APL APLIC AUT MAIS", amount: -300, type: "DEBIT" }),
+      tx({ id: "y", description: "REND PAGO APLIC AUT MAIS", amount: 0.07, type: "CREDIT" }),
+      tx({ id: "m", description: "Resgate INT RESGATE ITUBERS", amount: 6000, type: "CREDIT" }),
+    ], bank);
+    expect(r.skipped.auto_sweep).toBe(2);
+    expect(r.items.map((i) => [i.external_id, i.movement_kind])).toEqual([
+      ["pluggy:y", "investment_yield"], ["pluggy:m", "investment_redemption"],
+    ]);
+  });
+
   it("pendentes não entram; inválidos são contados", () => {
     const r = adaptPluggyTransactions([
       tx({ id: "p", status: "PENDING" }),
@@ -109,7 +130,7 @@ describe("adaptador Pluggy → import_item.v2", () => {
       tx({ id: "ok" }),
     ], bank);
     expect(r.items).toHaveLength(1);
-    expect(r.skipped).toEqual({ pending: 1, invalid: 4, card_side: 0 });
+    expect(r.skipped).toEqual({ pending: 1, invalid: 4, card_side: 0, auto_sweep: 0 });
   });
 
   it("usa o nome do estabelecimento quando existe e preserva o texto bruto", () => {

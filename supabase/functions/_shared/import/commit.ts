@@ -6,6 +6,7 @@
 // `transaction_id` voltam como `skipped`.
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { summarizeReviewItems } from "../finance-core/bridges.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -22,6 +23,8 @@ export type ImportReport = {
   total_income: number;
   total_transfer: number;
   total_refund: number;
+  /** Pagamento de fatura, aplicações/resgates, Pix a terceiros, empréstimo: movem o saldo, não são gasto nem receita. */
+  total_other_movements?: number;
   transaction_ids: string[];
   ignored_item_ids: string[];
   error?: string | null;
@@ -77,6 +80,7 @@ export function formatReport(report: ImportReport, targetName: string): string {
   lines.push(`Despesas: ${BRL.format(report.total_expense)} · Receitas: ${BRL.format(report.total_income)}`);
   if (report.total_transfer > 0) lines.push(`Transferências: ${BRL.format(report.total_transfer)}`);
   if (report.total_refund > 0) lines.push(`Estornos: ${BRL.format(report.total_refund)}`);
+  if ((report.total_other_movements ?? 0) > 0) lines.push(`Outros movimentos (não são gasto nem receita): ${BRL.format(report.total_other_movements ?? 0)}`);
   return lines.join("\n");
 }
 
@@ -147,14 +151,11 @@ export async function confirmBatch(sb: SupabaseClient, args: {
     .eq("user_id", args.user_id)
     .eq("status", "confirmed");
 
-  let total_expense = 0, total_income = 0, total_transfer = 0, total_refund = 0;
-  for (const row of ((confirmedRows ?? []) as any[])) {
-    const amount = Number(row.amount ?? 0);
-    if (row.movement_kind === "internal_transfer") total_transfer += amount;
-    else if (row.movement_kind === "refund") total_refund += amount;
-    else if (row.type === "income") total_income += amount;
-    else total_expense += amount;
-  }
+  const review = summarizeReviewItems((confirmedRows ?? []) as any[]);
+  const total_expense = review.expense, total_income = review.income;
+  const total_transfer = review.internal_transfer, total_refund = review.refund;
+  const total_other_movements = Math.round((review.card_payment + review.external_transfer_in + review.external_transfer_out
+    + review.investment_application + review.investment_redemption + review.loan_proceeds + review.debt_payment) * 100) / 100;
 
   const { count: pending } = await sb.from("extracted_items")
     .select("id", { count: "exact", head: true })
@@ -171,7 +172,7 @@ export async function confirmBatch(sb: SupabaseClient, args: {
     probable_duplicates: counters.probable_duplicate ?? 0,
     pending_review: Number(pending ?? 0),
     invalid: counters.invalid ?? 0,
-    total_expense, total_income, total_transfer, total_refund,
+    total_expense, total_income, total_transfer, total_refund, total_other_movements,
     transaction_ids: created.map((row: any) => String(row.transaction_id)),
     ignored_item_ids: skipped.map((row: any) => String(row.item_id)),
     details: errors.length ? { errors } : null,

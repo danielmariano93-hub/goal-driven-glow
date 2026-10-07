@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAccounts, useCategories } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/engine/facts";
+import { summarizeReviewItems } from "@/lib/engine/bridges";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
@@ -287,6 +288,7 @@ export function ReviewSheet({
     ? invoiceSummary.net
     : selectedItems.reduce((sum, item) => sum + Number(item.amount), 0),
   [docKind, invoiceSummary.net, selectedItems]);
+  const reviewSummary = useMemo(() => summarizeReviewItems(selectedItems), [selectedItems]);
   const reconciliation = useMemo(() => invoiceReconciliation(
     documentInfo?.invoice_total,
     invoiceSummary.net,
@@ -881,7 +883,20 @@ export function ReviewSheet({
                   {bulkSaving ? "Aplicando…" : "Aplicar aos selecionados"}
                 </button>
                 <span className="text-muted-foreground">
-                  {selected.size} · <strong className="text-foreground">{formatBRL(total)}</strong>
+                  {docKind === "invoice" ? (
+                    <>{selected.size} · <strong className="text-foreground">{formatBRL(total)}</strong></>
+                  ) : (
+                    <>
+                      {selected.size} · gastos <strong className="text-foreground">{formatBRL(reviewSummary.expense)}</strong>
+                      {" · "}receitas <strong className="text-foreground">{formatBRL(reviewSummary.income)}</strong>
+                      {(() => {
+                        const other = reviewSummary.card_payment + reviewSummary.external_transfer_in + reviewSummary.external_transfer_out
+                          + reviewSummary.investment_application + reviewSummary.investment_redemption + reviewSummary.internal_transfer
+                          + reviewSummary.loan_proceeds + reviewSummary.debt_payment;
+                        return other > 0 ? <>{" · "}outros movimentos <strong className="text-foreground">{formatBRL(other)}</strong></> : null;
+                      })()}
+                    </>
+                  )}
                 </span>
               </div>
             </div>
