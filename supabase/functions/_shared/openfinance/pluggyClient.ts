@@ -1,6 +1,5 @@
-// Cliente mínimo do Pluggy (somente leitura). Isola a API externa:
-// trocar o endpoint de transações (o v1 está marcado como descontinuado pelo Pluggy,
-// remoção prevista para 31/12/2026) afeta apenas `listTransactions`.
+// Cliente mínimo do Pluggy (somente leitura). Isola a API externa.
+// Transações: `GET /v2/transactions` com cursor (o v1 responde HTTP 410).
 //
 // Segurança: segredos só do ambiente (PLUGGY_CLIENT_ID / PLUGGY_CLIENT_SECRET);
 // nunca logamos corpo de resposta, descrição, valor nem chave de API.
@@ -8,8 +7,6 @@ import type { PluggyTransaction } from "./pluggyAdapter.ts";
 
 const BASE_URL = "https://api.pluggy.ai";
 const TIMEOUT_MS = 20_000;
-const PAGE_SIZE = 500;
-const MAX_PAGES = 20;
 
 export type PluggyErrorCode = "not_configured" | "auth_failed" | "not_found" | "rate_limited" | "upstream_unavailable";
 
@@ -109,18 +106,33 @@ export async function listAccounts(apiKey: string, itemId: string): Promise<Plug
   })).filter((a) => a.id && a.id !== "undefined");
 }
 
-/** Todas as transações do período (paginado). `from`/`to` em yyyy-mm-dd. */
-export async function listTransactions(apiKey: string, accountId: string, from: string, to: string): Promise<PluggyTransaction[]> {
+const MAX_V2_PAGES = 40;
+
+/**
+ * Pagina `GET /v2/transactions` por cursor. O Pluggy devolve `next` como query string pronta
+ * ("?accountId=...&after=...") que se anexa ao caminho; `null` encerra. `fetchPage` é injetável
+ * para teste. Só aceita um `next` que comece com "?" (nunca uma URL completa de terceiros).
+ */
+export async function paginateTransactionsV2(
+  fetchPage: (path: string) => Promise<any>,
+  accountId: string, from: string, to: string,
+): Promise<PluggyTransaction[]> {
   const out: PluggyTransaction[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const q = `accountId=${encodeURIComponent(accountId)}&from=${from}&to=${to}&pageSize=${PAGE_SIZE}&page=${page}`;
-    const data = await call(`/transactions?${q}`, { apiKey });
+  let query = `?accountId=${encodeURIComponent(accountId)}&dateFrom=${from}&dateTo=${to}`;
+  for (let page = 0; page < MAX_V2_PAGES; page++) {
+    const data = await fetchPage(`/v2/transactions${query}`);
     const results: PluggyTransaction[] = Array.isArray(data?.results) ? data.results : [];
     out.push(...results);
-    const totalPages = Number(data?.totalPages ?? 1);
-    if (page >= totalPages || results.length === 0) break;
+    const next = typeof data?.next === "string" ? data.next : "";
+    if (!next.startsWith("?") || results.length === 0) break;
+    query = next;
   }
   return out;
+}
+
+/** Todas as transações do período. `from`/`to` em yyyy-mm-dd. (O endpoint v1 foi desativado: HTTP 410.) */
+export function listTransactions(apiKey: string, accountId: string, from: string, to: string): Promise<PluggyTransaction[]> {
+  return paginateTransactionsV2((path) => call(path, { apiKey }), accountId, from, to);
 }
 
 /**
