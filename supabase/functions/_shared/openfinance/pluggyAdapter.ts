@@ -38,7 +38,7 @@ export type AdaptContext = {
 
 export type AdaptResult = {
   items: ImportItem[];
-  skipped: { pending: number; invalid: number };
+  skipped: { pending: number; invalid: number; card_side: number };
 };
 
 const fold = (value: string) =>
@@ -52,11 +52,12 @@ const isoDay = (raw: unknown): string | null => {
 const PATTERNS: Array<{ kind: MovementKind; match: RegExp }> = [
   { kind: "card_payment", match: /(pagamento|pgto|pag\.?)\s*(de\s*)?(fatura|cartao)|fatura\s*(cartao|paga)|credit card payment/ },
   { kind: "refund", match: /estorno|reembolso|devolucao|chargeback|refund/ },
-  { kind: "investment_yield", match: /rendimento|rend\.?\s*(pago|liq)|juros\s*(recebidos|s\/|sobre capital)|dividendo/ },
-  { kind: "investment_application", match: /aplicacao|aplic\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*(compra|aplic)|invest.*aplic/ },
-  { kind: "investment_redemption", match: /resgate|resg\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*resg/ },
   { kind: "loan_proceeds", match: /credito\s*(de\s*)?(emprestimo|consignado)|emprestimo\s*(contratado|liberado)/ },
 ];
+
+const YIELD = /rendimento|rend\.?\s*(pago|liq)|juros\s*(recebidos|s\/|sobre capital)|dividendo/;
+const REDEMPTION = /resgate|resg\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*resg/;
+const APPLICATION = /aplicacao|aplic\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*(compra|aplic)|invest.*aplic/;
 
 function classify(
   tx: PluggyTransaction,
@@ -64,9 +65,25 @@ function classify(
   ctx: AdaptContext,
 ): { kind: MovementKind; confident: boolean; issue: string | null } {
   const text = fold(`${tx.description ?? ""} ${tx.descriptionRaw ?? ""} ${tx.category ?? ""}`);
+
+  // Investimento: a DIREÇÃO manda (aplicação é saída; resgate e rendimento são entrada).
+  // Resgate é testado antes de aplicação: "RESGATE APLICACAO AUTOMATICA" é entrada.
+  if (YIELD.test(text) && type === "income") return { kind: "investment_yield", confident: true, issue: null };
+  if (REDEMPTION.test(text)) {
+    return type === "income"
+      ? { kind: "investment_redemption", confident: true, issue: null }
+      : { kind: "transaction", confident: false, issue: "resgate_com_direcao_de_saida" };
+  }
+  if (APPLICATION.test(text)) {
+    return type === "expense"
+      ? { kind: "investment_application", confident: true, issue: null }
+      : { kind: "investment_redemption", confident: false, issue: "aplicacao_com_direcao_de_entrada" };
+  }
+
   const hit = PATTERNS.find((p) => p.match.test(text));
   if (hit) {
-    // No cartão, "pagamento" é a fatura sendo quitada (crédito no cartão): não é consumo.
+    // Empréstimo é entrada que não é renda: nunca confiar só no texto.
+    if (hit.kind === "loan_proceeds") return { kind: hit.kind, confident: false, issue: "emprestimo_confirmar" };
     return { kind: hit.kind, confident: true, issue: null };
   }
   if (ctx.accountType === "CREDIT" && type === "income" && /pagamento|pgto|pag\.? efetuado|payment/.test(text)) {
@@ -78,18 +95,17 @@ function classify(
   }
   const isTransfer = /\b(pix|ted|doc|transferencia|transf)\b/.test(text) || fold(tx.category ?? "").includes("transfer");
   if (isTransfer) {
-    // Sem como saber se o destino é conta própria: externa por padrão, mas marcada para revisão.
-    return {
-      kind: type === "income" ? "external_transfer_in" : "external_transfer_out",
-      confident: false,
-      issue: "transferencia_confirmar_destino",
-    };
+    // Entrada: transferência externa. Saída: continua sendo CONSUMO (como o Nino já tratava Pix a
+    // comércios e pessoas) até a pessoa dizer que o destino é conta própria; fica para conferir.
+    return type === "income"
+      ? { kind: "external_transfer_in", confident: false, issue: "transferencia_confirmar_destino" }
+      : { kind: "transaction", confident: false, issue: "pix_confirmar_destino" };
   }
   return { kind: "transaction", confident: true, issue: null };
 }
 
 export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptContext): AdaptResult {
-  const skipped = { pending: 0, invalid: 0 };
+  const skipped = { pending: 0, invalid: 0, card_side: 0 };
   const items: ImportItem[] = [];
 
   txs.forEach((tx) => {
@@ -109,6 +125,12 @@ export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptCont
 
     const type: "income" | "expense" = rawType === "CREDIT" ? "income" : "expense";
     const nature = classify(tx, type, ctx);
+    // O pagamento da fatura aparece nos dois lados (saída da conta e entrada no cartão): só o
+    // lado da conta entra, senão o pagamento seria contado em dobro.
+    if (ctx.accountType === "CREDIT" && nature.kind === "card_payment" && type === "income") {
+      skipped.card_side++;
+      return;
+    }
     const meta = tx.creditCardMetadata ?? null;
     const total = Number(meta?.totalInstallments ?? 0);
     const number = Number(meta?.installmentNumber ?? 0);

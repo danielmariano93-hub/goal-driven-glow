@@ -34,9 +34,10 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0].movement_kind).toBe("card_payment");
   });
 
-  it("no cartão, o crédito de pagamento também é pagamento de fatura", () => {
-    const { items } = adaptPluggyTransactions([tx({ id: "p", description: "Pagamento recebido", amount: 1800, type: "CREDIT" })], card);
-    expect(items[0].movement_kind).toBe("card_payment");
+  it("no cartão, o crédito de pagamento NÃO entra (o lado da conta já conta o pagamento)", () => {
+    const r = adaptPluggyTransactions([tx({ id: "p", description: "Pagamento recebido", amount: 1800, type: "CREDIT" })], card);
+    expect(r.items).toHaveLength(0);
+    expect(r.skipped.card_side).toBe(1);
   });
 
   it("no cartão, crédito sem natureza conhecida vai para revisão", () => {
@@ -60,13 +61,13 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0].installments_total).toBeNull();
   });
 
-  it("Pix e transferências: confiança baixa, destino a confirmar", () => {
+  it("Pix enviado continua sendo consumo (como o Nino já tratava), para conferir; Pix recebido é transferência externa", () => {
     const out = adaptPluggyTransactions([
       tx({ id: "a", description: "Pix enviado Maria", amount: -80 }),
       tx({ id: "b", description: "Pix recebido Joao", amount: 80, type: "CREDIT" }),
     ], bank).items;
-    expect(out[0]).toMatchObject({ movement_kind: "external_transfer_out", confidence: 0.6, issues: ["transferencia_confirmar_destino"] });
-    expect(out[1].movement_kind).toBe("external_transfer_in");
+    expect(out[0]).toMatchObject({ movement_kind: "transaction", type: "expense", confidence: 0.6, issues: ["pix_confirmar_destino"] });
+    expect(out[1]).toMatchObject({ movement_kind: "external_transfer_in", issues: ["transferencia_confirmar_destino"] });
   });
 
   it("investimentos", () => {
@@ -76,6 +77,26 @@ describe("adaptador Pluggy → import_item.v2", () => {
       tx({ id: "i3", description: "Rendimento poupanca", amount: 12, type: "CREDIT" }),
     ], bank).items;
     expect(out.map((i) => i.movement_kind)).toEqual(["investment_application", "investment_redemption", "investment_yield"]);
+  });
+
+  it("investimento: a direção manda — 'RESGATE APLICACAO AUTOMATICA' (entrada) é resgate, nunca aplicação", () => {
+    const out = adaptPluggyTransactions([
+      tx({ id: "r1", description: "RESGATE APLICACAO AUTOMATICA", amount: 500, type: "CREDIT" }),
+      tx({ id: "r2", description: "APLICACAO AUTOMATICA", amount: -500 }),
+      tx({ id: "r3", description: "APLIC CDB", amount: 300, type: "CREDIT" }),
+    ], bank).items;
+    expect(out[0]).toMatchObject({ movement_kind: "investment_redemption", type: "income", confidence: 0.9 });
+    expect(out[1]).toMatchObject({ movement_kind: "investment_application", type: "expense" });
+    expect(out[2]).toMatchObject({ movement_kind: "investment_redemption", confidence: 0.6, issues: ["aplicacao_com_direcao_de_entrada"] });
+    // nenhuma "aplicação" de entrada, nenhum "resgate" de saída
+    for (const i of out) {
+      if (i.movement_kind === "investment_application") expect(i.type).toBe("expense");
+    }
+  });
+
+  it("empréstimo nunca é confiável só pelo texto", () => {
+    const { items } = adaptPluggyTransactions([tx({ id: "l", description: "Credito de emprestimo", amount: 3111.98, type: "CREDIT" })], bank);
+    expect(items[0]).toMatchObject({ movement_kind: "loan_proceeds", confidence: 0.6, issues: ["emprestimo_confirmar"] });
   });
 
   it("pendentes não entram; inválidos são contados", () => {
@@ -88,7 +109,7 @@ describe("adaptador Pluggy → import_item.v2", () => {
       tx({ id: "ok" }),
     ], bank);
     expect(r.items).toHaveLength(1);
-    expect(r.skipped).toEqual({ pending: 1, invalid: 4 });
+    expect(r.skipped).toEqual({ pending: 1, invalid: 4, card_side: 0 });
   });
 
   it("usa o nome do estabelecimento quando existe e preserva o texto bruto", () => {
