@@ -17,7 +17,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { adaptPluggyTransactions, maskedAccountName } from "../_shared/openfinance/pluggyAdapter.ts";
 import {
-  createConnectToken, getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, PluggyError,
+  createConnectToken, getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, pluggyMissingSecrets, PluggyError,
 } from "../_shared/openfinance/pluggyClient.ts";
 import { previewBatch, stageBatch, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
