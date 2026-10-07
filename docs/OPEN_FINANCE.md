@@ -31,6 +31,6 @@ Conta nova do Pluggy é "de teste": só conecta o conector Sandbox (Pluggy Bank)
 Para outros usuários (uso comercial) é preciso "Liberar dados reais" no plano pago (vendas + due diligence).
 
 ## Limites e riscos conhecidos
-- `GET /transactions` (v1) está marcado como descontinuado pelo Pluggy (remoção prevista 31/12/2026). Trocar por `/v2/transactions` afeta só `listTransactions` em `pluggyClient.ts`.
+- O endpoint v1 `GET /transactions` foi desativado pelo Pluggy (HTTP 410); usamos `GET /v2/transactions` com cursor (`paginateTransactionsV2` em `pluggyClient.ts`).
 - O Meu Pluggy é de uso pessoal; para outros usuários é preciso o plano comercial do Pluggy.
 - Desconectar apenas pausa a conexão (preserva histórico); excluir a conta apaga tudo em cascata.

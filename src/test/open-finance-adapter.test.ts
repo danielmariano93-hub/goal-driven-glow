@@ -111,3 +111,39 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(src).not.toMatch(/console\.(log|error|warn)/);
   });
 });
+
+import { paginateTransactionsV2 } from "../../supabase/functions/_shared/openfinance/pluggyClient";
+
+describe("Pluggy /v2/transactions — paginação por cursor", () => {
+  it("segue `next` até null e junta as páginas, com o período no primeiro pedido", async () => {
+    const calls: string[] = [];
+    const pages: Record<string, unknown> = {
+      first: { results: [{ id: "1" }, { id: "2" }], next: "?accountId=acc&after=C1" },
+      second: { results: [{ id: "3" }], next: null },
+    };
+    const out = await paginateTransactionsV2(async (path) => {
+      calls.push(path);
+      return calls.length === 1 ? pages.first : pages.second;
+    }, "acc", "2026-07-01", "2026-10-07");
+    expect(out.map((t) => t.id)).toEqual(["1", "2", "3"]);
+    expect(calls[0]).toBe("/v2/transactions?accountId=acc&dateFrom=2026-07-01&dateTo=2026-10-07");
+    expect(calls[1]).toBe("/v2/transactions?accountId=acc&after=C1");
+  });
+
+  it("ignora `next` que não seja uma query string (nunca segue URL externa)", async () => {
+    let n = 0;
+    const out = await paginateTransactionsV2(async () => {
+      n++;
+      return { results: [{ id: String(n) }], next: "https://evil.example/steal" };
+    }, "acc", "2026-07-01", "2026-10-07");
+    expect(n).toBe(1);
+    expect(out).toHaveLength(1);
+  });
+
+  it("para em página vazia (evita laço) e tolera resposta sem results", async () => {
+    let n = 0;
+    expect(await paginateTransactionsV2(async () => { n++; return { results: [], next: "?x=1" }; }, "a", "2026-01-01", "2026-02-01")).toEqual([]);
+    expect(n).toBe(1);
+    expect(await paginateTransactionsV2(async () => ({}), "a", "2026-01-01", "2026-02-01")).toEqual([]);
+  });
+});
