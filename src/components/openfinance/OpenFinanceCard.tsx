@@ -57,7 +57,10 @@ function OpenFinanceBody() {
 
       {status.isLoading ? <Loader2 className="mt-3 h-4 w-4 animate-spin" /> : null}
       {status.data && !status.data.configured ? (
-        <p className="mt-3 rounded-xl bg-muted p-3 text-xs">Aguardando as credenciais do Pluggy neste ambiente. Você já pode cadastrar a conexão.</p>
+        <p className="mt-3 rounded-xl bg-muted p-3 text-xs">
+          Aguardando as credenciais do Pluggy neste ambiente.
+          {status.data.missing_secrets?.length ? ` Faltam em Edge Functions → Secrets: ${status.data.missing_secrets.join(", ")}.` : ""}
+        </p>
       ) : null}
 
       {connections.map((c) => (

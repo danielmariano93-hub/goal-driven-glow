@@ -55,7 +55,7 @@ export function useOpenFinanceStatus(enabled: boolean) {
   return useQuery({
     queryKey: ["open_finance_status", user?.id],
     enabled: !!user && enabled,
-    queryFn: () => invoke<{ configured: boolean; connections: BankConnection[]; links: BankLink[] }>({ action: "status" }),
+    queryFn: () => invoke<{ configured: boolean; missing_secrets?: string[]; connections: BankConnection[]; links: BankLink[] }>({ action: "status" }),
   });
 }
 

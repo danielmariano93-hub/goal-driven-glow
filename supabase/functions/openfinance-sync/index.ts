@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
     const { data: links } = await sb.from("bank_account_links")
       .select("id,connection_id,external_account_id,external_type,external_name,account_id,credit_card_id")
       .eq("user_id", userId);
-    return h.ok({ configured, connections: connections ?? [], links: links ?? [] });
+    return h.ok({ configured, missing_secrets: pluggyMissingSecrets(), connections: connections ?? [], links: links ?? [] });
   }
 
   if (!["connect_token", "discover", "preview", "stage"].includes(action)) return h.fail("invalid_action", 400);

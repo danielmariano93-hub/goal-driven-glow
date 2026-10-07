@@ -33,6 +33,11 @@ export function pluggyConfigured(env: { get(key: string): string | undefined } =
   return Boolean(env.get("PLUGGY_CLIENT_ID") && env.get("PLUGGY_CLIENT_SECRET"));
 }
 
+/** Quais segredos faltam (só os NOMES, nunca os valores). */
+export function pluggyMissingSecrets(env: { get(key: string): string | undefined } = Deno.env): string[] {
+  return ["PLUGGY_CLIENT_ID", "PLUGGY_CLIENT_SECRET"].filter((name) => !String(env.get(name) ?? "").trim());
+}
+
 async function call(path: string, init: RequestInit & { apiKey?: string } = {}): Promise<any> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
