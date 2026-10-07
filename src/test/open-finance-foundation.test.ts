@@ -122,3 +122,14 @@ describe("Open Finance — uso pessoal gratuito (MeuPluggy)", () => {
     expect(read("supabase/functions/openfinance-sync/index.ts")).toMatch(/getItem\(apiKey[\s\S]*?\)\.catch\(/);
   });
 });
+
+describe("Open Finance — diagnóstico de erro do Pluggy", () => {
+  it("o status e a mensagem técnica do Pluggy viram parte do erro e do registro da execução", () => {
+    const client = read("supabase/functions/_shared/openfinance/pluggyClient.ts");
+    const fn = read("supabase/functions/openfinance-sync/index.ts");
+    expect(client).toContain("upstreamDetail");
+    expect(client).toMatch(/\.slice\(0, 160\)/);
+    expect(fn).toContain("technical");
+    expect(fn).toMatch(/error: technical \? `\$\{code\} \(\$\{technical\}\)` : code/);
+  });
+});

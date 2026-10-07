@@ -101,14 +101,19 @@ Deno.serve(async (req) => {
 
   const failWith = async (error: unknown, runId: string | null) => {
     const code = error instanceof PluggyError ? error.code : "internal";
+    const technical = error instanceof PluggyError && (error.status || error.detail)
+      ? `${error.status ?? "sem status"}${error.detail ? `: ${error.detail}` : ""}` : "";
     await sb.from("bank_connections").update({
       last_error: code, status: code === "auth_failed" ? "error" : (connection as any).status, updated_at: new Date().toISOString(),
     }).eq("id", (connection as any).id);
     if (runId) {
-      await sb.from("bank_sync_runs").update({ status: "error", finished_at: new Date().toISOString(), error: code }).eq("id", runId);
+      await sb.from("bank_sync_runs").update({
+        status: "error", finished_at: new Date().toISOString(), error: technical ? `${code} (${technical})` : code,
+      }).eq("id", runId);
     }
     const status = code === "not_found" ? 404 : code === "rate_limited" ? 429 : code === "internal" ? 500 : 502;
-    return h.fail(code, status, MESSAGES[code] ? { message: MESSAGES[code] } : {});
+    const base = MESSAGES[code] ?? "";
+    return h.fail(code, status, base ? { message: technical ? `${base} (Pluggy ${technical})` : base } : {});
   };
 
   // ---- discover ----
