@@ -102,3 +102,16 @@ export async function listTransactions(apiKey: string, accountId: string, from: 
   }
   return out;
 }
+
+/**
+ * Token de curta duração (≈30 min) para abrir o widget Pluggy Connect no app.
+ * `clientUserId` liga a conexão ao usuário do Nino; `itemId` reabre uma conexão existente.
+ */
+export async function createConnectToken(apiKey: string, opts: { clientUserId: string; itemId?: string }): Promise<string> {
+  const body: Record<string, unknown> = { options: { clientUserId: opts.clientUserId } };
+  if (opts.itemId) body.itemId = opts.itemId;
+  const data = await call("/connect_token", { method: "POST", apiKey, body: JSON.stringify(body) });
+  const token = String(data?.accessToken ?? data?.connectToken ?? "");
+  if (!token) throw new PluggyError("auth_failed");
+  return token;
+}

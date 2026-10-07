@@ -87,6 +87,10 @@ export function useOpenFinanceActions() {
       },
       onSuccess: refresh,
     }),
+    connectToken: useMutation({
+      mutationFn: async (connectionId?: string) =>
+        (await invoke<{ connect_token: string }>({ action: "connect_token", connection_id: connectionId })).connect_token,
+    }),
     discover: useMutation({
       mutationFn: (connectionId: string) => invoke<{ accounts: Array<{ id: string; name: string }> }>({ action: "discover", connection_id: connectionId }),
       onSuccess: refresh,

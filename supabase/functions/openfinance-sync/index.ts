@@ -6,6 +6,7 @@
 //
 // Ações (POST { action, connection_id?, days? }):
 //   status   → está configurado? o usuário tem acesso? conexões e vínculos.
+//   connect_token → token de 30 min para abrir o widget Pluggy Connect (cria a conexão).
 //   discover → lê as contas da conexão no Pluggy e cria os vínculos (ainda sem destino).
 //   preview  → baixa transações das contas vinculadas e devolve contagens/linhas. Sem efeitos.
 //   stage    → igual ao preview, mas grava o lote para revisão (nada vira lançamento).
@@ -16,7 +17,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { adaptPluggyTransactions, maskedAccountName } from "../_shared/openfinance/pluggyAdapter.ts";
 import {
-  getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, PluggyError,
+  createConnectToken, getItem, listAccounts, listTransactions, pluggyAuth, pluggyConfigured, PluggyError,
 } from "../_shared/openfinance/pluggyClient.ts";
 import { previewBatch, stageBatch, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
@@ -78,8 +79,21 @@ Deno.serve(async (req) => {
     return h.ok({ configured, connections: connections ?? [], links: links ?? [] });
   }
 
-  if (!["discover", "preview", "stage"].includes(action)) return h.fail("invalid_action", 400);
+  if (!["connect_token", "discover", "preview", "stage"].includes(action)) return h.fail("invalid_action", 400);
   if (!configured) return h.fail("not_configured", 412, { message: MESSAGES.not_configured });
+
+  // Token do widget Pluggy Connect: não precisa de conexão prévia (é assim que ela nasce).
+  if (action === "connect_token") {
+    try {
+      const apiKey = await pluggyAuth();
+      const own = (connections ?? []).find((c: any) => c.id === body.connection_id);
+      const connectToken = await createConnectToken(apiKey, { clientUserId: userId, itemId: own ? (own as any).item_id : undefined });
+      return h.ok({ connect_token: connectToken });
+    } catch (error) {
+      const code = error instanceof PluggyError ? error.code : "internal";
+      return h.fail(code, code === "internal" ? 500 : 502, MESSAGES[code] ? { message: MESSAGES[code] } : {});
+    }
+  }
 
   const connection = (connections ?? []).find((c: any) => c.id === body.connection_id && c.status !== "paused");
   if (!connection) return h.fail("not_found", 404);

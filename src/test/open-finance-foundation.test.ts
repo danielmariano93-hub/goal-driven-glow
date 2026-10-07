@@ -59,3 +59,29 @@ describe("Open Finance — fundação", () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe("Open Finance — conexão pelo widget", () => {
+  const fn = read("supabase/functions/openfinance-sync/index.ts");
+  const client = read("supabase/functions/_shared/openfinance/pluggyClient.ts");
+  const card = read("src/components/openfinance/OpenFinanceCard.tsx");
+
+  it("o token do widget é gerado no servidor, depois do acesso beta, e amarrado ao usuário", () => {
+    expect(client).toContain('"/connect_token"');
+    expect(client).toContain("clientUserId");
+    expect(fn).toContain('action === "connect_token"');
+    expect(fn.indexOf('rpc("open_finance_enabled")')).toBeLessThan(fn.indexOf('action === "connect_token"'));
+    expect(fn).toContain("clientUserId: userId");
+  });
+
+  it("o segredo do Pluggy nunca vai para o navegador; só o token curto", () => {
+    expect(card).not.toMatch(/PLUGGY_CLIENT_SECRET|clientSecret/);
+    expect(read("src/lib/openfinance/useOpenFinance.ts")).not.toMatch(/PLUGGY_CLIENT_SECRET|clientSecret/);
+  });
+
+  it("o widget é carregado sob demanda e o itemId vem do retorno dele", () => {
+    expect(card).toContain('import("react-pluggy-connect")');
+    expect(card).toContain("onSuccess");
+    expect(card).toContain("item.id");
+    expect(card).toContain("includeSandbox={false}");
+  });
+});
