@@ -38,7 +38,7 @@ export type AdaptContext = {
 
 export type AdaptResult = {
   items: ImportItem[];
-  skipped: { pending: number; invalid: number; card_side: number };
+  skipped: { pending: number; invalid: number; card_side: number; auto_sweep: number };
 };
 
 const fold = (value: string) =>
@@ -54,6 +54,12 @@ const PATTERNS: Array<{ kind: MovementKind; match: RegExp }> = [
   { kind: "refund", match: /estorno|reembolso|devolucao|chargeback|refund/ },
   { kind: "loan_proceeds", match: /credito\s*(de\s*)?(emprestimo|consignado)|emprestimo\s*(contratado|liberado)/ },
 ];
+
+// "Aplicação Automática" (varre-conta): o banco aplica a sobra e resgata sozinho quando falta saldo.
+// A API do Open Finance expõe as pontas (RES/APL APLIC AUT), mas o app e o extrato do cliente não;
+// são equivalentes de caixa, sem efeito no patrimônio, então não entram. O rendimento ("REND PAGO")
+// e os resgates/aplicações manuais continuam entrando.
+const AUTO_SWEEP = /\b(res|apl|resg|aplic)\.?\s*(de\s*)?aplic\.?\s*aut/;
 
 const YIELD = /rendimento|rend\.?\s*(pago|liq)|juros\s*(recebidos|s\/|sobre capital)|dividendo/;
 const REDEMPTION = /resgate|resg\.?\s|\b(cdb|rdb|lci|lca|tesouro)\b.*resg/;
@@ -105,7 +111,7 @@ function classify(
 }
 
 export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptContext): AdaptResult {
-  const skipped = { pending: 0, invalid: 0, card_side: 0 };
+  const skipped = { pending: 0, invalid: 0, card_side: 0, auto_sweep: 0 };
   const items: ImportItem[] = [];
 
   txs.forEach((tx) => {
@@ -123,6 +129,10 @@ export function adaptPluggyTransactions(txs: PluggyTransaction[], ctx: AdaptCont
       return;
     }
 
+    if (AUTO_SWEEP.test(fold(`${tx.description ?? ""} ${tx.descriptionRaw ?? ""}`))) {
+      skipped.auto_sweep++;
+      return;
+    }
     const type: "income" | "expense" = rawType === "CREDIT" ? "income" : "expense";
     const nature = classify(tx, type, ctx);
     // O pagamento da fatura aparece nos dois lados (saída da conta e entrada no cartão): só o

@@ -99,6 +99,19 @@ describe("adaptador Pluggy → import_item.v2", () => {
     expect(items[0]).toMatchObject({ movement_kind: "loan_proceeds", confidence: 0.6, issues: ["emprestimo_confirmar"] });
   });
 
+  it("aplicação automática (varre-conta) é ignorada; rendimento e resgate manual continuam", () => {
+    const r = adaptPluggyTransactions([
+      tx({ id: "a1", description: "RES APLIC AUT MAIS", amount: 557.17, type: "CREDIT" }),
+      tx({ id: "a2", description: "APL APLIC AUT MAIS", amount: -300, type: "DEBIT" }),
+      tx({ id: "y", description: "REND PAGO APLIC AUT MAIS", amount: 0.07, type: "CREDIT" }),
+      tx({ id: "m", description: "Resgate INT RESGATE ITUBERS", amount: 6000, type: "CREDIT" }),
+    ], bank);
+    expect(r.skipped.auto_sweep).toBe(2);
+    expect(r.items.map((i) => [i.external_id, i.movement_kind])).toEqual([
+      ["pluggy:y", "investment_yield"], ["pluggy:m", "investment_redemption"],
+    ]);
+  });
+
   it("pendentes não entram; inválidos são contados", () => {
     const r = adaptPluggyTransactions([
       tx({ id: "p", status: "PENDING" }),
@@ -109,7 +122,7 @@ describe("adaptador Pluggy → import_item.v2", () => {
       tx({ id: "ok" }),
     ], bank);
     expect(r.items).toHaveLength(1);
-    expect(r.skipped).toEqual({ pending: 1, invalid: 4, card_side: 0 });
+    expect(r.skipped).toEqual({ pending: 1, invalid: 4, card_side: 0, auto_sweep: 0 });
   });
 
   it("usa o nome do estabelecimento quando existe e preserva o texto bruto", () => {
