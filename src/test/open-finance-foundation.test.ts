@@ -158,3 +158,12 @@ describe("Open Finance — resumo agregado da prévia", () => {
     expect(nino[0]).toMatchObject({ month: "2026-09", origin: "agent", kind: "transaction", n: 1, total: 12 });
   });
 });
+
+describe("conferência de saldo (balance)", () => {
+  const src = readFileSync("supabase/functions/openfinance-sync/index.ts", "utf8");
+  it("existe, é somente leitura e usa o cálculo canônico de saldo", () => {
+    const block = src.slice(src.indexOf('action === "balance"'), src.indexOf("// ---- preview | stage | reconcile ----"));
+    expect(block).toContain("computeAccountBalances");
+    expect(block).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+  });
+});
