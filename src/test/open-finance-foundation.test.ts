@@ -10,7 +10,8 @@ describe("Open Finance — fundação", () => {
   const sql = read("supabase/migrations/20261007100000_open_finance_foundation.sql");
 
   it("exige JWT real e acesso beta antes de qualquer coisa", () => {
-    expect(fn).toContain("auth.getClaims");
+    expect(fn).toContain("auth.getUser(");
+    expect(fn).not.toContain("getClaims(");
     expect(fn).toContain('rpc("open_finance_enabled")');
     expect(fn.indexOf("open_finance_enabled")).toBeLessThan(fn.indexOf("pluggyAuth()"));
   });
@@ -83,5 +84,13 @@ describe("Open Finance — conexão pelo widget", () => {
     expect(card).toContain("onSuccess");
     expect(card).toContain("item.id");
     expect(card).toContain("includeSandbox={false}");
+  });
+});
+
+describe("autenticação das Edge Functions de usuário", () => {
+  it("nenhuma função usa auth.getClaims (não existe no supabase-js 2.45.4 e derruba com 500)", () => {
+    for (const f of ["openfinance-sync", "user-data-export"]) {
+      expect(read(`supabase/functions/${f}/index.ts`), f).not.toContain("getClaims(");
+    }
   });
 });

@@ -56,9 +56,10 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "",
     { global: { headers: { Authorization: authHeader } } },
   );
-  const { data: claims, error: claimsError } = await userClient.auth.getClaims(authHeader.slice(7));
-  const userId = String(claims?.claims?.sub ?? "");
-  if (claimsError || !userId) return h.fail("unauthorized", 401);
+  // getUser valida a assinatura e a expiração no servidor de autenticação.
+  const { data: userRes, error: userError } = await userClient.auth.getUser(authHeader.slice(7));
+  const userId = String(userRes?.user?.id ?? "");
+  if (userError || !userId) return h.fail("unauthorized", 401);
 
   const { data: enabled } = await userClient.rpc("open_finance_enabled");
   if (enabled !== true) return h.fail("forbidden", 403);
