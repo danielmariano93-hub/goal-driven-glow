@@ -9,6 +9,7 @@
 //   connect_token → token de 30 min para abrir o widget Pluggy Connect (cria a conexão).
 //   discover → lê as contas da conexão no Pluggy e cria os vínculos (ainda sem destino).
 //   preview  → baixa transações das contas vinculadas e devolve contagens/linhas. Sem efeitos.
+//   balance  → compara o saldo de cada conta no banco com o saldo calculado no Nino. Não grava nada.
 //   reconcile → conciliação do MÊS ATUAL em modo relatório (provisório x banco). Não grava nada.
 //   stage    → igual ao preview, mas grava o lote para revisão (nada vira lançamento).
 //
@@ -27,6 +28,7 @@ import { classifyBatch } from "../_shared/import/dedupe.ts";
 import { previewBatch, stageBatch, type PreviewRow, type StageCounters } from "../_shared/import/stage.ts";
 import type { ImportItem } from "../_shared/import/schema.ts";
 import { today as ninoToday } from "../_shared/finance-core/ninoClock.ts";
+import { computeAccountBalances } from "../_shared/finance-core/facts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -145,6 +147,45 @@ Deno.serve(async (req) => {
         item: { status: item.status, last_updated_at: item.lastUpdatedAt, connector: item.connectorName },
         accounts: accounts.map((a) => ({ id: a.id, type: a.type, name: maskedAccountName(a.name, a.number) })),
       });
+    } catch (error) {
+      return await failWith(error, null);
+    }
+  }
+
+  // ---- balance (prova de integridade: saldo do banco x saldo do Nino) ----
+  if (action === "balance") {
+    try {
+      const apiKey = await pluggyAuth();
+      const accounts = await listAccounts(apiKey, (connection as any).item_id);
+      const { data: links } = await sb.from("bank_account_links")
+        .select("external_account_id,external_type,external_name,account_id")
+        .eq("connection_id", (connection as any).id).eq("user_id", userId);
+      const mapped = ((links ?? []) as any[]).filter((l) => l.account_id && l.external_type === "BANK");
+      if (mapped.length === 0) return h.fail("no_mapped_accounts", 409, { message: MESSAGES.no_mapped_accounts });
+      const ids = [...new Set(mapped.map((l) => String(l.account_id)))];
+      const [{ data: ninoAccounts }, { data: snapshots }, txs] = await Promise.all([
+        sb.from("accounts").select("*").eq("user_id", userId).in("id", ids),
+        sb.from("account_balance_snapshots").select("*").eq("user_id", userId).in("account_id", ids),
+        fetchAllPages<any>((a, b) => sb.from("transactions").select("*")
+          .eq("user_id", userId).in("account_id", ids).neq("status", "superseded")
+          .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b)),
+      ]);
+      const ninoBalances = computeAccountBalances((ninoAccounts ?? []) as any[], txs as any[], (snapshots ?? []) as any[]);
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const rows = mapped.map((l) => {
+        const bank = accounts.find((a) => a.id === l.external_account_id);
+        const nino = ninoBalances[String(l.account_id)] ?? null;
+        const bankBalance = bank?.balance ?? null;
+        return {
+          name: String(l.external_name ?? "conta"),
+          bank_balance: bankBalance,
+          nino_balance: nino,
+          difference: bankBalance != null && nino != null ? round2(nino - bankBalance) : null,
+          // mais de uma conta do banco aponta para a mesma conta do Nino: o saldo do Nino é um só.
+          shared_target: mapped.filter((m) => m.account_id === l.account_id).length > 1,
+        };
+      });
+      return h.ok({ balances: rows, as_of: ninoToday() });
     } catch (error) {
       return await failWith(error, null);
     }

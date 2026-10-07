@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useAccounts } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import {
-  useOpenFinanceActions, useOpenFinanceEnabled, useOpenFinanceStatus, type BankConnection, type BankLink, type ReconcileReport, type SyncResult,
+  useOpenFinanceActions, useOpenFinanceEnabled, useOpenFinanceStatus, type BankConnection, type BankLink, type BalanceReport, type ReconcileReport, type SyncResult,
 } from "@/lib/openfinance/useOpenFinance";
 
 // O widget só é baixado quando a pessoa toca em "Conectar banco".
@@ -34,6 +34,7 @@ function OpenFinanceBody() {
   const [label, setLabel] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [recon, setRecon] = useState<ReconcileReport | null>(null);
+  const [bal, setBal] = useState<BalanceReport | null>(null);
   const [connectToken, setConnectToken] = useState<string | null>(null);
   const [trail, setTrail] = useState<string[]>([]);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -79,7 +80,7 @@ function OpenFinanceBody() {
           accounts={(accounts.data ?? []).map((a) => ({ id: a.id, name: a.name }))}
           cards={(cards.data ?? []).map((k) => ({ id: k.id, name: k.name }))}
           configured={!!status.data?.configured}
-          act={act} onResult={setResult} onRecon={setRecon} fail={fail}
+          act={act} onResult={setResult} onRecon={setRecon} onBalance={setBal} fail={fail}
         />
       ))}
 
@@ -140,6 +141,7 @@ function OpenFinanceBody() {
       </form>
       </details>
 
+      {bal ? <BalanceView report={bal} /> : null}
       {recon ? <ReconcileView report={recon} /> : null}
       {result ? <ResultView result={result} /> : null}
     </section>
@@ -150,16 +152,16 @@ function ConnectionBlock(props: {
   connection: BankConnection; links: BankLink[];
   accounts: Array<{ id: string; name: string }>; cards: Array<{ id: string; name: string }>;
   configured: boolean; act: ReturnType<typeof useOpenFinanceActions>;
-  onResult: (r: SyncResult) => void; onRecon: (r: ReconcileReport) => void; fail: (e: unknown) => void;
+  onResult: (r: SyncResult) => void; onRecon: (r: ReconcileReport) => void; onBalance: (r: BalanceReport) => void; fail: (e: unknown) => void;
 }) {
-  const { connection: c, links, accounts, cards, configured, act, onResult, onRecon, fail } = props;
+  const { connection: c, links, accounts, cards, configured, act, onResult, onRecon, onBalance, fail } = props;
   const mapped = links.some((l) => l.account_id || l.credit_card_id);
   const run = (mode: "preview" | "stage") =>
     act.run.mutate({ connectionId: c.id, mode }, {
       onSuccess: (r) => { onResult(r); if (mode === "stage") toast.success("Enviado para revisão no Assessor."); },
       onError: fail,
     });
-  const busy = act.run.isPending || act.discover.isPending || act.reconcile.isPending;
+  const busy = act.run.isPending || act.discover.isPending || act.reconcile.isPending || act.balance.isPending;
 
   return (
     <div className="mt-4 rounded-xl border p-3">
@@ -200,6 +202,7 @@ function ConnectionBlock(props: {
       <div className="mt-3 flex flex-wrap gap-2">
         <button disabled={!configured || busy} onClick={() => act.discover.mutate(c.id, { onSuccess: (r) => toast.success(`${r.accounts.length} conta(s) encontrada(s).`), onError: fail })} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Ler contas do banco</button>
         <button disabled={!configured || !mapped || busy} onClick={() => act.reconcile.mutate(c.id, { onSuccess: onRecon, onError: fail })} className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">Conciliar mês atual</button>
+        <button disabled={!configured || !mapped || busy} onClick={() => act.balance.mutate(c.id, { onSuccess: onBalance, onError: fail })} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Conferir saldo</button>
         <button disabled={!configured || !mapped || busy} onClick={() => run("preview")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Prévia (mês atual)</button>
         <button disabled={!configured || !mapped || busy} onClick={() => run("stage")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Enviar para revisão</button>
         {busy ? <Loader2 className="h-4 w-4 animate-spin self-center" /> : null}
@@ -260,6 +263,25 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 const LEVEL_LABEL: Record<string, string> = { alta: "casa", valor_diferente: "valor diferente", duvida: "dúvida" };
 
 /** Relatório da conciliação do mês atual. Somente leitura: nada foi gravado. */
+/** Saldo do banco x saldo calculado no Nino. Somente leitura. */
+function BalanceView({ report }: { report: BalanceReport }) {
+  return (
+    <div className="mt-4 rounded-xl bg-muted/60 p-3 text-xs" aria-live="polite">
+      <p className="font-semibold">Conferência de saldo · {report.as_of} <span className="font-normal text-muted-foreground">(nada foi gravado)</span></p>
+      <ul className="mt-1 space-y-1">
+        {report.balances.map((b, i) => (
+          <li key={i}>
+            {b.name}: banco {b.bank_balance == null ? "—" : brl(b.bank_balance)} · Nino {b.nino_balance == null ? "—" : brl(b.nino_balance)}
+            {b.difference == null ? "" : b.difference === 0 ? " · confere ✅" : ` · diferença ${brl(b.difference)}`}
+            {b.shared_target ? " (mais de uma conta do banco aponta para a mesma conta do Nino)" : ""}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[11px] text-muted-foreground">Diferença esperada enquanto houver lançamentos seus que o banco ainda não mostrou.</p>
+    </div>
+  );
+}
+
 function ReconcileView({ report }: { report: ReconcileReport }) {
   const c = report.counts;
   const r = report.report;

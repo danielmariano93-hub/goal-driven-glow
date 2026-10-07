@@ -26,6 +26,11 @@ export type ReconcileReport = {
   };
 };
 
+export type BalanceReport = {
+  as_of: string;
+  balances: Array<{ name: string; bank_balance: number | null; nino_balance: number | null; difference: number | null; shared_target: boolean }>;
+};
+
 export type SyncResult = {
   mode: "preview" | "stage"; from: string; to: string; totals: SyncCounters;
   skipped_pending: number; skipped_invalid: number;
@@ -110,6 +115,9 @@ export function useOpenFinanceActions() {
     reconcile: useMutation({
       mutationFn: (connectionId: string) => invoke<ReconcileReport>({ action: "reconcile", connection_id: connectionId }),
       onSuccess: refresh,
+    }),
+    balance: useMutation({
+      mutationFn: (connectionId: string) => invoke<BalanceReport>({ action: "balance", connection_id: connectionId }),
     }),
     run: useMutation({
       mutationFn: (v: { connectionId: string; mode: "preview" | "stage"; days?: number }) =>
