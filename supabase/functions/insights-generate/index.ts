@@ -30,6 +30,7 @@ import {
   type CardInstallmentRow,
   type CardStatementRow,
 } from "../_shared/finance-core/index.ts";
+import { reviewBucketOf } from "../_shared/finance-core/bridges.ts";
 import { computeAgentSnapshot } from "../_shared/engine/metrics.ts";
 import { deterministicCandidates } from "../_shared/insights/detectors.ts";
 import { unsupportedNumbers } from "../_shared/insights/contracts.ts";
@@ -420,8 +421,9 @@ async function runForUser(supa: SupabaseClient, uid: string, force: boolean): Pr
   // Antes, "aluguel de R$ 1.200 acima do seu ticket típico de R$ 120" era alarme.
   let amountAnomaly: { description: string; amount: number; typicalAmount: number; occurredAt: string; category?: string } | null = null;
   {
-    type Row = { id?: string; type?: string; amount?: number | string; category_id?: string | null; occurred_at?: string; description?: string | null };
-    const expenses = (allTx as unknown as Row[]).filter((t) => t.type === "expense" && Number(t.amount ?? 0) !== 0);
+    type Row = { id?: string; type?: string; movement_kind?: string | null; amount?: number | string; category_id?: string | null; occurred_at?: string; description?: string | null };
+    // Só gasto real: pagamento de fatura, aplicação, Pix a terceiro e amortização não são "gasto fora do padrão".
+    const expenses = (allTx as unknown as Row[]).filter((t) => reviewBucketOf(t) === "expense" && Number(t.amount ?? 0) !== 0);
     const recurringCategories = new Set(
       ((recurringRules ?? []) as Array<{ category_id?: string | null; kind?: string }>)
         .filter((rule) => rule.kind !== "income" && rule.category_id)
