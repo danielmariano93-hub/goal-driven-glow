@@ -31,9 +31,14 @@ function OpenFinanceBody() {
   const [label, setLabel] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
   const [connectToken, setConnectToken] = useState<string | null>(null);
+  const [trail, setTrail] = useState<string[]>([]);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
-  const startConnect = () =>
+  const startConnect = () => {
+    setTrail([]);
+    setConnectError(null);
     act.connectToken.mutate(undefined, { onSuccess: setConnectToken, onError: (e) => fail(e) });
+  };
   const onConnected = (id: string) => {
     setConnectToken(null);
     act.save.mutate({ itemId: id, label: "" }, {
@@ -90,10 +95,23 @@ function OpenFinanceBody() {
             connectToken={connectToken}
             includeSandbox={false}
             onSuccess={({ item }: { item: { id: string } }) => onConnected(item.id)}
-            onError={() => { setConnectToken(null); toast.error("Não foi possível conectar o banco."); }}
+            onEvent={(e) => setTrail((t) => [...t.slice(-9), describeEvent(e as unknown as Record<string, unknown>)])}
+            onError={(err) => {
+              // Não fecha o widget: o Pluggy mostra a própria mensagem e permite tentar de novo.
+              setConnectError(describeError(err as unknown as Record<string, unknown>));
+              toast.error("O Pluggy não conseguiu conectar. Veja os detalhes abaixo.");
+            }}
             onClose={() => setConnectToken(null)}
           />
         </Suspense>
+      ) : null}
+
+      {connectError ? (
+        <div className="mt-3 rounded-xl bg-destructive/5 p-3 text-[11px]" role="alert">
+          <p className="font-semibold text-destructive">Falha ao conectar (detalhes técnicos)</p>
+          <p className="mt-1 break-words">{connectError}</p>
+          {trail.length > 0 ? <p className="mt-1 break-words text-muted-foreground">Etapas: {trail.join(" → ")}</p> : null}
+        </div>
       ) : null}
 
       <details className="mt-4">
@@ -197,4 +215,30 @@ function ResultView({ result }: { result: SyncResult }) {
       {result.mode === "stage" ? <Link to="/app/assessor" className="mt-2 inline-block font-semibold text-primary">Abrir o Assessor para revisar</Link> : null}
     </div>
   );
+}
+
+type Loose = Record<string, unknown>;
+const pick = (o: unknown, key: string): string => {
+  const v = o && typeof o === "object" ? (o as Loose)[key] : undefined;
+  return typeof v === "string" ? v : "";
+};
+
+/** Resume um evento do widget só com o que ajuda a diagnosticar (sem dados pessoais). */
+function describeEvent(e: Loose): string {
+  const item = e.item as Loose | undefined;
+  const connector = (e.connector ?? item?.connector) as Loose | undefined;
+  const bits = [String(e.event ?? "evento"), pick(connector, "name"), pick(item, "status"), pick(item, "executionStatus")].filter(Boolean);
+  return bits.join(":");
+}
+
+function describeError(err: Loose): string {
+  const item = (err.data as Loose | undefined)?.item as Loose | undefined;
+  const itemError = item?.error as Loose | undefined;
+  return [
+    pick(err, "message") || "erro sem mensagem",
+    pick(item, "status") && `status ${pick(item, "status")}`,
+    pick(item, "executionStatus") && `execução ${pick(item, "executionStatus")}`,
+    pick(itemError, "code") && `código ${pick(itemError, "code")}`,
+    pick(itemError, "message"),
+  ].filter(Boolean).join(" · ");
 }
