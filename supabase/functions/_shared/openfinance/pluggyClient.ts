@@ -14,8 +14,23 @@ const MAX_PAGES = 20;
 export type PluggyErrorCode = "not_configured" | "auth_failed" | "not_found" | "rate_limited" | "upstream_unavailable";
 
 export class PluggyError extends Error {
-  constructor(public code: PluggyErrorCode, public status?: number) {
+  /** Mensagem técnica devolvida pelo Pluggy (não contém dados pessoais), para diagnóstico. */
+  constructor(public code: PluggyErrorCode, public status?: number, public detail?: string) {
     super(code);
+  }
+}
+
+async function upstreamDetail(res: Response): Promise<string> {
+  try {
+    const raw = await res.text();
+    try {
+      const parsed = JSON.parse(raw);
+      return String(parsed?.message ?? parsed?.error ?? raw).replace(/\s+/g, " ").slice(0, 160);
+    } catch {
+      return raw.replace(/\s+/g, " ").slice(0, 160);
+    }
+  } catch {
+    return "";
   }
 }
 
@@ -50,14 +65,14 @@ async function call(path: string, init: RequestInit & { apiKey?: string } = {}):
         ...(init.apiKey ? { "X-API-KEY": init.apiKey } : {}),
       },
     });
-    if (res.status === 401 || res.status === 403) throw new PluggyError("auth_failed", res.status);
-    if (res.status === 404) throw new PluggyError("not_found", 404);
-    if (res.status === 429) throw new PluggyError("rate_limited", 429);
-    if (!res.ok) throw new PluggyError("upstream_unavailable", res.status);
+    if (res.status === 401 || res.status === 403) throw new PluggyError("auth_failed", res.status, await upstreamDetail(res));
+    if (res.status === 404) throw new PluggyError("not_found", 404, await upstreamDetail(res));
+    if (res.status === 429) throw new PluggyError("rate_limited", 429, await upstreamDetail(res));
+    if (!res.ok) throw new PluggyError("upstream_unavailable", res.status, await upstreamDetail(res));
     return await res.json();
   } catch (error) {
     if (error instanceof PluggyError) throw error;
-    throw new PluggyError("upstream_unavailable");
+    throw new PluggyError("upstream_unavailable", undefined, error instanceof Error ? `rede: ${error.name}` : "rede");
   } finally {
     clearTimeout(timer);
   }
