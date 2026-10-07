@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import { Landmark, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -7,6 +7,9 @@ import { useCreditCards } from "@/lib/db/creditCards";
 import {
   useOpenFinanceActions, useOpenFinanceEnabled, useOpenFinanceStatus, type BankConnection, type BankLink, type SyncResult,
 } from "@/lib/openfinance/useOpenFinance";
+
+// O widget só é baixado quando a pessoa toca em "Conectar banco".
+const PluggyConnect = lazy(() => import("react-pluggy-connect").then((m) => ({ default: m.PluggyConnect })));
 
 const VERDICT_LABEL: Record<string, string> = {
   new: "novo", repeated_legitimate: "repetido legítimo", exact_duplicate: "duplicado exato", probable_duplicate: "possível duplicado",
@@ -27,6 +30,17 @@ function OpenFinanceBody() {
   const [itemId, setItemId] = useState("");
   const [label, setLabel] = useState("");
   const [result, setResult] = useState<SyncResult | null>(null);
+  const [connectToken, setConnectToken] = useState<string | null>(null);
+
+  const startConnect = () =>
+    act.connectToken.mutate(undefined, { onSuccess: setConnectToken, onError: (e) => fail(e) });
+  const onConnected = (id: string) => {
+    setConnectToken(null);
+    act.save.mutate({ itemId: id, label: "" }, {
+      onSuccess: () => toast.success("Banco conectado. Agora toque em “Ler contas do banco”."),
+      onError: (e) => fail(e),
+    });
+  };
 
   const fail = (e: unknown) => toast.error(e instanceof Error ? e.message : "Algo deu errado.");
   const connections = (status.data?.connections ?? []).filter((c) => c.status !== "paused");
@@ -57,18 +71,42 @@ function OpenFinanceBody() {
         />
       ))}
 
+      <div className="mt-4">
+        <button
+          disabled={!status.data?.configured || act.connectToken.isPending}
+          onClick={startConnect}
+          className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50"
+        >
+          {act.connectToken.isPending ? "Abrindo…" : "Conectar banco"}
+        </button>
+        {!status.data?.configured ? <p className="mt-1 text-[11px] text-muted-foreground">Disponível assim que as credenciais do Pluggy forem configuradas.</p> : null}
+      </div>
+      {connectToken ? (
+        <Suspense fallback={null}>
+          <PluggyConnect
+            connectToken={connectToken}
+            includeSandbox={false}
+            onSuccess={({ item }: { item: { id: string } }) => onConnected(item.id)}
+            onError={() => { setConnectToken(null); toast.error("Não foi possível conectar o banco."); }}
+            onClose={() => setConnectToken(null)}
+          />
+        </Suspense>
+      ) : null}
+
+      <details className="mt-4">
+        <summary className="cursor-pointer text-xs text-muted-foreground">Já tenho o ID da conexão</summary>
       <form
-        className="mt-4 space-y-2"
+        className="mt-2 space-y-2"
         onSubmit={(e) => {
           e.preventDefault();
           act.save.mutate({ itemId, label }, { onSuccess: () => { setItemId(""); setLabel(""); toast.success("Conexão cadastrada."); }, onError: fail });
         }}
       >
-        <p className="text-xs font-semibold">Adicionar conexão</p>
-        <input className="w-full rounded-lg border bg-background px-3 py-2 text-xs" placeholder="ID da conexão (itemId do Pluggy)" value={itemId} onChange={(e) => setItemId(e.target.value)} />
+                <input className="w-full rounded-lg border bg-background px-3 py-2 text-xs" placeholder="ID da conexão (itemId do Pluggy)" value={itemId} onChange={(e) => setItemId(e.target.value)} />
         <input className="w-full rounded-lg border bg-background px-3 py-2 text-xs" placeholder="Apelido (opcional)" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} />
-        <button disabled={!itemId.trim() || act.save.isPending} className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50">Salvar conexão</button>
+        <button disabled={!itemId.trim() || act.save.isPending} className="rounded-full border px-4 py-2 text-xs font-medium disabled:opacity-50">Salvar conexão</button>
       </form>
+      </details>
 
       {result ? <ResultView result={result} /> : null}
     </section>
