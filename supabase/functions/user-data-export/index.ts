@@ -20,9 +20,9 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: authHeader } } },
   );
 
-  // Validate token via getClaims (verifies signature + expiration).
-  const { data: claims, error: cErr } = await client.auth.getClaims(token);
-  if (cErr || !claims?.claims) return h.fail("unauthorized", 401);
+  // Valida o token (assinatura + expiração) no servidor de autenticação.
+  const { data: userRes, error: cErr } = await client.auth.getUser(token);
+  if (cErr || !userRes?.user) return h.fail("unauthorized", 401);
 
   const { data, error } = await client.rpc("user_export_data");
   if (error) return h.fail("export_failed", 400, { details: { reason: String(error.message).slice(0, 200) } });
