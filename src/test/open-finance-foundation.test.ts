@@ -17,7 +17,8 @@ describe("Open Finance — fundação", () => {
   });
 
   it("nunca cria lançamento: só prévia ou estágio de importação para revisão", () => {
-    expect(fn).not.toMatch(/from\("transactions"\)/);
+    // Pode LER transactions (resumo da prévia), nunca escrever.
+    expect(fn).not.toMatch(/from\("transactions"\)\s*\.(insert|update|upsert|delete)/);
     expect(fn).not.toContain("confirmBatch");
     expect(fn).not.toContain("confirm_document_import");
     expect(fn).toContain('source: "open_finance"');
@@ -131,5 +132,23 @@ describe("Open Finance — diagnóstico de erro do Pluggy", () => {
     expect(client).toMatch(/\.slice\(0, 160\)/);
     expect(fn).toContain("technical");
     expect(fn).toMatch(/error: technical \? `\$\{code\} \(\$\{technical\}\)` : code/);
+  });
+});
+
+import { aggregateBankRows, aggregateNinoRows } from "../../supabase/functions/_shared/openfinance/previewAnalysis";
+describe("Open Finance — resumo agregado da prévia", () => {
+  it("agrega por mês/resultado/natureza e nunca carrega descrição", () => {
+    const bank = aggregateBankRows([
+      { verdict: "new", movement_kind: "transaction", type: "expense", amount: 10, date: "2026-09-02" },
+      { verdict: "new", movement_kind: "transaction", type: "expense", amount: 5.5, date: "2026-09-20" },
+      { verdict: "probable_duplicate", movement_kind: "transaction", type: "expense", amount: 7, date: "2026-10-01" },
+    ]);
+    expect(bank).toEqual([
+      { month: "2026-09", verdict: "new", kind: "transaction", type: "expense", n: 2, total: 15.5 },
+      { month: "2026-10", verdict: "probable_duplicate", kind: "transaction", type: "expense", n: 1, total: 7 },
+    ]);
+    expect(JSON.stringify(bank)).not.toMatch(/description/);
+    const nino = aggregateNinoRows([{ occurred_at: "2026-09-03", origin: "agent", movement_kind: null, type: "expense", amount: 12 }]);
+    expect(nino[0]).toMatchObject({ month: "2026-09", origin: "agent", kind: "transaction", n: 1, total: 12 });
   });
 });
