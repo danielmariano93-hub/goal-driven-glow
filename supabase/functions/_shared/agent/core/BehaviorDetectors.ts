@@ -1,5 +1,6 @@
 // Explainable, non-diagnostic behavioral hypotheses.
 // All detectors require minimum samples and return evidence for user confirmation.
+import { reviewBucketOf } from "../../finance-core/bridges.ts";
 import { today } from "../../finance-core/ninoClock.ts";
 
 export type BehaviorTransaction = {
@@ -209,8 +210,10 @@ export function detectFinancialDiscipline(input: BehaviorDetectorInput): Behavio
     monday.setUTCDate(monday.getUTCDate() - day);
     const key = monday.toISOString().slice(0, 10);
     const item = weekly.get(key) ?? { income: 0, expense: 0 };
-    if (row.type === "income") item.income += Number(row.amount);
-    if (row.type === "expense" && (row.movement_kind ?? "transaction") === "transaction") item.expense += Number(row.amount);
+    // Mapa canônico: resgate, estorno, Pix de terceiro, empréstimo e fatura não são renda nem gasto.
+    const bucket = reviewBucketOf(row);
+    if (bucket === "income") item.income += Number(row.amount);
+    if (bucket === "expense") item.expense += Number(row.amount);
     weekly.set(key, item);
   }
 
