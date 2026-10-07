@@ -115,8 +115,9 @@ Deno.serve(async (req) => {
   if (action === "discover") {
     try {
       const apiKey = await pluggyAuth();
+      // O Pluggy não expõe o item de contas do Meu Pluggy em todos os endpoints: a ficha do item é opcional.
       const [item, accounts] = await Promise.all([
-        getItem(apiKey, (connection as any).item_id),
+        getItem(apiKey, (connection as any).item_id).catch(() => ({ status: null, lastUpdatedAt: null, connectorName: null })),
         listAccounts(apiKey, (connection as any).item_id),
       ]);
       for (const account of accounts) {
