@@ -66,6 +66,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   const endRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const viewport = useVisualViewport();
+  useBodyScrollLock();
   const assessor = useOptionalAssessor();
 
   // Pergunta pronta vinda de um insight: entra no campo para a pessoa revisar e enviar.
@@ -336,16 +337,19 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
   }
 
   const panel = (
+    // A camada externa cobre SEMPRE a tela inteira e é opaca: com o teclado aberto a página de trás
+    // nunca aparece. Só o painel interno acompanha a área visível (visualViewport) no celular.
     <div
-      className="fixed inset-x-0 z-[100] flex flex-col overflow-hidden bg-background overscroll-none md:inset-0 md:items-end md:justify-end md:bg-black/40"
-      style={{ top: viewport.top, height: viewport.height }}
+      className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-background overscroll-none md:items-end md:justify-end md:bg-black/40"
+      style={{ ["--vv-top" as string]: viewport.top, ["--vv-h" as string]: viewport.height }}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
+      <div className="absolute inset-x-0 top-[var(--vv-top)] h-[var(--vv-h)] min-w-0 md:contents">
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-card md:m-4 md:h-[85vh] md:max-h-[720px] md:w-[420px] md:rounded-2xl md:shadow-brand"
+        className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-card md:relative md:m-4 md:h-[85vh] md:max-h-[720px] md:w-[420px] md:rounded-2xl md:shadow-brand"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
@@ -358,7 +362,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4">
+        <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-4">
           {!loadingHistory && messages.length === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
@@ -378,12 +382,12 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex flex-col items-end gap-1" : "flex flex-col items-start gap-1"}>
+            <div key={i} className={`flex min-w-0 max-w-full flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
               <div
                 className={
                   m.role === "user"
-                    ? "max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-                    : "max-w-[85%] rounded-2xl border border-border bg-secondary px-3 py-2 text-sm whitespace-pre-line"
+                    ? "max-w-[85%] break-words rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground [overflow-wrap:anywhere]"
+                    : "min-w-0 max-w-[85%] break-words rounded-2xl border border-border bg-secondary px-3 py-2 text-sm whitespace-pre-line [overflow-wrap:anywhere]"
                 }
               >
                 {m.role === "assistant" && (m.doc?.status === "processing" || m.doc?.status === "uploaded") && (
@@ -416,7 +420,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                 </button>
               )}
               {m.role === "assistant" && m.report && <SpendingReportCard report={m.report} />}
-              {m.role === "assistant" && m.artifact && <ChartArtifactRenderer artifact={m.artifact} />}
+              {m.role === "assistant" && m.artifact && <div className="w-full min-w-0 max-w-full"><ChartArtifactRenderer artifact={m.artifact} /></div>}
             </div>
           ))}
           {loadingHistory && (
@@ -486,7 +490,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Escreva uma mensagem, anexe um documento ou use !ja para registrar direto…"
+            placeholder="Escreva uma mensagem…"
             className="input-base min-w-0 flex-1 text-base"
             disabled={sending || loadingHistory}
             onFocus={() => window.setTimeout(() => endRef.current?.scrollIntoView({ block: "end" }), 120)}
@@ -501,11 +505,31 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
           </button>
         </form>
       </div>
+      </div>
       {reviewDocId && <ReviewSheet documentId={reviewDocId} onClose={() => setReviewDocId(null)} />}
     </div>
   );
 
   return typeof document !== "undefined" ? createPortal(panel, document.body) : panel;
+}
+
+/** Trava a rolagem da página enquanto o assessor está aberto (evita a página "passear" com o teclado). */
+function useBodyScrollLock() {
+  useEffect(() => {
+    const { overflow, position, width, top } = document.body.style;
+    const y = window.scrollY;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    document.body.style.top = `-${y}px`;
+    return () => {
+      document.body.style.overflow = overflow;
+      document.body.style.position = position;
+      document.body.style.width = width;
+      document.body.style.top = top;
+      window.scrollTo(0, y);
+    };
+  }, []);
 }
 
 function useVisualViewport() {
