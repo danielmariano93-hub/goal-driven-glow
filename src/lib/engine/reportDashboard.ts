@@ -81,6 +81,9 @@ export interface DashCategoryRow {
   share: number;
   count: number;
   previous: number;
+  /** Mês passado INTEIRO, só quando a comparação usa uma janela parcial (ex.: dias 1–8). Contas que vencem em
+   *  outra data (energia no dia 10) não aparecem na janela; este número evita ler isso como "novo". */
+  previousMonth?: number | null;
   deltaAbs: number;
   deltaPct: number | null;
   /** Últimos 6 meses (o último é o mês do fim do período). */
@@ -316,6 +319,9 @@ const MONTH_NAMES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
 export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest): ReportDashboard {
   const period = range(req.start, req.end);
   const previous = comparisonRange(period, req.compare);
+  // Janela parcial do mês anterior (dias 1–8)? Guardamos também o mês inteiro como contexto por categoria.
+  const previousMonthRange: DashRange | null = previous && previous.end !== endOfMonth(previous.end) && req.compare === "previous"
+    ? range(previous.start, endOfMonth(previous.end)) : null;
   const granularity = granularityFor(period.days);
   const categoryFilter = req.categoryIds?.length ? new Set(req.categoryIds) : null;
   const merchantTerm = req.merchant ? norm(req.merchant).trim() : "";
@@ -355,13 +361,13 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   });
 
   // Categorias → estabelecimentos
-  type Acc = { id: string; name: string; total: number; count: number; previous: number; byMonth: Map<string, number>; merchants: Map<string, { label: string; total: number; previous: number }> };
+  type Acc = { id: string; name: string; total: number; count: number; previous: number; previousMonth: number; byMonth: Map<string, number>; merchants: Map<string, { label: string; total: number; previous: number }> };
   const cats = new Map<string, Acc>();
   const touch = (e: DashEntry): Acc => {
     const id = e.category_id ?? "__none__";
     let c = cats.get(id);
     if (!c) {
-      c = { id, name: e.category_id ? e.category : "Sem categoria", total: 0, count: 0, previous: 0, byMonth: new Map(), merchants: new Map() };
+      c = { id, name: e.category_id ? e.category : "Sem categoria", total: 0, count: 0, previous: 0, previousMonth: 0, byMonth: new Map(), merchants: new Map() };
       cats.set(id, c);
     }
     return c;
@@ -372,13 +378,15 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
     if (e.kind !== "expense" || e.amount <= 0) continue;
     const inCurrent = inRange(e, period);
     const inPrevious = previous ? inRange(e, previous) : false;
+    const inPreviousMonth = previousMonthRange ? inRange(e, previousMonthRange) : false;
     const inSpark = e.date >= sparkFloor && e.date <= endOfMonth(`${monthOf(period.end)}-01`);
-    if (!inCurrent && !inPrevious && !inSpark) continue;
+    if (!inCurrent && !inPrevious && !inPreviousMonth && !inSpark) continue;
     const c = touch(e);
     const mk = e.merchant_key ?? "__none__";
     const m = c.merchants.get(mk) ?? { label: e.merchant ?? "Sem identificação", total: 0, previous: 0 };
     if (inCurrent) { c.total += e.amount; if (e.amount > 0) c.count += 1; m.total += e.amount; }
     if (inPrevious) { c.previous += e.amount; m.previous += e.amount; }
+    if (inPreviousMonth) c.previousMonth += e.amount;
     if (inSpark) c.byMonth.set(monthOf(e.date), (c.byMonth.get(monthOf(e.date)) ?? 0) + e.amount);
     c.merchants.set(mk, m);
   }
@@ -405,6 +413,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
         id: c.id, name: c.name, total: round2(c.total),
         share: expenseTotal > 0 ? round2(c.total / expenseTotal) : 0,
         count: c.count, previous: round2(Math.max(0, c.previous)),
+        previousMonth: previousMonthRange ? round2(Math.max(0, c.previousMonth)) : null,
         deltaAbs: round2(c.total - Math.max(0, c.previous)),
         deltaPct: c.previous > 0 ? round2((c.total - c.previous) / c.previous) : null,
         spark: sparkMonths.map((m) => round2(Math.max(0, c.byMonth.get(m) ?? 0))),

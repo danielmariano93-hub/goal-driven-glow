@@ -175,3 +175,26 @@ describe("report_dashboard.v1 – bordas encontradas com dados reais", () => {
     expect(d.projection).toBeNull();
   });
 });
+
+describe("comparação com janela parcial: conta que vence em outra data não vira \"novo\"", () => {
+  const entries: DashEntry[] = [
+    out("2026-09-10", 207.04, "Energia", "Enel"), out("2026-09-03", 50, "Lazer", "Bar"),
+    out("2026-10-01", 215.09, "Energia", "Enel"), out("2026-10-03", 40, "Lazer", "Bar"),
+  ];
+  const d = buildReportDashboard(entries, { today: "2026-10-08", start: "2026-10-01", end: "2026-10-08", compare: "previous" });
+
+  it("janela = mesmos dias (01–08/09); mês passado inteiro vem como contexto", () => {
+    expect(d.previous).toMatchObject({ start: "2026-09-01", end: "2026-09-08" });
+    const energia = d.categories.find((c) => c.name === "Energia")!;
+    expect(energia.previous).toBe(0);
+    expect(energia.previousMonth).toBe(207.04);
+    expect(energia.deltaPct).toBeNull();
+    const lazer = d.categories.find((c) => c.name === "Lazer")!;
+    expect(lazer).toMatchObject({ previous: 50, previousMonth: 50 });
+  });
+
+  it("mês fechado compara mês inteiro: sem contexto extra", () => {
+    const closed = buildReportDashboard(entries, { today: "2026-10-31", start: "2026-10-01", end: "2026-10-31", compare: "previous" });
+    expect(closed.categories.find((c) => c.name === "Energia")!.previousMonth).toBeNull();
+  });
+});

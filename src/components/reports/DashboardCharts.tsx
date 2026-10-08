@@ -96,6 +96,8 @@ function Spark({ values }: { values: number[] }) {
 }
 
 function CategoryDelta({ c }: { c: DashCategoryRow }) {
+  // Sem gasto nos mesmos dias do mês passado, mas houve gasto nele (conta que vence em outra data): não é "novo".
+  if (c.deltaPct == null && (c.previousMonth ?? 0) > 0) return <span className="text-[11px] text-muted-foreground">sem gasto até aqui</span>;
   if (c.deltaPct == null) return <span className="text-[11px] text-muted-foreground">novo</span>;
   const flat = Math.abs(c.deltaPct) < 0.02;
   const up = c.deltaPct > 0;
@@ -127,6 +129,11 @@ export function CategoryBreakdown({ d }: { d: ReportDashboard }) {
     <section aria-label="Para onde vai o dinheiro" className="rounded-2xl border border-border bg-card p-4">
       <p className="text-sm font-semibold">Para onde vai o dinheiro</p>
       <p className="text-[11px] text-muted-foreground">Toque numa categoria para ver os estabelecimentos.</p>
+      {d.previous && cats.some((c) => c.previousMonth != null) ? (
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          "Antes" = os mesmos dias do mês passado ({d.previous.start.slice(8, 10)}/{d.previous.start.slice(5, 7)} a {d.previous.end.slice(8, 10)}/{d.previous.end.slice(5, 7)}). Contas que vencem em outra data mostram o mês inteiro entre parênteses.
+        </p>
+      ) : null}
       <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-secondary" role="img" aria-label="Participação de cada categoria no gasto">
         {top.map((c, i) => <span key={c.id} className={STACK[i]} style={{ width: `${c.share * 100}%`, marginRight: 2 }} title={`${c.name} ${pct(c.share)}`} />)}
         {restShare > 0.005 ? <span className="bg-slate-300" style={{ width: `${restShare * 100}%` }} title={`Demais ${pct(restShare)}`} /> : null}
@@ -144,7 +151,7 @@ export function CategoryBreakdown({ d }: { d: ReportDashboard }) {
                     <span className="shrink-0 text-[13px] font-semibold tabular-nums">{formatBRL(c.total)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                    <span className="tabular-nums">{pct(c.share)} do total{d.previous ? ` · antes ${formatBRL(c.previous)}` : ""}</span>
+                    <span className="tabular-nums">{pct(c.share)} do total{d.previous ? ` · antes ${formatBRL(c.previous)}` : ""}{d.previous && c.previousMonth != null && c.previousMonth > c.previous + 0.5 ? ` (mês passado inteiro ${formatBRL(c.previousMonth)})` : ""}</span>
                     <span className="flex items-center gap-2">{d.previous ? <CategoryDelta c={c} /> : null}<Spark values={c.spark} /></span>
                   </span>
                 </span>
