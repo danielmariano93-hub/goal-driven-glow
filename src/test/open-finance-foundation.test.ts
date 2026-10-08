@@ -164,6 +164,8 @@ describe("conferência de saldo (balance)", () => {
   it("existe, é somente leitura e usa o cálculo canônico de saldo", () => {
     const block = src.slice(src.indexOf('action === "balance"'), src.indexOf("// ---- preview | stage | reconcile ----"));
     expect(block).toContain("computeAccountBalances");
-    expect(block).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+    // Única escrita permitida: a leitura do saldo (prova). Lançamentos e vínculos nunca mudam aqui.
+    const writes = [...block.matchAll(/from\("([a-z_]+)"\)\s*\.(insert|update|upsert|delete)\(/g)].map((m) => m[1]);
+    expect(writes).toEqual(["bank_balance_readings"]);
   });
 });

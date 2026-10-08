@@ -3,6 +3,7 @@ import { useAccounts } from "@/lib/db/finance";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { PeriodPicker } from "@/components/home/PeriodPicker";
 import { HeroDisponivelCard } from "@/components/home/HeroDisponivelCard";
+import { useBankBalanceGap } from "@/lib/openfinance/useBankBalanceGap";
 import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { GuideHomeCards } from "@/components/guide/GuideHomeCards";
 import { QuickActions } from "@/components/home/QuickActions";
@@ -36,6 +37,7 @@ export default function Index() {
   }, [period, customStart, customEnd]);
 
   const snapshot = useFinancialSnapshot(periodRange);
+  const bankGap = useBankBalanceGap();
   const { data: snap, loading, criticalError: snapshotError, completeness, availability } = snapshot;
   const priorities = useNinoPriorities();
   // O recálculo pesado do diagnóstico só roda quando a fila não tem o que mostrar.
@@ -73,6 +75,7 @@ export default function Index() {
       ) : null}
 
       <HeroDisponivelCard
+        bankGap={bankGap.data ?? null}
         available={snap?.availableToday ?? 0}
         periodLabel={heroLabel}
         confirmedFutureInflows={availability.projection === "available" ? snap?.projection.confirmedFutureInflows ?? 0 : 0}
