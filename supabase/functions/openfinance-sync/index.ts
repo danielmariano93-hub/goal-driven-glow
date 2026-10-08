@@ -185,6 +185,20 @@ Deno.serve(async (req) => {
           shared_target: mapped.filter((m) => m.account_id === l.account_id).length > 1,
         };
       });
+      // Guarda a leitura para a Home mencionar (de leve) uma diferença. Conta do Nino ligada a mais de uma
+      // conta do banco com saldos diferentes é ambígua: não grava (o saldo do Nino é um só).
+      for (const accountId of ids) {
+        const readings = mapped.filter((l) => String(l.account_id) === accountId)
+          .map((l) => accounts.find((a) => a.id === l.external_account_id)?.balance)
+          .filter((b): b is number => typeof b === "number");
+        const unique = [...new Set(readings.map((b) => round2(b)))];
+        const nino = ninoBalances[accountId];
+        if (unique.length !== 1 || typeof nino !== "number") continue;
+        await sb.from("bank_balance_readings").upsert({
+          user_id: userId, account_id: accountId, bank_balance: unique[0], nino_balance: nino,
+          source: "open_finance", read_at: new Date().toISOString(),
+        }, { onConflict: "user_id,account_id" });
+      }
       return h.ok({ balances: rows, as_of: ninoToday() });
     } catch (error) {
       return await failWith(error, null);

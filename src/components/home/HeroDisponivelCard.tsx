@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
 import { AvailableBalanceDetails } from "./AvailableBalanceDetails";
+import type { BankBalanceGap } from "@/lib/openfinance/useBankBalanceGap";
 
 type Props = {
   available: number;
@@ -20,6 +21,8 @@ type Props = {
   error?: unknown;
   partial?: boolean;
   onRetry?: () => void;
+  /** Só vem preenchido quando o banco e o Nino divergem de fato (discreto). */
+  bankGap?: BankBalanceGap | null;
 };
 
 export function HeroDisponivelCard(p: Props) {
@@ -37,6 +40,12 @@ export function HeroDisponivelCard(p: Props) {
              <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>
                {p.loading ? <div className="mt-2 h-8 w-44 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-base font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 break-words font-display text-[28px] font-bold leading-8 tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
                <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição de hoje · não muda com o período escolhido</p>
+               {!p.loading && !p.error && p.bankGap ? (
+                 <p className="mt-1 text-[11px] leading-4 text-primary-foreground/60" data-testid="bank-gap">
+                   No banco {formatBRL(p.bankGap.bank)} · no Nino {formatBRL(p.bankGap.nino)}
+                   {" "}({new Date(p.bankGap.readAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })})
+                 </p>
+               ) : null}
           </div>
           <Wallet className="h-5 w-5 shrink-0 text-primary-foreground/60" weight="duotone" aria-hidden="true" />
         </div>
