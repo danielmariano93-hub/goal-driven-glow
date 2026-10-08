@@ -116,3 +116,51 @@ describe("contas do banco com os mesmos movimentos", () => {
     expect(r.overlaps).toEqual([]);
   });
 });
+
+import { classifyBatch } from "../../supabase/functions/_shared/import/dedupe";
+describe("Pix recebido que é pagamento de rolê já marcado como recebido", () => {
+  const reimbursement = (id: string, amount: number, occurred_at: string) => ({
+    id, type: "income", amount, occurred_at, movement_kind: "refund", split_transaction_role: "reimbursement",
+    description: "Reembolso · Divisão Carro RJ", status: "confirmed",
+  });
+  const pix = (amount: number, occurred_at: string) => ({
+    type: "income", amount, occurred_at, description: "Pix recebido THALES FRATANGELO MACIEL", movement_kind: "external_transfer_in",
+    bank_reference: "pluggy:x", external_id: "pluggy:x",
+  });
+
+  it("casa mesmo com diferença de centavos e informa a diferença", () => {
+    const [v] = classifyBatch([pix(116.0, "2026-10-06")], [reimbursement("r1", 116.12, "2026-10-06")] as any);
+    expect(v.status).toBe("probable_duplicate");
+    expect(v.reason_code).toBe("reembolso_do_role:dif=0.12");
+    expect(v.duplicate_of).toBe("r1");
+  });
+  it("valor exato também é reconhecido como rolê", () => {
+    const [v] = classifyBatch([pix(291.34, "2026-10-01")], [reimbursement("r2", 291.34, "2026-10-01")] as any);
+    expect(v.reason_code).toBe("reembolso_do_role");
+  });
+  it("cada reembolso absorve um Pix só; o segundo Pix igual não é absorvido", () => {
+    const verdicts = classifyBatch([pix(116.12, "2026-10-07"), pix(116.12, "2026-10-07")], [reimbursement("r3", 116.12, "2026-10-07")] as any);
+    expect(verdicts[0].status).toBe("probable_duplicate");
+    expect(verdicts[1].status).not.toBe("probable_duplicate");
+  });
+  it("Pix de valor bem diferente ou fora da janela não é confundido", () => {
+    expect(classifyBatch([pix(150, "2026-10-06")], [reimbursement("r4", 116.12, "2026-10-06")] as any)[0].status).toBe("new");
+    expect(classifyBatch([pix(116.12, "2026-10-20")], [reimbursement("r5", 116.12, "2026-10-06")] as any)[0].status).toBe("new");
+  });
+});
+
+import { planReconciliation } from "../../supabase/functions/_shared/openfinance/reconcile";
+describe("conciliação: Pix de quem pagou o rolê casa com o 'Reembolso · rolê'", () => {
+  it("nomes diferentes e centavos de diferença: casa e mostra a diferença", () => {
+    const bank = [{
+      ordinal: 0, occurred_at: "2026-10-06", posted_at: "2026-10-06", amount: 116, type: "income", movement_kind: "external_transfer_in",
+      description: "Pix recebido THALES FRATANGELO MACIEL", raw_description: "Pix recebido THALES FRATANGELO MACIEL", merchant: null,
+      issues: [], confidence: 0.6,
+    }] as any;
+    const prov = [{ id: "r1", occurred_at: "2026-10-06", amount: 116.12, type: "income", description: "Reembolso · Divisão Carro RJ", origin: "manual" }] as any;
+    const plan = planReconciliation(bank, prov, "2026-10-08");
+    expect(plan.matches).toHaveLength(1);
+    expect(plan.matches[0].level).toBe("valor_diferente");
+    expect(plan.matches[0].amount_delta).toBeCloseTo(-0.12, 2);
+  });
+});

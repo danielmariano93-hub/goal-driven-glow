@@ -79,6 +79,9 @@ function candidateFor(bank: ImportItem, tx: Provisional): Candidate | null {
   if (exact && (dayDelta <= 1 || merchant >= 1)) level = "alta";
   else if (exact) level = "duvida";
   else if (close && merchant >= 1) level = "valor_diferente";
+  // Recebimento de rolê: o Nino lançou "Reembolso · rolê" ao marcar "Recebi"; o Pix de quem pagou não
+  // tem o mesmo nome (pessoa x título do rolê) e o valor pode diferir de centavos.
+  else if (bank.type === "income" && /^reembolso\b/i.test(String(tx.description ?? "")) && Math.abs(delta) <= Math.max(1, bank.amount * 0.01)) level = "valor_diferente";
   if (!level) return null;
 
   const score = (exact ? 10 : 5) + merchant * 3 - dayDelta;
