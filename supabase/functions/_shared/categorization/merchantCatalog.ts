@@ -28,7 +28,8 @@ export const CURATED_MERCHANTS: CuratedMerchant[] = [
     canonical_name: "99",
     semantic_category: "Transporte",
     authoritative: true,
-    patterns: [/\b99\s*(?:app|pop|taxi)\b/i, /\b99app\b/i],
+    // O extrato abrevia de muitos jeitos: "99 Tecnologia*99* Pop 02o", "Web Visa Dl 99 99 0510", "99*".
+    patterns: [/\b99[\s*._-]*(?:app|pop|taxi)\b/i, /\b99app\b/i, /\b99\s*tecnologia\b/i, /\bdl\s*\*?\s*99\b/i],
   },
   // Seguro de cartão é proteção financeira, nunca assinatura de serviço.
   {
@@ -78,6 +79,8 @@ export const CURATED_MERCHANTS: CuratedMerchant[] = [
   { canonical_name: "Leroy Merlin", semantic_category: "Moradia", patterns: [/\bleroy\s*merlin\b/i] },
   { canonical_name: "Extra", semantic_category: "Mercado", patterns: [/\bmini\s*extra\b/i, /\bextra\s*hiper\b/i, /\bhiper\s*extra\b/i] },
   { canonical_name: "Oxxo", semantic_category: "Mercado", patterns: [/\boxxo\b/i] },
+  { canonical_name: "Cinemark", semantic_category: "Lazer", patterns: [/\bcinemark\b/i] },
+  { canonical_name: "Cinépolis", semantic_category: "Lazer", patterns: [/\bcin[eé]polis\b/i, /\bkinoplex\b/i, /\bingresso\.?com\b/i] },
   { canonical_name: "Wet'n Wild", semantic_category: "Lazer", patterns: [/\bwet\s*'?\s*n\s*wild\b/i] },
 ];
 

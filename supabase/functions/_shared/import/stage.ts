@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { normalizeDescription, merchantCanonical } from "../categorization/normalize.ts";
 import { classifyBatch, fetchExistingCandidates, linkRefunds, type DupeVerdict } from "./dedupe.ts";
 import type { ImportItem } from "./schema.ts";
+import { detectCardForPayment } from "./cardPayment.ts";
 import { buildImportCategorizer, type ImportCategorizer } from "../categorization/importCategorizer.ts";
 import { summarizeReviewItems } from "../finance-core/bridges.ts";
 import { today as localToday } from "../finance-core/ninoClock.ts";
@@ -327,6 +328,8 @@ export async function stageBatch(sb: SupabaseClient, args: {
       card_hint: item.card_hint,
       account_id: itemTarget.account_id,
       credit_card_id: itemTarget.credit_card_id,
+      settles_card_id: item.movement_kind === "card_payment" && !itemTarget.credit_card_id
+        ? detectCardForPayment(`${item.description} ${item.raw_description ?? ""}`, lookups.cards) : null,
       category_id: picked?.category_id ?? matchByName(lookups.categories, item.category_hint),
       category_hint: item.category_hint,
       category_source: picked ? picked.source : item.category_hint ? "document_hint" : null,
