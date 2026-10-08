@@ -7,6 +7,7 @@ import { useAccounts, useCategories, useInvestments } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/engine/facts";
 import { summarizeReviewItems } from "@/lib/engine/bridges";
+import { InvestmentLinkPicker } from "@/components/investments/InvestmentLinkPicker";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { usePrivacyMode } from "@/context/PrivacyModeContext";
@@ -148,39 +149,6 @@ function duplicateExplanation(reason?: string | null): string {
     return `Parece o pagamento de um rolê que você já marcou como recebido${diff ? ` (o banco difere em R$ ${diff.replace(".", ",")})` : ""}. Não importe de novo: toque em "Já registrei" para vincular este movimento do banco ao lançamento existente.`;
   }
   return `Possível duplicata: ${reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.`;
-}
-
-/** Escolhe qual investimento o resgate/aplicação movimenta e mostra, antes de confirmar, o efeito na posição. */
-function InvestmentPicker({ item, investments, disabled, onChange }: {
-  item: Item;
-  investments: Array<{ id: string; name: string; current_value: number | string; reference_date?: string | null }>;
-  disabled: boolean;
-  onChange: (id: string | null) => void;
-}) {
-  const redemption = item.movement_kind === "investment_redemption";
-  const amount = Math.abs(Number(item.amount));
-  const chosen = investments.find((i) => i.id === item.investment_id) ?? null;
-  const current = chosen ? Number(chosen.current_value) : 0;
-  const beforeAnchor = Boolean(chosen?.reference_date && item.occurred_at && item.occurred_at.slice(0, 10) <= String(chosen.reference_date).slice(0, 10));
-  const after = redemption ? current - amount : current + amount;
-  return (
-    <div className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px]">
-      <p className="text-muted-foreground">
-        {redemption ? "Resgate: sai do investimento e entra na conta. Seu patrimônio não muda." : "Aplicação: sai da conta e entra no investimento. Seu patrimônio não muda."}
-      </p>
-      <label className="mt-1 flex items-center gap-2">
-        <span className="shrink-0 font-medium">{redemption ? "Resgatado de" : "Aplicado em"}</span>
-        <select value={item.investment_id ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className="input-base min-w-0 flex-1 text-xs">
-          <option value="">Escolha o investimento</option>
-          {investments.map((i) => <option key={i.id} value={i.id}>{i.name} · {formatBRL(Number(i.current_value))}</option>)}
-        </select>
-      </label>
-      {chosen && beforeAnchor && <p className="mt-1 text-muted-foreground">Movimento anterior à data de referência da posição: fica vinculado, sem alterar o valor atual.</p>}
-      {chosen && !beforeAnchor && redemption && amount > current + 0.01 && <p className="mt-1 text-warning">Maior que a posição registrada ({formatBRL(current)}): fica pendente de conferência, sem zerar o investimento.</p>}
-      {chosen && !beforeAnchor && !(redemption && amount > current + 0.01) && <p className="mt-1 tabular-nums">{chosen.name}: {formatBRL(current)} → <strong>{formatBRL(Math.max(0, after))}</strong></p>}
-      {!chosen && <p className="mt-1 text-muted-foreground">Sem escolher, o Nino só vincula se o nome bater com um único investimento.</p>}
-    </div>
-  );
 }
 
 const FLOW_LABEL: Record<string, string> = {
@@ -1020,8 +988,11 @@ export function ReviewSheet({
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">{duplicateExplanation(it.duplicate_reason)}</p>}
                         {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && it.movement_kind !== "investment_redemption" && it.movement_kind !== "investment_application" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
                         {(it.movement_kind === "investment_redemption" || it.movement_kind === "investment_application") && (
-                          <InvestmentPicker
-                            item={it}
+                          <InvestmentLinkPicker
+                            kind={it.movement_kind as "investment_redemption" | "investment_application"}
+                            amount={it.amount}
+                            occurredAt={it.occurred_at}
+                            value={it.investment_id}
                             investments={investments as Array<{ id: string; name: string; current_value: number | string; reference_date?: string | null }>}
                             disabled={disabled}
                             onChange={(id) => patchItem(it.id, { investment_id: id })}

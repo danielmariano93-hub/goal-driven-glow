@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
-import { useCategories, useAccounts } from "@/lib/db/finance";
+import { useCategories, useAccounts, useInvestments } from "@/lib/db/finance";
+import { InvestmentLinkPicker } from "@/components/investments/InvestmentLinkPicker";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft, Trash2, Save } from "lucide-react";
@@ -31,6 +32,8 @@ type Tx = {
   competence_date?: string | null;
   shared_expense_id?: string | null;
   split_transaction_role?: "original_expense" | "reimbursement" | null;
+  movement_kind?: string | null;
+  investment_id?: string | null;
 };
 
 export default function LancamentoDetalhe() {
@@ -45,6 +48,7 @@ export default function LancamentoDetalhe() {
   const { data: cats = [] } = useCategories();
   const { data: accs = [] } = useAccounts();
   const { data: cards = [] } = useCreditCards();
+  const { data: investments = [] } = useInvestments();
 
   const [tx, setTx] = useState<Tx | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +63,7 @@ export default function LancamentoDetalhe() {
   const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">("account");
   const [accountId, setAccountId] = useState<string | "">("");
   const [cardId, setCardId] = useState<string | "">("");
+  const [investmentId, setInvestmentId] = useState<string | "">("");
 
   useEffect(() => {
     if (!id || !user) return;
@@ -78,6 +83,7 @@ export default function LancamentoDetalhe() {
       setPaymentMethod((t.payment_method as "account" | "credit_card") ?? "account");
       setAccountId(t.account_id ?? "");
       setCardId(t.credit_card_id ?? "");
+      setInvestmentId(t.investment_id ?? "");
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -91,6 +97,7 @@ export default function LancamentoDetalhe() {
     }
   }, [editing, focus, tx]);
 
+  const isInvestmentMovement = tx?.movement_kind === "investment_redemption" || tx?.movement_kind === "investment_application";
   const isTransfer = tx?.type === "transfer";
   const isCardTx = tx?.payment_method === "credit_card";
   const hasGroup = !!tx?.purchase_group_id;
@@ -181,6 +188,8 @@ export default function LancamentoDetalhe() {
       }
     }
 
+    if (isInvestmentMovement && investmentId !== (tx.investment_id ?? "")) patch.investment_id = investmentId || null;
+
     if (Object.keys(patch).length === 0) { setSaving(false); toast.message("Nada mudou."); return; }
 
     const { data, error } = await supabase.rpc("transaction_update_direct" as any, {
@@ -199,6 +208,7 @@ export default function LancamentoDetalhe() {
       if (r?.error === "credit_card_required") return toast.error("Escolha um cartão para este lançamento.");
       if (r?.error === "account_required") return toast.error("Escolha uma conta para este lançamento.");
       if (r?.error === "invalid_payment_method") return toast.error("Método de pagamento inválido.");
+      if (r?.error === "investment_not_found") return toast.error("Investimento não encontrado.");
       return toast.error("Não consegui salvar agora. Tente novamente em instantes.");
     }
     if (categoryId && categoryId !== (tx.category_id ?? "")) {
@@ -308,6 +318,18 @@ export default function LancamentoDetalhe() {
               type={(tx?.type === "income" ? "income" : "expense") as "income" | "expense"}
             />
           </div>
+        )}
+
+        {isInvestmentMovement && (
+          <InvestmentLinkPicker
+            kind={tx.movement_kind as "investment_redemption" | "investment_application"}
+            amount={amount || tx.amount}
+            occurredAt={occurredAt || tx.occurred_at}
+            value={investmentId || null}
+            investments={investments as Array<{ id: string; name: string; current_value: number | string; reference_date?: string | null }>}
+            alreadyApplied={Boolean(tx.investment_id) && investmentId === tx.investment_id}
+            onChange={(id) => setInvestmentId(id ?? "")}
+          />
         )}
 
         {!isTransfer && (
