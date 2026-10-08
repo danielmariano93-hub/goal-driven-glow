@@ -166,7 +166,7 @@ const FLOW_LABEL: Record<string, string> = {
 /** Mostra, sem esconder nada, os movimentos que não são gasto nem receita e como eles se relacionam. */
 function PatrimonyFlow({ items, cards, investments }: { items: Item[]; cards: Array<{ id: string; name: string }>; investments: Array<{ id: string; name: string }> }) {
   const groups = Object.keys(FLOW_LABEL)
-    .map((kind) => ({ kind, rows: items.filter((i) => i.movement_kind === kind) }))
+    .map((kind) => ({ kind, rows: items.filter((i) => i.movement_kind === kind && !(kind === "external_transfer_out" && i.category_id)) }))
     .filter((g) => g.rows.length > 0);
   if (groups.length === 0) return null;
   const sum = (rows: Item[]) => rows.reduce((acc, r) => acc + Math.abs(Number(r.amount)), 0);
@@ -986,7 +986,14 @@ export function ReviewSheet({
                       />
                       <div className="min-w-0 flex-1 space-y-2">
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">{duplicateExplanation(it.duplicate_reason)}</p>}
-                        {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && it.movement_kind !== "investment_redemption" && it.movement_kind !== "investment_application" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && it.movement_kind !== "investment_redemption" && it.movement_kind !== "investment_application" && it.movement_kind !== "external_transfer_out" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind === "external_transfer_out" && (
+                          <p className="text-[11px] text-muted-foreground">
+                            {it.category_id
+                              ? "Pix/transferência enviada: com categoria, conta como gasto dela (metas e relatórios)."
+                              : "Pix/transferência enviada a pessoa: escolha uma categoria para contar como gasto. Sem categoria, só movimenta o saldo."}
+                          </p>
+                        )}
                         {(it.movement_kind === "investment_redemption" || it.movement_kind === "investment_application") && (
                           <InvestmentLinkPicker
                             kind={it.movement_kind as "investment_redemption" | "investment_application"}

@@ -726,8 +726,11 @@ const BUCKET_BY_KIND: Record<string, ReviewBucket> = {
   adjustment: "adjustment",
 };
 
-export function reviewBucketOf(item: { type?: string | null; movement_kind?: string | null }): ReviewBucket {
+export function reviewBucketOf(item: { type?: string | null; movement_kind?: string | null; category_id?: string | null }): ReviewBucket {
   const kind = String(item.movement_kind ?? "").trim();
+  // Pix/transferência enviada que recebeu uma categoria de consumo conta como gasto dessa categoria
+  // (o banco promove o lançamento no mesmo instante; aqui o resumo da revisão acompanha).
+  if (kind === "external_transfer_out" && item.type === "expense" && item.category_id) return "expense";
   if (BUCKET_BY_KIND[kind]) return BUCKET_BY_KIND[kind];
   const sem = semanticsOf({
     type: item.type as TransactionRow["type"], movement_kind: kind || null,
@@ -738,7 +741,7 @@ export function reviewBucketOf(item: { type?: string | null; movement_kind?: str
 
 /** Soma por balde (em módulo) + efeito líquido no caixa (cashImpact do mapa canônico). */
 export function summarizeReviewItems(
-  items: Array<{ type?: string | null; movement_kind?: string | null; amount: number | string }>,
+  items: Array<{ type?: string | null; movement_kind?: string | null; category_id?: string | null; amount: number | string }>,
 ): ReviewSummary {
   const out = {
     income: 0, expense: 0, refund: 0, internal_transfer: 0, card_payment: 0,
