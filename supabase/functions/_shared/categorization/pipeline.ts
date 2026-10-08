@@ -60,7 +60,9 @@ export async function loadEffectiveThresholds(sb: any): Promise<EffectiveThresho
 const RULES: Array<{ pattern: RegExp; category: string; categories?: string[]; strong?: boolean }> = [
   { pattern: /\b(uber|99|cabify|indriver)\b/, category: "transporte" },
   { pattern: /\b(restaurante|lanchonete|padaria|panificadora|churrascaria|churrasco|pizzaria|hamburgueria|grill|rotisseria|marmitaria)\b/, category: "alimentacao", strong: true },
-  { pattern: /\b(caf[eé]|pizza|burger|mcdonald|outback|snack|sucos?|doces|a[cç]ai|sorveteria|coco verde)\b/, category: "alimentacao" },
+  // O extrato trunca nomes ("Girardi Pizz"): prefixo de pizza e comércio de doces são alimentação com certeza.
+  { pattern: /\b(pizz\w*|doces?|doceria|confeitaria|sorveterias?|sorvetes?|a[cç]ai)\b/, category: "alimentacao", strong: true },
+  { pattern: /\b(caf[eé]|burger|mcdonald|outback|snack|sucos?|coco verde)\b/, category: "alimentacao" },
   { pattern: /\b(drogarias?|farm[aá]cias?|pacheco)\b/, category: "saude", strong: true },
   { pattern: /\b(supermercado|supermerc|hipermercado|mercado(?!\s*(?:livre|pago))|mercearia|hortifruti|sacol[aã]o|atacad[aã]o|atacado|emp[oó]rio)\b/, category: "mercado", strong: true },
   { pattern: /\b(extra|sams?\s*club|oxxo)\b/, category: "mercado" },

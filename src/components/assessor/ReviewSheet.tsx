@@ -56,6 +56,7 @@ type Item = {
   category_source?: string | null;
   category_confidence?: number | null;
   movement_kind?: string | null;
+  settles_card_id?: string | null;
   historical_installments_paid_assumption?: boolean | null;
   statement_item_kind?: StatementItemKind | null;
   installment_inferred?: boolean;
@@ -136,6 +137,55 @@ function parseBRLSignedInput(raw: string): number | null {
     : clean.replace(/,/g, "");
   const value = Number(normalized);
   return Number.isFinite(value) ? value : null;
+}
+
+const FLOW_LABEL: Record<string, string> = {
+  investment_redemption: "Resgates de aplicação",
+  investment_application: "Aplicações",
+  investment_yield: "Rendimentos",
+  card_payment: "Pagamentos de fatura",
+  external_transfer_out: "Pix/transferências enviadas",
+  external_transfer_in: "Pix/transferências recebidas",
+  internal_transfer: "Entre suas contas",
+  loan_proceeds: "Crédito de empréstimo",
+  debt_payment: "Amortização de dívida",
+};
+
+/** Mostra, sem esconder nada, os movimentos que não são gasto nem receita e como eles se relacionam. */
+function PatrimonyFlow({ items, cards }: { items: Item[]; cards: Array<{ id: string; name: string }> }) {
+  const groups = Object.keys(FLOW_LABEL)
+    .map((kind) => ({ kind, rows: items.filter((i) => i.movement_kind === kind) }))
+    .filter((g) => g.rows.length > 0);
+  if (groups.length === 0) return null;
+  const sum = (rows: Item[]) => rows.reduce((acc, r) => acc + Math.abs(Number(r.amount)), 0);
+  const redeemed = sum(items.filter((i) => i.movement_kind === "investment_redemption"));
+  const bills = sum(items.filter((i) => i.movement_kind === "card_payment"));
+  return (
+    <details className="rounded-xl border border-border bg-secondary/30 p-3 text-xs" open>
+      <summary className="cursor-pointer font-semibold">Movimentos que não são gasto nem receita ({groups.reduce((n, g) => n + g.rows.length, 0)})</summary>
+      {redeemed > 0 && bills > 0 && (
+        <p className="mt-2 rounded-lg bg-primary/5 px-2 py-1.5">
+          Entrou por resgate de aplicação <strong>{formatBRL(redeemed)}</strong> · saiu em pagamento de fatura <strong>{formatBRL(bills)}</strong>
+          {" · "}diferença <strong>{formatBRL(redeemed - bills)}</strong>. São movimentos entre o seu dinheiro e a sua dívida: não mudam o patrimônio.
+        </p>
+      )}
+      <div className="mt-2 space-y-2">
+        {groups.map((g) => (
+          <div key={g.kind}>
+            <p className="flex justify-between gap-2 font-medium"><span>{FLOW_LABEL[g.kind]} ({g.rows.length})</span><span className="tabular-nums">{formatBRL(sum(g.rows))}</span></p>
+            <ul className="mt-0.5 space-y-0.5 text-[11px] text-muted-foreground">
+              {g.rows.map((r) => (
+                <li key={r.id} className="flex justify-between gap-2">
+                  <span className="min-w-0 truncate">{formatDateBR(r.occurred_at)} · {r.description}{g.kind === "card_payment" ? ` → ${cards.find((c) => c.id === r.settles_card_id)?.name ?? "cartão não identificado"}` : ""}</span>
+                  <span className="shrink-0 tabular-nums">{formatBRL(Math.abs(Number(r.amount)))}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 export function ReviewSheet({
@@ -901,6 +951,7 @@ export function ReviewSheet({
               </div>
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {docKind !== "invoice" && <PatrimonyFlow items={selectedItems} cards={cards} />}
               {items.map((it) => {
                 const isConfirmed = it.status === "confirmed";
                 const isIgnored = it.status === "ignored";
@@ -922,7 +973,25 @@ export function ReviewSheet({
                       />
                       <div className="min-w-0 flex-1 space-y-2">
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">Possível duplicata: {it.duplicate_reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.</p>}
-                        {it.movement_kind && it.movement_kind !== "transaction" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind === "card_payment" && (
+                          <div className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px]">
+                            <p className="text-muted-foreground">Pagamento de fatura: sai da conta e reduz a fatura do cartão. Não é gasto novo (as compras já foram contadas).</p>
+                            <label className="mt-1 flex items-center gap-2">
+                              <span className="shrink-0 font-medium">Fatura paga</span>
+                              <select
+                                value={it.settles_card_id ?? ""}
+                                disabled={disabled}
+                                onChange={(e) => patchItem(it.id, { settles_card_id: e.target.value || null })}
+                                className="input-base min-w-0 flex-1 text-xs"
+                              >
+                                <option value="">Escolha o cartão</option>
+                                {cards.map((c: { id: string; name: string }) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                            </label>
+                            {!it.settles_card_id && <p className="mt-1 text-warning">Sem o cartão, o pagamento não abate a fatura.</p>}
+                          </div>
+                        )}
                         {(it.bank_description ?? it.raw_description) && (it.bank_description ?? it.raw_description) !== (it.friendly_description ?? it.description) && <p className="text-[10px] text-muted-foreground">No banco: {it.bank_description ?? it.raw_description}</p>}
                         <div className="flex items-center justify-between gap-2">
                           <input
