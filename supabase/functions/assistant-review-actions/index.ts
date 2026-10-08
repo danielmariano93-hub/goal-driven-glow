@@ -25,7 +25,7 @@ const ALLOWED_PATCH_KEYS = new Set([
   "description", "friendly_description", "amount", "occurred_at", "category_id", "account_id",
   "credit_card_id", "payment_method", "installments_total", "installment_number",
   "purchase_date", "competence_date", "historical_installments_paid_assumption",
-  "statement_item_kind", "installment_inferred",
+  "statement_item_kind", "installment_inferred", "settles_card_id",
 ]);
 const ALLOWED_DOCUMENT_PATCH_KEYS = new Set([
   "invoice_total", "invoice_previous_balance", "invoice_due_date", "invoice_closing_date",
@@ -93,6 +93,11 @@ Deno.serve(async (req) => {
       clean.description = clean.friendly_description;
     }
     if (Object.keys(clean).length === 0) return fail("empty_patch", { status: 400, functionName: FN });
+    // O cartão quitado precisa ser do próprio usuário.
+    if (clean.settles_card_id) {
+      const { data: ownCard } = await sb.from("credit_cards").select("id").eq("id", String(clean.settles_card_id)).eq("user_id", user.id).maybeSingle();
+      if (!ownCard) return fail("card_not_found", { status: 404, functionName: FN });
+    }
     // Marca a edição manual: essa flag é a fonte de verdade para o pipeline
     // de reprocessamento — categoria/valor/descrição escolhidos pelo usuário
     // nunca são sobrescritos por regras, aliases, LLM ou reenriquecimento.

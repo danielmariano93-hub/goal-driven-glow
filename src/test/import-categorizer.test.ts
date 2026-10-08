@@ -66,3 +66,29 @@ describe("integração do lote com o categorizador", () => {
     expect(ingest).toContain("isRefundLine");
   });
 });
+
+import { classifyWithContext } from "../../supabase/functions/_shared/categorization/engine";
+describe("descrições reais do extrato (Itaú via Open Finance) que vinham em branco", () => {
+  const cats = ["Transporte", "Alimentação", "Lazer", "Mercado", "Assinaturas"].map((name, i) => ({ id: `c${i}`, name, slug: name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "") }));
+  const idOf = (name: string) => cats.find((c) => c.name === name)!.id;
+  const run = (description: string) => classifyWithContext(
+    { type: "expense", description, movement_kind: "transaction" },
+    { candidates: cats, aliases: [], history: [], preferences: [], globalKnowledge: [], thresholds: ctx.thresholds },
+  );
+  const cases: Array<[string, string]> = [
+    ["Compra débito 99 Tecnologia*99* Pop 02o", "Transporte"],
+    ["Compra débito 99 Tecnologia*99* 99*", "Transporte"],
+    ["Compra débito Web Visa Dl 99 99 0510", "Transporte"],
+    ["Pix QR Code pago no WhatsApp CINEMARK BRASIL", "Lazer"],
+    ["Compra débito Kee*don Girardi Pizz", "Alimentação"],
+    ["Compra débito Wesk Comercio De Doces", "Alimentação"],
+    ["Compra débito 99 Food 12/10", "Alimentação"],
+  ];
+  for (const [description, expected] of cases) {
+    it(`${description} → ${expected} (aplicado automaticamente)`, () => {
+      const r = run(description);
+      expect(r.category_id).toBe(idOf(expected));
+      expect(r.action).toBe("auto_apply");
+    });
+  }
+});

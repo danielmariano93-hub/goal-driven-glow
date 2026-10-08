@@ -260,6 +260,11 @@ function describeError(err: Loose): string {
 }
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const KIND_LABEL: Record<string, string> = {
+  investment_redemption: "resgate de aplicação", investment_application: "aplicação", investment_yield: "rendimento",
+  card_payment: "pagamento de fatura", external_transfer_out: "Pix/transferência enviada", external_transfer_in: "Pix/transferência recebida",
+  internal_transfer: "entre suas contas", loan_proceeds: "empréstimo", debt_payment: "amortização", refund: "estorno",
+};
 const LEVEL_LABEL: Record<string, string> = { alta: "casa", valor_diferente: "valor diferente", duvida: "dúvida" };
 
 /** Relatório da conciliação do mês atual. Somente leitura: nada foi gravado. */
@@ -296,6 +301,17 @@ function ReconcileView({ report }: { report: ReconcileReport }) {
         {report.duplicated_accounts > 0 ? <li className="font-semibold text-destructive">{report.duplicated_accounts} conta(s) do banco repetida(s) foram ignoradas</li> : null}
       </ul>
 
+      {(() => {
+        const redeemed = r.new_items.filter((n) => n.kind === "investment_redemption").reduce((a, n) => a + n.amount, 0);
+        const bills = r.new_items.filter((n) => n.kind === "card_payment").reduce((a, n) => a + n.amount, 0);
+        return redeemed > 0 || bills > 0 ? (
+          <p className="mt-2 rounded-lg bg-primary/5 px-2 py-1.5">
+            Entre os novos do banco: resgates de aplicação <strong>{brl(redeemed)}</strong> · pagamentos de fatura <strong>{brl(bills)}</strong>.
+            Esses movimentos não são gasto nem receita; aparecem em "Novos do banco" com o tipo ao lado.
+          </p>
+        ) : null;
+      })()}
+
       <Section title="Casam com o banco" empty="Nenhum.">
         {r.matches.map((m, i) => (
           <li key={i} className="truncate">{m.date} · {m.nino} ↔ {m.bank} · {brl(m.nino_amount)}{m.delta ? ` → ${brl(m.bank_amount)}` : ""} · {LEVEL_LABEL[m.level] ?? m.level}</li>
@@ -303,7 +319,7 @@ function ReconcileView({ report }: { report: ReconcileReport }) {
       </Section>
       <Section title="Novos do banco" empty="Nenhum.">
         {r.new_items.map((n, i) => (
-          <li key={i} className="truncate">{n.date} · {n.description} · {n.type === "income" ? "+" : "−"}{brl(n.amount)}{n.issues.length ? ` · conferir` : ""}</li>
+          <li key={i} className="truncate">{n.date} · {n.description} · {n.type === "income" ? "+" : "−"}{brl(n.amount)}{KIND_LABEL[n.kind] ? ` · ${KIND_LABEL[n.kind]}` : ""}{n.issues.length ? ` · conferir` : ""}</li>
         ))}
       </Section>
       <Section title="Seus lançamentos sem par" empty="Nenhum.">
