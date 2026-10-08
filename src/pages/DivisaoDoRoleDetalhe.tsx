@@ -119,7 +119,7 @@ export default function DivisaoDoRoleDetalhe() {
   if(loadError){
     return <div className="space-y-4 pt-2">
       <button onClick={()=>nav("/app/divisao-do-role")} className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ArrowLeft size={14}/> Voltar</button>
-      <div className="surface-card p-6 text-center"><AlertTriangle className="mx-auto text-destructive"/><p className="mt-2 text-sm font-semibold">Não consegui abrir este rolê</p><p className="mt-1 text-xs text-muted-foreground">{loadError}</p><button onClick={()=>{setLoadError(null);load();}} className="btn-primary mx-auto mt-4 px-4 py-2"><RefreshCw size={13}/> Tentar novamente</button></div>
+      <div className="surface-card p-6 text-center"><AlertTriangle className="mx-auto text-destructive"/><p className="mt-2 text-sm font-semibold">Não consegui abrir este rolê</p><p className="mt-1 text-xs text-muted-foreground">{loadError}</p><button onClick={()=>{setLoadError(null);load();}} className="btn-brand mx-auto mt-4 px-4 py-2"><RefreshCw size={13}/> Tentar novamente</button></div>
     </div>;
   }
   if(!split)return <div className="grid place-items-center py-12"><Loader2 className="animate-spin"/></div>;
@@ -168,7 +168,7 @@ export default function DivisaoDoRoleDetalhe() {
     {split.deleted_at&&<div className="rounded-2xl border border-border bg-secondary/50 p-4 text-xs text-muted-foreground"><p className="font-semibold text-foreground">Este rolê foi excluído</p><p className="mt-1">O gasto foi removido das movimentações. Mantivemos este registro somente no histórico para não perder a rastreabilidade.</p></div>}
     <section className="surface-card p-4"><div className="grid grid-cols-3 gap-3"><Metric label="Total" value={formatBRL(Number(split.total_amount))}/><Metric label="Recebido" value={formatBRL(received)} tone="text-success"/><Metric label="Falta" value={formatBRL(pending)} tone={pending?"text-destructive":"text-success"}/></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gradient-to-r from-primary to-brand-coral transition-all" style={{width:`${progress}%`}}/></div><p className="mt-1 text-right text-[11px] text-muted-foreground">{progress}% recebido</p>{summary.nextDueDate&&<p className="mt-2 text-[11px] text-muted-foreground">Próximo vencimento: <strong className="text-foreground">{formatCivil(summary.nextDueDate)}</strong>{summary.overdue>0?` · ${formatBRL(summary.overdue)} em atraso`:""}</p>}</section>
     {overdue&&<div className="flex gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive"><AlertTriangle size={16}/> Há pessoas com pagamento atrasado.</div>}
-    {isOwner&&split.status==="active"&&<button disabled={busy||pendingInvite} onClick={sendAll} className="btn-primary w-full disabled:opacity-50"><Bell size={14}/> {pendingInvite?"Enviando convite inicial…":"Lembrar quem ainda não pagou"}</button>}
+    {isOwner&&split.status==="active"&&<button disabled={busy||pendingInvite} onClick={sendAll} className="btn-brand w-full disabled:opacity-50"><Bell size={16}/> {pendingInvite?"Enviando convite inicial…":"Lembrar quem ainda não pagou"}</button>}
     <section className="surface-card divide-y divide-border overflow-hidden">
       {parts.map((p)=>{
         const left=Math.max(0,Number(p.amount_due)-Number(p.amount_paid));
@@ -217,24 +217,28 @@ export default function DivisaoDoRoleDetalhe() {
           )}
 
           {isOwner&&left>0&&split.status==="active"&&(
-            <div className="flex flex-wrap gap-2">
-              <button disabled={busy} onClick={()=>payment(p.id,left)} className="rounded-full bg-success/15 px-3 py-1 text-xs text-success"><CheckCircle2 size={12} className="inline"/> Marcar {formatBRL(left)}</button>
-              <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="rounded-full border px-3 py-1 text-xs">Valor parcial</button>
+            <div className="space-y-2 pt-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registrar recebimento</p>
+              <div className="grid grid-cols-2 gap-2">
+              <button disabled={busy} onClick={()=>payment(p.id,left)} className="btn-action"><CheckCircle2 size={16}/> Recebi {formatBRL(left)}</button>
+              <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="btn-action-secondary"><Pencil size={15}/> Outro valor</button>
+              </div>
+              {!isOwnerRow&&<p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cobranças</p>}
               {!isOwnerRow&&(
-                <button disabled={busy} onClick={()=>toggleParticipantReminders(p.id,!remindersPaused)} className="rounded-full border px-3 py-1 text-xs">
-                  {remindersPaused?<Play size={12} className="inline"/>:<Pause size={12} className="inline"/>} {remindersPaused?"Retomar cobranças":"Pausar cobranças"}
+                <button disabled={busy} onClick={()=>toggleParticipantReminders(p.id,!remindersPaused)} className="btn-action-secondary w-full">
+                  {remindersPaused?<Play size={15}/>:<Pause size={15}/>} {remindersPaused?"Retomar cobranças":"Pausar cobranças"}
                 </button>
               )}
-              {!isOwnerRow&&stalled&&!remindersPaused&&<button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>}
-              {!isOwnerRow&&canRetry&&!remindersPaused&&<button disabled={busy} onClick={()=>retry(p.id,msg?.kind??"reminder")} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Tentar novamente</button>}
+              {!isOwnerRow&&stalled&&!remindersPaused&&<button disabled={busy} onClick={resume} className="btn-action-secondary w-full"><RefreshCw size={15}/> Retomar envio</button>}
+              {!isOwnerRow&&canRetry&&!remindersPaused&&<button disabled={busy} onClick={()=>retry(p.id,msg?.kind??"reminder")} className="btn-action-secondary w-full"><RefreshCw size={15}/> Tentar novamente</button>}
             </div>
           )}
 
           {isOwner&&!isOwnerRow&&msg?.outbound_status==="queued"&&!remindersPaused&&(
-            <button disabled={busy} onClick={resume} className="rounded-full border px-3 py-1 text-xs"><RefreshCw size={12} className="inline"/> Retomar envio</button>
+            <button disabled={busy} onClick={resume} className="btn-action-secondary w-full"><RefreshCw size={15}/> Retomar envio</button>
           )}
           {isOwner&&Number(p.amount_paid)>0&&!isOwnerRow&&(
-            <button disabled={busy} onClick={()=>act(()=>supabase.rpc("split_reverse_payment_v2" as never,{p_participant_id:p.id} as never),"Pagamento desfeito")} className="text-xs text-muted-foreground"><RotateCcw size={11} className="inline"/> Desfazer</button>
+            <button disabled={busy} onClick={()=>act(()=>supabase.rpc("split_reverse_payment_v2" as never,{p_participant_id:p.id} as never),"Pagamento desfeito")} className="btn-action-quiet"><RotateCcw size={13}/> Desfazer pagamento</button>
           )}
         </article>;
       })}
@@ -259,8 +263,8 @@ function InstallmentList({rows,canPay,busy,onPay}:{rows:ReceivableRow[];canPay:b
         <span className="flex items-center gap-2">
           <span className={tone}>{INSTALLMENT_STATE_LABEL[row.state]} · {formatBRL(balance>0?balance:Number(row.amount??0))}</span>
           {canPay&&balance>0&&<>
-            <button disabled={busy} onClick={()=>onPay(row.installment_id,balance)} className="rounded-full bg-success/15 px-2 py-0.5 text-success">Receber</button>
-            <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido nesta parcela?");const n=Number((v??"").replace(",","."));if(n>0)onPay(row.installment_id,Math.min(n,balance));}} className="rounded-full border px-2 py-0.5">Parcial</button>
+            <button disabled={busy} onClick={()=>onPay(row.installment_id,balance)} className="btn-action btn-action-sm">Receber</button>
+            <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido nesta parcela?");const n=Number((v??"").replace(",","."));if(n>0)onPay(row.installment_id,Math.min(n,balance));}} className="btn-action-secondary btn-action-sm">Outro valor</button>
           </>}
         </span>
       </li>;

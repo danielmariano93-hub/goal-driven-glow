@@ -146,7 +146,7 @@ export default function DivisaoDoRole() {
           <h1 className="font-display text-2xl font-bold">Divisão do Rolê</h1>
           <p className="text-xs text-muted-foreground">Clareza para dividir, leveza para cobrar</p>
         </div>
-        <button onClick={() => nav("/app/divisao-do-role/nova")} className="btn-primary px-4 py-2">
+        <button onClick={() => nav("/app/divisao-do-role/nova")} className="btn-brand px-4 py-2">
           <Plus size={14} /> Nova
         </button>
       </header>
@@ -205,7 +205,7 @@ function ErrorState({ onRetry, message }: { onRetry: () => void; message?: strin
       <AlertTriangle className="mx-auto text-destructive" />
       <p className="mt-2 text-sm font-semibold">Não consegui carregar seus rolês</p>
       <p className="mt-1 text-xs text-muted-foreground">{message || "Verifique sua conexão e tente novamente."}</p>
-      <button onClick={onRetry} className="btn-primary mx-auto mt-4 px-4 py-2">
+      <button onClick={onRetry} className="btn-brand mx-auto mt-4 px-4 py-2">
         <RefreshCw size={13} /> Tentar novamente
       </button>
     </div>
