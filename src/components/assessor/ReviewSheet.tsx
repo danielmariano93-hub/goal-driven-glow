@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { X, Check, Loader2, AlertTriangle, Ban, Trash2, RotateCcw, Copy, FileWarning } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useAccounts, useCategories } from "@/lib/db/finance";
+import { useAccounts, useCategories, useInvestments } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/engine/facts";
 import { summarizeReviewItems } from "@/lib/engine/bridges";
@@ -57,6 +57,7 @@ type Item = {
   category_confidence?: number | null;
   movement_kind?: string | null;
   settles_card_id?: string | null;
+  investment_id?: string | null;
   historical_installments_paid_assumption?: boolean | null;
   statement_item_kind?: StatementItemKind | null;
   installment_inferred?: boolean;
@@ -149,6 +150,39 @@ function duplicateExplanation(reason?: string | null): string {
   return `Possível duplicata: ${reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.`;
 }
 
+/** Escolhe qual investimento o resgate/aplicação movimenta e mostra, antes de confirmar, o efeito na posição. */
+function InvestmentPicker({ item, investments, disabled, onChange }: {
+  item: Item;
+  investments: Array<{ id: string; name: string; current_value: number | string; reference_date?: string | null }>;
+  disabled: boolean;
+  onChange: (id: string | null) => void;
+}) {
+  const redemption = item.movement_kind === "investment_redemption";
+  const amount = Math.abs(Number(item.amount));
+  const chosen = investments.find((i) => i.id === item.investment_id) ?? null;
+  const current = chosen ? Number(chosen.current_value) : 0;
+  const beforeAnchor = Boolean(chosen?.reference_date && item.occurred_at && item.occurred_at.slice(0, 10) <= String(chosen.reference_date).slice(0, 10));
+  const after = redemption ? current - amount : current + amount;
+  return (
+    <div className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px]">
+      <p className="text-muted-foreground">
+        {redemption ? "Resgate: sai do investimento e entra na conta. Seu patrimônio não muda." : "Aplicação: sai da conta e entra no investimento. Seu patrimônio não muda."}
+      </p>
+      <label className="mt-1 flex items-center gap-2">
+        <span className="shrink-0 font-medium">{redemption ? "Resgatado de" : "Aplicado em"}</span>
+        <select value={item.investment_id ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className="input-base min-w-0 flex-1 text-xs">
+          <option value="">Escolha o investimento</option>
+          {investments.map((i) => <option key={i.id} value={i.id}>{i.name} · {formatBRL(Number(i.current_value))}</option>)}
+        </select>
+      </label>
+      {chosen && beforeAnchor && <p className="mt-1 text-muted-foreground">Movimento anterior à data de referência da posição: fica vinculado, sem alterar o valor atual.</p>}
+      {chosen && !beforeAnchor && redemption && amount > current + 0.01 && <p className="mt-1 text-warning">Maior que a posição registrada ({formatBRL(current)}): fica pendente de conferência, sem zerar o investimento.</p>}
+      {chosen && !beforeAnchor && !(redemption && amount > current + 0.01) && <p className="mt-1 tabular-nums">{chosen.name}: {formatBRL(current)} → <strong>{formatBRL(Math.max(0, after))}</strong></p>}
+      {!chosen && <p className="mt-1 text-muted-foreground">Sem escolher, o Nino só vincula se o nome bater com um único investimento.</p>}
+    </div>
+  );
+}
+
 const FLOW_LABEL: Record<string, string> = {
   investment_redemption: "Resgates de aplicação",
   investment_application: "Aplicações",
@@ -162,7 +196,7 @@ const FLOW_LABEL: Record<string, string> = {
 };
 
 /** Mostra, sem esconder nada, os movimentos que não são gasto nem receita e como eles se relacionam. */
-function PatrimonyFlow({ items, cards }: { items: Item[]; cards: Array<{ id: string; name: string }> }) {
+function PatrimonyFlow({ items, cards, investments }: { items: Item[]; cards: Array<{ id: string; name: string }>; investments: Array<{ id: string; name: string }> }) {
   const groups = Object.keys(FLOW_LABEL)
     .map((kind) => ({ kind, rows: items.filter((i) => i.movement_kind === kind) }))
     .filter((g) => g.rows.length > 0);
@@ -186,7 +220,7 @@ function PatrimonyFlow({ items, cards }: { items: Item[]; cards: Array<{ id: str
             <ul className="mt-0.5 space-y-0.5 text-[11px] text-muted-foreground">
               {g.rows.map((r) => (
                 <li key={r.id} className="flex justify-between gap-2">
-                  <span className="min-w-0 truncate">{formatDateBR(r.occurred_at)} · {r.description}{g.kind === "card_payment" ? ` → ${cards.find((c) => c.id === r.settles_card_id)?.name ?? "cartão não identificado"}` : ""}</span>
+                  <span className="min-w-0 truncate">{formatDateBR(r.occurred_at)} · {r.description}{g.kind === "card_payment" ? ` → ${cards.find((c) => c.id === r.settles_card_id)?.name ?? "cartão não identificado"}` : ""}{g.kind === "investment_redemption" || g.kind === "investment_application" ? ` ${g.kind === "investment_redemption" ? "←" : "→"} ${investments.find((i) => i.id === r.investment_id)?.name ?? "investimento não escolhido"}` : ""}</span>
                   <span className="shrink-0 tabular-nums">{formatBRL(Math.abs(Number(r.amount)))}</span>
                 </li>
               ))}
@@ -211,6 +245,7 @@ export function ReviewSheet({
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: cards = [] } = useCreditCards();
+  const { data: investments = [] } = useInvestments();
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -961,7 +996,7 @@ export function ReviewSheet({
               </div>
             </div>
             <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4">
-              {docKind !== "invoice" && <PatrimonyFlow items={selectedItems} cards={cards} />}
+              {docKind !== "invoice" && <PatrimonyFlow items={selectedItems} cards={cards} investments={investments as Array<{ id: string; name: string }>} />}
               {items.map((it) => {
                 const isConfirmed = it.status === "confirmed";
                 const isIgnored = it.status === "ignored";
@@ -983,7 +1018,15 @@ export function ReviewSheet({
                       />
                       <div className="min-w-0 flex-1 space-y-2">
                         {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">{duplicateExplanation(it.duplicate_reason)}</p>}
-                        {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && it.movement_kind !== "investment_redemption" && it.movement_kind !== "investment_application" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
+                        {(it.movement_kind === "investment_redemption" || it.movement_kind === "investment_application") && (
+                          <InvestmentPicker
+                            item={it}
+                            investments={investments as Array<{ id: string; name: string; current_value: number | string; reference_date?: string | null }>}
+                            disabled={disabled}
+                            onChange={(id) => patchItem(it.id, { investment_id: id })}
+                          />
+                        )}
                         {it.movement_kind === "card_payment" && (
                           <div className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px]">
                             <p className="text-muted-foreground">Pagamento de fatura: sai da conta e reduz a fatura do cartão. Não é gasto novo (as compras já foram contadas).</p>

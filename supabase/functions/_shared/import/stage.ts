@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { normalizeDescription, merchantCanonical } from "../categorization/normalize.ts";
 import { classifyBatch, fetchExistingCandidates, linkRefunds, type DupeVerdict } from "./dedupe.ts";
 import type { ImportItem } from "./schema.ts";
+import { suggestInvestment } from "./investmentLink.ts";
 import { detectCardForPayment } from "./cardPayment.ts";
 import { buildImportCategorizer, type ImportCategorizer } from "../categorization/importCategorizer.ts";
 import { summarizeReviewItems } from "../finance-core/bridges.ts";
@@ -181,6 +182,18 @@ export async function stageBatch(sb: SupabaseClient, args: {
     console.error("[stage] categorizer_unavailable", error instanceof Error ? error.message : String(error));
   }
 
+  // Resgate/aplicação: sugere o investimento (apelido aprendido ou nome único); na dúvida, a pessoa escolhe.
+  let investmentRefs: Array<{ id: string; name: string }> = [];
+  let investmentAliases: Array<{ investment_id: string; normalized_alias: string }> = [];
+  if (items.some((i) => i.movement_kind === "investment_application" || i.movement_kind === "investment_redemption")) {
+    const [invs, als] = await Promise.all([
+      sb.from("investments").select("id,name").eq("user_id", user_id),
+      sb.from("investment_aliases").select("investment_id,normalized_alias").eq("user_id", user_id),
+    ]);
+    investmentRefs = (invs.data ?? []) as any[];
+    investmentAliases = (als.data ?? []) as any[];
+  }
+
   // Datas resolvidas por item (nunca uma data única para o lote).
   const dated = items.map((item) => ({
     item,
@@ -329,6 +342,8 @@ export async function stageBatch(sb: SupabaseClient, args: {
       card_hint: item.card_hint,
       account_id: itemTarget.account_id,
       credit_card_id: itemTarget.credit_card_id,
+      investment_id: item.movement_kind === "investment_application" || item.movement_kind === "investment_redemption"
+        ? suggestInvestment(item.description, investmentRefs, investmentAliases) : null,
       settles_card_id: item.movement_kind === "card_payment" && !itemTarget.credit_card_id
         ? detectCardForPayment(`${item.description} ${item.raw_description ?? ""}`, lookups.cards) : null,
       category_id: picked?.category_id ?? matchByName(lookups.categories, item.category_hint),
