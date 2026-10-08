@@ -13,16 +13,21 @@ export type CategorizableItem = { type: "income" | "expense"; movement_kind?: st
 export type CategoryPick = { category_id: string; source: string; confidence: number };
 export type ImportCategorizer = (item: CategorizableItem) => CategoryPick | null;
 
-const textOf = (item: CategorizableItem) => String(item.merchant || item.description || item.raw_description || "");
+// "Pix enviado THALES ..." → "THALES ...": a identidade aprendida é o nome da pessoa, não o verbo do extrato.
+const PIX_PREFIX = /^\s*(?:pix|ted|doc|transfer[eê]ncia)\s+(?:enviado|enviada|recebido|recebida)\s+(?:para\s+|de\s+)?/i;
+const textOf = (item: CategorizableItem) => String(item.merchant || item.description || item.raw_description || "").replace(PIX_PREFIX, "");
 
-/** Kinds que carregam consumo e portanto têm categoria. Estorno herda a categoria do gasto original. */
-const CATEGORIZABLE_KINDS = new Set(["transaction", "refund"]);
+/** Kinds que carregam consumo e portanto têm categoria. Estorno herda a categoria do gasto original.
+ *  Pix/transferência a pessoa também entra, mas SÓ com o que a pessoa já ensinou (nada de chute por palavra). */
+const CATEGORIZABLE_KINDS = new Set(["transaction", "refund", "external_transfer_out"]);
+const LEARNED_SOURCES = new Set(["personal", "alias", "history", "user"]);
 
 // deno-lint-ignore no-explicit-any
 export async function buildImportCategorizer(sb: any, userId: string, items: CategorizableItem[]): Promise<ImportCategorizer> {
   const eligible = items.filter((i) => CATEGORIZABLE_KINDS.has(String(i.movement_kind ?? "transaction")));
   // Estorno é entrada, mas a categoria dele é a do GASTO original → contexto de despesa.
-  const contextTypeOf = (i: CategorizableItem): "income" | "expense" => (i.movement_kind === "refund" ? "expense" : i.type);
+  const contextTypeOf = (i: CategorizableItem): "income" | "expense" =>
+    (i.movement_kind === "refund" || i.movement_kind === "external_transfer_out" ? "expense" : i.type);
   const contexts = new Map<"income" | "expense", CategorizationContext>();
 
   for (const type of ["expense", "income"] as const) {
@@ -50,8 +55,8 @@ export async function buildImportCategorizer(sb: any, userId: string, items: Cat
       // Estorno consulta o motor como gasto comum (a regra de estorno do motor corta a marca do texto).
       movement_kind: "transaction",
     }, context);
-    return result.category_id && result.action === "auto_apply"
-      ? { category_id: result.category_id, source: result.category_source, confidence: result.category_confidence }
-      : null;
+    if (!result.category_id || result.action !== "auto_apply") return null;
+    if (item.movement_kind === "external_transfer_out" && !LEARNED_SOURCES.has(result.category_source)) return null;
+    return { category_id: result.category_id, source: result.category_source, confidence: result.category_confidence };
   };
 }

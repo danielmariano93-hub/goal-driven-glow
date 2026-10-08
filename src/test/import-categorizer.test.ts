@@ -4,10 +4,14 @@ const ctx = {
   candidates: [
     { id: "transport", name: "Transporte", slug: "transporte" },
     { id: "food", name: "Alimentação", slug: "alimentacao" },
+    { id: "lazer", name: "Lazer", slug: "lazer" },
   ],
   aliases: [],
   history: [],
-  preferences: [{ merchant_key: "padaria do ze", category_id: "food", evidence_count: 4 }],
+  preferences: [
+    { merchant_key: "padaria do ze", category_id: "food", evidence_count: 4 },
+    { merchant_key: "thales", category_id: "lazer", evidence_count: 2 },
+  ],
   globalKnowledge: [],
   thresholds: { AUTO: 0.85, SUGGEST: 0.6, per_source: { rule: 0.75, history: 0.85, alias: 0.98, llm: 0.75 } },
 };
@@ -91,4 +95,33 @@ describe("descrições reais do extrato (Itaú via Open Finance) que vinham em b
       expect(r.action).toBe("auto_apply");
     });
   }
+});
+
+describe("Pix a pessoa no lote", () => {
+  it("pessoa que o usuário já categorizou (Thales → Lazer) vem categorizada; desconhecida fica neutra", async () => {
+    const categorize = await buildImportCategorizer({}, "u1", [
+      { type: "expense", movement_kind: "external_transfer_out", description: "Pix enviado THALES FRATANGELO MACIEL" },
+    ]);
+    expect(categorize({ type: "expense", movement_kind: "external_transfer_out", description: "Pix enviado Thales" })?.category_id).toBe("lazer");
+    expect(categorize({ type: "expense", movement_kind: "external_transfer_out", description: "Pix enviado Fulano Qualquer" })).toBeNull();
+  });
+});
+
+describe("Pix a pessoa: categoria dada (ou aprendida) vira gasto; sem categoria é neutro", () => {
+  it("o gatilho promove external_transfer_out categorizado e só quando a categoria é dada/muda", () => {
+    const sql = readFileSync("supabase/migrations/20261008600000_categorized_transfer_becomes_expense.sql", "utf8");
+    expect(sql).toContain("new.movement_kind := 'transaction'");
+    expect(sql).toContain("tg_op = 'INSERT' or new.category_id is distinct from old.category_id");
+  });
+  it("resumo da revisão acompanha: com categoria é gasto, sem categoria é movimento neutro", async () => {
+    const { reviewBucketOf } = await import("@/lib/engine/bridges");
+    expect(reviewBucketOf({ type: "expense", movement_kind: "external_transfer_out", category_id: "lazer" })).toBe("expense");
+    expect(reviewBucketOf({ type: "expense", movement_kind: "external_transfer_out", category_id: null })).toBe("external_transfer_out");
+    expect(reviewBucketOf({ type: "income", movement_kind: "external_transfer_in", category_id: "x" })).toBe("external_transfer_in");
+  });
+  it("categorizador só usa o que a pessoa já ensinou para Pix a pessoa", () => {
+    const src = readFileSync("supabase/functions/_shared/categorization/importCategorizer.ts", "utf8");
+    expect(src).toContain("LEARNED_SOURCES");
+    expect(src).toContain('item.movement_kind === "external_transfer_out" && !LEARNED_SOURCES.has');
+  });
 });

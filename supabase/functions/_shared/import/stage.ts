@@ -253,7 +253,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
   let total_income = 0;
   let total_transfer = 0;
   let total_refund = 0;
-  const reviewItems: Array<{ type: string; movement_kind: string; amount: number }> = [];
+  const reviewItems: Array<{ type: string; movement_kind: string; amount: number; category_id?: string | null }> = [];
 
   const { data: doc, error: docError } = await sb.from("document_imports").insert({
     user_id,
@@ -320,7 +320,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
     }
 
     if (verdict.status === "new" || verdict.status === "repeated_legitimate") {
-      reviewItems.push({ type: item.type, movement_kind: item.movement_kind, amount: item.amount });
+      reviewItems.push({ type: item.type, movement_kind: item.movement_kind, amount: item.amount, category_id: picked?.category_id ?? matchByName(lookups.categories, item.category_hint) });
     }
 
     rows.push({
