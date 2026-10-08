@@ -625,7 +625,9 @@ async function enrichItems(
   // lançamentos confirmados não volta como "sem categoria".
   const descriptionsByType = { expense: [] as string[], income: [] as string[] };
   for (const n of normalized) {
-    const bucket = n.item.type === "income" ? descriptionsByType.income : descriptionsByType.expense;
+    // Estorno herda a categoria do gasto original: aprende do histórico de DESPESA.
+    const isRefundLine = (n.item.movement_kind ?? n.ruleMovementKind) === "refund";
+    const bucket = n.item.type === "income" && !isRefundLine ? descriptionsByType.income : descriptionsByType.expense;
     bucket.push(n.friendly || n.rawDesc);
   }
   const [historyExpense, historyIncome] = await Promise.all([
@@ -670,13 +672,17 @@ async function enrichItems(
     }
 
     if (!categoryId) {
+      // Estorno é entrada, mas herda a categoria do GASTO original (Uber → Transporte): consulta o
+      // motor como despesa comum. Os demais movimentos patrimoniais continuam excluídos do consumo.
+      const effectiveKind = item.movement_kind ?? ruleMovementKind ?? "transaction";
+      const isRefundLine = effectiveKind === "refund";
       const central = classifyWithContext({
-        type: item.type,
+        type: isRefundLine ? "expense" : item.type,
         description: friendly || rawDesc,
         // Machine hints are evidence, never an explicit user choice.
         explicit_category: null,
-        movement_kind: item.movement_kind ?? ruleMovementKind ?? "transaction",
-      }, item.type === "income" ? incomeCategoryContext : expenseCategoryContext);
+        movement_kind: isRefundLine ? "transaction" : effectiveKind,
+      }, item.type === "income" && !isRefundLine ? incomeCategoryContext : expenseCategoryContext);
       if (central.category_id && central.action === "auto_apply") {
         categoryId = central.category_id;
         categorySource = central.category_source;

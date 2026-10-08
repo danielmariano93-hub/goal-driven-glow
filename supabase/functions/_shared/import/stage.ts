@@ -10,6 +10,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { normalizeDescription, merchantCanonical } from "../categorization/normalize.ts";
 import { classifyBatch, fetchExistingCandidates, linkRefunds, type DupeVerdict } from "./dedupe.ts";
 import type { ImportItem } from "./schema.ts";
+import { buildImportCategorizer, type ImportCategorizer } from "../categorization/importCategorizer.ts";
 import { summarizeReviewItems } from "../finance-core/bridges.ts";
 import { today as localToday } from "../finance-core/ninoClock.ts";
 
@@ -169,6 +170,15 @@ export async function stageBatch(sb: SupabaseClient, args: {
 }): Promise<StagedBatch> {
   const { user_id, items, target } = args;
   const lookups = await loadLookups(sb, user_id);
+  // Mesma camada de categorização do resto do Nino; falha de leitura não derruba o lote.
+  let categorize: ImportCategorizer = () => null;
+  try {
+    categorize = await buildImportCategorizer(sb, user_id, items.map((i) => ({
+      type: i.type, movement_kind: i.movement_kind, description: i.description, raw_description: i.raw_description, merchant: i.merchant,
+    })));
+  } catch (error) {
+    console.error("[stage] categorizer_unavailable", error instanceof Error ? error.message : String(error));
+  }
 
   // Datas resolvidas por item (nunca uma data única para o lote).
   const dated = items.map((item) => ({
@@ -264,6 +274,10 @@ export async function stageBatch(sb: SupabaseClient, args: {
     };
     if (itemTarget.account_id && itemTarget.credit_card_id) itemTarget.account_id = null;
 
+    const picked = categorize({
+      type: item.type, movement_kind: item.movement_kind, description: item.description,
+      raw_description: item.raw_description, merchant: item.merchant,
+    });
     const issues = [...item.issues];
     if (row.dateMissing) issues.push("data_inferida_hoje");
 
@@ -313,9 +327,9 @@ export async function stageBatch(sb: SupabaseClient, args: {
       card_hint: item.card_hint,
       account_id: itemTarget.account_id,
       credit_card_id: itemTarget.credit_card_id,
-      category_id: matchByName(lookups.categories, item.category_hint),
+      category_id: picked?.category_id ?? matchByName(lookups.categories, item.category_hint),
       category_hint: item.category_hint,
-      category_source: item.category_hint ? "document_hint" : null,
+      category_source: picked ? picked.source : item.category_hint ? "document_hint" : null,
       installments_total: item.installments_total,
       installment_number: item.installment_number,
       movement_kind: item.movement_kind,
