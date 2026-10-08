@@ -139,6 +139,16 @@ function parseBRLSignedInput(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/** Texto humano para o motivo de duplicidade (o código cru não ajuda ninguém). */
+function duplicateExplanation(reason?: string | null): string {
+  const text = String(reason ?? "");
+  if (text.includes("reembolso_do_role")) {
+    const diff = /dif=([\d.]+)/.exec(text)?.[1];
+    return `Parece o pagamento de um rolê que você já marcou como recebido${diff ? ` (o banco difere em R$ ${diff.replace(".", ",")})` : ""}. Não importe de novo: toque em "Já registrei" para vincular este movimento do banco ao lançamento existente.`;
+  }
+  return `Possível duplicata: ${reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.`;
+}
+
 const FLOW_LABEL: Record<string, string> = {
   investment_redemption: "Resgates de aplicação",
   investment_application: "Aplicações",
@@ -717,7 +727,7 @@ export function ReviewSheet({
   void categories; // Preservado apenas para invalidação/cache; opções vêm do CategorySelect.
 
   const panel = (
-    <div className="fixed inset-0 z-[140] flex flex-col bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-[140] flex flex-col overflow-hidden bg-background md:items-center md:justify-center md:bg-black/50" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-card md:h-[90vh] md:max-h-[800px] md:w-[720px] md:rounded-2xl md:shadow-brand"
@@ -950,7 +960,7 @@ export function ReviewSheet({
                 </span>
               </div>
             </div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4">
               {docKind !== "invoice" && <PatrimonyFlow items={selectedItems} cards={cards} />}
               {items.map((it) => {
                 const isConfirmed = it.status === "confirmed";
@@ -960,7 +970,7 @@ export function ReviewSheet({
                 return (
                   <div
                     key={it.id}
-                    className={`rounded-2xl border p-3 ${isConfirmed ? "border-success/40 bg-success/5 opacity-70" : isIgnored ? "border-border bg-secondary/30 opacity-60" : isDup ? "border-warning/40 bg-warning/5" : "border-border bg-card"}`}
+                    className={`min-w-0 max-w-full rounded-2xl border p-3 ${isConfirmed ? "border-success/40 bg-success/5 opacity-70" : isIgnored ? "border-border bg-secondary/30 opacity-60" : isDup ? "border-warning/40 bg-warning/5" : "border-border bg-card"}`}
                   >
                     <div className="flex items-start gap-3">
                       <input
@@ -972,7 +982,7 @@ export function ReviewSheet({
                         aria-label={`Selecionar ${it.description ?? "item"}`}
                       />
                       <div className="min-w-0 flex-1 space-y-2">
-                        {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">Possível duplicata: {it.duplicate_reason ?? "há um lançamento semelhante"}. Vem desmarcada por segurança.</p>}
+                        {isDup && <p className="rounded-lg bg-warning/10 px-2 py-1 text-[11px] text-warning">{duplicateExplanation(it.duplicate_reason)}</p>}
                         {it.movement_kind && it.movement_kind !== "transaction" && it.movement_kind !== "card_payment" && <p className="text-[11px] text-muted-foreground">Movimento interno: {it.movement_kind.replace(/_/g, " ")}. Afeta o saldo, mas não será tratado como renda ou consumo.</p>}
                         {it.movement_kind === "card_payment" && (
                           <div className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px]">
@@ -1026,13 +1036,13 @@ export function ReviewSheet({
                                 disabled={resolvingDup === it.id}
                                 className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] text-warning hover:bg-warning/20 disabled:opacity-50"
                               >
-                                É a mesma, não registrar
+                                {String(it.duplicate_reason ?? "").includes("reembolso_do_role") ? "Já registrei (vincular)" : "É a mesma, não registrar"}
                               </button>
                             </div>
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 [&>*]:min-w-0">
                           <div>
                             <label className="text-[10px] text-muted-foreground">Valor</label>
                             <input

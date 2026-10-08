@@ -34,6 +34,8 @@ export type ExistingTx = {
   movement_kind?: string | null;
   import_source_id?: string | null;
   status?: string | null;
+  /** 'reimbursement' = recebimento de rolê registrado pelo Nino ao marcar "Recebi". */
+  split_transaction_role?: string | null;
 };
 
 export type DupeVerdict = {
@@ -84,6 +86,7 @@ export type DedupeInputItem = {
   fingerprint?: string | null;
   source_document_id?: string | null;
   source_line_index?: number | null;
+  movement_kind?: string | null;
 };
 
 /**
@@ -146,6 +149,35 @@ export function classifyBatch(
       consumed.add(refHit.id);
       verdicts.push({ status: "exact_duplicate", reason_code: "referencia_bancaria", duplicate_of: refHit.id });
       continue;
+    }
+
+    // 2b. Pix recebido que é o pagamento de um rolê que a pessoa já marcou como "Recebi":
+    // o Nino já lançou o "Reembolso · rolê" na conta. Importar de novo contaria o dinheiro duas vezes.
+    // O valor pode diferir de centavos (parcela arredondada x Pix), por isso há tolerância.
+    if (item.type === "income" && ["external_transfer_in", "transaction", "income", undefined, null].includes(item.movement_kind as never)) {
+      const tolerance = Math.max(1, item.amount * 0.01);
+      const roleHit = existing
+        .filter((tx) =>
+          !consumed.has(tx.id)
+          && tx.split_transaction_role === "reimbursement"
+          && tx.type === "income"
+          && Math.abs(Number(tx.amount) - item.amount) <= tolerance
+          && dates.some((d) => daysApart(tx.occurred_at, d) <= windowDays))
+        .map((tx) => ({
+          tx,
+          diff: Math.abs(Number(tx.amount) - item.amount),
+          gap: Math.min(...dates.map((d) => daysApart(tx.occurred_at, d))),
+        }))
+        .sort((a, b) => a.diff - b.diff || a.gap - b.gap)[0];
+      if (roleHit) {
+        consumed.add(roleHit.tx.id);
+        verdicts.push({
+          status: "probable_duplicate",
+          reason_code: roleHit.diff > 0.004 ? `reembolso_do_role:dif=${roleHit.diff.toFixed(2)}` : "reembolso_do_role",
+          duplicate_of: roleHit.tx.id,
+        });
+        continue;
+      }
     }
 
     // 3/4. tipo + valor + (data|janela) + comerciante
@@ -273,7 +305,7 @@ export async function fetchExistingCandidates(
   // Data API devolvia no máximo 1.000 linhas ignorando o limite pedido.
   const data = await fetchAllPages<ExistingTx>((a, b) => sb
     .from("transactions")
-    .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index, status")
+    .select("id, type, amount, occurred_at, posted_at, description, raw_description, bank_reference, dedupe_fingerprint, movement_kind, import_source_id, source_document_id, source_line_index, status, split_transaction_role")
     .eq("user_id", user_id)
     .gte("occurred_at", from)
     .lte("occurred_at", to)

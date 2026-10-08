@@ -216,6 +216,7 @@ export async function stageBatch(sb: SupabaseClient, args: {
       description: row.item.description,
       raw_description: row.item.raw_description,
       merchant: row.item.merchant,
+      movement_kind: row.item.movement_kind,
       bank_reference: row.item.bank_reference,
       external_id: row.item.external_id,
       source_document_id: row.item.source_document_id,
