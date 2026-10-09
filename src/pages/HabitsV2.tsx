@@ -310,7 +310,6 @@ export default function HabitsV2() {
       <details open={detailsOpen} onToggle={(e) => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)} className="rounded-[22px] border border-border bg-card shadow-card">
         <summary className="flex min-h-12 cursor-pointer items-center justify-between px-4 text-sm font-semibold">
           Histórico e análises detalhadas
-          <span className="text-[11px] font-normal text-muted-foreground">check-in · registros · evolução</span>
         </summary>
         <div className="space-y-5 border-t border-border p-4">
           <div id="checkin" className="scroll-mt-24"><EmotionalCheckinCard /></div>

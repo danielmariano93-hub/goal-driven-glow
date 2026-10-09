@@ -12,9 +12,9 @@ export type PatternAnswerKey = "planned" | "spontaneous" | "for_others" | "depen
 export const PATTERN_QUESTION = {
   key: "planned_vs_spontaneous" as const,
   options: [
-    { key: "planned" as const, label: "Já estavam planejados" },
+    { key: "planned" as const, label: "Já planejo" },
     { key: "spontaneous" as const, label: "Decido na hora" },
-    { key: "for_others" as const, label: "Envolvem outras pessoas" },
+    { key: "for_others" as const, label: "Com outras pessoas" },
     { key: "depends" as const, label: "Depende" },
   ],
 };
@@ -22,7 +22,7 @@ export const PATTERN_QUESTION = {
 /** Texto da pergunta (a mesma para um grupo de categorias). */
 export function patternQuestionText(categories: string[]): string {
   const list = categories.length <= 1 ? categories[0] : `${categories.slice(0, -1).join(", ")} e ${categories[categories.length - 1]}`;
-  return `Esses gastos de fim de semana com ${list} costumam ser…`;
+  return `Esses gastos com ${list} costumam ser…`;
 }
 
 /** O que a resposta significa (sem juízo e sem causa inventada). */
