@@ -5,9 +5,11 @@ import {
   weekendCoveredCategories,
   weekendForecastSituation,
 } from "../../supabase/functions/_shared/proactive/weekendForecast";
-import { buildWeekendRecap, weekendRecapSituation } from "../../supabase/functions/_shared/proactive/weekendRecap";
+import { buildWeekendRecap, buildWeekendRecaps, weekendRecapSituation } from "../../supabase/functions/_shared/proactive/weekendRecap";
 import { narrativeEligibility } from "../../supabase/functions/_shared/agent/narrative/TonePolicy";
 import { repeatedKind } from "../../supabase/functions/_shared/proactive/repetition";
+import { loadNudgeGoals } from "../../supabase/functions/_shared/proactive/profileLoaders";
+import { goalsFromReadings } from "../../supabase/functions/_shared/proactive/weekendForecast";
 import { buildWeekdayProjection } from "../../supabase/functions/_shared/proactive/weekdayNudge";
 
 type Tx = { occurred_at: string; amount: number; category: string; payment_method?: string };
@@ -155,5 +157,70 @@ describe("fechamento de segunda", () => {
     const sit = weekendRecapSituation(buildWeekendRecap(delivered, weekend(200), MONDAY), rctx, new Date("2026-10-12T11:00:00Z"))!;
     const friday = [{ kind: "weekend_spending_risk", channel: "whatsapp", delivered_at: "2026-10-09T11:00:00Z", impact_amount: 900 }];
     expect(repeatedKind(sit, "whatsapp", friday, new Date("2026-10-12T11:00:00Z"))).toBeNull();
+  });
+});
+
+describe("metas reais do usuário", () => {
+  // Metas criadas como this_month / next_month (não "monthly_recurring"): a data do período decide, não o tipo.
+  const goalRows = [
+    { category_id: "c1", computed_limit: "714.77", status: "active", start_date: "2026-09-01", end_date: "2026-09-30" },
+    { category_id: "c1", computed_limit: "943.87", status: "active", start_date: "2026-10-01", end_date: "2026-10-31" },
+    { category_id: "c2", computed_limit: "1059.88", status: "active", start_date: "2026-10-01", end_date: "2026-10-31" },
+    { category_id: "c3", computed_limit: "500", status: "active", start_date: "2026-11-01", end_date: "2026-11-30" },
+  ];
+  const cats = [{ id: "c1", name: "Alimentação" }, { id: "c2", name: "Lazer" }, { id: "c3", name: "Mercado" }];
+  const sb: any = {
+    from: (table: string) => {
+      const rows = table === "categories" ? cats : goalRows;
+      const q: any = { select: () => q, eq: () => q, or: () => q, lte: () => Promise.resolve({ data: rows.filter((r: any) => !r.start_date || r.start_date <= TODAY) }), then: (res: any) => res({ data: rows }) };
+      return q;
+    },
+  };
+
+  it("lê a meta que cobre hoje, qualquer que seja o tipo de período", async () => {
+    const goals = await loadNudgeGoals(sb, "u", TODAY);
+    expect(goals).toEqual({
+      Alimentação: { name: "Alimentação", limit: 943.87 },
+      Lazer: { name: "Lazer", limit: 1059.88 },
+    });
+  });
+
+  it("mais de uma categoria vira uma mensagem só, com a principal em detalhe", () => {
+    const rows = [...lazerHistory({ octMultiplier: 4 }), ...lazerHistory({ octMultiplier: 4 }).map((t) => ({ ...t, category: "Transporte" }))];
+    const fs = buildWeekendForecasts(rows, TODAY, { Lazer: { name: "Lazer", limit: 1000 }, Transporte: { name: "Transporte", limit: 900 } });
+    expect(fs.map((f) => f.category).sort()).toEqual(["Lazer", "Transporte"]);
+    const sit = weekendForecastSituation(fs, ctx, new Date("2026-10-09T11:00:00Z"))!;
+    expect(sit.title).toBe("Fim de semana: onde o mês pode estourar");
+    expect(sit.body).toMatch(/Também neste fim de semana:\n/);
+    expect((sit.evidence as any).forecasts).toHaveLength(2);
+    // o fechamento de segunda cobre as duas
+    const monday = "2026-10-12";
+    const recaps = buildWeekendRecaps((sit.evidence as any).forecasts.map((forecast: any) => ({ forecast })), [
+      { occurred_at: "2026-10-10", amount: 200, category: "Lazer" },
+      { occurred_at: "2026-10-10", amount: 90, category: "Transporte" },
+    ], monday);
+    expect(recaps).toHaveLength(2);
+    const recap = weekendRecapSituation(recaps, { ...ctx, as_of: monday }, new Date("2026-10-12T11:00:00Z"))!;
+    expect(recap.title).toBe("Como foi o fim de semana");
+    expect(recap.body).toMatch(/Outras categorias:\n/);
+  });
+});
+
+describe("gasto do mês pela leitura canônica da meta", () => {
+  const readings = [
+    { category_name: "Lazer", status: "at_risk", limit: 1059.88, actual: 341.83, period: { start: "2026-10-01", end: "2026-10-31" } },
+    { category_name: "Alimentação", status: "on_track", limit: 714.77, actual: 600, period: { start: "2026-09-01", end: "2026-09-30" } },
+    { category_name: "Mercado", status: "paused", limit: 500, actual: 10, period: { start: "2026-10-01", end: "2026-10-31" } },
+  ];
+
+  it("só entram metas abertas que cobrem hoje", () => {
+    expect(goalsFromReadings(readings, TODAY)).toEqual({ Lazer: { name: "Lazer", limit: 1059.88, actual: 341.83 } });
+  });
+
+  it("a previsão usa o gasto da meta (estornos já aplicados), não a soma bruta", () => {
+    const goals = goalsFromReadings(readings, TODAY);
+    const [f] = buildWeekendForecasts(lazerHistory({ octMultiplier: 4 }), TODAY, goals);
+    expect(f.month_to_date).toBe(341.83);
+    expect(f.anchor).toEqual({ kind: "goal", amount: 1059.88 });
   });
 });

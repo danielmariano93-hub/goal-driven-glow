@@ -159,22 +159,30 @@ export async function loadDeliveredWeekendForecasts(sb: SupabaseClient, userId: 
     .not("last_delivered_at", "is", null)
     .limit(10);
   return (((data as any[]) ?? []) as any[])
-    .map((row) => ({ forecast: row?.evidence?.forecast }))
+    .flatMap((row) => {
+      const list = Array.isArray(row?.evidence?.forecasts) ? row.evidence.forecasts : [row?.evidence?.forecast];
+      return list.map((forecast: any) => ({ forecast }));
+    })
     .filter((row) => row.forecast && typeof row.forecast.category === "string");
 }
 
-/** Metas mensais ativas por nome de categoria (âncora da projeção do aviso matinal). */
-export async function loadNudgeGoals(sb: SupabaseClient, userId: string): Promise<Record<string, { name: string; limit: number }>> {
+/**
+ * Metas de categoria ativas que cobrem hoje (por nome de categoria): âncora da
+ * projeção do aviso matinal. A meta vale pelo período (start_date–end_date), seja
+ * ela `this_month`, `next_month` ou recorrente — o tipo não decide, a data sim.
+ */
+export async function loadNudgeGoals(sb: SupabaseClient, userId: string, today: string): Promise<Record<string, { name: string; limit: number }>> {
   const [goalsRes, catRes] = await Promise.all([
-    sb.from("category_spending_goals").select("category_id,computed_limit,status,period_type")
-      .eq("user_id", userId).eq("status", "active"),
+    sb.from("category_spending_goals").select("category_id,computed_limit,status,start_date,end_date")
+      .eq("user_id", userId).eq("status", "active")
+      .lte("start_date", today),
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
   ]);
   const names = new Map<string, string>();
   for (const row of (((catRes as any)?.data ?? []) as any[])) names.set(String(row.id), String(row.name));
   const out: Record<string, { name: string; limit: number }> = {};
   for (const row of (((goalsRes as any)?.data ?? []) as any[])) {
-    if ((row.period_type ?? "monthly_recurring") !== "monthly_recurring") continue;
+    if (row.end_date && String(row.end_date) < today) continue;
     const name = names.get(String(row.category_id));
     const limit = Number(row.computed_limit ?? 0);
     if (name && limit > 0) out[name] = { name, limit };

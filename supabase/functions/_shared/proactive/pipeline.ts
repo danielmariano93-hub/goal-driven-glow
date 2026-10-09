@@ -38,8 +38,8 @@ import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withou
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
-import { buildWeekendRecap, weekendRecapSituation } from "./weekendRecap.ts";
-import { buildWeekendForecasts, weekendCoveredCategories, weekendForecastSituation } from "./weekendForecast.ts";
+import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
+import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories, weekendForecastSituation } from "./weekendForecast.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
@@ -330,9 +330,13 @@ export async function runMultiFinanceProactive(
   }
   // nino_weekend_forecast.v1 — sexta de manhã: o fim de semana como um bloco só (faixa, mês, projeção, quanto cabe).
   // nino_weekday_nudge.v2 — nos demais dias: onde o mês da categoria caminha e o que muda hoje.
-  const nudgeGoals = nudgeTransactions.length ? await loadNudgeGoals(sb, userId).catch(() => ({})) : {};
+  // Metas pela leitura canônica (período, estornos e regras de data já aplicados); o carregador simples é só reserva.
+  const goalContext = nudgeTransactions.length ? await loadSpendingGoalContext(sb, userId, ctx.as_of).catch(() => null) : null;
+  const nudgeGoals = goalContext
+    ? goalsFromReadings(readGoals(goalContext), ctx.as_of)
+    : nudgeTransactions.length ? await loadNudgeGoals(sb, userId, ctx.as_of).catch(() => ({})) : {};
   const weekendForecasts = nudgeTransactions.length ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals) : [];
-  const weekendForecast = weekendForecastSituation(weekendForecasts[0] ?? null, ctx, new Date());
+  const weekendForecast = weekendForecastSituation(weekendForecasts, ctx, new Date());
   if (weekendForecast) refined.push(weekendForecast);
   // nino_weekend_recap.v1 — segunda de manhã: previsto x realizado do fim de semana (só se a previsão foi entregue).
   const recapFriday = (() => {
@@ -341,11 +345,11 @@ export async function runMultiFinanceProactive(
   })();
   if (recapFriday && nudgeTransactions.length) {
     const delivered = await loadDeliveredWeekendForecasts(sb, userId, recapFriday).catch(() => []);
-    const recap = weekendRecapSituation(buildWeekendRecap(delivered, nudgeTransactions, ctx.as_of), ctx, new Date());
+    const recap = weekendRecapSituation(buildWeekendRecaps(delivered, nudgeTransactions, ctx.as_of, nudgeGoals), ctx, new Date());
     if (recap) refined.push(recap);
   }
   const nudgeProjection = nudgeTransactions.length
-    ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, nudgeGoals, weekendCoveredCategories(weekendForecasts))
+    ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, nudgeGoals, weekendCoveredCategories(weekendForecasts.slice(0, 3)))
     : null;
   const nudge = weekdayNudgeSituation(nudgeProjection, ctx, new Date());
   if (nudge) refined.push(nudge);
@@ -363,11 +367,11 @@ export async function runMultiFinanceProactive(
   // ainda dá para corrigir o mês. A leitura rica substitui o aviso genérico de
   // teto da mesma meta (uma meta, uma mensagem).
   if (((ctx.domains.goals as unknown[]) ?? []).length > 0 && isReminderHour(new Date())) {
-    const goalSituations = await loadSpendingGoalContext(sb, userId, ctx.as_of)
+    const goalSituations = await (goalContext ? Promise.resolve(goalContext) : loadSpendingGoalContext(sb, userId, ctx.as_of))
       .then((sg) => {
         const readings = readGoals(sg);
-        const covered = weekendForecast ? String((weekendForecast.evidence as any)?.forecast?.category ?? "") : "";
-        const coveredGoals = new Set(readings.filter((r) => r.category_name === covered).map((r) => r.goal_id));
+        const covered = new Set<string>(((weekendForecast?.evidence as any)?.forecasts ?? []).map((x: any) => String(x?.category ?? "")));
+        const coveredGoals = new Set(readings.filter((r) => covered.has(r.category_name)).map((r) => r.goal_id));
         // A previsão do fim de semana (faixa, projeção, folga) substitui o aviso de fim de semana da mesma meta.
         return spendingGoalSituations(ctx, sg, readings)
           .filter((s) => !(s.type === "spending_goal_weekend" && coveredGoals.has(String((s.evidence as any)?.goal_id ?? ""))));

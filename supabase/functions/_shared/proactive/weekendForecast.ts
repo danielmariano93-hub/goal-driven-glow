@@ -108,6 +108,21 @@ export function detectCardGap(transactions: NudgeTransaction[], today: string): 
   return current === 0 && monthsWithCard >= 2;
 }
 
+const OPEN_GOAL_STATUS = new Set(["on_track", "attention", "at_risk", "exceeded", "limit_reached"]);
+
+/** Metas abertas que cobrem hoje, a partir da leitura canônica (`readGoals`): limite e gasto do mês. */
+export function goalsFromReadings(
+  readings: Array<{ category_name: string; status: string; limit: number; actual: number; period: { start: string; end: string } }>,
+  today: string,
+): Record<string, NudgeGoal> {
+  const out: Record<string, NudgeGoal> = {};
+  for (const r of readings) {
+    if (!OPEN_GOAL_STATUS.has(r.status) || r.period.start > today || r.period.end < today || !(r.limit > 0)) continue;
+    out[r.category_name] = { name: r.category_name, limit: round2(r.limit), actual: round2(r.actual) };
+  }
+  return out;
+}
+
 /** Previsões por categoria para o fim de semana que começa hoje (sexta). */
 export function buildWeekendForecasts(
   transactions: NudgeTransaction[],
@@ -173,10 +188,11 @@ export function buildWeekendForecasts(
     const cap = quantile(all, 0.9);
     const expected = perWeekend.reduce((a, v) => a + Math.min(v, cap), 0) / rules.weekends;
     const weekdayRate = weekdaySum / (rules.weekends * 4);
-    // O mês corrente cabe inteiro na janela de 12 semanas, então `rows` já o contém.
-    const monthToDate = rows
-      .filter((t) => t.occurred_at.slice(0, 7) === month)
-      .reduce((a, t) => a + Number(t.amount), 0);
+    // Com meta, o gasto do mês é o da leitura canônica da meta (estornos e datas já aplicados);
+    // sem meta, o mês corrente cabe inteiro na janela de 12 semanas e `rows` já o contém.
+    const monthToDate = goals[category]?.actual != null
+      ? Number(goals[category].actual)
+      : rows.filter((t) => t.occurred_at.slice(0, 7) === month).reduce((a, t) => a + Number(t.amount), 0);
     const weekdayRest = weekdayRate * weekdaysLeft;
     const projected = monthToDate + expected * unitsLeft + weekdayRest;
     const projectedLow = monthToDate + quantile(all, 0.25) * unitsLeft + weekdayRest;
@@ -234,14 +250,25 @@ export function weekendCoveredCategories(forecasts: WeekendForecast[]): Set<stri
   return new Set(forecasts.map((f) => f.category));
 }
 
+/** Linha curta de uma categoria adicional na mesma mensagem. */
+function extraLine(f: WeekendForecast): string {
+  const left = f.fair_per_weekend > 0 ? `cabem uns ${brlPt(f.fair_per_weekend)} por fim de semana` : "os dias úteis já usam o que resta";
+  if (f.state === "pressure") {
+    return `${f.category}: gasto em ${f.active_weekends} dos ${f.weekends} fins de semana (típico ${brlPt(f.typical)}); no mês fecha perto de ${brlPt(f.projected_month)} (${f.anchor.kind === "goal" ? "meta" : "média"} ${brlPt(f.anchor.amount)}); ${left}.`;
+  }
+  return `${f.category}: folga de ${brlPt(f.slack)} até o fim do mês; ${left}.`;
+}
+
 export function weekendForecastSituation(
-  forecast: WeekendForecast | null,
+  forecasts: WeekendForecast | WeekendForecast[] | null,
   ctx: Pick<MultiFinanceProactiveContext, "as_of" | "snapshot_ref">,
   now: Date,
 ): FinancialSituation | null {
-  if (!forecast) return null;
+  const list = Array.isArray(forecasts) ? forecasts : forecasts ? [forecasts] : [];
+  if (!list.length) return null;
   if (!isWeekdayNudgeWindow(now)) return null;
-  const f = forecast;
+  const f = list[0];
+  const extras = list.slice(1, 3);
   const leftCount = Math.max(1, Math.ceil(f.weekend_units_left - 0.01));
   const leftText = leftCount === 1 ? "só este fim de semana" : `${leftCount} fins de semana contando este`;
   const spread = Math.abs(f.high - f.low) < 1
@@ -249,39 +276,44 @@ export function weekendForecastSituation(
     : `em geral entre ${brlPt(f.low)} e ${brlPt(f.high)} (típico ${brlPt(f.typical)})`;
   const habit = `Nos últimos ${f.weekends} fins de semana você gastou com ${f.category} em ${f.active_weekends}, ${spread}.`;
   const anchorText = f.anchor.kind === "goal" ? `a meta é ${brlPt(f.anchor.amount)}` : `a média dos últimos meses é ${brlPt(f.anchor.amount)}`;
-  const gap = f.data_gap === "card_missing"
+  const gap = list.some((x) => x.data_gap === "card_missing")
     ? " Obs.: não encontrei compras de cartão neste mês; se ainda faltam lançar, o valor real pode ser maior."
     : "";
+  const tight = f.fair_per_weekend > 0 && f.fair_per_weekend < f.typical * 0.25;
 
   let title: string;
   let body: string;
   if (f.state === "pressure") {
-    title = `Fim de semana: ${f.category} pode estourar o mês`;
-    const fair = f.fair_per_weekend > 0
-      ? `Para fechar dentro, dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`
-      : "Só com os dias úteis o mês já fica acima; vale segurar o fim de semana.";
+    title = extras.length ? "Fim de semana: onde o mês pode estourar" : `Fim de semana: ${f.category} pode estourar o mês`;
+    const fair = f.fair_per_weekend <= 0
+      ? "Só com os dias úteis o mês já fica acima; vale segurar o fim de semana."
+      : tight
+        ? `A ${f.anchor.kind === "goal" ? "meta" : "média"} já está apertada: para fechar dentro, só dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`
+        : `Para fechar dentro, dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`;
     body = [
       habit,
-      `${f.category} no mês: ${brlPt(f.month_to_date)} até ontem. No ritmo atual (${leftText}), fecha perto de ${brlPt(f.projected_month)}, entre ${brlPt(f.projected_low)} e ${brlPt(f.projected_high)} (${anchorText}).`,
+      `${f.category} no mês: ${brlPt(f.month_to_date)} até agora. No ritmo atual (${leftText}), fecha perto de ${brlPt(f.projected_month)}, entre ${brlPt(f.projected_low)} e ${brlPt(f.projected_high)} (${anchorText}).`,
       fair,
-    ].join(" ") + gap;
+    ].join(" ");
   } else {
-    title = `Quanto cabe de ${f.category} neste fim de semana`;
+    title = extras.length ? "Quanto cabe neste fim de semana" : `Quanto cabe de ${f.category} neste fim de semana`;
     body = [
       habit,
       `Sua meta de ${f.category} tem ${brlPt(f.slack)} de folga até o fim do mês (${leftText}).`,
       f.fair_per_weekend > 0
         ? `Dividindo a folga, cabem uns ${brlPt(f.fair_per_weekend)} por fim de semana.`
         : "Os dias úteis já usam a folga restante; este fim de semana pede cuidado.",
-    ].join(" ") + gap;
+    ].join(" ");
   }
-  const confidence = Math.min(0.9, 0.55 + (f.active_weekends / f.weekends) * 0.3) - (f.data_gap ? 0.1 : 0);
+  if (extras.length) body += `\n\nTambém neste fim de semana:\n${extras.map(extraLine).join("\n")}`;
+  body += gap;
+  const confidence = Math.min(0.9, 0.55 + (f.active_weekends / f.weekends) * 0.3) - (list.some((x) => x.data_gap) ? 0.1 : 0);
 
   return {
     fingerprint: `${WEEKEND_FORECAST_VERSION}:${f.category}:${f.friday}`,
     type: "weekend_forecast",
     communication_kind: "weekend_spending_risk",
-    severity: f.state === "pressure" ? "attention" : "info",
+    severity: list.some((x) => x.state === "pressure") ? "attention" : "info",
     title,
     body,
     primary_domain: "patterns",
@@ -298,8 +330,9 @@ export function weekendForecastSituation(
       version: WEEKEND_FORECAST_VERSION,
       as_of: ctx.as_of,
       reconciliation_id: ctx.snapshot_ref.reconciliation_id,
-      // Guardado para o fechamento de segunda: previsto x realizado.
+      // Guardado para o fechamento de segunda: previsto x realizado de cada categoria mostrada.
       forecast: f,
+      forecasts: [f, ...extras],
     },
   };
 }

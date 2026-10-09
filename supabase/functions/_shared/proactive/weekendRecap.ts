@@ -5,7 +5,7 @@
 // o "previsto" é o que a pessoa leu, não um recálculo feito depois.
 import type { FinancialSituation, MultiFinanceProactiveContext } from "./contracts.ts";
 import { brlPt } from "./presentation.ts";
-import { isWeekdayNudgeWindow, type NudgeTransaction } from "./weekdayNudge.ts";
+import { isWeekdayNudgeWindow, type NudgeGoal, type NudgeTransaction } from "./weekdayNudge.ts";
 import type { WeekendForecast } from "./weekendForecast.ts";
 
 export const WEEKEND_RECAP_VERSION = "nino_weekend_recap.v1";
@@ -55,18 +55,30 @@ function fridaysLeftInMonth(today: string): number {
   return n;
 }
 
+/** Fechamento de cada categoria que a previsão de sexta mostrou (na ordem em que foi mostrada). */
+export function buildWeekendRecaps(
+  delivered: DeliveredWeekendForecast[],
+  transactions: NudgeTransaction[],
+  today: string,
+  goals: Record<string, NudgeGoal> = {},
+): WeekendRecap[] {
+  if (dow(today) !== 1) return [];
+  const friday = addDays(today, -3);
+  return delivered
+    .map((d) => d.forecast)
+    .filter((f) => f && f.friday === friday)
+    .map((f) => recapOf(f, transactions, today, friday, goals[f.category]?.actual));
+}
+
 export function buildWeekendRecap(
   delivered: DeliveredWeekendForecast[],
   transactions: NudgeTransaction[],
   today: string,
 ): WeekendRecap | null {
-  if (dow(today) !== 1) return null;
-  const friday = addDays(today, -3);
-  const forecast = delivered
-    .map((d) => d.forecast)
-    .filter((f) => f && f.friday === friday)
-    .sort((a, b) => b.typical - a.typical)[0];
-  if (!forecast) return null;
+  return buildWeekendRecaps(delivered, transactions, today)[0] ?? null;
+}
+
+function recapOf(forecast: WeekendForecast, transactions: NudgeTransaction[], today: string, friday: string, canonicalMonth?: number): WeekendRecap {
   const sunday = addDays(friday, 2);
 
   let realized = 0;
@@ -82,7 +94,7 @@ export function buildWeekendRecap(
   const verdict = realized < forecast.low ? "below" : realized > forecast.high ? "above" : "within";
   const weekendsLeft = fridaysLeftInMonth(today);
 
-  const month = sameMonth ? round2(monthToDate) : null;
+  const month = sameMonth ? round2(canonicalMonth != null ? canonicalMonth : monthToDate) : null;
   const slackNow = month != null ? round2(forecast.anchor.amount - month) : null;
   const fairNext = slackNow != null && weekendsLeft > 0
     ? round2(Math.max(0, (slackNow - (forecast.weekday_rate ?? 0) * weekdaysLeftInMonth(today)) / weekendsLeft))
@@ -102,13 +114,28 @@ export function buildWeekendRecap(
   };
 }
 
+function verdictLine(recap: WeekendRecap): string {
+  const f = recap.forecast;
+  const word = recap.verdict === "below" ? "abaixo da faixa" : recap.verdict === "above" ? "acima da faixa" : "dentro da faixa";
+  const diff = recap.vs_typical >= 0 ? `${brlPt(recap.vs_typical)} a menos que o típico` : `${brlPt(Math.abs(recap.vs_typical))} a mais que o típico`;
+  const month = recap.month_to_date != null && recap.slack_now != null
+    ? recap.slack_now >= 0
+      ? `; no mês ${brlPt(recap.month_to_date)}, restam ${brlPt(recap.slack_now)} até ${f.anchor.kind === "goal" ? "a meta" : "a média"}`
+      : `; no mês ${brlPt(recap.month_to_date)}, ${brlPt(Math.abs(recap.slack_now))} acima ${f.anchor.kind === "goal" ? "da meta" : "da média"}`
+    : "";
+  return `${recap.category}: ${brlPt(recap.realized)}, ${word} (${diff})${month}.`;
+}
+
 export function weekendRecapSituation(
-  recap: WeekendRecap | null,
+  recaps: WeekendRecap | WeekendRecap[] | null,
   ctx: Pick<MultiFinanceProactiveContext, "as_of" | "snapshot_ref">,
   now: Date,
 ): FinancialSituation | null {
-  if (!recap) return null;
+  const list = Array.isArray(recaps) ? recaps : recaps ? [recaps] : [];
+  if (!list.length) return null;
   if (!isWeekdayNudgeWindow(now)) return null;
+  const recap = list[0];
+  const extras = list.slice(1, 3);
   const { forecast: f } = recap;
   const range = Math.abs(f.high - f.low) < 1 ? `por volta de ${brlPt(f.typical)}` : `${brlPt(f.low)} a ${brlPt(f.high)}`;
   const cat = recap.category;
@@ -125,6 +152,7 @@ export function weekendRecapSituation(
     title = `Fim de semana: ${cat} passou da sua faixa`;
     lead = `Você gastou ${brlPt(recap.realized)} com ${cat}, acima da faixa dos seus últimos fins de semana (${range}); o típico é ${brlPt(f.typical)}.`;
   }
+  if (extras.length) title = "Como foi o fim de semana";
 
   const anchorWord = f.anchor.kind === "goal" ? "meta" : "média dos últimos meses";
   let monthLine = "";
@@ -136,7 +164,8 @@ export function weekendRecapSituation(
   const next = recap.fair_next != null && recap.weekends_left > 0 && recap.verdict !== "below"
     ? ` Para o resto do mês, cabem uns ${brlPt(recap.fair_next)} por fim de semana.`
     : "";
-  const gap = f.data_gap === "card_missing"
+  const more = extras.length ? `\n\nOutras categorias:\n${extras.map(verdictLine).join("\n")}` : "";
+  const gap = list.some((r) => r.forecast.data_gap === "card_missing")
     ? " Obs.: compras de cartão podem ainda não ter entrado, então o valor pode estar menor que o real."
     : "";
 
@@ -144,9 +173,9 @@ export function weekendRecapSituation(
     fingerprint: `${WEEKEND_RECAP_VERSION}:${cat}:${recap.friday}`,
     type: "weekend_recap",
     communication_kind: "weekend_spending_risk",
-    severity: recap.verdict === "above" ? "attention" : "info",
+    severity: list.some((r) => r.verdict === "above") ? "attention" : "info",
     title,
-    body: `${lead}${monthLine}${next}${gap}`.trim(),
+    body: `${lead}${monthLine}${next}${more}${gap}`.trim(),
     primary_domain: "patterns",
     domains: ["patterns"],
     signals: [],
@@ -162,6 +191,7 @@ export function weekendRecapSituation(
       as_of: ctx.as_of,
       reconciliation_id: ctx.snapshot_ref.reconciliation_id,
       recap,
+      recaps: list,
     },
   };
 }
