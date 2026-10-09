@@ -33,12 +33,12 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadNudgeGoals, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
-import { detectWeekdayPattern, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
+import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
 import {
@@ -326,13 +326,11 @@ export async function runMultiFinanceProactive(
     const request = incomeDataRequest(dataQuality, refined, ctx.as_of);
     if (request) refined.push(request);
   }
-  // nino_weekday_nudge.v1 — antes do gasto: "às quartas você costuma gastar mais com X".
-  const nudge = weekdayNudgeSituation(
-    detectWeekdayPattern(nudgeTransactions, ctx.as_of),
-    ctx,
-    new Date(),
-    userModel?.focus_goal ?? null,
-  );
+  // nino_weekday_nudge.v2 — antes do gasto: onde o mês da categoria caminha e o que muda hoje.
+  const nudgeProjection = nudgeTransactions.length
+    ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, await loadNudgeGoals(sb, userId).catch(() => ({})))
+    : null;
+  const nudge = weekdayNudgeSituation(nudgeProjection, ctx, new Date());
   if (nudge) refined.push(nudge);
   // nino_reminders.v1 — avisar ANTES: contas do dia, fatura, fechamento, meio do mês.
   const known = new Set(refined.map((situation) => situation.fingerprint));

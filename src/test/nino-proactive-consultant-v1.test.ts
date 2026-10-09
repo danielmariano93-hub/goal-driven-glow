@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeCommitmentAgenda } from "@/lib/engine/commitmentAgenda";
 import { collectFinancialSignals } from "../../supabase/functions/_shared/proactive/signals";
 import { repeatedKind } from "../../supabase/functions/_shared/proactive/repetition";
-import { detectWeekdayPattern, weekdayNudgeSituation } from "../../supabase/functions/_shared/proactive/weekdayNudge";
+import { buildWeekdayProjection, detectWeekdayPattern, weekdayNudgeSituation } from "../../supabase/functions/_shared/proactive/weekdayNudge";
 import type { FinancialSituation, MultiFinanceProactiveContext } from "../../supabase/functions/_shared/proactive/contracts";
 
 const debt = { id: "d1", name: "Celular", original_amount: 10500, outstanding_balance: 8000, installment_amount: 500, due_day: 28, status: "active", installments_total: 21, installments_paid: 5, start_date: null, first_due_date: null } as never;
@@ -75,14 +75,37 @@ describe("aviso matinal por dia da semana", () => {
     expect(pattern.ratio).toBe(4);
   });
 
-  it("só gera o aviso de manhã e cita a meta quando existe", () => {
-    const pattern = detectWeekdayPattern(txs, "2026-09-30");
-    const morning = weekdayNudgeSituation(pattern, ctx, new Date("2026-09-30T11:00:00Z"), { name: "Viagem" });
+  it("projeta o mês, compara com a meta e só avisa de manhã", () => {
+    // 23/09 é quarta; meta de R$ 600 e o ritmo leva o mês a ~R$ 660.
+    const projection = buildWeekdayProjection(txs, "2026-09-23", { Alimentação: { name: "Alimentação", limit: 600 } })!;
+    expect(projection.anchor.kind).toBe("goal");
+    expect(projection.month_to_date).toBeGreaterThan(0);
+    expect(projection.projected_month).toBeGreaterThan(projection.anchor.amount);
+    expect(projection.projected_without_today).toBeCloseTo(projection.projected_month - projection.pattern.typical_on_weekday, 2);
+    const morning = weekdayNudgeSituation(projection, ctx, new Date("2026-09-23T11:00:00Z"));
     expect(morning?.communication_kind).toBe("weekday_spending_risk");
     expect(morning?.title).toMatch(/Hoje é quarta/);
-    expect(morning?.body).toMatch(/Às quartas você costuma gastar cerca de R\$\s?80,00 com Alimentação/);
-    expect(morning?.body).toMatch(/meta “Viagem”/);
-    expect(weekdayNudgeSituation(pattern, ctx, new Date("2026-09-30T20:00:00Z"))).toBeNull();
+    expect(morning?.body).toMatch(/Em \d+ das últimas 12 quartas você gastou com Alimentação, uns R\$\s?80,00 por vez/);
+    expect(morning?.body).toMatch(/Nesse ritmo, fecha em/);
+    expect(morning?.body).toMatch(/a meta é R\$\s?600,00/);
+    expect(weekdayNudgeSituation(projection, ctx, new Date("2026-09-23T20:00:00Z"))).toBeNull();
+  });
+
+  it("sem meta usa a média dos meses fechados e fica em silêncio quando o mês está em linha", () => {
+    const wed = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay() === 3;
+    // 10/10 é sábado; padrão de sábado inexistente → usa quarta em 14/10.
+    const rows: Array<{ occurred_at: string; amount: number; category: string }> = [];
+    for (let i = 1; i <= 120; i += 1) {
+      const iso = new Date(Date.UTC(2026, 9, 14 - i)).toISOString().slice(0, 10);
+      rows.push({ occurred_at: iso, amount: wed(iso) ? 80 : 20, category: "Alimentação" });
+    }
+    const normal = buildWeekdayProjection(rows, "2026-10-14");
+    // Mês em linha com a média dos anteriores: não há o que decidir.
+    expect(normal).toBeNull();
+    const heavy = rows.map((r) => (r.occurred_at.startsWith("2026-10") ? { ...r, amount: r.amount * 3 } : r));
+    const over = buildWeekdayProjection(heavy, "2026-10-14")!;
+    expect(over.anchor.kind).toBe("average");
+    expect(over.overage).toBeGreaterThan(30);
   });
 
   it("não aponta categoria de data fixa (Assinaturas) nem padrão de poucas semanas", () => {

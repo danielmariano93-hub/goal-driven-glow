@@ -120,15 +120,21 @@ export async function loadDismissedTopics(sb: SupabaseClient, userId: string): P
   return Array.isArray(data) ? (data as unknown[]).map(String) : [];
 }
 
-/** Gastos das últimas 12 semanas por categoria (base do aviso matinal por dia da semana). */
+/**
+ * Gastos por categoria da janela do aviso matinal: 12 semanas (padrão do dia da
+ * semana) e os 3 meses fechados anteriores (referência de média) + mês corrente.
+ */
 export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, today: string) {
   const [y, m, d] = today.split("-").map(Number);
-  const from = new Date(Date.UTC(y, m - 1, d - 7 * 12)).toISOString().slice(0, 10);
+  const weeksFrom = new Date(Date.UTC(y, m - 1, d - 7 * 12)).toISOString().slice(0, 10);
+  const monthsFrom = new Date(Date.UTC(y, m - 1 - 3, 1)).toISOString().slice(0, 10);
+  const from = weeksFrom < monthsFrom ? weeksFrom : monthsFrom;
   const [txRes, catRes] = await Promise.all([
     sb.from("transactions")
       .select("occurred_at,amount,category_id,movement_kind")
       .eq("user_id", userId).eq("status", "confirmed").eq("type", "expense")
       .gte("occurred_at", from).lt("occurred_at", today)
+      .order("occurred_at", { ascending: false })
       .limit(1000),
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
   ]);
@@ -141,6 +147,25 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
       amount: Math.abs(Number(row.amount ?? 0)),
       category: row.category_id ? names.get(String(row.category_id)) ?? null : null,
     }));
+}
+
+/** Metas mensais ativas por nome de categoria (âncora da projeção do aviso matinal). */
+export async function loadNudgeGoals(sb: SupabaseClient, userId: string): Promise<Record<string, { name: string; limit: number }>> {
+  const [goalsRes, catRes] = await Promise.all([
+    sb.from("category_spending_goals").select("category_id,computed_limit,status,period_type")
+      .eq("user_id", userId).eq("status", "active"),
+    sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
+  ]);
+  const names = new Map<string, string>();
+  for (const row of (((catRes as any)?.data ?? []) as any[])) names.set(String(row.id), String(row.name));
+  const out: Record<string, { name: string; limit: number }> = {};
+  for (const row of (((goalsRes as any)?.data ?? []) as any[])) {
+    if ((row.period_type ?? "monthly_recurring") !== "monthly_recurring") continue;
+    const name = names.get(String(row.category_id));
+    const limit = Number(row.computed_limit ?? 0);
+    if (name && limit > 0) out[name] = { name, limit };
+  }
+  return out;
 }
 
 /** Cartões ativos com dia de fechamento (lembrete "fecha em 2 dias"). */
