@@ -66,6 +66,13 @@ export async function persistWeekendOffer(
   }, { onConflict: "user_id,friday,category", ignoreDuplicates: true });
 }
 
+/** Categorias em que a pessoa já decidiu (aceitou ou recusou) para a sexta `friday`, por exemplo na tela de hábitos. */
+export async function loadDecidedWeekendCategories(sb: SupabaseClient, userId: string, friday: string): Promise<Set<string>> {
+  const { data } = await sb.from("weekend_commitments").select("category")
+    .eq("user_id", userId).eq("friday", friday).in("status", ["accepted", "declined"]).limit(20);
+  return new Set(((data as any[]) ?? []).map((r) => String(r.category)));
+}
+
 /** Combinados aceitos para a sexta `friday`, por categoria. */
 export async function loadAcceptedCommitments(
   sb: SupabaseClient,

@@ -175,17 +175,27 @@ export function isComparableDimension(current: ObservedDimension | undefined, pr
   return curKeys.length === prevKeys.length && curKeys.every((key, i) => key === prevKeys[i]);
 }
 
+/** Versões diferentes do método (ou leitura reconstruída) não são comparáveis. */
+export function isMethodologyBreak(current?: string, previous?: string): boolean {
+  if (!current || !previous) return false;
+  // Só a transição para/da v3 é ruptura; v2 e sua reconstrução mantêm o tratamento antigo.
+  const v3 = (v: string) => v.startsWith("behavior_observed.v3");
+  return (v3(current) || v3(previous)) && current !== previous;
+}
+
 /** Variação por dimensão: nota atual contra a base, com os componentes que explicam. */
 export function compareDimensions(
   profile: ObservedBehaviorProfile,
   baseline: ObservedSnapshot | null,
   contested: ReadonlySet<BehaviorDimensionKey> = new Set(),
 ): DimensionChange[] {
+  // Ruptura de método: outra versão da metodologia nunca vira "melhorou/piorou".
+  const versionBreak = isMethodologyBreak(profile.methodologyVersion, baseline?.methodology_version);
   return BEHAVIOR_DIMENSIONS.map((dim) => {
     const cur = profile.dimensions[dim.key];
     const prevDim = baseline?.dimensions[dim.key];
     const score = cur?.score ?? null;
-    const comparable = isComparableDimension(cur, prevDim);
+    const comparable = !versionBreak && isComparableDimension(cur, prevDim);
     const previous = comparable ? prevDim?.score ?? null : null;
     const delta = score != null && previous != null ? round1(score - previous) : null;
     const factors = cur ? factorChanges(cur, comparable ? prevDim : undefined) : [];
@@ -386,6 +396,8 @@ export function buildHabitDiscovery(args: {
       const obs = profile.dimensions[dim.key];
       const self = perception[dim.key];
       if (obs?.score == null || self == null || !CONF_OK[obs.confidence] || contested.has(dim.key)) return null;
+      // v3: consciência vem só de check-ins (engajamento declarado) — não sustenta "você se subestima".
+      if (obs.record && dim.key === "awareness") return null;
       return { key: dim.key, self: Number(self), observed: obs.score, gap: obs.score - Number(self) };
     }).filter((row): row is NonNullable<typeof row> => row != null && Math.abs(row.gap) >= DISCOVERY_MIN_GAP)
       .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
@@ -481,6 +493,8 @@ export type BehaviorFeedback = {
   reason: FeedbackReason;
   note: string | null;
   observed_score: number | null;
+  /** yes = confirmou a leitura (não vira incerteza); partially/no = leitura incerta por 30 dias. Ausente = no. */
+  verdict?: "yes" | "partially" | "no";
 };
 
 /** Contestações que ainda valem em `today` (30 dias a partir da semana da leitura). */
@@ -490,6 +504,7 @@ export function activeFeedback(rows: BehaviorFeedback[], today: string): Partial
   for (const row of rows) {
     const start = new Date(`${row.week_start}T12:00:00Z`).getTime();
     if (!Number.isFinite(start) || (t - start) / DAY_MS > FEEDBACK_VALID_DAYS) continue;
+    if (row.verdict === "yes") continue;
     const current = out[row.dimension];
     if (!current || row.week_start > current.week_start) out[row.dimension] = row;
   }

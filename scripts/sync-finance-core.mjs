@@ -57,6 +57,7 @@ export const FINANCE_CORE_MODULES = [
   "reportDashboard",
   "behaviorDimensions",
   "behaviorObserved",
+  "behaviorObservedV3",
   "behaviorEvolution",
   "emotionSpendPairing",
 ];

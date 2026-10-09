@@ -61,12 +61,36 @@ export type ObservedFactor = {
   weight: number | null;
 };
 
+/** Qualidade da base de uma leitura: nota só com evidência suficiente. */
+export type EvidenceState = "sufficient" | "partial" | "none";
+
+/** Registro de proveniência de uma dimensão (`behavior_observed.v3`). */
+export type ObservedEvidenceRecord = {
+  state: EvidenceState;
+  /** Classe de cada fonte: direta (registro do app), derivada (calculada), declarada (informada pelo usuário). */
+  origin: Array<{ key: string; label: string; kind: "direct" | "derived" | "declared" }>;
+  window: string;
+  coverage: string;
+  methodology_version: string;
+  /** Até três fatos verificáveis que sustentam a leitura. */
+  observed: string[];
+  /** O que ainda não dá para saber com os dados atuais. */
+  unknown: string[];
+  /** O que esta dimensão NÃO prova. */
+  limit: string;
+  /** Por que não há nota (state != sufficient). */
+  unavailable_reason: string | null;
+};
+
 export type ObservedDimension = {
   score: number | null;
   confidence: "low" | "medium" | "high";
   evidence: string;
   source: string;
   factors?: ObservedFactor[];
+  /** v3: estado da evidência e registro explicável. Ausente nas leituras v2. */
+  state?: EvidenceState;
+  record?: ObservedEvidenceRecord;
 };
 
 export type ObservedBehaviorProfile = {
@@ -74,4 +98,9 @@ export type ObservedBehaviorProfile = {
   coverage: number;
   asOf: string | null;
   dimensions: Record<BehaviorDimensionKey, ObservedDimension>;
+  methodologyVersion?: string;
+  overallConfidence?: "low" | "medium" | "high";
+  historyDays?: number;
+  /** v3: dimensões com sinal parcial (sem nota). */
+  partialCount?: number;
 };

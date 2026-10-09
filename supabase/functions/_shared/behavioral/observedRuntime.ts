@@ -7,6 +7,7 @@
 import {
   behaviorHabitsReading,
   buildObservedProfileV2,
+  buildObservedProfileV3,
   observedInputFromDashboardPayload,
   OBSERVED_SNAPSHOT_MIN_COVERAGE,
   snapshotFromProfile,
@@ -27,7 +28,10 @@ export function todaySaoPaulo(now: Date = new Date()): string {
 export async function loadObservedProfile(sb: any, userId: string): Promise<ObservedBehaviorProfile> {
   const { data, error } = await sb.rpc("behavioral_dashboard_snapshot_for_user", { p_uid: userId });
   if (error) throw new Error(`behavioral_dashboard_snapshot_for_user:${error.message}`);
-  return buildObservedProfileV2(observedInputFromDashboardPayload(data ?? {}));
+  const input = observedInputFromDashboardPayload(data ?? {});
+  // Hábitos v2 (liberação controlada): quem está em habits_v2_access é lido pelo método v3.
+  const { data: access } = await sb.from("habits_v2_access").select("user_id").eq("user_id", userId).maybeSingle();
+  return access ? buildObservedProfileV3(input) : buildObservedProfileV2(input);
 }
 
 export async function loadObservedSnapshots(sb: any, userId: string): Promise<ObservedSnapshot[]> {

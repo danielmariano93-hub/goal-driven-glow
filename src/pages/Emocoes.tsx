@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import HabitsV2 from "@/pages/HabitsV2";
+import { useHabitsV2Enabled } from "@/lib/behavioral/habitsV2Flag";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
@@ -68,7 +70,7 @@ async function loadDashboardWithFallback(userId: string): Promise<BehavioralDash
   }
 }
 
-export default function Emocoes() {
+function EmocoesLegacy() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [assessmentSaving, setAssessmentSaving] = useState(false);
@@ -297,4 +299,14 @@ export default function Emocoes() {
       </details>
     </div>
   );
+}
+
+/** Experiência de hábitos: v2 só para quem tem acesso liberado (`habits_v2_access`); os demais seguem na atual. */
+export default function Emocoes() {
+  const { user } = useAuth();
+  const flag = useHabitsV2Enabled();
+  if (!user || flag.isLoading) {
+    return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
+  return flag.data === true ? <HabitsV2 /> : <EmocoesLegacy />;
 }

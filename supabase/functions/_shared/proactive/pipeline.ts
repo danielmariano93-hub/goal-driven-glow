@@ -41,7 +41,7 @@ import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
 import { weekendForecastSituation } from "./weekendMessages.ts";
-import { loadAcceptedCommitments, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
+import { loadAcceptedCommitments, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
@@ -337,7 +337,11 @@ export async function runMultiFinanceProactive(
   const nudgeGoals = goalContext
     ? goalsFromReadings(readGoals(goalContext), ctx.as_of)
     : nudgeTransactions.length ? await loadNudgeGoals(sb, userId, ctx.as_of).catch(() => ({})) : {};
-  const weekendForecasts = nudgeTransactions.length ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals) : [];
+  // Quem já decidiu na tela de hábitos (aceitou ou recusou o limite) não recebe a mesma oferta no WhatsApp.
+  const decidedInApp = nudgeTransactions.length ? await loadDecidedWeekendCategories(sb, userId, ctx.as_of).catch(() => new Set<string>()) : new Set<string>();
+  const weekendForecasts = nudgeTransactions.length
+    ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals).filter((f) => !decidedInApp.has(f.category))
+    : [];
   const weekendForecast = weekendForecastSituation(weekendForecasts, ctx, new Date());
   if (weekendForecast) refined.push(weekendForecast);
   // nino_weekend_recap.v1 — segunda de manhã: previsto x realizado do fim de semana (só se a previsão foi entregue).
