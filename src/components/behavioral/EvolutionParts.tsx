@@ -12,6 +12,8 @@ import {
   type MoneyImpact,
 } from "@/lib/behavioral/behaviorEvolution";
 import type { BehaviorDimensionKey } from "@/lib/behavioral/client";
+import type { BehaviorFeedback, FeedbackReason } from "@/lib/behavioral/behaviorEvolution";
+import { ContestScore } from "@/components/behavioral/ContestScore";
 
 // Blocos da página Emocional: veredito, o que mudou e por quê, evolução dos
 // hábitos e impacto no dinheiro. Status sempre com ícone + texto (não só cor).
@@ -96,14 +98,30 @@ function ChangeChip({ c }: { c: DimensionChange }) {
 const CONF = { high: "confiança alta", medium: "confiança média", low: "confiança baixa" } as const;
 
 /** O que melhorou ou piorou e o porquê, ordenado pelo que mais mudou. */
-export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange[]; hasBaseline: boolean }) {
+export function WhatChanged({
+  changes,
+  hasBaseline,
+  feedback = {},
+  contestBusy = false,
+  onContest,
+  onRemoveContest,
+}: {
+  changes: DimensionChange[];
+  hasBaseline: boolean;
+  feedback?: Partial<Record<BehaviorDimensionKey, BehaviorFeedback>>;
+  contestBusy?: boolean;
+  onContest?: (key: BehaviorDimensionKey, input: { reason: FeedbackReason; note: string | null }) => void | Promise<void>;
+  onRemoveContest?: (key: BehaviorDimensionKey) => void | Promise<void>;
+}) {
   const [open, setOpen] = useState<BehaviorDimensionKey | null>(null);
+  const [contestFor, setContestFor] = useState<BehaviorDimensionKey | null>(null);
   // "#dimensao-<chave>" (vindo da descoberta) abre a dimensão e rola até ela.
   useEffect(() => {
     const openFromHash = () => {
-      const match = /^#dimensao-(\w+)$/.exec(window.location.hash);
+      const match = /^#dimensao-(\w+)(?::(contestar))?$/.exec(window.location.hash);
       if (!match) return;
       setOpen(match[1] as BehaviorDimensionKey);
+      setContestFor(match[2] ? (match[1] as BehaviorDimensionKey) : null);
       window.setTimeout(() => document.getElementById(`dimensao-${match[1]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
     };
     openFromHash();
@@ -136,7 +154,7 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
                     <span className="shrink-0 font-display text-lg font-bold tabular-nums">{fmt(c.score!)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-muted-foreground">{c.previous != null ? `antes ${fmt(c.previous)} · ` : ""}{CONF[c.confidence]}</span>
+                    <span className="text-[11px] text-muted-foreground">{c.previous != null ? `antes ${fmt(c.previous)} · ` : ""}{CONF[c.confidence]}{c.contested ? " · contestada por você" : ""}</span>
                     <ChangeChip c={c} />
                   </span>
                 </span>
@@ -169,6 +187,17 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
                   ) : null}
                   {c.missing.length ? (
                     <p className="text-[11px] leading-relaxed text-muted-foreground"><strong className="text-foreground">O que ainda falta saber.</strong> {c.missing.join("; ")}.</p>
+                  ) : null}
+                  {onContest && onRemoveContest ? (
+                    <ContestScore
+                      key={`${c.key}-${contestFor === c.key}`}
+                      label={c.label}
+                      feedback={feedback[c.key] ?? null}
+                      busy={contestBusy}
+                      defaultOpen={contestFor === c.key}
+                      onSave={(input) => onContest(c.key, input)}
+                      onRemove={() => onRemoveContest(c.key)}
+                    />
                   ) : null}
                   {showAction ? (
                     action.to.startsWith("#")
@@ -315,6 +344,11 @@ export function HabitDiscoveryCard({ discovery }: { discovery: HabitDiscovery })
         action.to.startsWith("#")
           ? <a href={action.to} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">{action.label} <ArrowRight size={14} aria-hidden /></a>
           : <Link to={action.to} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">{action.label} <ArrowRight size={14} aria-hidden /></Link>
+      ) : null}
+      {discovery.dimension ? (
+        <a href={`#dimensao-${discovery.dimension}:contestar`} className="mt-2 block text-[11px] font-semibold text-muted-foreground underline-offset-2 hover:underline">
+          Isso não representa minha realidade
+        </a>
       ) : null}
     </section>
   );
