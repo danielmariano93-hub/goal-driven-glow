@@ -5,7 +5,7 @@
 // o "previsto" é o que a pessoa leu, não um recálculo feito depois.
 import type { FinancialSituation, MultiFinanceProactiveContext } from "./contracts.ts";
 import { brlPt } from "./presentation.ts";
-import { isWeekdayNudgeWindow, type NudgeTransaction } from "./weekdayNudge.ts";
+import { isWeekdayNudgeWindow, type NudgeGoal, type NudgeTransaction } from "./weekdayNudge.ts";
 import type { WeekendForecast } from "./weekendForecast.ts";
 
 export const WEEKEND_RECAP_VERSION = "nino_weekend_recap.v1";
@@ -60,13 +60,14 @@ export function buildWeekendRecaps(
   delivered: DeliveredWeekendForecast[],
   transactions: NudgeTransaction[],
   today: string,
+  goals: Record<string, NudgeGoal> = {},
 ): WeekendRecap[] {
   if (dow(today) !== 1) return [];
   const friday = addDays(today, -3);
   return delivered
     .map((d) => d.forecast)
     .filter((f) => f && f.friday === friday)
-    .map((f) => recapOf(f, transactions, today, friday));
+    .map((f) => recapOf(f, transactions, today, friday, goals[f.category]?.actual));
 }
 
 export function buildWeekendRecap(
@@ -77,7 +78,7 @@ export function buildWeekendRecap(
   return buildWeekendRecaps(delivered, transactions, today)[0] ?? null;
 }
 
-function recapOf(forecast: WeekendForecast, transactions: NudgeTransaction[], today: string, friday: string): WeekendRecap {
+function recapOf(forecast: WeekendForecast, transactions: NudgeTransaction[], today: string, friday: string, canonicalMonth?: number): WeekendRecap {
   const sunday = addDays(friday, 2);
 
   let realized = 0;
@@ -93,7 +94,7 @@ function recapOf(forecast: WeekendForecast, transactions: NudgeTransaction[], to
   const verdict = realized < forecast.low ? "below" : realized > forecast.high ? "above" : "within";
   const weekendsLeft = fridaysLeftInMonth(today);
 
-  const month = sameMonth ? round2(monthToDate) : null;
+  const month = sameMonth ? round2(canonicalMonth != null ? canonicalMonth : monthToDate) : null;
   const slackNow = month != null ? round2(forecast.anchor.amount - month) : null;
   const fairNext = slackNow != null && weekendsLeft > 0
     ? round2(Math.max(0, (slackNow - (forecast.weekday_rate ?? 0) * weekdaysLeftInMonth(today)) / weekendsLeft))

@@ -9,6 +9,7 @@ import { buildWeekendRecap, buildWeekendRecaps, weekendRecapSituation } from "..
 import { narrativeEligibility } from "../../supabase/functions/_shared/agent/narrative/TonePolicy";
 import { repeatedKind } from "../../supabase/functions/_shared/proactive/repetition";
 import { loadNudgeGoals } from "../../supabase/functions/_shared/proactive/profileLoaders";
+import { goalsFromReadings } from "../../supabase/functions/_shared/proactive/weekendForecast";
 import { buildWeekdayProjection } from "../../supabase/functions/_shared/proactive/weekdayNudge";
 
 type Tx = { occurred_at: string; amount: number; category: string; payment_method?: string };
@@ -202,5 +203,24 @@ describe("metas reais do usuário", () => {
     const recap = weekendRecapSituation(recaps, { ...ctx, as_of: monday }, new Date("2026-10-12T11:00:00Z"))!;
     expect(recap.title).toBe("Como foi o fim de semana");
     expect(recap.body).toMatch(/Outras categorias:\n/);
+  });
+});
+
+describe("gasto do mês pela leitura canônica da meta", () => {
+  const readings = [
+    { category_name: "Lazer", status: "at_risk", limit: 1059.88, actual: 341.83, period: { start: "2026-10-01", end: "2026-10-31" } },
+    { category_name: "Alimentação", status: "on_track", limit: 714.77, actual: 600, period: { start: "2026-09-01", end: "2026-09-30" } },
+    { category_name: "Mercado", status: "paused", limit: 500, actual: 10, period: { start: "2026-10-01", end: "2026-10-31" } },
+  ];
+
+  it("só entram metas abertas que cobrem hoje", () => {
+    expect(goalsFromReadings(readings, TODAY)).toEqual({ Lazer: { name: "Lazer", limit: 1059.88, actual: 341.83 } });
+  });
+
+  it("a previsão usa o gasto da meta (estornos já aplicados), não a soma bruta", () => {
+    const goals = goalsFromReadings(readings, TODAY);
+    const [f] = buildWeekendForecasts(lazerHistory({ octMultiplier: 4 }), TODAY, goals);
+    expect(f.month_to_date).toBe(341.83);
+    expect(f.anchor).toEqual({ kind: "goal", amount: 1059.88 });
   });
 });

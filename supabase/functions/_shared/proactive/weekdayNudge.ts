@@ -71,7 +71,8 @@ export type WeekdayPattern = {
   when_it_happens: number;
 };
 
-export type NudgeGoal = { name: string; limit: number };
+/** `actual` vem da leitura canônica da meta (estornos e regras de data já aplicados). */
+export type NudgeGoal = { name: string; limit: number; actual?: number };
 
 export type WeekdayProjection = {
   pattern: WeekdayPattern;
@@ -216,7 +217,8 @@ export function buildWeekdayProjection(
   let best: WeekdayProjection | null = null;
   for (const pattern of detectWeekdayPatterns(transactions, today)) {
     if (exclude.has(pattern.category)) continue;
-    const monthToDate = round2(transactions
+    const canonical = goals[pattern.category]?.actual;
+    const monthToDate = canonical != null ? round2(canonical) : round2(transactions
       .filter((t) => t.category === pattern.category && monthKey(t.occurred_at) === month && t.occurred_at.slice(0, 10) < today)
       .reduce((acc, t) => acc + Number(t.amount), 0));
     let expectedRest = 0;
@@ -278,7 +280,7 @@ export function weekdayNudgeSituation(
   const anchorText = projection.anchor.kind === "goal"
     ? `a meta é ${brlPt(projection.anchor.amount)}`
     : `a ${projection.anchor.label} é ${brlPt(projection.anchor.amount)}`;
-  const month = `${pattern.category} no mês: ${brlPt(projection.month_to_date)} até ontem. Nesse ritmo, fecha em ${brlPt(projection.projected_month)} (${anchorText}), uns ${brlPt(projection.overage)} acima.`;
+  const month = `${pattern.category} no mês: ${brlPt(projection.month_to_date)} até agora. Nesse ritmo, fecha em ${brlPt(projection.projected_month)} (${anchorText}), uns ${brlPt(projection.overage)} acima.`;
   const stillOver = projection.projected_without_today > projection.anchor.amount;
   const today = stillOver
     ? `Sem gastar com isso hoje, fecha em ${brlPt(projection.projected_without_today)}.`

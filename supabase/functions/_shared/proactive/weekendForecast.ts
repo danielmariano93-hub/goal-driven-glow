@@ -108,6 +108,21 @@ export function detectCardGap(transactions: NudgeTransaction[], today: string): 
   return current === 0 && monthsWithCard >= 2;
 }
 
+const OPEN_GOAL_STATUS = new Set(["on_track", "attention", "at_risk", "exceeded", "limit_reached"]);
+
+/** Metas abertas que cobrem hoje, a partir da leitura canônica (`readGoals`): limite e gasto do mês. */
+export function goalsFromReadings(
+  readings: Array<{ category_name: string; status: string; limit: number; actual: number; period: { start: string; end: string } }>,
+  today: string,
+): Record<string, NudgeGoal> {
+  const out: Record<string, NudgeGoal> = {};
+  for (const r of readings) {
+    if (!OPEN_GOAL_STATUS.has(r.status) || r.period.start > today || r.period.end < today || !(r.limit > 0)) continue;
+    out[r.category_name] = { name: r.category_name, limit: round2(r.limit), actual: round2(r.actual) };
+  }
+  return out;
+}
+
 /** Previsões por categoria para o fim de semana que começa hoje (sexta). */
 export function buildWeekendForecasts(
   transactions: NudgeTransaction[],
@@ -173,10 +188,11 @@ export function buildWeekendForecasts(
     const cap = quantile(all, 0.9);
     const expected = perWeekend.reduce((a, v) => a + Math.min(v, cap), 0) / rules.weekends;
     const weekdayRate = weekdaySum / (rules.weekends * 4);
-    // O mês corrente cabe inteiro na janela de 12 semanas, então `rows` já o contém.
-    const monthToDate = rows
-      .filter((t) => t.occurred_at.slice(0, 7) === month)
-      .reduce((a, t) => a + Number(t.amount), 0);
+    // Com meta, o gasto do mês é o da leitura canônica da meta (estornos e datas já aplicados);
+    // sem meta, o mês corrente cabe inteiro na janela de 12 semanas e `rows` já o contém.
+    const monthToDate = goals[category]?.actual != null
+      ? Number(goals[category].actual)
+      : rows.filter((t) => t.occurred_at.slice(0, 7) === month).reduce((a, t) => a + Number(t.amount), 0);
     const weekdayRest = weekdayRate * weekdaysLeft;
     const projected = monthToDate + expected * unitsLeft + weekdayRest;
     const projectedLow = monthToDate + quantile(all, 0.25) * unitsLeft + weekdayRest;
@@ -276,7 +292,7 @@ export function weekendForecastSituation(
         : `Para fechar dentro, dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`;
     body = [
       habit,
-      `${f.category} no mês: ${brlPt(f.month_to_date)} até ontem. No ritmo atual (${leftText}), fecha perto de ${brlPt(f.projected_month)}, entre ${brlPt(f.projected_low)} e ${brlPt(f.projected_high)} (${anchorText}).`,
+      `${f.category} no mês: ${brlPt(f.month_to_date)} até agora. No ritmo atual (${leftText}), fecha perto de ${brlPt(f.projected_month)}, entre ${brlPt(f.projected_low)} e ${brlPt(f.projected_high)} (${anchorText}).`,
       fair,
     ].join(" ");
   } else {
