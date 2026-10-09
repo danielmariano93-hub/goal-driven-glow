@@ -22,8 +22,12 @@ function point(index: number, value: number) {
  * vizinhos que realmente têm nota. A terceira série (histórico) só entra sob demanda.
  */
 export function HabitsWheel({
-  selected, onSelect, latest, observed, cycle, onSaveMap, saving, baseline, notComparable, feedback, feedbackBusy, onAnswer, onRemoveFeedback,
+  selected, onSelect, weighsFor, onWeighs, onClearWeighs, latest, observed, cycle, onSaveMap, saving, baseline, notComparable, feedback, feedbackBusy, onAnswer, onRemoveFeedback,
 }: {
+  /** Respostas "o que mais pesa" por dimensão. */
+  weighsFor: (key: BehaviorDimensionKey) => string[] | null;
+  onWeighs: (key: BehaviorDimensionKey, keys: string[]) => void | Promise<void>;
+  onClearWeighs: (key: BehaviorDimensionKey) => void | Promise<void>;
   selected: BehaviorDimensionKey | null;
   onSelect: (key: BehaviorDimensionKey | null) => void;
   latest: ExtendedBehavioralAssessment | null;
@@ -134,6 +138,9 @@ export function HabitsWheel({
                     busy={feedbackBusy}
                     onAnswer={(a) => onAnswer(r.key, a)}
                     onRemove={() => onRemoveFeedback(r.key)}
+                    weighs={weighsFor(r.key)}
+                    onWeighs={(keys) => onWeighs(r.key, keys)}
+                    onClearWeighs={() => onClearWeighs(r.key)}
                   />
                 </div>
               ) : null}

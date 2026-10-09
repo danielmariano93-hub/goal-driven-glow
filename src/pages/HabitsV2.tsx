@@ -8,10 +8,10 @@ import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { HabitsWheel } from "@/components/habits/HabitsWheel";
 import { EmotionAssociationCard } from "@/components/habits/EmotionAssociationCard";
 import { PatternCard } from "@/components/habits/PatternCard";
-import { useHabitPatterns, useLimitDecision } from "@/lib/behavioral/habitPatterns";
+import { logInsightEvent, useContextAnswerMutations, useContextAnswers, useHabitPatterns, useLimitDecision } from "@/lib/behavioral/habitPatterns";
+import { dimensionSubject, patternSubject, type PatternAnswerKey } from "../../supabase/functions/_shared/proactive/habitContext";
 import type { FeedbackAnswer } from "@/components/habits/DimensionPanel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
-import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { HabitTrend } from "@/components/behavioral/EvolutionParts";
 import { useContestDimension, useObservedFeedback, useRemoveFeedback } from "@/lib/behavioral/observedFeedback";
 import { behaviorHabitsReading, buildHabitDiscovery, moneyImpactOf, weekStartOf, type HabitDiscovery } from "@/lib/behavioral/behaviorEvolution";
@@ -82,7 +82,6 @@ export default function HabitsV2() {
   const [selected, setSelected] = useState<BehaviorDimensionKey | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [experimentBusy] = useState<string | null>(null);
 
   const dashboardQuery = useQuery({
     queryKey: ["behavioral-dashboard", "v3", user?.id],
@@ -95,6 +94,8 @@ export default function HabitsV2() {
   });
   const patternsQuery = useHabitPatterns();
   const limitDecision = useLimitDecision();
+  const contextAnswers = useContextAnswers(todayISO());
+  const ctx = useContextAnswerMutations();
   const snapshotsQuery = useObservedSnapshots();
   const feedbackQuery = useObservedFeedback(user?.id, todayISO());
   const contest = useContestDimension(user?.id);
@@ -145,8 +146,12 @@ export default function HabitsV2() {
     .sort((a, b) => (a.dim.score as number) - (b.dim.score as number))[0];
   const action = weakest ? NEXT_ACTION[weakest.key] : undefined;
 
-  const openDimension = (key: BehaviorDimensionKey) => {
+  const selectDimension = (key: BehaviorDimensionKey | null) => {
     setSelected(key);
+    if (key) logInsightEvent(`dimension:${key}`, "dimension_opened", { state: observed.dimensions[key]?.state ?? null });
+  };
+  const openDimension = (key: BehaviorDimensionKey) => {
+    selectDimension(key);
     window.setTimeout(() => document.getElementById(`dimensao-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
   };
 
@@ -192,30 +197,46 @@ export default function HabitsV2() {
   const patterns = patternsQuery.data?.shown ?? [];
   const mainPattern = patterns[0] ?? null;
   const secondPattern = patterns[1] ?? null;
+  const patternBusy = limitDecision.accept.isPending || limitDecision.decline.isPending || ctx.answer.isPending || ctx.clear.isPending;
+  const failToast = (error: unknown, tag: string) => { console.error(`[habits:v2:${tag}]`, error); toast.error("Não deu para registrar agora."); };
   const renderPattern = (pattern: (typeof patterns)[number]) => (
     <PatternCard
       key={pattern.id}
       pattern={pattern}
-      commitment={patternsQuery.data!.commitments[pattern.category]}
-      busy={limitDecision.accept.isPending || limitDecision.decline.isPending}
+      commitments={patternsQuery.data?.commitments ?? {}}
+      busy={patternBusy}
+      onAnswer={async (categories: string[], key: PatternAnswerKey) => {
+        try { await ctx.answer.mutateAsync({ subjects: categories.map(patternSubject), question: "planned_vs_spontaneous", answers: [key] }); }
+        catch (error) { failToast(error, "context:answer"); }
+      }}
+      onClearAnswer={async (categories: string[]) => {
+        try { await ctx.clear.mutateAsync({ subjects: categories.map(patternSubject), question: "planned_vs_spontaneous" }); }
+        catch (error) { failToast(error, "context:clear"); }
+      }}
       onAccept={async (suggestion, target) => {
         try {
           await limitDecision.accept.mutateAsync({ suggestion, target });
+          logInsightEvent(pattern.id, "accepted", { category: suggestion.category, target });
           toast.success("Combinado registrado.", { description: "Na segunda o Nino conta como foi." });
-        } catch (error) {
-          console.error("[habits:v2:limit:accept]", error);
-          toast.error("Não deu para registrar agora.");
-        }
+        } catch (error) { failToast(error, "limit:accept"); }
       }}
       onDecline={async (suggestion) => {
-        try { await limitDecision.decline.mutateAsync({ category: suggestion.category, friday: suggestion.friday }); }
-        catch (error) { console.error("[habits:v2:limit:decline]", error); toast.error("Não deu para registrar agora."); }
+        try { await limitDecision.decline.mutateAsync({ category: suggestion.category, friday: suggestion.friday }); logInsightEvent(pattern.id, "declined", { category: suggestion.category }); }
+        catch (error) { failToast(error, "limit:decline"); }
+      }}
+      onUndo={async (suggestion) => {
+        try { await limitDecision.decline.mutateAsync({ category: suggestion.category, friday: suggestion.friday }); logInsightEvent(pattern.id, "undone", { category: suggestion.category }); toast.success("Combinado desfeito."); }
+        catch (error) { failToast(error, "limit:undo"); }
       }}
     />
   );
-  const hasPatternAction = patterns.some((p) => p.action != null);
+  const hasPatternAction = patterns.some((p) => p.actions.length > 0 || p.skip_actions.length > 0);
 
-  const hasExperiments = dashboard.activeExperiments.length > 0 || dashboard.experiments.length > 0;
+  // Medições diretas × estimativas antigas (só um resumo; o gráfico fica sob demanda).
+  const since30 = Date.now() - 30 * 86_400_000;
+  const recentCheckins = (dashboard.checkins ?? []).filter((c) => new Date(c.occurred_at).getTime() >= since30);
+  const directCount = recentCheckins.filter((c) => c.financial_calm_score != null).length;
+  const estimatedCount = recentCheckins.length - directCount;
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-5 pb-24 pt-1" data-habits-v2>
@@ -242,7 +263,16 @@ export default function HabitsV2() {
 
       <HabitsWheel
         selected={selected}
-        onSelect={setSelected}
+        onSelect={selectDimension}
+        weighsFor={(key) => contextAnswers.data?.get(`${dimensionSubject(key)}|what_weighs`) ?? null}
+        onWeighs={async (key, keys) => {
+          try { await ctx.answer.mutateAsync({ subjects: [dimensionSubject(key)], question: "what_weighs", answers: keys }); logInsightEvent(`dimension:${key}`, "dimension_answered", { n: keys.length }); toast.success("Anotado."); }
+          catch (error) { failToast(error, "context:weighs"); }
+        }}
+        onClearWeighs={async (key) => {
+          try { await ctx.clear.mutateAsync({ subjects: [dimensionSubject(key)], question: "what_weighs" }); }
+          catch (error) { failToast(error, "context:weighs:clear"); }
+        }}
         latest={latest}
         observed={observed}
         cycle={cycle}
@@ -280,18 +310,19 @@ export default function HabitsV2() {
       <details open={detailsOpen} onToggle={(e) => setDetailsOpen((e.currentTarget as HTMLDetailsElement).open)} className="rounded-[22px] border border-border bg-card shadow-card">
         <summary className="flex min-h-12 cursor-pointer items-center justify-between px-4 text-sm font-semibold">
           Histórico e análises detalhadas
-          <span className="text-[11px] font-normal text-muted-foreground">check-in · humor · evolução{hasExperiments ? " · experimentos" : ""}</span>
+          <span className="text-[11px] font-normal text-muted-foreground">check-in · registros · evolução</span>
         </summary>
         <div className="space-y-5 border-t border-border p-4">
           <div id="checkin" className="scroll-mt-24"><EmotionalCheckinCard /></div>
           <EmotionAssociationCard impact={moneyImpactOf(dashboard.emotionSpend)} onAskContext={() => document.getElementById("checkin")?.scrollIntoView({ behavior: "smooth" })} />
-          <MoneyMoodTimeline snapshot={dashboard} />
+          <details className="rounded-[22px] border border-border bg-card p-3">
+            <summary className="cursor-pointer text-sm font-semibold">Histórico dos seus registros de tranquilidade</summary>
+            <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+              Nos últimos 30 dias: {directCount} {directCount === 1 ? "medição direta" : "medições diretas"} (você informou) e {estimatedCount} {estimatedCount === 1 ? "estimativa" : "estimativas"} de registros antigos. As estimativas não entram na nota.
+            </p>
+            <div className="mt-3"><MoneyMoodTimeline snapshot={dashboard} /></div>
+          </details>
           <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
-          {hasExperiments ? (
-            <div id="experimentos" className="scroll-mt-24">
-              <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={async () => undefined} onChanged={refresh} allowStart={false} />
-            </div>
-          ) : null}
           <div className="rounded-2xl bg-secondary/25 p-3 text-[11px] leading-relaxed text-muted-foreground">
             <p className="font-semibold text-foreground">Como o Nino lê isso</p>
             <p className="mt-1">Uma nota só aparece quando há evidência suficiente; com base parcial o Nino mostra o que viu, sem nota, e sem dados diz “ainda não sei”. Abrir telas do app não conta como hábito. As leituras são associações, não diagnóstico: o Nino não deduz emoção nem causa a partir de extratos. Método {observed.methodologyVersion ?? "behavior_observed.v3"}.</p>

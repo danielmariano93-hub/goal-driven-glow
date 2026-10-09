@@ -33,7 +33,7 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadDeliveredWeekendForecasts, loadNudgeGoals, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadContextAnswers, loadDeliveredWeekendForecasts, loadNudgeGoals, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
@@ -41,6 +41,7 @@ import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
 import { weekendForecastSituation } from "./weekendMessages.ts";
+import { validAnswers } from "./habitContext.ts";
 import { loadAcceptedCommitments, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
@@ -339,8 +340,11 @@ export async function runMultiFinanceProactive(
     : nudgeTransactions.length ? await loadNudgeGoals(sb, userId, ctx.as_of).catch(() => ({})) : {};
   // Quem já decidiu na tela de hábitos (aceitou ou recusou o limite) não recebe a mesma oferta no WhatsApp.
   const decidedInApp = nudgeTransactions.length ? await loadDecidedWeekendCategories(sb, userId, ctx.as_of).catch(() => new Set<string>()) : new Set<string>();
+  // Quem disse (na tela de hábitos) que o gasto já é planejado ou envolve outras pessoas não recebe pressão por limite.
+  const contextAnswers = nudgeTransactions.length ? validAnswers(await loadContextAnswers(sb, userId).catch(() => []), ctx.as_of) : new Map<string, string[]>();
+  const notALimitCase = (category: string) => ["planned", "for_others"].includes(contextAnswers.get(`weekend:${category}|planned_vs_spontaneous`)?.[0] ?? "");
   const weekendForecasts = nudgeTransactions.length
-    ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals).filter((f) => !decidedInApp.has(f.category))
+    ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals).filter((f) => !decidedInApp.has(f.category) && !notALimitCase(f.category))
     : [];
   const weekendForecast = weekendForecastSituation(weekendForecasts, ctx, new Date());
   if (weekendForecast) refined.push(weekendForecast);

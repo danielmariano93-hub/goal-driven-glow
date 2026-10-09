@@ -236,3 +236,13 @@ export async function loadDiscoveryInputs(sb: SupabaseClient, userId: string): P
     },
   };
 }
+
+/** Respostas de contexto da pessoa (habit_context_answers); a validade é aplicada por quem usa. */
+export async function loadContextAnswers(sb: SupabaseClient, userId: string): Promise<Array<{ subject: string; question: string; answer_keys: string[]; updated_at: string }>> {
+  const { data } = await sb.from("habit_context_answers").select("subject,question,answer_keys,updated_at")
+    .eq("user_id", userId).limit(100);
+  return (((data as any[]) ?? []).map((r) => ({
+    subject: String(r.subject), question: String(r.question),
+    answer_keys: Array.isArray(r.answer_keys) ? r.answer_keys.map(String) : [], updated_at: String(r.updated_at),
+  })));
+}

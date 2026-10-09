@@ -157,6 +157,16 @@ function computeEmotionSpend(checkins: EmotionalCheckinRow[], expenses: TimedExp
   return computeEmotionSpendAssociation(checkins, expenses);
 }
 
+/** Respostas de contexto ainda válidas (45 dias): evidência declarada de reconhecimento de padrões. */
+async function countRecentContextAnswers(): Promise<number> {
+  try {
+    const since = new Date(Date.now() - 45 * DAY_MS).toISOString();
+    const from = supabase.from as unknown as (n: string) => { select: (c: string, o: { count: "exact"; head: true }) => { gte: (k: string, v: string) => Promise<{ count: number | null }> } };
+    const { count } = await from("habit_context_answers").select("id", { count: "exact", head: true }).gte("updated_at", since);
+    return count ?? 0;
+  } catch { return 0; }
+}
+
 export async function loadBehavioralDashboardSnapshot(opts: { v3?: boolean } = {}): Promise<BehavioralDashboardState> {
   const { data, error } = await (supabase.rpc as any)("behavioral_dashboard_snapshot");
   if (error) throw error;
@@ -239,7 +249,8 @@ export async function loadBehavioralDashboardSnapshot(opts: { v3?: boolean } = {
   }
 
   const observedInput = observedInputFromDashboardPayload(payload);
-  const observed = opts.v3 ? buildObservedProfileV3(observedInput) : buildObservedProfileV2(observedInput);
+  const declaredContextAnswers = opts.v3 ? await countRecentContextAnswers() : 0;
+  const observed = opts.v3 ? buildObservedProfileV3(observedInput, Date.now(), { declaredContextAnswers }) : buildObservedProfileV2(observedInput);
   const activeExperiments = experiments.filter((row) => row.status === "active");
   const latest = checkins[0] ?? null;
   const latestAgeHours = latest ? (Date.now() - new Date(latest.occurred_at).getTime()) / 3_600_000 : Infinity;

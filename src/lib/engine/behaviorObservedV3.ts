@@ -145,7 +145,15 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-export function buildObservedProfileV3(input: ObservedProfileV2Input, now: number = Date.now()): ObservedBehaviorProfile {
+export type ObservedV3Options = {
+  /** Respostas de contexto da pessoa ainda válidas (padrões e "o que pesa"): evidência declarada de reconhecimento de padrões. */
+  declaredContextAnswers?: number;
+};
+
+/** Sem reconhecimento declarado de padrões, a consciência medida só por check-ins não passa deste teto. */
+export const AWARENESS_CHECKIN_ONLY_CAP = 7;
+
+export function buildObservedProfileV3(input: ObservedProfileV2Input, now: number = Date.now(), opts: ObservedV3Options = {}): ObservedBehaviorProfile {
   const { financialRow, checkins, txStats, goalCycles, planningStats, investmentStats } = input;
   const payload = (financialRow?.payload ?? {}) as any;
   const snapshot = payload?.snapshot ?? {};
@@ -166,24 +174,34 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
   // categorização automática não entram: não provam que a pessoa entende o dinheiro.
   const awareness = (() => {
     const n = checkin30.length;
+    const declared = Math.max(0, Math.floor(opts.declaredContextAnswers ?? 0));
     const countScore = n ? clamp((n / 8) * 10) : null;
     const weekScore = checkinWeeks ? clamp((checkinWeeks / 4) * 10) : null;
-    const score = weighted([{ value: countScore, weight: 0.6 }, { value: weekScore, weight: 0.4 }]);
+    const recognition = declared > 0 ? clamp((declared / 2) * 10) : null;
+    const raw = weighted([{ value: countScore, weight: 0.5 }, { value: weekScore, weight: 0.3 }, { value: recognition, weight: 0.2 }]);
     const sufficient = n >= 4 && checkinWeeks >= 2;
+    // Check-ins medem atenção ao tema; entender os próprios padrões só se comprova com o que a pessoa reconhece.
+    const capped = sufficient && raw != null && declared === 0 && raw > AWARENESS_CHECKIN_ONLY_CAP;
+    const score = raw == null ? null : declared === 0 ? Math.min(raw, AWARENESS_CHECKIN_ONLY_CAP) : raw;
+    const observed: string[] = [];
+    if (n) observed.push(`Você fez ${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} recente${checkinWeeks === 1 ? "" : "s"}.`);
+    observed.push(declared > 0
+      ? `Você respondeu ${declared} pergunta${declared === 1 ? "" : "s"} sobre os seus padrões.`
+      : "Você ainda não respondeu perguntas sobre os seus padrões; por isso a nota não passa de 7,0.");
     return finalize("awareness", {
       state: sufficient ? "sufficient" : n > 0 ? "partial" : "none",
       score: sufficient ? score : null,
-      confidence: "medium", // fonte única (check-ins): nunca "alta"
+      confidence: "medium", // fonte principal (check-ins): nunca "alta"
       summary: n
-        ? `${n} check-in${n === 1 ? "" : "s"} nos últimos 30 dias, em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"}.`
+        ? `${n} check-in${n === 1 ? "" : "s"} nos últimos 30 dias, em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"}${capped ? "; sem perguntas respondidas sobre padrões, a nota para em 7,0" : ""}.`
         : "Ainda não há check-ins para o Nino ler sua atenção ao dinheiro.",
-      source: "checkins",
-      factors: [f("checkin_count", "Check-ins nos últimos 30 dias", countScore, 0.6), f("checkin_weeks", "Semanas com check-in", weekScore, 0.4)],
-      origin: [{ key: "checkins", label: "Seus check-ins", kind: "declared" }],
-      window: "últimos 30 dias",
+      source: "checkins+declared_context",
+      factors: [f("checkin_count", "Check-ins nos últimos 30 dias", countScore, 0.5), f("checkin_weeks", "Semanas com check-in", weekScore, 0.3), f("recognized_patterns", "Padrões que você reconheceu", recognition, 0.2)],
+      origin: [{ key: "checkins", label: "Seus check-ins", kind: "declared" }, { key: "context_answers", label: "Suas respostas sobre padrões", kind: "declared" }],
+      window: "últimos 30 dias (respostas: 45 dias)",
       coverage: `${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} (mínimo: 4 em 2 semanas)`,
-      observed: n ? [`Você fez ${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} recente${checkinWeeks === 1 ? "" : "s"}.`] : [],
-      unknown: ["Se você identifica padrões e revisa seus gastos além dos check-ins."],
+      observed,
+      unknown: declared > 0 ? ["Se você revisa seus gastos além dos check-ins."] : ["Se você reconhece os seus padrões de gasto: responder as perguntas dos insights ajuda."],
       reason: n ? "Poucos check-ins para uma leitura confiável." : "Nenhum check-in nos últimos 30 dias.",
     });
   })();

@@ -21,7 +21,7 @@ import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDas
 import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 import { buildHabitPatterns } from "../_shared/proactive/habitPatterns.ts";
 import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
-import { loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
+import { loadContextAnswers, loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
 import { matchesAnySecret } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -170,15 +170,22 @@ Deno.serve(async (req) => {
       const goals = goalCtx
         ? goalsFromReadings(readGoals(goalCtx), asOf)
         : transactions.length ? await loadNudgeGoals(sb, userId, asOf).catch(() => ({})) : {};
-      const result = buildHabitPatterns({ transactions, today: asOf, goals });
-      const fridays = [...new Set(result.shown.map((p) => (p.action && "friday" in p.action ? p.action.friday : null)).filter(Boolean))] as string[];
-      let commitments: Record<string, { status: string; target_amount: number | null; friday: string }> = {};
+      const contextAnswers = await loadContextAnswers(sb, userId).catch(() => []);
+      const result = buildHabitPatterns({ transactions, today: asOf, goals, contextAnswers });
+      const fridays = [...new Set(result.shown.flatMap((p) => [...p.actions, ...p.skip_actions]).map((a) => (a.kind === "suggest_limit" ? a.friday : null)).filter(Boolean))] as string[];
+      let commitments: Record<string, { status: string; target_amount: number | null; friday: string; accepted_at: string | null; source: "whatsapp" | "app" | null }> = {};
       if (fridays.length) {
-        const { data } = await sb.from("weekend_commitments").select("category,friday,status,target_amount")
+        const { data } = await sb.from("weekend_commitments").select("category,friday,status,target_amount,accepted_at,detail")
           .eq("user_id", userId).in("friday", fridays).limit(20);
-        commitments = Object.fromEntries(((data as any[]) ?? []).map((r) => [String(r.category), { status: String(r.status), target_amount: r.target_amount == null ? null : Number(r.target_amount), friday: String(r.friday) }]));
+        commitments = Object.fromEntries(((data as any[]) ?? []).map((r) => [String(r.category), {
+          status: String(r.status), target_amount: r.target_amount == null ? null : Number(r.target_amount), friday: String(r.friday),
+          accepted_at: r.accepted_at ? String(r.accepted_at) : null,
+          // Origem do aceite: a tela grava "aceito na tela de hábitos"; qualquer outro aceite veio da resposta no WhatsApp.
+          source: r.status === "accepted" || r.status === "kept" || r.status === "missed" ? (String(r.detail ?? "").startsWith("aceito na tela") ? "app" : "whatsapp") : null,
+        }]));
       }
-      return h.ok({ ok: true, as_of: asOf, ...result, commitments });
+      const answers = contextAnswers.map((r) => ({ subject: r.subject, question: r.question, answer_keys: r.answer_keys, updated_at: r.updated_at }));
+      return h.ok({ ok: true, as_of: asOf, ...result, commitments, answers });
     }
     if (action === "goal_merchants") {
       const categoryId = typeof body.category_id === "string" ? body.category_id : "";
