@@ -284,6 +284,11 @@ export default function Emocoes() {
         </details>
       ) : null}
 
+      <p className="text-center text-[10px] text-muted-foreground/70" data-testid="build-marker">
+        Versão da tela: {typeof __APP_BUILD_SHA__ === "string" ? __APP_BUILD_SHA__ : "dev"}
+        {typeof __APP_BUILD_AT__ === "string" ? ` · publicada em ${new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" }).format(new Date(__APP_BUILD_AT__))}` : ""}
+      </p>
+
       <details className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
         <summary className="cursor-pointer font-semibold text-foreground">Como o Nino calcula isso</summary>
         <p className="mt-2">
