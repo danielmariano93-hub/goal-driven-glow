@@ -131,7 +131,7 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
   const from = weeksFrom < monthsFrom ? weeksFrom : monthsFrom;
   const [txRes, catRes] = await Promise.all([
     sb.from("transactions")
-      .select("occurred_at,amount,category_id,movement_kind")
+      .select("occurred_at,amount,category_id,movement_kind,payment_method")
       .eq("user_id", userId).eq("status", "confirmed").eq("type", "expense")
       .gte("occurred_at", from).lt("occurred_at", today)
       .order("occurred_at", { ascending: false })
@@ -146,6 +146,7 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
       occurred_at: String(row.occurred_at),
       amount: Math.abs(Number(row.amount ?? 0)),
       category: row.category_id ? names.get(String(row.category_id)) ?? null : null,
+      payment_method: row.payment_method ? String(row.payment_method) : null,
     }));
 }
 

@@ -51,12 +51,12 @@ const FIXED_DATE_CATEGORIES = new Set([
   "cartao", "fatura", "dividas", "juros", "investimentos", "transferencias",
 ]);
 
-function isFixedDateCategory(category: string): boolean {
+export function isFixedDateCategory(category: string): boolean {
   const key = category.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
   return FIXED_DATE_CATEGORIES.has(key);
 }
 
-export type NudgeTransaction = { occurred_at: string; amount: number; category: string | null };
+export type NudgeTransaction = { occurred_at: string; amount: number; category: string | null; payment_method?: string | null };
 
 export type WeekdayPattern = {
   weekday: number;
@@ -203,6 +203,8 @@ export function buildWeekdayProjection(
   transactions: NudgeTransaction[],
   today: string,
   goals: Record<string, NudgeGoal> = {},
+  /** Categorias já cobertas por outro aviso (ex.: previsão do fim de semana). */
+  exclude: ReadonlySet<string> = new Set(),
 ): WeekdayProjection | null {
   const rules = WEEKDAY_NUDGE_RULES;
   const [y, m, d] = today.split("-").map(Number);
@@ -213,6 +215,7 @@ export function buildWeekdayProjection(
 
   let best: WeekdayProjection | null = null;
   for (const pattern of detectWeekdayPatterns(transactions, today)) {
+    if (exclude.has(pattern.category)) continue;
     const monthToDate = round2(transactions
       .filter((t) => t.category === pattern.category && monthKey(t.occurred_at) === month && t.occurred_at.slice(0, 10) < today)
       .reduce((acc, t) => acc + Number(t.amount), 0));
