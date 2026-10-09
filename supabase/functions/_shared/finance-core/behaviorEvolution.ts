@@ -47,6 +47,8 @@ export type DimensionChange = {
   scope: string;
   /** Componentes da nota sem dado ("o que ainda falta saber"). */
   missing: string[];
+  /** A pessoa contestou esta nota ("isso não representa minha realidade") e a contestação ainda vale. */
+  contested: boolean;
 };
 
 export type BehaviorVerdictKind = "better" | "same" | "worse" | "insufficient";
@@ -176,7 +178,11 @@ export function isComparableDimension(current: ObservedDimension | undefined, pr
 }
 
 /** Variação por dimensão: nota atual contra a base, com os componentes que explicam. */
-export function compareDimensions(profile: ObservedBehaviorProfile, baseline: ObservedSnapshot | null): DimensionChange[] {
+export function compareDimensions(
+  profile: ObservedBehaviorProfile,
+  baseline: ObservedSnapshot | null,
+  contested: ReadonlySet<BehaviorDimensionKey> = new Set(),
+): DimensionChange[] {
   return BEHAVIOR_DIMENSIONS.map((dim) => {
     const cur = profile.dimensions[dim.key];
     const prevDim = baseline?.dimensions[dim.key];
@@ -199,6 +205,7 @@ export function compareDimensions(profile: ObservedBehaviorProfile, baseline: Ob
       notComparable: !comparable,
       scope: DIMENSION_SCOPE[dim.key],
       missing: (cur?.factors ?? []).filter((f) => f.value == null).map((f) => f.label),
+      contested: contested.has(dim.key),
     };
     return { ...base, why: !comparable && score != null ? NOT_COMPARABLE_WHY : whyText(base) };
   });
@@ -209,7 +216,8 @@ export function compareDimensions(profile: ObservedBehaviorProfile, baseline: Ob
  * dois pontos comparáveis; baixa confiança em qualquer um dos pontos não conta.
  */
 export function buildBehaviorVerdict(changes: DimensionChange[], baseline: ObservedSnapshot | null, overall: number | null): BehaviorVerdict {
-  const comparable = changes.filter((c) => c.delta != null && c.confidence !== "low");
+  // Nota contestada pela pessoa não sustenta "melhorou/piorou".
+  const comparable = changes.filter((c) => c.delta != null && c.confidence !== "low" && !c.contested);
   const improved = comparable.filter((c) => c.direction === "better").length;
   const worsened = comparable.filter((c) => c.direction === "worse").length;
   const stable = comparable.filter((c) => c.direction === "same").length;
@@ -311,10 +319,12 @@ export function behaviorHabitsReading(args: {
   today: string;
   thisWeek: string;
   degraded?: boolean;
+  /** Dimensões com contestação vigente (ficam fora do veredito). */
+  contested?: ReadonlySet<BehaviorDimensionKey>;
 }): BehaviorHabitsReading {
   const history = args.snapshots.filter((row) => row.week_start < args.thisWeek);
   const baseline = args.degraded ? null : pickBaseline(history, args.today);
-  const changes = compareDimensions(args.profile, baseline);
+  const changes = compareDimensions(args.profile, baseline, args.contested);
   const verdict = buildBehaviorVerdict(changes, baseline, args.profile.overallScore);
   const series = habitSeries(history, args.profile, args.thisWeek);
   const weeksOfHistory = new Set([...history.map((row) => row.week_start), args.thisWeek]).size;
@@ -365,8 +375,11 @@ export function buildHabitDiscovery(args: {
   /** Notas que a pessoa deu no mapa (0–10) por dimensão; null se ainda não preencheu. */
   perception: Partial<Record<BehaviorDimensionKey, number>> | null;
   changes: DimensionChange[];
+  /** Dimensões contestadas pela pessoa: o Nino não as usa como descoberta. */
+  contested?: ReadonlySet<BehaviorDimensionKey>;
 }): HabitDiscovery {
   const { profile, perception, changes } = args;
+  const contested = args.contested ?? new Set<BehaviorDimensionKey>();
   const labelOf = (key: BehaviorDimensionKey) => BEHAVIOR_DIMENSIONS.find((d) => d.key === key)?.label ?? key;
 
   // 1) Percepção x registros: a maior distância com evidência suficiente.
@@ -374,7 +387,7 @@ export function buildHabitDiscovery(args: {
     const gaps = BEHAVIOR_DIMENSIONS.map((dim) => {
       const obs = profile.dimensions[dim.key];
       const self = perception[dim.key];
-      if (obs?.score == null || self == null || !CONF_OK[obs.confidence]) return null;
+      if (obs?.score == null || self == null || !CONF_OK[obs.confidence] || contested.has(dim.key)) return null;
       return { key: dim.key, self: Number(self), observed: obs.score, gap: obs.score - Number(self) };
     }).filter((row): row is NonNullable<typeof row> => row != null && Math.abs(row.gap) >= DISCOVERY_MIN_GAP)
       .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
@@ -394,7 +407,7 @@ export function buildHabitDiscovery(args: {
 
   // 2) Uma mudança boa e comparável.
   const better = changes
-    .filter((c) => c.direction === "better" && !c.notComparable && c.delta != null && CONF_OK[c.confidence])
+    .filter((c) => c.direction === "better" && !c.notComparable && !contested.has(c.key) && c.delta != null && CONF_OK[c.confidence])
     .sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))[0];
   if (better) {
     return {
@@ -408,7 +421,7 @@ export function buildHabitDiscovery(args: {
 
   // 3) Uma piora comparável, dita sem alarme.
   const worse = changes
-    .filter((c) => c.direction === "worse" && !c.notComparable && c.delta != null && CONF_OK[c.confidence])
+    .filter((c) => c.direction === "worse" && !c.notComparable && !contested.has(c.key) && c.delta != null && CONF_OK[c.confidence])
     .sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))[0];
   if (worse) {
     const action = DIMENSION_ACTION[worse.key];
@@ -424,7 +437,7 @@ export function buildHabitDiscovery(args: {
   // 4) O ponto com mais espaço (nota mais baixa com evidência suficiente).
   const weakest = BEHAVIOR_DIMENSIONS
     .map((dim) => ({ key: dim.key, obs: profile.dimensions[dim.key] }))
-    .filter((row) => row.obs?.score != null && CONF_OK[row.obs.confidence] && (row.obs.score as number) < 5)
+    .filter((row) => row.obs?.score != null && CONF_OK[row.obs.confidence] && (row.obs.score as number) < 5 && !contested.has(row.key))
     .sort((a, b) => (a.obs.score as number) - (b.obs.score as number))[0];
   if (weakest) {
     return {
@@ -443,4 +456,51 @@ export function buildHabitDiscovery(args: {
     dimension: null, self: null, observed: null,
     action: { label: "Fazer um check-in agora", to: "#checkin" },
   };
+}
+
+// ---------------------------------------------------------------------------
+// "Isso não representa minha realidade": a pessoa contesta a nota observada de
+// uma dimensão. A nota NÃO muda (senão vira gaming); o contestamento vale 30 dias
+// a partir da semana da leitura contestada, tira a dimensão das descobertas e do
+// veredito e é registrado como incerteza declarada (contexto do Nino).
+// ---------------------------------------------------------------------------
+
+export const FEEDBACK_VALID_DAYS = 30;
+export const FEEDBACK_NOTE_MAX = 280;
+
+export type FeedbackReason = "missing_data" | "temporary_phase" | "different_routine" | "other";
+
+export const FEEDBACK_REASONS: Array<{ key: FeedbackReason; label: string }> = [
+  { key: "missing_data", label: "Faltam lançamentos ou dados que o Nino não vê" },
+  { key: "temporary_phase", label: "É uma fase atípica, temporária" },
+  { key: "different_routine", label: "Minha rotina é diferente do que a nota assume" },
+  { key: "other", label: "Outro motivo" },
+];
+
+export type BehaviorFeedback = {
+  dimension: BehaviorDimensionKey;
+  week_start: string;
+  reason: FeedbackReason;
+  note: string | null;
+  observed_score: number | null;
+};
+
+/** Contestações que ainda valem em `today` (30 dias a partir da semana da leitura). */
+export function activeFeedback(rows: BehaviorFeedback[], today: string): Partial<Record<BehaviorDimensionKey, BehaviorFeedback>> {
+  const t = new Date(`${today}T12:00:00Z`).getTime();
+  const out: Partial<Record<BehaviorDimensionKey, BehaviorFeedback>> = {};
+  for (const row of rows) {
+    const start = new Date(`${row.week_start}T12:00:00Z`).getTime();
+    if (!Number.isFinite(start) || (t - start) / DAY_MS > FEEDBACK_VALID_DAYS) continue;
+    const current = out[row.dimension];
+    if (!current || row.week_start > current.week_start) out[row.dimension] = row;
+  }
+  return out;
+}
+
+/** Fim da validade (YYYY-MM-DD) de uma contestação. */
+export function feedbackValidUntil(weekStart: string): string {
+  const d = new Date(`${weekStart}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + FEEDBACK_VALID_DAYS);
+  return d.toISOString().slice(0, 10);
 }

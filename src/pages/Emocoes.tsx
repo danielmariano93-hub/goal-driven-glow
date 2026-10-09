@@ -13,6 +13,7 @@ import { HabitDiscoveryCard, HabitTrend, MoneyImpactCard, VerdictStrip, WhatChan
 import { NextStepCard } from "@/components/behavioral/NextStepCard";
 import type { NextStepFallback } from "@/lib/behavioral/nextStep";
 import { useOpenWeekendCommitment } from "@/lib/behavioral/weekendCommitment";
+import { useContestDimension, useObservedFeedback, useRemoveFeedback } from "@/lib/behavioral/observedFeedback";
 import { behaviorHabitsReading, buildHabitDiscovery, DIMENSION_ACTION, moneyImpactOf, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
 import { useObservedSnapshots, useSaveObservedSnapshot } from "@/lib/behavioral/observedSnapshots";
 import { todayISO } from "@/lib/engine/facts";
@@ -85,6 +86,9 @@ export default function Emocoes() {
 
   const snapshotsQuery = useObservedSnapshots();
   const weekendCommitment = useOpenWeekendCommitment(user?.id, todayISO());
+  const feedbackQuery = useObservedFeedback(user?.id, todayISO());
+  const contest = useContestDimension(user?.id);
+  const removeContest = useRemoveFeedback(user?.id);
   useSaveObservedSnapshot(
     dashboardQuery.data?.observed ?? null,
     !!dashboardQuery.data && dashboardQuery.data.degradedSources.length === 0,
@@ -156,15 +160,19 @@ export default function Emocoes() {
   const confidenceLabel = confidence === "high" ? "alta" : confidence === "medium" ? "média" : "baixa";
   const maturing = observed.coverage > 0 && confidence !== "high";
 
+  // Contestações vigentes ("isso não representa minha realidade"): a nota não muda, mas não vira descoberta nem veredito.
+  const feedback = feedbackQuery.data ?? {};
+  const contested = new Set(Object.keys(feedback) as BehaviorDimensionKey[]);
+
   // Snapshots anteriores (a semana atual é a leitura de agora, não um ponto de comparação).
   const thisWeek = weekStartOf();
   const { baseline, changes, verdict, series, weeksOfHistory, reconstructedWeeks, baselineReconstructed } = behaviorHabitsReading({
-    profile: observed, snapshots: snapshotsQuery.data ?? [], today: todayISO(), thisWeek, degraded,
+    profile: observed, snapshots: snapshotsQuery.data ?? [], today: todayISO(), thisWeek, degraded, contested,
   });
   const impact = moneyImpactOf(dashboard.emotionSpend);
 
   // Descoberta (a primeira coisa que a página diz) e a próxima escolha possível.
-  const discovery = buildHabitDiscovery({ profile: observed, perception: (latest?.scores as Partial<Record<BehaviorDimensionKey, number>> | undefined) ?? null, changes });
+  const discovery = buildHabitDiscovery({ profile: observed, perception: (latest?.scores as Partial<Record<BehaviorDimensionKey, number>> | undefined) ?? null, changes, contested });
   const weakest = [...changes]
     .filter((c) => c.score != null && c.confidence !== "low" && (c.score as number) < 5)
     .sort((a, b) => (a.score as number) - (b.score as number))[0];
@@ -222,7 +230,31 @@ export default function Emocoes() {
       <NextStepCard commitment={weekendCommitment.data ?? null} fallback={nextStepFallback} />
 
       <VerdictStrip verdict={verdict} baselineReconstructed={baselineReconstructed} />
-      <WhatChanged changes={changes} hasBaseline={!!baseline} />
+      <WhatChanged
+        changes={changes}
+        hasBaseline={!!baseline}
+        feedback={feedback}
+        contestBusy={contest.isPending || removeContest.isPending}
+        onContest={async (key, input) => {
+          const dim = observed.dimensions[key];
+          try {
+            await contest.mutateAsync({ dimension: key, weekStart: thisWeek, observedScore: dim?.score ?? null, observedConfidence: dim?.confidence ?? null, reason: input.reason, note: input.note });
+            toast.success("Anotado.", { description: "O Nino passa a tratar essa nota como incerta por 30 dias." });
+          } catch (error) {
+            console.error("[behavior:feedback]", error);
+            toast.error("Não deu para registrar agora.");
+          }
+        }}
+        onRemoveContest={async (key) => {
+          try {
+            await removeContest.mutateAsync(key);
+            toast.success("Contestação desfeita.");
+          } catch (error) {
+            console.error("[behavior:feedback:remove]", error);
+            toast.error("Não deu para desfazer agora.");
+          }
+        }}
+      />
 
       <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
 
