@@ -112,3 +112,16 @@ ajudar a entender decisões. Mudanças:
 
 Integração: as respostas viram memória do assessor (texto de modelo, 45 dias) e o WhatsApp deixa de pressionar por
 limite em categorias respondidas como "planejado" ou "outras pessoas".
+
+## 7. Hierarquia visual (segunda revisão)
+
+Feedback: "poluído, muita carga cognitiva, sem hierarquia". Antes, o card de descoberta tinha ~12 elementos e ~25
+linhas à vista com o mesmo peso. Regra adotada para todo insight: **título → uma frase de evidência → UMA pergunta
+(ou a resposta + o que dá para fazer) → consequência curta**; todo o resto em "Ver detalhes".
+
+* Um rótulo só; a caixa "O que ainda não sei" saiu da frente (a pergunta já diz isso; o texto está nos detalhes).
+* Evidência por categoria, consequência completa, outras explicações e "Isso fez sentido?" ficam em "Ver detalhes".
+* Respostas curtas em chips (Já planejo / Decido na hora / Com outras pessoas / Depende).
+* Combinado vira uma faixa de uma linha (origem, data, Alterar, Desfazer); a conta do limite fica em "Ver a conta".
+* Roda: título + uma linha ("Toque numa dimensão… 4 de 8 com leitura confiável"); sem parágrafo explicativo nem nota extra.
+* Teste automatizado de orçamento de elementos (`habits-v2-page.test.tsx`: ≤ 6 blocos, 1 título, < 560 caracteres à vista).

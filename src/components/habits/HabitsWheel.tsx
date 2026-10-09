@@ -65,14 +65,10 @@ export function HabitsWheel({
 
   return (
     <section aria-label="Roda financeira comportamental" className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display text-xl font-bold tracking-tight">Você e o que o Nino observa</h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {latest ? "Duas lentes: como você se vê e o que seus registros mostram. Toque numa dimensão para ver por quê." : "Responda oito perguntas para comparar o seu olhar com o que o Nino observa."}
-          </p>
-        </div>
-      </div>
+      <h2 className="font-display text-xl font-bold tracking-tight">Você e o que o Nino observa</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {latest ? "Toque numa dimensão para ver o porquê" : "Responda o mapa para comparar os dois olhares"} · {withScore} de 8 com leitura confiável
+      </p>
 
       <svg viewBox="0 0 360 300" role="img" aria-label="Roda com as oito dimensões" className="mx-auto mt-2 block w-full max-w-[380px]">
         {[2, 4, 6, 8, 10].map((lv) => (
@@ -104,12 +100,6 @@ export function HabitsWheel({
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden /> Nino observa</span>
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" aria-hidden /> sem leitura confiável</span>
       </div>
-      {withScore < 8 ? (
-        <p className="pb-2 text-center text-[11px] leading-relaxed text-muted-foreground">
-          O Nino já tem base para {withScore} de 8 dimensões. As outras ficam sem nota até haver evidência — não entram como zero.
-        </p>
-      ) : null}
-
       <ul className="divide-y divide-border border-t border-border" aria-label="Dimensões">
         {rows.map((r) => {
           const open = selected === r.key;

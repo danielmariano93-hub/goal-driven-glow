@@ -126,6 +126,23 @@ describe("hábitos v2 — página montada de verdade", () => {
     expect(details.hasAttribute("open")).toBe(false);
   });
 
+  it("hierarquia: o card de descoberta tem uma coisa principal por vez e o resto fica em 'Ver detalhes'", async () => {
+    const { container } = await mount();
+    const card = container.querySelector("article[aria-label]")!;
+    // título, resumo, pergunta, faixa do combinado, consequência curta e o recolhível: nada além disso à vista
+    expect(card.children.length).toBeLessThanOrEqual(6);
+    expect(card.querySelectorAll("h3")).toHaveLength(1);
+    const visible = [...card.children].filter((el) => el.tagName !== "DETAILS").map((el) => el.textContent ?? "").join(" ");
+    expect(visible.length).toBeLessThan(560);
+    expect(visible).not.toMatch(/O que ainda não sei|Outras explicações|Isso fez sentido/);
+    const details = card.querySelector("details")!;
+    expect(details.hasAttribute("open")).toBe(false);
+    expect(details.textContent).toMatch(/O que ainda não sei.*Outras explicações possíveis.*Isso fez sentido/s);
+    // no máximo 4 respostas, sem rótulo duplicado "Um padrão que se repete"
+    expect(within(screen.getByTestId("context-question")).getAllByRole("button").length).toBeLessThanOrEqual(5);
+    expect(container.textContent ?? "").not.toMatch(/Um padrão que se repete/);
+  });
+
   it("experimentos saíram da interface (inclusive do histórico), com os dados ainda existindo", async () => {
     const { container } = await mount();
     fireEvent.click(screen.getByText("Histórico e análises detalhadas"));
@@ -138,10 +155,11 @@ describe("hábitos v2 — página montada de verdade", () => {
     await mount();
     expect(screen.getByText(/O que ainda não sei/)).toBeInTheDocument();
     const q = screen.getByTestId("context-question");
-    expect(q.textContent).toMatch(/Esses gastos de fim de semana com .* costumam ser/);
+    expect(q.textContent).toMatch(/Esses gastos com .* costumam ser/);
     expect(screen.queryByTestId("pattern-actions")).toBeNull();
     expect(screen.queryByText(/Ver um limite possível/)).toBeNull();
-    expect(screen.getByTestId("consequence-line").textContent).toMatch(/Se esse ritmo continuar/);
+    expect(screen.getByTestId("consequence-line").textContent).toMatch(/No ritmo atual/);
+    expect(screen.getByTestId("pattern-summary").textContent).toMatch(/12 dos últimos 12 fins de semana/);
   });
 
   it("'Decido na hora' grava a resposta e só então oferece limite (com a conta, edição e aceite explícito)", async () => {
@@ -155,7 +173,7 @@ describe("hábitos v2 — página montada de verdade", () => {
     fireEvent.click(button);
     const effect = await screen.findByTestId("limit-effect");
     expect(effect.textContent).toMatch(/fecha em torno de/);
-    expect(screen.getAllByText(/hipótese, não promessa/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Ver a conta")).toBeInTheDocument();
     expect(called("habit_limit_accept")).toHaveLength(0);
     const before = effect.textContent;
     fireEvent.change(screen.getByLabelText(/Seu limite para Lazer/), { target: { value: "100" } });
@@ -167,11 +185,11 @@ describe("hábitos v2 — página montada de verdade", () => {
 
   it("'Já estavam planejados' leva à meta (nunca a um limite de gasto)", async () => {
     await mount();
-    fireEvent.click(within(screen.getByTestId("context-question")).getByText("Já estavam planejados"));
+    fireEvent.click(within(screen.getByTestId("context-question")).getByText("Já planejo"));
     const actions = await screen.findByTestId("pattern-actions");
     expect(actions.textContent).toMatch(/ponto de partida é a meta/);
     expect(screen.queryByText(/Ver um limite possível/)).toBeNull();
-    expect(screen.getByText(/Você respondeu: Já estavam planejados/)).toBeInTheDocument();
+    expect(screen.getByText(/Você respondeu: Já planejo/)).toBeInTheDocument();
     // alterar a resposta volta à pergunta
     fireEvent.click(screen.getByText("Alterar", { selector: "button" }));
     await waitFor(() => expect(called("habit_context_clear")).toHaveLength(1));
@@ -190,9 +208,9 @@ describe("hábitos v2 — página montada de verdade", () => {
     commitmentsState = { Lazer: { status: "accepted", target_amount: 160, friday: "2026-10-09", accepted_at: "2026-10-09T18:03:07Z", source: "whatsapp" } };
     await mount();
     const line = await screen.findByTestId("limit-accepted");
-    expect(line.textContent).toMatch(/Combinado:.*R\$ 160.*Lazer/);
-    expect(line.textContent).toMatch(/Você aceitou pelo WhatsApp em 09\/10 às 15:03/);
-    fireEvent.click(within(line).getByText("Desfazer combinado"));
+    expect(line.textContent).toMatch(/Combinado ativo:.*R\$ 160.*Lazer/);
+    expect(line.textContent).toMatch(/aceito pelo WhatsApp em 09\/10 às 15:03/);
+    fireEvent.click(within(line).getByRole("button", { name: "Desfazer combinado" }));
     await waitFor(() => expect(called("habit_limit_decline")).toHaveLength(1));
     expect(called("habit_limit_decline")[0][1]).toMatchObject({ p_category: "Lazer" });
   });

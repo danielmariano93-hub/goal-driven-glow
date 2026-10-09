@@ -82,8 +82,12 @@ export type HabitPattern = {
   title: string;
   /** Até três fatos recuperáveis (contagem, valor, janela). */
   evidence: string[];
+  /** Uma frase com o essencial da evidência (a lista completa fica em `evidence`, nos detalhes). */
+  summary: string;
   /** UMA linha de consequência financeira (hipótese, nunca promessa). */
   consequence: string;
+  /** A mesma consequência, em forma curta, para a tela. */
+  consequence_short: string;
   /** O que o Nino ainda não sabe (a razão da pergunta). */
   unknown: string | null;
   alternatives: string[];
@@ -215,6 +219,25 @@ function memberOf(f: WeekendForecast, today: string): Member {
   };
 }
 
+const tenths = (share: number) => `${Math.max(1, Math.min(9, Math.round(share * 10)))} de cada 10`;
+const joinList = (items: string[]) => (items.length <= 1 ? items[0] ?? "" : `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`);
+
+function groupSummary(members: Member[]): string {
+  const cats = joinList(members.map((m) => m.forecast.category));
+  const active = Math.min(...members.map((m) => m.forecast.active_weekends));
+  const weekends = members[0].forecast.weekends;
+  const share = members.reduce((a, m) => a + m.forecast.weekend_share, 0) / members.length;
+  return `Em ${active} dos últimos ${weekends} fins de semana você gastou com ${cats}; ${share >= 0.55 ? `cerca de ${tenths(share)} reais do gasto ${members.length > 1 ? "dessas categorias" : "dessa categoria"} acontecem de sexta a domingo` : "o gasto se repete"}.`;
+}
+
+function groupConsequenceShort(members: Member[]): string {
+  const pressure = members.filter((m) => m.forecast.state === "pressure");
+  if (!pressure.length) return "Hoje você está dentro da meta, mas um fim de semana típico usa boa parte da folga.";
+  const over = (m: Member) => money0(m.forecast.projected_month - m.forecast.anchor.amount);
+  if (pressure.length === 1) return `No ritmo atual, ${pressure[0].forecast.category} fecha o mês ${over(pressure[0])} acima da ${anchorWord(pressure[0].forecast)}.`;
+  return `No ritmo atual, ${joinList(pressure.map((m) => m.forecast.category))} fecham o mês acima da meta (${joinList(pressure.map(over))} a mais).`;
+}
+
 function groupConsequence(members: Member[]): string {
   const parts = members.map((m) => m.consequence);
   if (parts.length === 1) return `Se esse ritmo continuar, ${parts[0]}.`;
@@ -263,7 +286,9 @@ function weekendInsight(forecasts: WeekendForecast[], today: string, answers: Ma
       ? `Seus fins de semana concentram o gasto com ${categories[0]}`
       : `Seus fins de semana concentram o gasto com ${categories.slice(0, -1).join(", ")} e ${categories[categories.length - 1]}`,
     evidence: members.map((m) => m.evidence),
+    summary: groupSummary(members),
     consequence: groupConsequence(members),
+    consequence_short: groupConsequenceShort(members),
     unknown: "Ainda não sei se esses gastos são planejados, decididos na hora ou envolvem outras pessoas — e isso muda o que faz sentido sugerir.",
     alternatives: [
       "Alguns desses fins de semana podem ter sido viagens, eventos ou compras maiores que não se repetem.",
@@ -298,7 +323,9 @@ function weekdayInsight(p: WeekdayPattern, today: string): HabitPattern {
       `Nas últimas ${p.weeks} semanas, você gastou com ${p.category} em ${p.occurrences} ${name}, em geral uns ${money0(p.when_it_happens)} por vez.`,
       `Nos outros dias, a média diária é de uns ${money0(p.typical_other_days)}.`,
     ],
+    summary: `Nas últimas ${p.weeks} semanas, você gastou com ${p.category} em ${p.occurrences} ${name}, uns ${money0(p.when_it_happens)} por vez; nos outros dias, uns ${money0(p.typical_other_days)} por dia.`,
     consequence: `Em um mês com ${p.weekday_count_in_month} ${name}, isso soma perto de ${money0(monthly)} só nesses dias.`,
+    consequence_short: `Em um mês, isso soma perto de ${money0(monthly)} só nas ${name}.`,
     unknown: "Ainda não sei se são compras planejadas ou decisões do momento; vale olhar os registros.",
     alternatives: ["Pode ser uma rotina fixa da semana (compra de feira, mensalidade, transporte) e não um excesso."],
     confidence: Math.round(confidence * 100) / 100,
