@@ -37,6 +37,7 @@ import { drainPendingAudio, persistPendingAudio, shouldDrainPendingAudio, type P
 
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 import { runtimeStamp } from "../_shared/agent/core/RuntimeContract.ts";
+import { handleWeekendReply } from "../_shared/proactive/weekendCommitments.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -746,6 +747,26 @@ Deno.serve(async (req) => {
       sendTypingPresence(evt.from_phone, "stop").catch(() => {});
     };
     try {
+      // "topo" / "detalhes" em resposta à previsão do fim de semana: resposta
+      // determinística, só quando existe uma oferta aberta (senão segue para o agente).
+      const weekendReply = await handleWeekendReply(sb, { userId: link.user_id as string, text: turnText }).catch(() => null);
+      if (weekendReply) {
+        stopHints();
+        await sb.from("outbound_messages").insert({
+          user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+          channel: "whatsapp", inbound_message_id,
+          idempotency_key: `weekend-reply:${inbound_message_id}`,
+          status: "queued", body: weekendReply.reply,
+        });
+        triggerDispatcher();
+        await recordWhatsappPipelineEvent(sb, {
+          stage: "agent_completed", user_id: link.user_id as string,
+          inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),
+          metadata: { path: `weekend_${weekendReply.action}` },
+        });
+        await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+        return;
+      }
       await recordWhatsappPipelineEvent(sb, {
         stage: "agent_started", user_id: link.user_id as string,
         inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),

@@ -8,12 +8,9 @@
 //
 // Tudo é calculado aqui a partir das transações; a IA não inventa padrão nem
 // valor. Dados incompletos NÃO bloqueiam o aviso: ele sai com a ressalva.
-import type { FinancialSituation, MultiFinanceProactiveContext } from "./contracts.ts";
-import { brlPt } from "./presentation.ts";
 import {
   categoryMonthlyAverage,
   isFixedDateCategory,
-  isWeekdayNudgeWindow,
   type NudgeGoal,
   type NudgeTransaction,
 } from "./weekdayNudge.ts";
@@ -34,6 +31,14 @@ export const WEEKEND_FORECAST_RULES = {
   baselineMargin: 1.1,
   /** Excesso mínimo (R$) sobre a referência para avisar sem meta. */
   minOverage: 30,
+  /** Folga só vira mensagem se um fim de semana típico consome ao menos essa fatia dela. */
+  minSlackShare: 0.3,
+  /** Degrau realista: fração do gasto esperado proposta para este fim de semana. */
+  stepRatio: 0.6,
+  /** Abaixo dessa fração do padrão, o que cabe por fim de semana é "apertado". */
+  tightRatio: 0.25,
+  /** Abaixo dessa fração, a meta está desalinhada com a rotina: perguntar se quer revisar. */
+  misalignedRatio: 0.1,
   /** Cartão: meses anteriores com ao menos N compras e mês atual sem nenhuma = dado faltando. */
   cardGapMinPrior: 5,
 } as const;
@@ -62,6 +67,16 @@ export type WeekendForecast = {
   weekday_rest: number;
   /** Gasto médio por dia útil (seg–qui), usado no fechamento de segunda. */
   weekday_rate: number;
+  /** Limite sugerido para ESTE fim de semana (degrau realista); null quando não há redução possível. */
+  target: number | null;
+  /** Fechamento do mês se este fim de semana ficar no limite (recalculado, não estimado). */
+  projected_if_target: number | null;
+  /** O que caberia por fim de semana é pequeno demais frente ao padrão (< 25%). */
+  tight: boolean;
+  /** A meta pede um corte tão grande (< 10% do padrão) que a pergunta útil é revisá-la. */
+  misaligned: boolean;
+  /** Média mensal dos últimos meses fechados (contexto da meta). */
+  avg3m: number | null;
   state: "pressure" | "room";
   data_gap: "card_missing" | null;
 };
@@ -212,11 +227,18 @@ export function buildWeekendForecasts(
     const pressure = anchor.kind === "goal"
       ? overage > 0
       : projected > anchor.amount * rules.baselineMargin && overage >= rules.minOverage;
-    // Com meta (compromisso explícito) a folga também vale a mensagem; sem meta, só o risco.
-    const room = anchor.kind === "goal" && slack > 0;
+    // Com meta (compromisso explícito) a folga também vale a mensagem, mas só quando um
+    // fim de semana típico pesa na folga restante; sem meta, só o risco.
+    const room = anchor.kind === "goal" && slack > 0 && expected >= slack * rules.minSlackShare;
     if (!pressure && !room) continue;
 
     const fair = unitsLeft > 0 ? Math.max(0, (slack - weekdayRest) / unitsLeft) : 0;
+    const tight = expected > 0 && fair < expected * rules.tightRatio;
+    const misaligned = pressure && anchor.kind === "goal" && expected > 0 && fair < expected * rules.misalignedRatio;
+    const round10 = (n: number) => Math.max(10, Math.round(n / 10) * 10);
+    // Degrau: o maior entre "40% abaixo do esperado" e o que já fecha na referência.
+    const rawTarget = pressure ? Math.max(round10(expected * rules.stepRatio), fair > 0 ? round10(fair) : 0) : fair > 0 ? round10(fair) : 0;
+    const target = rawTarget > 0 && rawTarget < expected ? rawTarget : null;
     out.push({
       category,
       friday: today,
@@ -237,102 +259,26 @@ export function buildWeekendForecasts(
       fair_per_weekend: round2(fair),
       weekday_rest: round2(weekdayRest),
       weekday_rate: round2(weekdayRate),
+      target,
+      projected_if_target: target != null ? round2(projected - expected + target) : null,
+      tight,
+      misaligned,
+      avg3m: categoryMonthlyAverage(transactions, category, today),
       state: pressure ? "pressure" : "room",
       data_gap: cardGap ? "card_missing" : null,
     });
   }
-  // Risco primeiro; dentro do estado, o maior valor típico (o que mais pesa).
-  return out.sort((a, b) => (a.state === b.state ? b.typical - a.typical : a.state === "pressure" ? -1 : 1));
+  // Risco primeiro, com meta alinhada antes da desalinhada (a que o usuário consegue agir);
+  // depois o maior excesso sobre a referência.
+  const excess = (f: WeekendForecast) => f.projected_month - f.anchor.amount;
+  return out.sort((a, b) => {
+    if (a.state !== b.state) return a.state === "pressure" ? -1 : 1;
+    if (a.misaligned !== b.misaligned) return a.misaligned ? 1 : -1;
+    return excess(b) - excess(a);
+  });
 }
 
 /** Categorias cobertas por esta previsão (o aviso por dia da semana não repete). */
 export function weekendCoveredCategories(forecasts: WeekendForecast[]): Set<string> {
   return new Set(forecasts.map((f) => f.category));
-}
-
-/** Linha curta de uma categoria adicional na mesma mensagem. */
-function extraLine(f: WeekendForecast): string {
-  const left = f.fair_per_weekend > 0 ? `cabem uns ${brlPt(f.fair_per_weekend)} por fim de semana` : "os dias úteis já usam o que resta";
-  if (f.state === "pressure") {
-    return `${f.category}: gasto em ${f.active_weekends} dos ${f.weekends} fins de semana (típico ${brlPt(f.typical)}); no mês fecha perto de ${brlPt(f.projected_month)} (${f.anchor.kind === "goal" ? "meta" : "média"} ${brlPt(f.anchor.amount)}); ${left}.`;
-  }
-  return `${f.category}: folga de ${brlPt(f.slack)} até o fim do mês; ${left}.`;
-}
-
-export function weekendForecastSituation(
-  forecasts: WeekendForecast | WeekendForecast[] | null,
-  ctx: Pick<MultiFinanceProactiveContext, "as_of" | "snapshot_ref">,
-  now: Date,
-): FinancialSituation | null {
-  const list = Array.isArray(forecasts) ? forecasts : forecasts ? [forecasts] : [];
-  if (!list.length) return null;
-  if (!isWeekdayNudgeWindow(now)) return null;
-  const f = list[0];
-  const extras = list.slice(1, 3);
-  const leftCount = Math.max(1, Math.ceil(f.weekend_units_left - 0.01));
-  const leftText = leftCount === 1 ? "só este fim de semana" : `${leftCount} fins de semana contando este`;
-  const spread = Math.abs(f.high - f.low) < 1
-    ? `em geral uns ${brlPt(f.typical)}`
-    : `em geral entre ${brlPt(f.low)} e ${brlPt(f.high)} (típico ${brlPt(f.typical)})`;
-  const habit = `Nos últimos ${f.weekends} fins de semana você gastou com ${f.category} em ${f.active_weekends}, ${spread}.`;
-  const anchorText = f.anchor.kind === "goal" ? `a meta é ${brlPt(f.anchor.amount)}` : `a média dos últimos meses é ${brlPt(f.anchor.amount)}`;
-  const gap = list.some((x) => x.data_gap === "card_missing")
-    ? " Obs.: não encontrei compras de cartão neste mês; se ainda faltam lançar, o valor real pode ser maior."
-    : "";
-  const tight = f.fair_per_weekend > 0 && f.fair_per_weekend < f.typical * 0.25;
-
-  let title: string;
-  let body: string;
-  if (f.state === "pressure") {
-    title = extras.length ? "Fim de semana: onde o mês pode estourar" : `Fim de semana: ${f.category} pode estourar o mês`;
-    const fair = f.fair_per_weekend <= 0
-      ? "Só com os dias úteis o mês já fica acima; vale segurar o fim de semana."
-      : tight
-        ? `A ${f.anchor.kind === "goal" ? "meta" : "média"} já está apertada: para fechar dentro, só dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`
-        : `Para fechar dentro, dá uns ${brlPt(f.fair_per_weekend)} por fim de semana.`;
-    body = [
-      habit,
-      `${f.category} no mês: ${brlPt(f.month_to_date)} até agora. No ritmo atual (${leftText}), fecha perto de ${brlPt(f.projected_month)}, entre ${brlPt(f.projected_low)} e ${brlPt(f.projected_high)} (${anchorText}).`,
-      fair,
-    ].join(" ");
-  } else {
-    title = extras.length ? "Quanto cabe neste fim de semana" : `Quanto cabe de ${f.category} neste fim de semana`;
-    body = [
-      habit,
-      `Sua meta de ${f.category} tem ${brlPt(f.slack)} de folga até o fim do mês (${leftText}).`,
-      f.fair_per_weekend > 0
-        ? `Dividindo a folga, cabem uns ${brlPt(f.fair_per_weekend)} por fim de semana.`
-        : "Os dias úteis já usam a folga restante; este fim de semana pede cuidado.",
-    ].join(" ");
-  }
-  if (extras.length) body += `\n\nTambém neste fim de semana:\n${extras.map(extraLine).join("\n")}`;
-  body += gap;
-  const confidence = Math.min(0.9, 0.55 + (f.active_weekends / f.weekends) * 0.3) - (list.some((x) => x.data_gap) ? 0.1 : 0);
-
-  return {
-    fingerprint: `${WEEKEND_FORECAST_VERSION}:${f.category}:${f.friday}`,
-    type: "weekend_forecast",
-    communication_kind: "weekend_spending_risk",
-    severity: list.some((x) => x.state === "pressure") ? "attention" : "info",
-    title,
-    body,
-    primary_domain: "patterns",
-    domains: ["patterns"],
-    signals: [],
-    impact_amount: f.state === "pressure" ? round2(Math.max(0, f.projected_month - f.anchor.amount)) : f.slack,
-    days_until: 0,
-    confidence: Math.round(confidence * 100) / 100,
-    actionable: true,
-    route: "/app/relatorios",
-    priority_score: 0,
-    score_reasons: [],
-    evidence: {
-      version: WEEKEND_FORECAST_VERSION,
-      as_of: ctx.as_of,
-      reconciliation_id: ctx.snapshot_ref.reconciliation_id,
-      // Guardado para o fechamento de segunda: previsto x realizado de cada categoria mostrada.
-      forecast: f,
-      forecasts: [f, ...extras],
-    },
-  };
 }

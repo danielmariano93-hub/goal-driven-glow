@@ -634,6 +634,15 @@ export async function dispatchSuggestions(
         instruction,
       });
       const rendered = { title: renderedRaw.title, body: behavioral.body };
+      // Mensagens que trazem o próprio layout de WhatsApp (negrito, emoji, convite de
+      // resposta) no `evidence.whatsapp`: o app segue com o texto simples do `body`.
+      if (target === "whatsapp") {
+        const wa = (candidate.evidence as any)?.whatsapp;
+        if (wa && typeof wa.body === "string" && wa.body.trim()) {
+          rendered.body = wa.body;
+          if (typeof wa.title === "string" && wa.title.trim()) rendered.title = wa.title;
+        }
+      }
 
       // Narrativa: o texto determinístico do motor é reescrito como leitura de
       // assessor. Guarda reprovada, IA indisponível ou tipo operacional →
