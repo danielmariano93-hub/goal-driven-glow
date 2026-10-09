@@ -347,16 +347,22 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
         source: "direct_financial_calm+legacy_context",
       };
 
-  // 8) Dívidas: trajetória de principal + peso sobre ativos.
+  // 8) Dívidas: tendência do saldo devedor + carga da dívida sobre os ativos.
+  // A carga NÃO satura em zero: com dívida muito maior que os ativos a nota é baixa,
+  // mas continua reagindo a quem está pagando (a hipérbole 10/(1+0,5·razão) vai de 10
+  // sem dívida a ~1,4 com 12,7x os ativos, em vez de colar em 0 e esconder o esforço).
   const openingDebts = Number(netWorthBridge?.openingDebts);
   const closingDebts = Number(netWorthBridge?.closingDebts ?? debts);
   const debtReduction = openingDebts > 0 ? (openingDebts - closingDebts) / openingDebts : null;
   const debtBurden = assets > 0 ? closingDebts / assets : null;
+  const debtTrendScore = debtReduction == null ? null : clamp(5 + debtReduction * 15);
+  const debtLoadScore = debtBurden == null || !Number.isFinite(debtBurden) || debtBurden < 0 ? null : clamp(10 / (1 + 0.5 * debtBurden));
   const debtScore = closingDebts === 0 && assets > 0
     ? 9.5
-    : Number.isFinite(closingDebts) && closingDebts >= 0 && (debtReduction != null || debtBurden != null)
-      ? clamp(5 + (debtReduction ?? 0) * 15 - (debtBurden ?? 0) * 3)
+    : Number.isFinite(closingDebts) && closingDebts >= 0
+      ? weighted([{ value: debtTrendScore, weight: 0.4 }, { value: debtLoadScore, weight: 0.6 }])
       : null;
+  const pctText = (value: number) => `${Math.round(Math.abs(value) * 100)}%`;
   const debt: ObservedDimension = debtScore == null
     ? emptyDimension("Ainda faltam dados comparáveis de dívida para observar esta dimensão.")
     : {
@@ -364,8 +370,8 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
         confidence: openingDebts > 0 && txHistoryDays >= 20 ? "high" : "medium",
         evidence: closingDebts === 0
           ? "Não há dívida financeira ativa registrada no snapshot atual."
-          : `O Nino compara a trajetória do saldo devedor com o peso da dívida sobre os ativos; uma dívida controlada não é penalizada apenas por existir.`,
-        source: "debt_trajectory+debt_burden",
+          : `Dívida de R$ ${closingDebts.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}${assets > 0 ? ` frente a R$ ${assets.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} em ativos` : ""}${debtReduction != null ? `; o saldo devedor ${debtReduction >= 0 ? "caiu" : "subiu"} ${pctText(debtReduction)} no período` : ""}. Uma dívida controlada não é penalizada apenas por existir.`,
+        source: "debt_trend+debt_load",
       };
 
   const f = (key: string, label: string, value: number | null, weight: number | null): ObservedFactor => ({
@@ -409,8 +415,8 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
     f("legacy", "Check-ins antigos (estimativa)", legacyAvg, directValues.length >= 3 ? 0 : 0.3),
   ];
   debt.factors = [
-    f("reduction", "Redução do saldo devedor", debtReduction == null ? null : clamp(5 + debtReduction * 15), null),
-    f("burden", "Peso da dívida sobre os ativos", debtBurden == null ? null : clamp(10 - debtBurden * 3), null),
+    f("principal_trend", "Tendência do saldo devedor", debtTrendScore, 0.4),
+    f("debt_load", "Dívida frente aos ativos", debtLoadScore, 0.6),
   ];
 
   const dimensions: Record<BehaviorDimensionKey, ObservedDimension> = {

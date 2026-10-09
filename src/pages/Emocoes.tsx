@@ -9,8 +9,11 @@ import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
-import { BehaviorVerdictCard, HabitTrend, MoneyImpactCard, WhatChanged } from "@/components/behavioral/EvolutionParts";
-import { behaviorHabitsReading, moneyImpactOf, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
+import { HabitDiscoveryCard, HabitTrend, MoneyImpactCard, VerdictStrip, WhatChanged } from "@/components/behavioral/EvolutionParts";
+import { NextStepCard } from "@/components/behavioral/NextStepCard";
+import type { NextStepFallback } from "@/lib/behavioral/nextStep";
+import { useOpenWeekendCommitment } from "@/lib/behavioral/weekendCommitment";
+import { behaviorHabitsReading, buildHabitDiscovery, DIMENSION_ACTION, moneyImpactOf, weekStartOf } from "@/lib/behavioral/behaviorEvolution";
 import { useObservedSnapshots, useSaveObservedSnapshot } from "@/lib/behavioral/observedSnapshots";
 import { todayISO } from "@/lib/engine/facts";
 import { loadBehavioralEvolutionResilient } from "@/lib/behavioral/resilientClient";
@@ -81,6 +84,7 @@ export default function Emocoes() {
   });
 
   const snapshotsQuery = useObservedSnapshots();
+  const weekendCommitment = useOpenWeekendCommitment(user?.id, todayISO());
   useSaveObservedSnapshot(
     dashboardQuery.data?.observed ?? null,
     !!dashboardQuery.data && dashboardQuery.data.degradedSources.length === 0,
@@ -159,13 +163,22 @@ export default function Emocoes() {
   });
   const impact = moneyImpactOf(dashboard.emotionSpend);
 
+  // Descoberta (a primeira coisa que a página diz) e a próxima escolha possível.
+  const discovery = buildHabitDiscovery({ profile: observed, perception: (latest?.scores as Partial<Record<BehaviorDimensionKey, number>> | undefined) ?? null, changes });
+  const weakest = [...changes]
+    .filter((c) => c.score != null && c.confidence !== "low" && (c.score as number) < 5)
+    .sort((a, b) => (a.score as number) - (b.score as number))[0];
+  const nextStepFallback: NextStepFallback = weakest
+    ? { ...DIMENSION_ACTION[weakest.key], reason: `${weakest.label} é onde há mais espaço agora (${(weakest.score as number).toFixed(1).replace(".", ",")}). Um passo pequeno aqui costuma mexer mais na sua leitura do que vários ao mesmo tempo.` }
+    : null;
+
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
       <header>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Evolução</p>
         <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">Seus hábitos com dinheiro</h1>
         <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-muted-foreground">
-          O que melhorou, o que piorou, por quê e quanto isso pesa no seu bolso.
+          O que seus comportamentos revelam, por que importa e onde você pode evoluir.
         </p>
       </header>
 
@@ -193,7 +206,7 @@ export default function Emocoes() {
         </section>
       ) : null}
 
-      <BehaviorVerdictCard verdict={verdict} overall={observed.overallScore} moodTrend14={dashboard.moodTrend14} baselineReconstructed={baselineReconstructed} />
+      <HabitDiscoveryCard discovery={discovery} />
 
       <BehaviorWheel
         latest={latest}
@@ -206,8 +219,13 @@ export default function Emocoes() {
         baseline={baseline ? { date: baseline.week_start, scores: Object.fromEntries(BEHAVIOR_DIMENSIONS.map((d) => [d.key, baseline.dimensions[d.key]?.score ?? null])) } : null}
       />
 
+      <NextStepCard commitment={weekendCommitment.data ?? null} fallback={nextStepFallback} />
+
+      <VerdictStrip verdict={verdict} baselineReconstructed={baselineReconstructed} />
       <WhatChanged changes={changes} hasBaseline={!!baseline} />
-      <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
+
+      <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
+
       <MoneyImpactCard impact={impact} />
 
       {dashboard.activeExperiments.length > 0 ? (
@@ -219,13 +237,20 @@ export default function Emocoes() {
       <div id="checkin" className="scroll-mt-24"><EmotionalCheckinCard /></div>
       <MoneyMoodTimeline snapshot={dashboard} />
 
-      {dashboard.activeExperiments.length === 0 ? (
-        <div id="experimentos" className="scroll-mt-24">
-          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
-        </div>
-      ) : null}
+      <details className="space-y-3">
+        <summary className="cursor-pointer rounded-[22px] border border-border bg-card px-4 py-3 text-sm font-semibold shadow-card">Ver a evolução semana a semana</summary>
+        <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
+      </details>
 
-            <BehavioralInsightsCard hypotheses={dashboard.hypotheses} />
+      {dashboard.activeExperiments.length === 0 ? (
+        <details id="experimentos" className="scroll-mt-24 rounded-[22px] border border-border bg-card p-4 shadow-card">
+          <summary className="cursor-pointer text-sm font-semibold">Experimentos opcionais de 30 dias</summary>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Testes curtos para quem quer mudar um comportamento por vez. Comece por uma escolha pequena do bloco acima; os experimentos servem para aprofundar.</p>
+          <div className="mt-3">
+            <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
+          </div>
+        </details>
+      ) : null}
 
       <details className="rounded-[22px] border border-border bg-secondary/25 p-4 text-[11px] leading-relaxed text-muted-foreground">
         <summary className="cursor-pointer font-semibold text-foreground">Como o Nino calcula isso</summary>

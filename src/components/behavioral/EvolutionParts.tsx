@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, History, Minus, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ChevronDown, Compass, Eye, History, Minus, Sparkles, UserRound } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 import {
   DIMENSION_ACTION,
   MONEY_IMPACT_MIN_DAYS,
   type BehaviorVerdict,
+  type HabitDiscovery,
   type DimensionChange,
   type HabitSeriesPoint,
   type MoneyImpact,
@@ -78,6 +79,7 @@ export function BehaviorVerdictCard({ verdict, overall, moodTrend14, baselineRec
 }
 
 function ChangeChip({ c }: { c: DimensionChange }) {
+  if (c.notComparable) return <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">método novo</span>;
   if (c.direction === "new") return <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">1ª leitura</span>;
   const up = c.direction === "better";
   const same = c.direction === "same";
@@ -96,6 +98,18 @@ const CONF = { high: "confiança alta", medium: "confiança média", low: "confi
 /** O que melhorou ou piorou e o porquê, ordenado pelo que mais mudou. */
 export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange[]; hasBaseline: boolean }) {
   const [open, setOpen] = useState<BehaviorDimensionKey | null>(null);
+  // "#dimensao-<chave>" (vindo da descoberta) abre a dimensão e rola até ela.
+  useEffect(() => {
+    const openFromHash = () => {
+      const match = /^#dimensao-(\w+)$/.exec(window.location.hash);
+      if (!match) return;
+      setOpen(match[1] as BehaviorDimensionKey);
+      window.setTimeout(() => document.getElementById(`dimensao-${match[1]}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, []);
   const ordered = [...changes].filter((c) => c.score != null).sort((a, b) => {
     if (hasBaseline) return Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0);
     return (a.score ?? 0) - (b.score ?? 0);
@@ -106,7 +120,7 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">O que mudou e por quê</p>
       <h2 className="mt-1 font-display text-xl font-bold tracking-tight">{hasBaseline ? "Do que mais variou ao que menos variou" : "Do ponto mais fraco ao mais forte"}</h2>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        Toque numa dimensão para ver os componentes da nota e o peso de cada um. {hasBaseline ? "" : "Sem leitura anterior ainda, a ordem é pela nota."}
+        Toque numa dimensão para ver o que o Nino observou, o que a nota mede, o que ainda falta saber e o peso de cada componente. {hasBaseline ? "" : "Sem leitura anterior ainda, a ordem é pela nota."}
       </p>
       <ul className="mt-3 divide-y divide-border">
         {ordered.map((c) => {
@@ -114,7 +128,7 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
           const action = DIMENSION_ACTION[c.key];
           const showAction = c.direction === "worse" || (!hasBaseline && (c.score ?? 10) < 5);
           return (
-            <li key={c.key}>
+            <li key={c.key} id={`dimensao-${c.key}`} className="scroll-mt-24">
               <button type="button" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.key)} className="flex w-full items-center gap-3 py-3 text-left">
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
@@ -131,7 +145,10 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
               {isOpen ? (
                 <div className="mb-3 space-y-2 rounded-2xl bg-secondary/40 p-3">
                   <p className="text-[12px] leading-relaxed">{c.why}</p>
-                  {c.evidence ? <p className="text-[11px] leading-relaxed text-muted-foreground">{c.evidence}</p> : null}
+                  {c.evidence ? (
+                    <p className="text-[11px] leading-relaxed text-muted-foreground"><strong className="text-foreground">O que o Nino observou.</strong> {c.evidence}</p>
+                  ) : null}
+                  <p className="text-[11px] leading-relaxed text-muted-foreground"><strong className="text-foreground">O que essa nota mede.</strong> {c.scope}</p>
                   {c.factors.length ? (
                     <ul className="space-y-1.5">
                       {c.factors.map((f) => (
@@ -149,6 +166,9 @@ export function WhatChanged({ changes, hasBaseline }: { changes: DimensionChange
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                  {c.missing.length ? (
+                    <p className="text-[11px] leading-relaxed text-muted-foreground"><strong className="text-foreground">O que ainda falta saber.</strong> {c.missing.join("; ")}.</p>
                   ) : null}
                   {showAction ? (
                     action.to.startsWith("#")
@@ -244,10 +264,12 @@ export function MoneyImpactCard({ impact }: { impact: MoneyImpact }) {
           </div>
           <p className="mt-3 text-[13px] leading-relaxed">
             {impact.extraPerDay > 0
-              ? <>Perto dos {impact.sensitiveDays} check-ins sensíveis, o gasto foi <strong>{formatBRL(impact.extraPerDay)} maior por momento</strong> ({Math.round(impact.upliftPct)}% acima), cerca de <strong>{formatBRL(impact.extraTotal)}</strong> no total.</>
+              ? <>Perto dos {impact.sensitiveDays} check-ins sensíveis, o gasto médio foi <strong>{formatBRL(impact.extraPerDay)} maior por momento</strong> ({Math.round(impact.upliftPct)}% acima do que nos momentos tranquilos).</>
               : <>Seus momentos sensíveis não aparecem junto de gasto maior: a média é {formatBRL(Math.abs(impact.extraPerDay))} menor por momento.</>}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Baseado em {impact.pairedDays} check-ins, contando gastos de 3h antes a 12h depois de cada um (cada gasto entra uma vez só). É associação, não causa.</p>
+          <p className="mt-2 rounded-2xl bg-secondary/40 p-3 text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Um sinal para investigar, não uma conta do que se perdeu.</strong> É associação, não causa. A diferença pode vir do dia da semana, de compras necessárias, de gastos atípicos ou de você registrar o check-in depois de gastar. Baseado em {impact.pairedDays} check-ins, contando gastos de 3h antes a 12h depois de cada um (cada gasto entra uma vez só).
+          </p>
         </>
       ) : (
         <p className="mt-3 rounded-2xl bg-secondary/40 p-3 text-xs leading-relaxed text-muted-foreground">
@@ -255,5 +277,61 @@ export function MoneyImpactCard({ impact }: { impact: MoneyImpact }) {
         </p>
       )}
     </section>
+  );
+}
+
+const DISCOVERY_STYLE: Record<HabitDiscovery["kind"], { wrap: string; chip: string; label: string }> = {
+  perception_gap: { wrap: "border-primary/25 bg-primary/5", chip: "bg-primary/10 text-primary", label: "Uma descoberta sobre você" },
+  improvement: { wrap: "border-success/30 bg-success/5", chip: "bg-success/15 text-success", label: "Uma mudança boa" },
+  attention: { wrap: "border-brand-coral/30 bg-brand-coral/5", chip: "bg-brand-coral/15 text-brand-coral", label: "Vale atenção" },
+  room_to_grow: { wrap: "border-primary/20 bg-card", chip: "bg-primary/10 text-primary", label: "Onde há espaço" },
+  getting_started: { wrap: "border-border bg-card", chip: "bg-secondary text-muted-foreground", label: "Em observação" },
+};
+
+/** O que o Nino descobriu sobre a pessoa: uma observação, a evidência e um próximo passo. */
+export function HabitDiscoveryCard({ discovery }: { discovery: HabitDiscovery }) {
+  const style = DISCOVERY_STYLE[discovery.kind];
+  const action = discovery.action;
+  return (
+    <section aria-label="Uma descoberta sobre você" className={`rounded-[26px] border p-5 shadow-card ${style.wrap}`}>
+      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${style.chip}`}>
+        <Compass size={12} aria-hidden /> {style.label}
+      </span>
+      <h2 className="mt-2 font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">{discovery.title}</h2>
+      {discovery.kind === "perception_gap" && discovery.self != null && discovery.observed != null ? (
+        <dl className="mt-3 grid grid-cols-2 gap-2 text-center">
+          <div className="rounded-2xl bg-card/80 p-2.5">
+            <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground"><UserRound size={11} aria-hidden /> Como você se vê</dt>
+            <dd className="mt-0.5 font-display text-2xl font-bold tabular-nums">{fmt(discovery.self)}</dd>
+          </div>
+          <div className="rounded-2xl bg-card/80 p-2.5">
+            <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground"><Eye size={11} aria-hidden /> Sinais do Nino</dt>
+            <dd className="mt-0.5 font-display text-2xl font-bold tabular-nums">{fmt(discovery.observed)}</dd>
+          </div>
+        </dl>
+      ) : null}
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{discovery.body}</p>
+      {action ? (
+        action.to.startsWith("#")
+          ? <a href={action.to} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">{action.label} <ArrowRight size={14} aria-hidden /></a>
+          : <Link to={action.to} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary">{action.label} <ArrowRight size={14} aria-hidden /></Link>
+      ) : null}
+    </section>
+  );
+}
+
+/** Estado da comparação em uma linha (o veredito deixou de abrir a página). */
+export function VerdictStrip({ verdict, baselineReconstructed = false }: { verdict: BehaviorVerdict; baselineReconstructed?: boolean }) {
+  const style = VERDICT_STYLE[verdict.kind];
+  const Icon = style.Icon;
+  return (
+    <div className="rounded-[20px] border border-border bg-card px-4 py-3">
+      <p className="flex items-center gap-2 text-[13px] font-semibold">
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${style.chip}`}><Icon size={11} aria-hidden /> {style.label}</span>
+        {verdict.headline}
+      </p>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{verdict.summary}</p>
+      {baselineReconstructed ? <ReconstructedHistoryNote compact /> : null}
+    </div>
   );
 }

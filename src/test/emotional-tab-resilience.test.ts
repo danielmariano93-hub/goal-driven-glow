@@ -20,7 +20,8 @@ describe("emotional tab resilience", () => {
     expect(page).toContain("<BehaviorWheel");
     expect(page).toContain("<ExperimentsBoard");
     expect(page).toContain("<MoneyMoodTimeline");
-    expect(page).toContain("<BehaviorVerdictCard");
+    expect(page).toContain("<HabitDiscoveryCard");
+    expect(page).toContain("<VerdictStrip");
     // "Nino percebeu / Highlights" saiu da página: repetia o que já está nos blocos de cima
     expect(page).not.toContain("<CoachHighlights");
   });
