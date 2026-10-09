@@ -150,6 +150,19 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
     }));
 }
 
+/** Previsões de fim de semana entregues na sexta `friday` (base do fechamento de segunda). */
+export async function loadDeliveredWeekendForecasts(sb: SupabaseClient, userId: string, friday: string) {
+  const { data } = await sb.from("proactive_situations")
+    .select("fingerprint,evidence,last_delivered_at")
+    .eq("user_id", userId).eq("as_of", friday)
+    .like("fingerprint", "nino_weekend_forecast.v1:%")
+    .not("last_delivered_at", "is", null)
+    .limit(10);
+  return (((data as any[]) ?? []) as any[])
+    .map((row) => ({ forecast: row?.evidence?.forecast }))
+    .filter((row) => row.forecast && typeof row.forecast.category === "string");
+}
+
 /** Metas mensais ativas por nome de categoria (âncora da projeção do aviso matinal). */
 export async function loadNudgeGoals(sb: SupabaseClient, userId: string): Promise<Record<string, { name: string; limit: number }>> {
   const [goalsRes, catRes] = await Promise.all([

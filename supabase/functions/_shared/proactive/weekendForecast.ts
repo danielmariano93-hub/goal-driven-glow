@@ -58,6 +58,10 @@ export type WeekendForecast = {
   slack: number;
   /** Quanto cabe por fim de semana para fechar na referência (0 se já não cabe). */
   fair_per_weekend: number;
+  /** Gasto esperado nos dias úteis que restam no mês (entra no "quanto cabe"). */
+  weekday_rest: number;
+  /** Gasto médio por dia útil (seg–qui), usado no fechamento de segunda. */
+  weekday_rate: number;
   state: "pressure" | "room";
   data_gap: "card_missing" | null;
 };
@@ -215,6 +219,8 @@ export function buildWeekendForecasts(
       anchor,
       slack: round2(slack),
       fair_per_weekend: round2(fair),
+      weekday_rest: round2(weekdayRest),
+      weekday_rate: round2(weekdayRate),
       state: pressure ? "pressure" : "room",
       data_gap: cardGap ? "card_missing" : null,
     });
@@ -238,7 +244,10 @@ export function weekendForecastSituation(
   const f = forecast;
   const leftCount = Math.max(1, Math.ceil(f.weekend_units_left - 0.01));
   const leftText = leftCount === 1 ? "só este fim de semana" : `${leftCount} fins de semana contando este`;
-  const habit = `Nos últimos ${f.weekends} fins de semana você gastou com ${f.category} em ${f.active_weekends}, em geral entre ${brlPt(f.low)} e ${brlPt(f.high)} (típico ${brlPt(f.typical)}).`;
+  const spread = Math.abs(f.high - f.low) < 1
+    ? `em geral uns ${brlPt(f.typical)}`
+    : `em geral entre ${brlPt(f.low)} e ${brlPt(f.high)} (típico ${brlPt(f.typical)})`;
+  const habit = `Nos últimos ${f.weekends} fins de semana você gastou com ${f.category} em ${f.active_weekends}, ${spread}.`;
   const anchorText = f.anchor.kind === "goal" ? `a meta é ${brlPt(f.anchor.amount)}` : `a média dos últimos meses é ${brlPt(f.anchor.amount)}`;
   const gap = f.data_gap === "card_missing"
     ? " Obs.: não encontrei compras de cartão neste mês; se ainda faltam lançar, o valor real pode ser maior."

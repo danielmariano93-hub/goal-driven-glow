@@ -5,6 +5,9 @@ import {
   weekendCoveredCategories,
   weekendForecastSituation,
 } from "../../supabase/functions/_shared/proactive/weekendForecast";
+import { buildWeekendRecap, weekendRecapSituation } from "../../supabase/functions/_shared/proactive/weekendRecap";
+import { narrativeEligibility } from "../../supabase/functions/_shared/agent/narrative/TonePolicy";
+import { repeatedKind } from "../../supabase/functions/_shared/proactive/repetition";
 import { buildWeekdayProjection } from "../../supabase/functions/_shared/proactive/weekdayNudge";
 
 type Tx = { occurred_at: string; amount: number; category: string; payment_method?: string };
@@ -90,7 +93,7 @@ describe("previsão do fim de semana", () => {
     expect(sit.communication_kind).toBe("weekend_spending_risk");
     expect(sit.fingerprint).toBe("nino_weekend_forecast.v1:Lazer:2026-10-09");
     expect(sit.title).toMatch(/Fim de semana: Lazer pode estourar o mês/);
-    expect(sit.body).toMatch(/Nos últimos 12 fins de semana você gastou com Lazer em \d+, em geral entre R\$\s?[\d.,]+ e R\$\s?[\d.,]+/);
+    expect(sit.body).toMatch(/Nos últimos 12 fins de semana você gastou com Lazer em \d+, em geral (uns|entre) R\$\s?[\d.,]+/);
     expect(sit.body).toMatch(/fecha perto de R\$/);
     expect((sit.evidence as any).forecast.category).toBe("Lazer");
     expect(weekendForecastSituation(f, ctx, new Date("2026-10-09T23:00:00Z"))).toBeNull();
@@ -101,5 +104,56 @@ describe("previsão do fim de semana", () => {
     const covered = weekendCoveredCategories(buildWeekendForecasts(rows, "2026-10-09"));
     expect(covered.has("Lazer")).toBe(true);
     expect(buildWeekdayProjection(rows, "2026-10-10", {}, covered)?.pattern.category).not.toBe("Lazer");
+  });
+});
+
+describe("fechamento de segunda", () => {
+  const MONDAY = "2026-10-12";
+  const rctx = { as_of: MONDAY, snapshot_ref: { reconciliation_id: "r", formula_version: "f" } };
+  const [forecast] = buildWeekendForecasts(lazerHistory({ octMultiplier: 4 }), TODAY);
+  const delivered = [{ forecast }];
+  const weekend = (amount: number): Tx[] => [{ occurred_at: "2026-10-10", amount, category: "Lazer" }];
+
+  it("só fecha na segunda e só se a previsão foi entregue", () => {
+    expect(buildWeekendRecap(delivered, weekend(100), "2026-10-13")).toBeNull();
+    expect(buildWeekendRecap([], weekend(100), MONDAY)).toBeNull();
+    expect(buildWeekendRecap([{ forecast: { ...forecast, friday: "2026-10-02" } }], weekend(100), MONDAY)).toBeNull();
+  });
+
+  it("compara o realizado com a faixa que foi prevista", () => {
+    const below = buildWeekendRecap(delivered, weekend(Math.max(1, forecast.low - 50)), MONDAY)!;
+    expect(below.verdict).toBe("below");
+    const within = buildWeekendRecap(delivered, weekend(forecast.typical), MONDAY)!;
+    expect(within.verdict).toBe("within");
+    const above = buildWeekendRecap(delivered, weekend(forecast.high + 400), MONDAY)!;
+    expect(above.verdict).toBe("above");
+    expect(above.vs_typical).toBeLessThan(0);
+  });
+
+  it("soma sexta a domingo, mostra o mês e dá o quanto cabe por fim de semana", () => {
+    const rows: Tx[] = [
+      { occurred_at: "2026-10-09", amount: 80, category: "Lazer" },
+      { occurred_at: "2026-10-10", amount: 150, category: "Lazer" },
+      { occurred_at: "2026-10-11", amount: 300, category: "Lazer" },
+      { occurred_at: "2026-10-08", amount: 999, category: "Mercado" },
+    ];
+    const recap = buildWeekendRecap(delivered, rows, MONDAY)!;
+    expect(recap.realized).toBe(530);
+    expect(recap.month_to_date).toBeGreaterThanOrEqual(530);
+    expect(recap.weekends_left).toBe(3); // 16, 23 e 30/10
+    const sit = weekendRecapSituation(recap, rctx, new Date("2026-10-12T11:00:00Z"))!;
+    expect(sit.fingerprint).toBe("nino_weekend_recap.v1:Lazer:2026-10-09");
+    expect(sit.communication_kind).toBe("weekend_spending_risk");
+    expect(sit.body).toMatch(/Você gastou R\$\s?530,00 com Lazer/);
+    expect(sit.body).toMatch(/Lazer no mês:/);
+    expect(weekendRecapSituation(recap, rctx, new Date("2026-10-12T23:00:00Z"))).toBeNull();
+  });
+
+  it("os números são o conteúdo: sem reescrita de linguagem e sem janela de repetição entre sexta e segunda", () => {
+    expect(narrativeEligibility("weekend_spending_risk")).toEqual({ eligible: false, reason: "operational_kind" });
+    expect(narrativeEligibility("weekday_spending_risk")).toEqual({ eligible: false, reason: "operational_kind" });
+    const sit = weekendRecapSituation(buildWeekendRecap(delivered, weekend(200), MONDAY), rctx, new Date("2026-10-12T11:00:00Z"))!;
+    const friday = [{ kind: "weekend_spending_risk", channel: "whatsapp", delivered_at: "2026-10-09T11:00:00Z", impact_amount: 900 }];
+    expect(repeatedKind(sit, "whatsapp", friday, new Date("2026-10-12T11:00:00Z"))).toBeNull();
   });
 });
