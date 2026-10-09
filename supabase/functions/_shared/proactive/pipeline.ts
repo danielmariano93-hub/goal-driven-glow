@@ -39,7 +39,9 @@ import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
-import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories, weekendForecastSituation } from "./weekendForecast.ts";
+import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
+import { weekendForecastSituation } from "./weekendMessages.ts";
+import { loadAcceptedCommitments, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
@@ -345,7 +347,8 @@ export async function runMultiFinanceProactive(
   })();
   if (recapFriday && nudgeTransactions.length) {
     const delivered = await loadDeliveredWeekendForecasts(sb, userId, recapFriday).catch(() => []);
-    const recap = weekendRecapSituation(buildWeekendRecaps(delivered, nudgeTransactions, ctx.as_of, nudgeGoals), ctx, new Date());
+    const accepted = await loadAcceptedCommitments(sb, userId, recapFriday).catch(() => ({}));
+    const recap = weekendRecapSituation(buildWeekendRecaps(delivered, nudgeTransactions, ctx.as_of, nudgeGoals, accepted), ctx, new Date());
     if (recap) refined.push(recap);
   }
   const nudgeProjection = nudgeTransactions.length
@@ -572,6 +575,25 @@ async function persistRun(
       ...(selectedKeys.has(situation.fingerprint) ? { last_delivered_at: nowIso } : {}),
       formula_version: PROACTIVE_MULTIFINANCE_VERSION,
     })), { onConflict: "user_id,fingerprint", ignoreDuplicates: false });
+  }
+
+  // Combinado do fim de semana: a oferta da sexta e o resultado da segunda só valem
+  // depois que a mensagem foi de fato selecionada para entrega.
+  for (const situation of situations) {
+    if (!selectedKeys.has(situation.fingerprint)) continue;
+    const evidence = (situation.evidence ?? {}) as Record<string, any>;
+    if (situation.type === "weekend_forecast" && evidence.forecast?.category) {
+      await persistWeekendOffer(sb, userId, {
+        friday: String(evidence.forecast.friday ?? asOf),
+        category: String(evidence.forecast.category),
+        offer: evidence.offer ?? null,
+        detail: String(evidence.detail ?? ""),
+      }).catch((error) => console.warn("[proactive] weekend offer not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
+    }
+    if (situation.type === "weekend_recap" && Array.isArray(evidence.commitment_outcomes)) {
+      await recordCommitmentOutcomes(sb, userId, evidence.commitment_outcomes)
+        .catch((error) => console.warn("[proactive] weekend outcome not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
+    }
   }
 
   if (decisions.length > 0) {

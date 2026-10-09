@@ -3,8 +3,8 @@ import {
   buildWeekendForecasts,
   detectCardGap,
   weekendCoveredCategories,
-  weekendForecastSituation,
 } from "../../supabase/functions/_shared/proactive/weekendForecast";
+import { composeWeekendMessage, weekendForecastSituation } from "../../supabase/functions/_shared/proactive/weekendMessages";
 import { buildWeekendRecap, buildWeekendRecaps, weekendRecapSituation } from "../../supabase/functions/_shared/proactive/weekendRecap";
 import { narrativeEligibility } from "../../supabase/functions/_shared/agent/narrative/TonePolicy";
 import { repeatedKind } from "../../supabase/functions/_shared/proactive/repetition";
@@ -20,10 +20,10 @@ const dow = (s: string) => new Date(`${s}T12:00:00Z`).getUTCDay();
 const ctx = { as_of: TODAY, snapshot_ref: { reconciliation_id: "r", formula_version: "f" } };
 
 /** Lazer: 8 de cada 12 fins de semana com gasto (sex 80, sáb 150, dom 300); dia útil quase nada. */
-function lazerHistory(opts: { octMultiplier?: number; spike?: boolean } = {}): Tx[] {
+function lazerHistory(opts: { octMultiplier?: number; spike?: boolean; until?: number } = {}): Tx[] {
   const rows: Tx[] = [];
   let weekendIndex = 0;
-  for (let t = Date.UTC(2026, 6, 1); t < Date.UTC(2026, 9, 9); t += 86_400_000) {
+  for (let t = Date.UTC(2026, 6, 1); t < (opts.until ?? Date.UTC(2026, 9, 9)); t += 86_400_000) {
     const d = new Date(t).toISOString().slice(0, 10);
     const w = dow(d);
     const inOct = d.startsWith("2026-10");
@@ -64,12 +64,22 @@ describe("previsão do fim de semana", () => {
     expect(f.weekend_units_left).toBeCloseTo(3 + 2 / 3, 1);
   });
 
-  it("com meta, mostra a folga mesmo com o mês em linha", () => {
-    const [f] = buildWeekendForecasts(lazerHistory(), TODAY, { Lazer: { name: "Lazer", limit: 3000 } });
+  it("com meta, a folga só vira mensagem quando um fim de semana típico pesa nela (fim do mês)", () => {
+    // Começo do mês: sobra muito e um fim de semana é pouco → silêncio.
+    expect(buildWeekendForecasts(lazerHistory(), TODAY, { Lazer: { name: "Lazer", limit: 3200 } })).toEqual([]);
+    // 23/10: restam ~1,7 fim de semana e a folga é curta → mostra quanto cabe.
+    const late = "2026-10-23";
+    const rows = lazerHistory({ until: Date.UTC(2026, 9, 23) });
+    const [probe] = buildWeekendForecasts(rows, late, { Lazer: { name: "Lazer", limit: 1 } });
+    const limit = Math.ceil(probe.projected_month + 100);
+    const [f] = buildWeekendForecasts(rows, late, { Lazer: { name: "Lazer", limit } });
     expect(f.state).toBe("room");
-    expect(f.anchor).toEqual({ kind: "goal", amount: 3000 });
-    expect(f.slack).toBeCloseTo(3000 - f.month_to_date, 1);
+    expect(f.anchor).toEqual({ kind: "goal", amount: limit });
+    expect(f.slack).toBeCloseTo(limit - f.month_to_date, 1);
     expect(f.fair_per_weekend).toBeGreaterThan(0);
+    const sit = weekendForecastSituation(f, { ...ctx, as_of: late }, new Date("2026-10-23T11:00:00Z"))!;
+    expect(sit.title).toBe("✅ Sextou! Quanto cabe de Lazer neste fim de semana");
+    expect((sit.evidence as any).whatsapp.body).toMatch(/Você está dentro da meta: restam \*R\$ [\d.]+\*/);
   });
 
   it("categoria de data fixa e pico pontual não geram previsão", () => {
@@ -86,19 +96,39 @@ describe("previsão do fim de semana", () => {
     const [f] = buildWeekendForecasts(rows, TODAY);
     expect(f.data_gap).toBe("card_missing");
     const sit = weekendForecastSituation(f, ctx, new Date("2026-10-09T11:00:00Z"))!;
-    expect(sit.body).toMatch(/Obs\.: não encontrei compras de cartão/);
+    expect(sit.body).toMatch(/Não encontrei compras de cartão neste mês/);
   });
 
-  it("mensagem: kind, identidade do fim de semana, faixa e só de manhã", () => {
+  it("mensagem: kind, identidade do fim de semana, layout do WhatsApp e só de manhã", () => {
     const [f] = buildWeekendForecasts(lazerHistory({ octMultiplier: 4 }), TODAY);
     const sit = weekendForecastSituation(f, ctx, new Date("2026-10-09T11:00:00Z"))!;
     expect(sit.communication_kind).toBe("weekend_spending_risk");
     expect(sit.fingerprint).toBe("nino_weekend_forecast.v1:Lazer:2026-10-09");
-    expect(sit.title).toMatch(/Fim de semana: Lazer pode estourar o mês/);
-    expect(sit.body).toMatch(/Nos últimos 12 fins de semana você gastou com Lazer em \d+, em geral (uns|entre) R\$\s?[\d.,]+/);
-    expect(sit.body).toMatch(/fecha perto de R\$/);
-    expect((sit.evidence as any).forecast.category).toBe("Lazer");
+    expect(sit.title).toBe("🎯 Sextou! Antes do fim de semana: Lazer");
+    // app: texto simples, sem asteriscos nem convite de resposta
+    expect(sit.body).not.toMatch(/\*/);
+    expect(sit.body).toMatch(/Você costuma gastar uns R\$ [\d.]+ por fim de semana com Lazer\./);
+    expect(sit.body).toMatch(/No ritmo atual, o mês fecha em R\$ [\d.]+, R\$ [\d.]+ acima da média dos últimos 3 meses/);
+    expect(sit.body).not.toMatch(/Responda/);
+    // WhatsApp: números que decidem em negrito, uma pergunta (bloco sem asteriscos) e o convite
+    const wa = (sit.evidence as any).whatsapp;
+    expect(wa.body).toMatch(/uns \*R\$ [\d.]+\* por fim de semana/);
+    expect(wa.body).toMatch(/\*R\$ [\d.]+ acima\*/);
+    expect(wa.body).toMatch(/\n\nTopa tentar\?\n\n/);
+    expect(wa.body).toMatch(/Responda \*topo\* e eu te conto na segunda como foi/);
+    expect((wa.body.match(/\?/g) ?? []).length).toBe(1);
+    expect((sit.evidence as any).offer).toMatchObject({ category: "Lazer", friday: TODAY });
     expect(weekendForecastSituation(f, ctx, new Date("2026-10-09T23:00:00Z"))).toBeNull();
+  });
+
+  it("o efeito do limite é recalculado: projeção − esperado + limite", () => {
+    const [f] = buildWeekendForecasts(lazerHistory({ octMultiplier: 4 }), TODAY);
+    expect(f.target).not.toBeNull();
+    expect(f.target! % 10).toBe(0);
+    expect(f.target!).toBeLessThan(f.expected_per_weekend);
+    expect(f.projected_if_target!).toBeCloseTo(f.projected_month - f.expected_per_weekend + f.target!, 1);
+    const msg = composeWeekendMessage([f])!;
+    expect(msg.offer).toMatchObject({ target: f.target, projected_if_target: f.projected_if_target });
   });
 
   it("o aviso por dia da semana não repete a categoria coberta pelo fim de semana", () => {
@@ -146,8 +176,8 @@ describe("fechamento de segunda", () => {
     const sit = weekendRecapSituation(recap, rctx, new Date("2026-10-12T11:00:00Z"))!;
     expect(sit.fingerprint).toBe("nino_weekend_recap.v1:Lazer:2026-10-09");
     expect(sit.communication_kind).toBe("weekend_spending_risk");
-    expect(sit.body).toMatch(/Você gastou R\$\s?530,00 com Lazer/);
-    expect(sit.body).toMatch(/Lazer no mês:/);
+    expect(sit.body).toMatch(/Você gastou R\$ 530 com Lazer/);
+    expect(sit.body).toMatch(/o mês de Lazer fecha em R\$/);
     expect(weekendRecapSituation(recap, rctx, new Date("2026-10-12T23:00:00Z"))).toBeNull();
   });
 
@@ -187,12 +217,12 @@ describe("metas reais do usuário", () => {
 
   it("mais de uma categoria vira uma mensagem só, com a principal em detalhe", () => {
     const rows = [...lazerHistory({ octMultiplier: 4 }), ...lazerHistory({ octMultiplier: 4 }).map((t) => ({ ...t, category: "Transporte" }))];
-    const fs = buildWeekendForecasts(rows, TODAY, { Lazer: { name: "Lazer", limit: 1000 }, Transporte: { name: "Transporte", limit: 900 } });
+    const fs = buildWeekendForecasts(rows, TODAY, { Lazer: { name: "Lazer", limit: 2200 }, Transporte: { name: "Transporte", limit: 2100 } });
     expect(fs.map((f) => f.category).sort()).toEqual(["Lazer", "Transporte"]);
     const sit = weekendForecastSituation(fs, ctx, new Date("2026-10-09T11:00:00Z"))!;
-    expect(sit.title).toBe("Fim de semana: onde o mês pode estourar");
-    expect(sit.body).toMatch(/Também neste fim de semana:\n/);
     expect((sit.evidence as any).forecasts).toHaveLength(2);
+    expect((sit.evidence as any).whatsapp.body).toMatch(/⚠️ \*(Lazer|Transporte)\* também passa da meta/);
+    expect((sit.evidence as any).detail).toMatch(/Detalhes do fim de semana[\s\S]*\*Lazer\*[\s\S]*\*Transporte\*|Detalhes do fim de semana[\s\S]*\*Transporte\*[\s\S]*\*Lazer\*/);
     // o fechamento de segunda cobre as duas
     const monday = "2026-10-12";
     const recaps = buildWeekendRecaps((sit.evidence as any).forecasts.map((forecast: any) => ({ forecast })), [
@@ -201,8 +231,7 @@ describe("metas reais do usuário", () => {
     ], monday);
     expect(recaps).toHaveLength(2);
     const recap = weekendRecapSituation(recaps, { ...ctx, as_of: monday }, new Date("2026-10-12T11:00:00Z"))!;
-    expect(recap.title).toBe("Como foi o fim de semana");
-    expect(recap.body).toMatch(/Outras categorias:\n/);
+    expect(recap.body).toMatch(/Outras categorias: /);
   });
 });
 
