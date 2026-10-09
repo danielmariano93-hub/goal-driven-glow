@@ -27,6 +27,11 @@ export const OPERATIONAL_KINDS = new Set<string>([
   "categorize_transaction",
   "emotional_checkin_due",
   "duplicate_expense",
+  // Previsão/fechamento do fim de semana e aviso por dia da semana: os números
+  // (faixa, projeção, quanto cabe) SÃO o conteúdo. A camada de linguagem limita o
+  // tom "behavior" a 2 números e apagaria a projeção; o texto sai como o motor calculou.
+  "weekday_spending_risk",
+  "weekend_spending_risk",
 ]);
 
 /** Tipos INTERPRETATIVOS: leitura, causa, comparação, comportamento, meta. */

@@ -33,11 +33,12 @@ import {
 import { presentSituation } from "./presentation.ts";
 import { applyDataQuality, incomeDataRequest } from "./dataQuality.ts";
 import { applyUserModel } from "./userModel.ts";
-import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadNudgeGoals, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
+import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopics, loadDeliveredWeekendForecasts, loadNudgeGoals, loadNudgeTransactions, loadPriorityEvents, loadRecentDeliveries, loadUserModel } from "./profileLoaders.ts";
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
+import { buildWeekendRecap, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, weekendCoveredCategories, weekendForecastSituation } from "./weekendForecast.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
@@ -333,6 +334,16 @@ export async function runMultiFinanceProactive(
   const weekendForecasts = nudgeTransactions.length ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals) : [];
   const weekendForecast = weekendForecastSituation(weekendForecasts[0] ?? null, ctx, new Date());
   if (weekendForecast) refined.push(weekendForecast);
+  // nino_weekend_recap.v1 — segunda de manhã: previsto x realizado do fim de semana (só se a previsão foi entregue).
+  const recapFriday = (() => {
+    const [y, m, d] = ctx.as_of.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 1 ? new Date(Date.UTC(y, m - 1, d - 3)).toISOString().slice(0, 10) : null;
+  })();
+  if (recapFriday && nudgeTransactions.length) {
+    const delivered = await loadDeliveredWeekendForecasts(sb, userId, recapFriday).catch(() => []);
+    const recap = weekendRecapSituation(buildWeekendRecap(delivered, nudgeTransactions, ctx.as_of), ctx, new Date());
+    if (recap) refined.push(recap);
+  }
   const nudgeProjection = nudgeTransactions.length
     ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, nudgeGoals, weekendCoveredCategories(weekendForecasts))
     : null;
@@ -395,7 +406,7 @@ export async function runMultiFinanceProactive(
   // Aviso matinal e dica de uso: WhatsApp é medido pelo que saiu de fato por ele.
   const alreadyDeliveredWhatsapp = persist && alreadyDelivered.size
     ? await loadWhatsappDelivered(sb, userId, opts.repeatWindowDays ?? 5)
-        .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|weekend_forecast|discovery)\./.test(fp))))
+        .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|weekend_forecast|weekend_recap|discovery)\./.test(fp))))
         .catch(() => undefined)
     : undefined;
   const { decisions, selected, ranked } = allocateAttention({

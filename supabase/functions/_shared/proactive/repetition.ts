@@ -33,6 +33,8 @@ export const TIME_BOUND_KINDS = new Set([
   "bill_due_reminder", "card_closing_soon",
   // Metas de gasto: cada semana, fim de semana e fechamento tem identidade própria.
   "spending_goal_weekend", "spending_goal_weekly", "spending_goal_monthly", "spending_goal_zero_charge",
+  // Previsão (sexta) e fechamento (segunda) do fim de semana: cada um tem identidade própria por fim de semana.
+  "weekend_spending_risk",
 ]);
 
 export function repeatedKind(
