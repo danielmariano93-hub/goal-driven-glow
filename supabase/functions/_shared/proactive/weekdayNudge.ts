@@ -12,7 +12,9 @@ export const WEEKDAY_NUDGE_RULES = {
   /** O dia precisa ser claramente acima dos outros. */
   minRatio: 1.6,
   /** A categoria precisa aparecer nesse dia da semana em pelo menos N das semanas. */
-  minOccurrences: 4,
+  minOccurrences: 6,
+  /** Um único dia não pode ser mais que essa fatia do total do dia da semana. */
+  maxSingleDayShare: 0.5,
   /** Valor mínimo típico do dia para valer um aviso. */
   minDailyAmount: 30,
   /**
@@ -26,6 +28,21 @@ export const WEEKDAY_NUDGE_RULES = {
 
 const WEEKDAY_NAMES = ["domingos", "segundas", "terças", "quartas", "quintas", "sextas", "sábados"];
 const WEEKDAY_LABEL = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+
+/**
+ * Categorias cobradas em data fixa (vencimento/ciclo), não por hábito de dia da
+ * semana: a "sexta" delas é coincidência de calendário, não comportamento.
+ */
+const FIXED_DATE_CATEGORIES = new Set([
+  "assinaturas", "moradia", "aluguel", "condominio", "contas", "energia", "agua", "internet", "telefone",
+  "financiamento", "emprestimo", "impostos", "taxas", "tarifas", "seguros", "seguro", "educacao", "saude", "plano de saude",
+  "cartao", "fatura", "dividas", "juros", "investimentos", "transferencias",
+]);
+
+function isFixedDateCategory(category: string): boolean {
+  const key = category.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return FIXED_DATE_CATEGORIES.has(key);
+}
 
 export type NudgeTransaction = { occurred_at: string; amount: number; category: string | null };
 
@@ -76,13 +93,14 @@ export function detectWeekdayPattern(transactions: NudgeTransaction[], today: st
   const weekdayDays = rules.weeks;
   const otherDays = totalDays - weekdayDays;
 
-  const byCategory = new Map<string, { onDay: number; other: number; dates: Set<string> }>();
+  const byCategory = new Map<string, { onDay: number; other: number; dates: Set<string>; perDate: Map<string, number> }>();
   for (const t of window) {
-    const entry = byCategory.get(t.category!) ?? { onDay: 0, other: 0, dates: new Set<string>() };
+    const entry = byCategory.get(t.category!) ?? { onDay: 0, other: 0, dates: new Set<string>(), perDate: new Map<string, number>() };
     const day = t.occurred_at.slice(0, 10);
     if (dayOfWeek(day) === weekday) {
       entry.onDay += Number(t.amount);
       entry.dates.add(day);
+      entry.perDate.set(day, (entry.perDate.get(day) ?? 0) + Number(t.amount));
     } else {
       entry.other += Number(t.amount);
     }
@@ -93,7 +111,9 @@ export function detectWeekdayPattern(transactions: NudgeTransaction[], today: st
   for (const [category, entry] of byCategory) {
     const typicalOnDay = entry.onDay / weekdayDays;
     const typicalOther = entry.other / otherDays;
+    if (isFixedDateCategory(category)) continue;
     if (entry.dates.size < rules.minOccurrences) continue;
+    if (Math.max(...entry.perDate.values()) > entry.onDay * rules.maxSingleDayShare) continue;
     if (typicalOnDay < rules.minDailyAmount) continue;
     const ratio = typicalOther > 0 ? typicalOnDay / typicalOther : Number.POSITIVE_INFINITY;
     if (ratio < rules.minRatio) continue;

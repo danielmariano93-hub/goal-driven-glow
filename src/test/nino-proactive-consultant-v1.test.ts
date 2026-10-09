@@ -85,6 +85,16 @@ describe("aviso matinal por dia da semana", () => {
     expect(weekdayNudgeSituation(pattern, ctx, new Date("2026-09-30T20:00:00Z"))).toBeNull();
   });
 
+  it("não aponta categoria de data fixa (Assinaturas) nem padrão de poucas semanas", () => {
+    const subs = txs.map((x) => ({ ...x, category: "Assinaturas" }));
+    expect(detectWeekdayPattern(subs, "2026-09-30")).toBeNull();
+    // só 4 quartas com gasto alto: coincidência, não hábito
+    const sparse = txs.filter((x) => new Date(x.occurred_at).getUTCDay() !== 3).concat(
+      txs.filter((x) => new Date(x.occurred_at).getUTCDay() === 3).slice(0, 4),
+    );
+    expect(detectWeekdayPattern(sparse, "2026-09-30")).toBeNull();
+  });
+
   it("não inventa padrão quando o dia não se destaca", () => {
     const flat = txs.map((t) => ({ ...t, amount: 20 }));
     expect(detectWeekdayPattern(flat, "2026-09-30")).toBeNull();
