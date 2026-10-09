@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { BehaviorDimensionKey, ObservedDimension } from "@/lib/engine/behaviorDimensions";
 import { BEHAVIOR_DIMENSIONS } from "@/lib/engine/behaviorDimensions";
 import { DIMENSION_INTENT } from "@/lib/engine/behaviorObservedV3";
+import { DIMENSION_WEIGHS } from "../../../supabase/functions/_shared/proactive/habitContext";
 import { FEEDBACK_NOTE_MAX, FEEDBACK_REASONS, feedbackValidUntil, type BehaviorFeedback, type FeedbackReason } from "@/lib/engine/behaviorEvolution";
 
 const fmt = (n: number) => n.toFixed(1).replace(".", ",");
@@ -19,8 +20,12 @@ function ddmm(iso: string) {
 
 /** Painel de uma dimensão: o que o Nino observou, o que ainda não sabe e como a pessoa se percebe. */
 export function DimensionPanel({
-  dimensionKey, dimension, self, notComparable, feedback, busy, onAnswer, onRemove,
+  dimensionKey, dimension, self, notComparable, feedback, busy, onAnswer, onRemove, weighs, onWeighs, onClearWeighs,
 }: {
+  /** Chaves que a pessoa marcou como "o que mais pesa" nesta dimensão (null = ainda não respondeu). */
+  weighs?: string[] | null;
+  onWeighs?: (keys: string[]) => void | Promise<void>;
+  onClearWeighs?: () => void | Promise<void>;
   dimensionKey: BehaviorDimensionKey;
   dimension: ObservedDimension;
   /** Nota que a pessoa se deu no mapa (null = ainda não respondeu). */
@@ -43,13 +48,17 @@ export function DimensionPanel({
     : state === "partial" ? "Base parcial · sem nota" : "Ainda não sei · sem nota";
 
   const gap = self != null && dimension.score != null ? dimension.score - self : null;
+  const options = DIMENSION_WEIGHS[dimensionKey] ?? [];
+  const [picked, setPicked] = useState<string[]>([]);
+  const toggle = (k: string) => setPicked((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : cur.length >= 3 ? cur : [...cur, k]));
+  const sources = record?.origin.map((o) => o.label.toLowerCase()).join(", ");
   const selfText = self == null
     ? "Você ainda não respondeu esta pergunta no mapa. Quando responder, as duas leituras aparecem lado a lado."
     : dimension.score == null
-      ? `Você se deu ${fmt(self)}. O Nino ainda não tem base para dar a dele, então não há comparação.`
+      ? `Você se deu ${fmt(self)}. O Nino ainda não tem base para dar a dele, então não há comparação — e isso não diz que a sua percepção esteja errada.`
       : Math.abs(gap!) < 1
         ? `Você se deu ${fmt(self)} e o Nino observa ${fmt(dimension.score)}: as duas leituras estão próximas.`
-        : `Você se deu ${fmt(self)} e o Nino observa ${fmt(dimension.score)}. São lentes diferentes: a sua é como você sente; a dele vem dos registros. O que mais pesa na sua percepção?`;
+        : `Você se deu ${fmt(self)} e o Nino observa ${fmt(dimension.score)}. ${gap! > 0 ? "Você se vê abaixo do que os indicadores mostram" : "Você se vê acima do que os indicadores mostram"}. Isso não significa que a sua percepção esteja errada: o Nino só enxerga o que está nos registros${sources ? ` (${sources})` : ""}.`;
 
   const answer = async (verdict: "yes" | "partially" | "no") => {
     if (verdict === "yes") {
@@ -97,6 +106,25 @@ export function DimensionPanel({
         <div>
           <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary"><ArrowLeftRight size={13} aria-hidden /> Como você se percebe</p>
           <p className="mt-1 text-[13px] leading-relaxed">{selfText}</p>
+          {onWeighs ? (
+            weighs?.length ? (
+              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground" data-testid="weighs-saved">
+                O que mais pesa para você: {weighs.map((k) => options.find((o) => o.key === k)?.label ?? k).join(", ")}.{" "}
+                <button type="button" onClick={() => onClearWeighs?.()} className="min-h-10 font-semibold text-primary">Alterar</button>
+              </p>
+            ) : (
+              <div className="mt-2" data-testid="weighs-question">
+                <p className="text-[13px] font-semibold">O que mais pesa para você aqui? <span className="font-normal text-muted-foreground">(opcional, até 3)</span></p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {options.map((o) => (
+                    <button key={o.key} type="button" aria-pressed={picked.includes(o.key)} onClick={() => toggle(o.key)}
+                      className={`min-h-10 rounded-full border px-3 text-xs font-semibold ${picked.includes(o.key) ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{o.label}</button>
+                  ))}
+                </div>
+                {picked.length ? <Button type="button" size="sm" className="mt-2 min-h-10 rounded-full" onClick={() => { onWeighs(picked); setPicked([]); }}>Salvar</Button> : null}
+              </div>
+            )
+          ) : null}
         </div>
 
         {notComparable && dimension.score != null ? (

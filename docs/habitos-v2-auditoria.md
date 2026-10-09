@@ -90,3 +90,25 @@ aceite explícito (RPC habit_limit_accept) ──► weekend_commitments ──�
 1. Flag ligada só para a conta do dono do produto (feito). 2. Validação com dados reais e evidências (este PR e relatório).
 3. Ampliação gradual inserindo usuários em `habits_v2_access`; 4. depois da confirmação do produto, trocar o
 `habits_v2_enabled()` por "todos" e remover a página anterior.
+
+## 6. Revisão pós-feedback (camada de decisão)
+
+Feedback externo sobre a primeira entrega: a página repetia relatório financeiro (metas, médias, projeções) em vez de
+ajudar a entender decisões. Mudanças:
+
+| Ponto do feedback | O que foi feito |
+|---|---|
+| Dois cards iguais (Lazer e Transporte) | Um insight consolidado por conjunto de categorias (`weekend:Lazer+Transporte`) |
+| Padrão ≠ descoberta | O insight diz "o que ainda não sei" e faz UMA pergunta de contexto (Já planejo / Decido na hora / Envolve outras pessoas / Depende), só quando a resposta muda a recomendação; padrão sem ação possível não pergunta |
+| Recomendação só pela média | Ação depende da resposta: planejado → rever a meta; na hora → limite opcional (com conta e aceite); outras pessoas → dividir a conta; depende → só observa. Silêncio nunca vira resposta ("Prefiro não responder") |
+| Combinado sem aceite visível | Mostra origem (WhatsApp/app), data e hora, com Alterar valor e Desfazer |
+| Projeção protagonista | Uma única linha de consequência (hipótese); a conta completa só aparece depois da resposta |
+| Experimentos | Removidos da interface (inclusive do histórico); tabelas e progresso preservados; o recálculo em segundo plano continua |
+| Money Mood | Fora do estado aberto: resumo "medições diretas × estimativas" e gráfico sob demanda |
+| Roda subaproveitada | Leitura da diferença "você × Nino" sem juízo + pergunta opcional "o que mais pesa para você" (opções fechadas), que vira evidência declarada |
+| Consciência 10,0 | Só check-ins não passam de 7,0; reconhecer padrões (respostas) libera o teto; o painel explica |
+| Página sempre cheia | `minUtility`: sem insight relevante, nada é mostrado |
+| Validação | `habit_insight_events` + roteiro e métricas em `docs/habitos-v2-validacao.md` |
+
+Integração: as respostas viram memória do assessor (texto de modelo, 45 dias) e o WhatsApp deixa de pressionar por
+limite em categorias respondidas como "planejado" ou "outras pessoas".

@@ -60,6 +60,18 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     expect(p.dimensions.awareness.confidence).not.toBe("high");
   });
 
+  it("consciência: só check-ins não passam de 7,0; reconhecer padrões (respostas) libera o teto", () => {
+    const checkins = Array.from({ length: 12 }, (_, i) => checkin(i * 2, 5, 100 + i));
+    const only = buildObservedProfileV3({ ...empty, checkins }, NOW);
+    expect(only.dimensions.awareness.score).toBeLessThanOrEqual(7);
+    expect(only.dimensions.awareness.record?.observed.join(" ")).toMatch(/não passa de 7,0/);
+    expect(only.dimensions.awareness.record?.unknown.join(" ")).toMatch(/responder as perguntas/);
+    const declared = buildObservedProfileV3({ ...empty, checkins }, NOW, { declaredContextAnswers: 2 });
+    expect(declared.dimensions.awareness.score).toBeGreaterThan(only.dimensions.awareness.score as number);
+    expect(declared.dimensions.awareness.score).toBeLessThanOrEqual(10);
+    expect(declared.dimensions.awareness.confidence).toBe("medium");
+  });
+
   it("dívidas: nenhuma dívida registrada ≠ relação saudável (nem 0): fica sem nota", () => {
     const p = buildObservedProfileV3({ ...empty, financialRow: { payload: { snapshot: { netWorth: { assets: 5000, owed: 0 } } } } }, NOW);
     expect(p.dimensions.debt.score).toBeNull();

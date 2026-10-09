@@ -31,7 +31,10 @@ export async function loadObservedProfile(sb: any, userId: string): Promise<Obse
   const input = observedInputFromDashboardPayload(data ?? {});
   // Hábitos v2 (liberação controlada): quem está em habits_v2_access é lido pelo método v3.
   const { data: access } = await sb.from("habits_v2_access").select("user_id").eq("user_id", userId).maybeSingle();
-  return access ? buildObservedProfileV3(input) : buildObservedProfileV2(input);
+  if (!access) return buildObservedProfileV2(input);
+  const since = new Date(Date.now() - 45 * 86_400_000).toISOString();
+  const { count } = await sb.from("habit_context_answers").select("id", { count: "exact", head: true }).eq("user_id", userId).gte("updated_at", since);
+  return buildObservedProfileV3(input, Date.now(), { declaredContextAnswers: count ?? 0 });
 }
 
 export async function loadObservedSnapshots(sb: any, userId: string): Promise<ObservedSnapshot[]> {
