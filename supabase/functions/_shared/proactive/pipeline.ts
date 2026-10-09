@@ -38,6 +38,7 @@ import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withou
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
+import { buildWeekendForecasts, weekendCoveredCategories, weekendForecastSituation } from "./weekendForecast.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
@@ -326,9 +327,14 @@ export async function runMultiFinanceProactive(
     const request = incomeDataRequest(dataQuality, refined, ctx.as_of);
     if (request) refined.push(request);
   }
-  // nino_weekday_nudge.v2 — antes do gasto: onde o mês da categoria caminha e o que muda hoje.
+  // nino_weekend_forecast.v1 — sexta de manhã: o fim de semana como um bloco só (faixa, mês, projeção, quanto cabe).
+  // nino_weekday_nudge.v2 — nos demais dias: onde o mês da categoria caminha e o que muda hoje.
+  const nudgeGoals = nudgeTransactions.length ? await loadNudgeGoals(sb, userId).catch(() => ({})) : {};
+  const weekendForecasts = nudgeTransactions.length ? buildWeekendForecasts(nudgeTransactions, ctx.as_of, nudgeGoals) : [];
+  const weekendForecast = weekendForecastSituation(weekendForecasts[0] ?? null, ctx, new Date());
+  if (weekendForecast) refined.push(weekendForecast);
   const nudgeProjection = nudgeTransactions.length
-    ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, await loadNudgeGoals(sb, userId).catch(() => ({})))
+    ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, nudgeGoals, weekendCoveredCategories(weekendForecasts))
     : null;
   const nudge = weekdayNudgeSituation(nudgeProjection, ctx, new Date());
   if (nudge) refined.push(nudge);
@@ -347,7 +353,14 @@ export async function runMultiFinanceProactive(
   // teto da mesma meta (uma meta, uma mensagem).
   if (((ctx.domains.goals as unknown[]) ?? []).length > 0 && isReminderHour(new Date())) {
     const goalSituations = await loadSpendingGoalContext(sb, userId, ctx.as_of)
-      .then((sg) => spendingGoalSituations(ctx, sg, readGoals(sg)))
+      .then((sg) => {
+        const readings = readGoals(sg);
+        const covered = weekendForecast ? String((weekendForecast.evidence as any)?.forecast?.category ?? "") : "";
+        const coveredGoals = new Set(readings.filter((r) => r.category_name === covered).map((r) => r.goal_id));
+        // A previsão do fim de semana (faixa, projeção, folga) substitui o aviso de fim de semana da mesma meta.
+        return spendingGoalSituations(ctx, sg, readings)
+          .filter((s) => !(s.type === "spending_goal_weekend" && coveredGoals.has(String((s.evidence as any)?.goal_id ?? ""))));
+      })
       .catch((error) => {
         console.warn("[proactive] spending goals skipped", String((error as Error)?.message ?? error).slice(0, 160));
         return [] as FinancialSituation[];
@@ -382,7 +395,7 @@ export async function runMultiFinanceProactive(
   // Aviso matinal e dica de uso: WhatsApp é medido pelo que saiu de fato por ele.
   const alreadyDeliveredWhatsapp = persist && alreadyDelivered.size
     ? await loadWhatsappDelivered(sb, userId, opts.repeatWindowDays ?? 5)
-        .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|discovery)\./.test(fp))))
+        .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|weekend_forecast|discovery)\./.test(fp))))
         .catch(() => undefined)
     : undefined;
   const { decisions, selected, ranked } = allocateAttention({
