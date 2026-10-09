@@ -87,7 +87,7 @@ describe("behavioral evolution — three waves", () => {
     expect(page).toContain("shadow-card");
     expect(wheel).toContain("hsl(var(--primary))");
     expect(mood).toContain("hsl(var(--primary))");
-    expect(mood).toContain('type="natural"');
+    expect(mood).toContain('type="monotone"');
     expect(mood).toContain('strokeLinecap="round"');
     expect(page).not.toContain("Mental Fitness");
   });

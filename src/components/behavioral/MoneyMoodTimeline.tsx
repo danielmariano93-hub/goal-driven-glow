@@ -44,7 +44,12 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
       ) : null}
 
       {data.length >= 2 ? (
-        <div className="mt-4 h-[260px] sm:h-[290px]">
+        <>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground" aria-label="Legenda do gráfico">
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden /> Medição direta (você informou)</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" aria-hidden /> Estimativa do check-in antigo</span>
+        </div>
+        <div className="mt-2 h-[260px] sm:h-[290px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 10, right: 8, left: -12, bottom: 0 }}>
               <defs>
@@ -78,14 +83,21 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
                 }}
               />
               <Area
-                type="natural"
+                type="monotone"
                 dataKey="score"
                 stroke="hsl(var(--primary))"
                 strokeWidth={3.25}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 fill="url(#moneyMoodFill)"
-                dot={{ r: 2.15, fill: "hsl(var(--card))", stroke: "hsl(var(--primary))", strokeWidth: 1.8 }}
+                dot={(props: { cx?: number; cy?: number; index?: number; payload?: { direct?: boolean } }) => {
+                  const { cx, cy, index, payload } = props;
+                  if (cx == null || cy == null) return <g key={`mm-${index}`} />;
+                  // Medição direta: ponto cheio. Estimativa do check-in antigo: anel vazado e apagado.
+                  return payload?.direct
+                    ? <circle key={`mm-${index}`} cx={cx} cy={cy} r={3.4} fill="hsl(var(--primary))" stroke="hsl(var(--card))" strokeWidth={1.5} />
+                    : <circle key={`mm-${index}`} cx={cx} cy={cy} r={2.2} fill="hsl(var(--card))" stroke="hsl(var(--muted-foreground))" strokeWidth={1.1} strokeDasharray="1.5 1.5" opacity={0.7} />;
+                }}
                 activeDot={{ r: 4.75, fill: "hsl(var(--primary))", stroke: "hsl(var(--card))", strokeWidth: 2.25 }}
                 animationDuration={650}
                 animationEasing="ease-out"
@@ -93,6 +105,7 @@ export function MoneyMoodTimeline({ snapshot }: { snapshot: BehavioralEvolutionS
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        </>
       ) : (
         <div className="mt-4 rounded-[22px] border border-dashed border-border bg-secondary/30 px-4 py-8 text-center">
           <Activity className="mx-auto h-6 w-6 text-muted-foreground" />

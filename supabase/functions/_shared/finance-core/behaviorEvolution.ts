@@ -41,6 +41,12 @@ export type DimensionChange = {
   /** Componentes que mais explicam a variação (ou, sem base, os que mais pesam na nota). */
   drivers: FactorChange[];
   why: string;
+  /** A base de comparação usa outros componentes: não vira "melhorou/piorou". */
+  notComparable: boolean;
+  /** O que a nota mede (e o que ela não mede), em linguagem simples. */
+  scope: string;
+  /** Componentes da nota sem dado ("o que ainda falta saber"). */
+  missing: string[];
 };
 
 export type BehaviorVerdictKind = "better" | "same" | "worse" | "insufficient";
@@ -139,15 +145,46 @@ function whyText(change: Pick<DimensionChange, "direction" | "delta" | "drivers"
   return `${change.direction === "better" ? "Melhorou" : "Piorou"} porque ${parts.join(" e ")}.`;
 }
 
+/**
+ * O que cada nota mede — e o que NÃO mede. Evita ler engajamento como entendimento
+ * ou gasto baixo como autocontrole: o Nino vê registros e uso, não intenções.
+ */
+export const DIMENSION_SCOPE: Record<BehaviorDimensionKey, string> = {
+  awareness: "Mede o quanto você acompanha suas finanças (uso do app, consulta aos movimentos, check-ins, lançamentos categorizados). Não mede o quanto você entende o seu dinheiro.",
+  planning: "Mede estruturas de antecipação: metas de gasto, compromissos recorrentes e uso das telas de planejamento. Não avalia se o plano é bom.",
+  control: "Mede o resultado contra limites que você mesmo escolheu (ciclos de meta fechados e metas atuais). Gastar pouco, sozinho, não prova autocontrole.",
+  consistency: "Mede a estabilidade do ritmo de gasto e a regularidade de check-ins e acesso. Um gasto alto não é sinal de falta de hábito.",
+  security: "Mede a margem para imprevistos: reserva, folga depois dos compromissos, dívida frente aos ativos e saldo projetado.",
+  wealth: "Mede a recorrência de aportes e a poupança do mês. Uma boa fotografia isolada pesa pouco.",
+  calm: "Vem dos check-ins em que você mesmo informa sua tranquilidade. O Nino não deduz sentimento a partir de transações.",
+  debt: "Mede a tendência do saldo devedor e o peso da dívida sobre os seus ativos. Dívida controlada não é penalizada só por existir.",
+};
+
+const NOT_COMPARABLE_WHY = "A leitura anterior usava outros componentes, então a comparação começa na próxima leitura completa — isso não é melhora nem piora.";
+
+/**
+ * Duas leituras só se comparam quando medem a MESMA coisa: os mesmos componentes com
+ * dado. Reconstrução parcial ou mudança de método não pode virar "melhorou/piorou".
+ * Sem lista de componentes na base (snapshot legado), mantém o comportamento antigo.
+ */
+export function isComparableDimension(current: ObservedDimension | undefined, previous: SnapshotDimension | undefined): boolean {
+  if (!current || !previous) return true;
+  const curKeys = (current.factors ?? []).filter((f) => f.value != null).map((f) => f.key).sort();
+  const prevKeys = (previous.factors ?? []).filter((f) => f.value != null).map((f) => f.key).sort();
+  if (!curKeys.length || !prevKeys.length) return true;
+  return curKeys.length === prevKeys.length && curKeys.every((key, i) => key === prevKeys[i]);
+}
+
 /** Variação por dimensão: nota atual contra a base, com os componentes que explicam. */
 export function compareDimensions(profile: ObservedBehaviorProfile, baseline: ObservedSnapshot | null): DimensionChange[] {
   return BEHAVIOR_DIMENSIONS.map((dim) => {
     const cur = profile.dimensions[dim.key];
     const prevDim = baseline?.dimensions[dim.key];
     const score = cur?.score ?? null;
-    const previous = prevDim?.score ?? null;
+    const comparable = isComparableDimension(cur, prevDim);
+    const previous = comparable ? prevDim?.score ?? null : null;
     const delta = score != null && previous != null ? round1(score - previous) : null;
-    const factors = cur ? factorChanges(cur, prevDim) : [];
+    const factors = cur ? factorChanges(cur, comparable ? prevDim : undefined) : [];
     const ranked = [...factors].sort((a, b) => {
       if (delta != null) return Math.abs(b.impact ?? 0) - Math.abs(a.impact ?? 0);
       return (b.weight ?? 0) * (b.value ?? 0) - (a.weight ?? 0) * (a.value ?? 0);
@@ -159,8 +196,11 @@ export function compareDimensions(profile: ObservedBehaviorProfile, baseline: Ob
       // a leitura atual é forte, uma afirmação de que o hábito melhorou/piorou.
       confidence: weakestConfidence(cur?.confidence ?? "low", prevDim?.confidence),
       evidence: cur?.evidence ?? "", factors, drivers: ranked.slice(0, 3),
+      notComparable: !comparable,
+      scope: DIMENSION_SCOPE[dim.key],
+      missing: (cur?.factors ?? []).filter((f) => f.value == null).map((f) => f.label),
     };
-    return { ...base, why: whyText(base) };
+    return { ...base, why: !comparable && score != null ? NOT_COMPARABLE_WHY : whyText(base) };
   });
 }
 
@@ -282,5 +322,125 @@ export function behaviorHabitsReading(args: {
     thisWeek: args.thisWeek, history, baseline, changes, verdict, series, weeksOfHistory,
     reconstructedWeeks: history.filter(isReconstructedSnapshot).length,
     baselineReconstructed: !!baseline && isReconstructedSnapshot(baseline),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Descoberta: a primeira coisa que a página diz. Não é um veredito geral e sim
+// UMA observação específica (percepção x registros, uma mudança boa ou o ponto
+// com mais espaço), sempre com a evidência por trás e sem julgar a pessoa.
+// ---------------------------------------------------------------------------
+
+export const DISCOVERY_MIN_GAP = 2;
+
+export type HabitDiscoveryKind = "perception_gap" | "improvement" | "attention" | "room_to_grow" | "getting_started";
+
+export type HabitDiscovery = {
+  kind: HabitDiscoveryKind;
+  title: string;
+  body: string;
+  dimension: BehaviorDimensionKey | null;
+  /** Só no `perception_gap`: as duas leituras lado a lado. */
+  self: number | null;
+  observed: number | null;
+  action: { label: string; to: string } | null;
+};
+
+const CONF_OK: Record<Confidence, boolean> = { low: false, medium: true, high: true };
+
+/** Pergunta que abre a conversa, específica da dimensão (nunca "você está errado"). */
+const GAP_QUESTION: Record<BehaviorDimensionKey, { selfLower: string; selfHigher: string }> = {
+  awareness: { selfLower: "Talvez você acompanhe mais do que imagina. O que faria essa nota subir para você?", selfHigher: "Acompanhar de perto e entender o porquê dos gastos são coisas diferentes. Falta ver o motivo por trás deles?" },
+  planning: { selfLower: "Será que o desafio está em planejar ou em conseguir seguir o que foi planejado?", selfHigher: "Há planos que ainda não aparecem nos registros (metas, compromissos)? Cadastrá-los ajuda o Nino a enxergar." },
+  control: { selfLower: "Talvez você esteja sendo mais exigente com você do que os resultados pedem.", selfHigher: "Pode haver gastos por impulso que não aparecem nas metas. Quer olhar os últimos?" },
+  consistency: { selfLower: "Talvez a constância esteja mais no ritmo do gasto do que na sensação de rotina.", selfHigher: "Semanas mais corridas costumam quebrar a rotina. Quer ver onde ela falha?" },
+  security: { selfLower: "Talvez a sensação de insegurança venha de algo que os números não captam. O que pesa mais para você?", selfHigher: "A margem para imprevistos que os registros mostram é menor do que a que você sente. Vale olhar a reserva." },
+  wealth: { selfLower: "Talvez os aportes estejam acontecendo, mas sem a sensação de avanço. Quer olhar o que já foi guardado?", selfHigher: "Os aportes recorrentes ainda não aparecem nos registros. Eles estão sendo lançados?" },
+  calm: { selfLower: "Seus check-ins mostram mais tranquilidade do que a nota que você se deu. O que pesa mais na sua cabeça?", selfHigher: "Seus check-ins recentes mostram menos tranquilidade do que você sente. Como foram os últimos dias?" },
+  debt: { selfLower: "Talvez você esteja pagando e progredindo, mas o tamanho da dívida ainda pese. O que ajudaria hoje?", selfHigher: "O peso da dívida frente aos seus ativos é maior do que você sente. Vale olhar o plano de quitação." },
+};
+
+export function buildHabitDiscovery(args: {
+  profile: ObservedBehaviorProfile;
+  /** Notas que a pessoa deu no mapa (0–10) por dimensão; null se ainda não preencheu. */
+  perception: Partial<Record<BehaviorDimensionKey, number>> | null;
+  changes: DimensionChange[];
+}): HabitDiscovery {
+  const { profile, perception, changes } = args;
+  const labelOf = (key: BehaviorDimensionKey) => BEHAVIOR_DIMENSIONS.find((d) => d.key === key)?.label ?? key;
+
+  // 1) Percepção x registros: a maior distância com evidência suficiente.
+  if (perception) {
+    const gaps = BEHAVIOR_DIMENSIONS.map((dim) => {
+      const obs = profile.dimensions[dim.key];
+      const self = perception[dim.key];
+      if (obs?.score == null || self == null || !CONF_OK[obs.confidence]) return null;
+      return { key: dim.key, self: Number(self), observed: obs.score, gap: obs.score - Number(self) };
+    }).filter((row): row is NonNullable<typeof row> => row != null && Math.abs(row.gap) >= DISCOVERY_MIN_GAP)
+      .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap));
+    const top = gaps[0];
+    if (top) {
+      const label = labelOf(top.key);
+      const lower = top.gap > 0; // você se vê abaixo do que os registros mostram
+      return {
+        kind: "perception_gap",
+        title: lower ? `Em ${label}, você se vê abaixo do que seus registros mostram` : `Em ${label}, seus registros mostram menos do que você sente`,
+        body: `Você se deu ${fmt(top.self)} e os sinais do Nino indicam ${fmt(top.observed)}. São duas leituras diferentes, não uma certa e outra errada. ${lower ? GAP_QUESTION[top.key].selfLower : GAP_QUESTION[top.key].selfHigher}`,
+        dimension: top.key, self: top.self, observed: top.observed,
+        action: { label: "Ver como o Nino chegou nessa nota", to: `#dimensao-${top.key}` },
+      };
+    }
+  }
+
+  // 2) Uma mudança boa e comparável.
+  const better = changes
+    .filter((c) => c.direction === "better" && !c.notComparable && c.delta != null && CONF_OK[c.confidence])
+    .sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0))[0];
+  if (better) {
+    return {
+      kind: "improvement",
+      title: `Uma mudança boa em ${better.label}`,
+      body: `${better.why} Vale reconhecer o que está funcionando e manter.`,
+      dimension: better.key, self: null, observed: better.score,
+      action: { label: "Ver os componentes", to: `#dimensao-${better.key}` },
+    };
+  }
+
+  // 3) Uma piora comparável, dita sem alarme.
+  const worse = changes
+    .filter((c) => c.direction === "worse" && !c.notComparable && c.delta != null && CONF_OK[c.confidence])
+    .sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0))[0];
+  if (worse) {
+    const action = DIMENSION_ACTION[worse.key];
+    return {
+      kind: "attention",
+      title: `${worse.label} pede atenção`,
+      body: `${worse.why} Pequenos ajustes costumam bastar quando a mudança é percebida cedo.`,
+      dimension: worse.key, self: null, observed: worse.score,
+      action,
+    };
+  }
+
+  // 4) O ponto com mais espaço (nota mais baixa com evidência suficiente).
+  const weakest = BEHAVIOR_DIMENSIONS
+    .map((dim) => ({ key: dim.key, obs: profile.dimensions[dim.key] }))
+    .filter((row) => row.obs?.score != null && CONF_OK[row.obs.confidence] && (row.obs.score as number) < 5)
+    .sort((a, b) => (a.obs.score as number) - (b.obs.score as number))[0];
+  if (weakest) {
+    return {
+      kind: "room_to_grow",
+      title: `Onde há mais espaço para evoluir: ${labelOf(weakest.key)}`,
+      body: `${weakest.obs.evidence} Uma ação pequena nessa dimensão tende a mexer mais na sua leitura do que várias ao mesmo tempo.`,
+      dimension: weakest.key, self: null, observed: weakest.obs.score,
+      action: DIMENSION_ACTION[weakest.key],
+    };
+  }
+
+  return {
+    kind: "getting_started",
+    title: "O Nino ainda está te conhecendo",
+    body: "Com mais alguns check-ins e semanas de registro, ele passa a mostrar o que seus hábitos revelam. Por enquanto, as notas abaixo servem de sinal, não de veredito.",
+    dimension: null, self: null, observed: null,
+    action: { label: "Fazer um check-in agora", to: "#checkin" },
   };
 }

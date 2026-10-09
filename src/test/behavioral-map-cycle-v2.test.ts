@@ -15,7 +15,8 @@ describe("behavioral map cycle v2", () => {
     expect(dashboard).toContain("emotionalScore(row)");
     expect(dashboard).toContain("moodHistory");
     expect(page).toContain("<MoneyMoodTimeline snapshot={dashboard}");
-    expect(page).toContain("<BehaviorVerdictCard");
+    expect(page).toContain("<HabitDiscoveryCard");
+    expect(page).toContain("<VerdictStrip");
   });
 
   it("keeps self-perception separate from Nino observed evidence", () => {
@@ -52,7 +53,7 @@ describe("behavioral map cycle v2", () => {
   });
 
   it("renders the Money Mood history with a smooth, rounded modern curve", () => {
-    expect(moodTimeline).toContain('type="natural"');
+    expect(moodTimeline).toContain('type="monotone"');
     expect(moodTimeline).toContain('strokeLinecap="round"');
     expect(moodTimeline).toContain('strokeLinejoin="round"');
     expect(moodTimeline).toContain("animationDuration={650}");
