@@ -63,12 +63,15 @@ export function ExperimentsBoard({
   busy,
   onStart,
   onChanged,
+  allowStart = true,
 }: {
   snapshot: BehavioralEvolutionSnapshot;
   busy: string | null;
   onStart: (template: BehaviorExperimentTemplate) => Promise<void>;
   /** Recarrega a página depois de vincular, desfazer, registrar pausa ou concluir revisão. */
   onChanged: () => Promise<void>;
+  /** false = só acompanha/encerra o que já começou (sem sugerir novos desafios). */
+  allowStart?: boolean;
 }) {
   const active = snapshot.activeExperiments;
   const eventsQuery = useExperimentEvents(active.map((row) => row.id));
@@ -79,15 +82,17 @@ export function ExperimentsBoard({
     .filter((row) => row.status === "completed" || row.status === "expired" || row.status === "abandoned")
     .slice(0, 3);
   const activeSlugs = new Set(active.map((row) => row.template_slug));
-  const recommended = snapshot.recommendedTemplates.filter((template) => !activeSlugs.has(template.slug)).slice(0, 3);
+  const recommended = allowStart ? snapshot.recommendedTemplates.filter((template) => !activeSlugs.has(template.slug)).slice(0, 3) : [];
 
   return (
     <section className="space-y-3">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Experimentos</p>
-        <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Mude um comportamento por vez</h2>
+        <h2 className="mt-1 font-display text-xl font-bold tracking-tight">{allowStart ? "Mude um comportamento por vez" : "Seus experimentos"}</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          O Nino propõe testes curtos e mede o antes e depois. Sem sequência punitiva e sem “falhou”: o resultado serve para aprender o que funciona para você.
+          {allowStart
+            ? "O Nino propõe testes curtos e mede o antes e depois. Sem sequência punitiva e sem “falhou”: o resultado serve para aprender o que funciona para você."
+            : "Os testes que você já começou continuam aqui, com o progresso e os lançamentos preservados. Novos desafios estão em pausa."}
         </p>
       </div>
 
@@ -216,7 +221,7 @@ export function ExperimentsBoard({
         </div>
       )}
 
-      {active.length === 0 && recommended.length === 0 ? (
+      {allowStart && active.length === 0 && recommended.length === 0 ? (
         <div className="rounded-[22px] border border-dashed border-border bg-card p-6 text-center">
           <FlaskConical className="mx-auto h-6 w-6 text-muted-foreground" />
           <p className="mt-2 text-sm font-semibold">Seu próximo experimento aparece depois do mapa comportamental</p>

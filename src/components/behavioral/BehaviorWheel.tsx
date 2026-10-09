@@ -1,22 +1,17 @@
 import { useMemo, useState } from "react";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
-import { CalendarClock, Check, ChevronLeft, ChevronRight, Eye, Sparkles, UserRound, X } from "lucide-react";
+import { CalendarClock, Eye, Sparkles, UserRound } from "lucide-react";
+import { AssessmentDialog } from "@/components/behavioral/AssessmentDialog";
 import { Button } from "@/components/ui/button";
 import {
   BEHAVIOR_DIMENSIONS,
-  type BehavioralAssessment,
   type BehaviorDimensionKey,
 } from "@/lib/behavioral/client";
 import {
-  behaviorQuestionForDimension,
   type AssessmentCycle,
   type ExtendedBehavioralAssessment,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
-
-function defaultScores(assessment: BehavioralAssessment | null): Record<BehaviorDimensionKey, number> {
-  return Object.fromEntries(BEHAVIOR_DIMENSIONS.map((dimension) => [dimension.key, Number(assessment?.scores?.[dimension.key] ?? 5)])) as Record<BehaviorDimensionKey, number>;
-}
 
 function dateLabel(value?: string | null) {
   if (!value) return "—";
@@ -48,8 +43,6 @@ export function BehaviorWheel({
   baseline?: { date: string; scores: Partial<Record<BehaviorDimensionKey, number | null>> } | null;
 }) {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState(0);
-  const [scores, setScores] = useState<Record<BehaviorDimensionKey, number>>(() => defaultScores(latest));
 
   const chart = useMemo(() => BEHAVIOR_DIMENSIONS.map((dimension) => ({
     subject: dimension.short,
@@ -81,16 +74,7 @@ export function BehaviorWheel({
     : [];
   const largestGap = comparable[0] ?? null;
 
-  const begin = () => {
-    setScores(defaultScores(latest));
-    setStep(0);
-    setOpen(true);
-  };
-
-  const finish = async () => {
-    await onSave(scores);
-    setOpen(false);
-  };
+  const begin = () => setOpen(true);
 
   return (
     <>
@@ -260,59 +244,7 @@ export function BehaviorWheel({
         </div>
       </section>
 
-      {open && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-foreground/30 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-          <div className="w-full max-w-lg rounded-t-[28px] border border-border bg-background p-5 shadow-2xl sm:rounded-[28px]">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">{step + 1} de {BEHAVIOR_DIMENSIONS.length}</p>
-                <p className="font-display text-lg font-bold">{BEHAVIOR_DIMENSIONS[step].label}</p>
-              </div>
-              <button type="button" onClick={() => setOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-secondary" aria-label="Fechar">
-                <X size={18} />
-              </button>
-            </div>
-
-            <p className="mt-5 min-h-[54px] text-sm leading-relaxed text-muted-foreground">
-              {behaviorQuestionForDimension(BEHAVIOR_DIMENSIONS[step].key, cycle.questionSetIndex)}
-            </p>
-
-            <div className="mt-6 rounded-[22px] border border-border bg-card p-5">
-              <div className="flex items-end justify-between">
-                <span className="text-xs text-muted-foreground">Nada</span>
-                <span className="font-display text-4xl font-bold text-primary">{scores[BEHAVIOR_DIMENSIONS[step].key]}</span>
-                <span className="text-xs text-muted-foreground">Muito</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={1}
-                value={scores[BEHAVIOR_DIMENSIONS[step].key]}
-                onChange={(event) => setScores((current) => ({ ...current, [BEHAVIOR_DIMENSIONS[step].key]: Number(event.target.value) }))}
-                className="mt-5 h-2 w-full cursor-pointer accent-primary"
-                aria-label={`Nota para ${BEHAVIOR_DIMENSIONS[step].label}`}
-              />
-              <div className="mt-2 flex justify-between text-[10px] text-muted-foreground"><span>0</span><span>5</span><span>10</span></div>
-            </div>
-
-            <div className="mt-5 flex gap-2">
-              <Button type="button" variant="outline" className="min-h-11 flex-1 rounded-full" disabled={step === 0 || saving} onClick={() => setStep((value) => Math.max(0, value - 1))}>
-                <ChevronLeft size={16} /> Voltar
-              </Button>
-              {step < BEHAVIOR_DIMENSIONS.length - 1 ? (
-                <Button type="button" className="min-h-11 flex-1 rounded-full" onClick={() => setStep((value) => Math.min(BEHAVIOR_DIMENSIONS.length - 1, value + 1))}>
-                  Próxima <ChevronRight size={16} />
-                </Button>
-              ) : (
-                <Button type="button" className="min-h-11 flex-1 rounded-full" disabled={saving} onClick={finish}>
-                  <Check size={16} /> {saving ? "Salvando…" : "Salvar mapa"}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <AssessmentDialog open={open} onClose={() => setOpen(false)} latest={latest} cycle={cycle} onSave={onSave} saving={saving} />
     </>
   );
 }

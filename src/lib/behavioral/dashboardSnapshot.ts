@@ -17,6 +17,7 @@ import {
   type ExtendedBehavioralAssessment,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
+import { buildObservedProfileV3 } from "@/lib/engine/behaviorObservedV3";
 import { computeEmotionSpendAssociation, timedExpensesFromRows, type ExpenseRowForTiming, type TimedExpense } from "@/lib/engine/emotionSpendPairing";
 import {
   buildObservedProfileV2,
@@ -156,7 +157,7 @@ function computeEmotionSpend(checkins: EmotionalCheckinRow[], expenses: TimedExp
   return computeEmotionSpendAssociation(checkins, expenses);
 }
 
-export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashboardState> {
+export async function loadBehavioralDashboardSnapshot(opts: { v3?: boolean } = {}): Promise<BehavioralDashboardState> {
   const { data, error } = await (supabase.rpc as any)("behavioral_dashboard_snapshot");
   if (error) throw error;
   const payload = (data ?? {}) as DashboardPayload;
@@ -237,7 +238,8 @@ export async function loadBehavioralDashboardSnapshot(): Promise<BehavioralDashb
     highlights.push({ id: `hypothesis-${hypothesis.id}`, tone: "neutral", title: hypothesis.title, body: hypothesis.explanation, evidence: hypothesis.evidence });
   }
 
-  const observed = buildObservedProfileV2(observedInputFromDashboardPayload(payload));
+  const observedInput = observedInputFromDashboardPayload(payload);
+  const observed = opts.v3 ? buildObservedProfileV3(observedInput) : buildObservedProfileV2(observedInput);
   const activeExperiments = experiments.filter((row) => row.status === "active");
   const latest = checkins[0] ?? null;
   const latestAgeHours = latest ? (Date.now() - new Date(latest.occurred_at).getTime()) / 3_600_000 : Infinity;

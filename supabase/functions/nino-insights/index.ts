@@ -19,6 +19,9 @@ import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
 import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDashboard/runtime.ts";
 import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
+import { buildHabitPatterns } from "../_shared/proactive/habitPatterns.ts";
+import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
+import { loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
 import { matchesAnySecret } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -158,6 +161,24 @@ Deno.serve(async (req) => {
       const parsed = parseDashboardParams(body as Record<string, any>, todaySP());
       if (typeof parsed === "string") return h.fail(parsed, 400);
       return h.ok({ ok: true, dashboard: await loadReportDashboard(sb, userId, todaySP(), parsed) });
+    }
+    if (action === "habit_patterns") {
+      // Padrões da tela de hábitos (nino_habit_patterns.v1): mesmos motores e mesmos números das mensagens.
+      const asOf = todaySP();
+      const transactions = await loadNudgeTransactions(sb, userId, asOf);
+      const goalCtx = transactions.length ? await loadSpendingGoalContext(sb, userId, asOf).catch(() => null) : null;
+      const goals = goalCtx
+        ? goalsFromReadings(readGoals(goalCtx), asOf)
+        : transactions.length ? await loadNudgeGoals(sb, userId, asOf).catch(() => ({})) : {};
+      const result = buildHabitPatterns({ transactions, today: asOf, goals });
+      const fridays = [...new Set(result.shown.map((p) => (p.action && "friday" in p.action ? p.action.friday : null)).filter(Boolean))] as string[];
+      let commitments: Record<string, { status: string; target_amount: number | null; friday: string }> = {};
+      if (fridays.length) {
+        const { data } = await sb.from("weekend_commitments").select("category,friday,status,target_amount")
+          .eq("user_id", userId).in("friday", fridays).limit(20);
+        commitments = Object.fromEntries(((data as any[]) ?? []).map((r) => [String(r.category), { status: String(r.status), target_amount: r.target_amount == null ? null : Number(r.target_amount), friday: String(r.friday) }]));
+      }
+      return h.ok({ ok: true, as_of: asOf, ...result, commitments });
     }
     if (action === "goal_merchants") {
       const categoryId = typeof body.category_id === "string" ? body.category_id : "";

@@ -28,7 +28,7 @@ export function useObservedFeedback(userId: string | undefined, today: string) {
     staleTime: 30_000,
     queryFn: async () => {
       const { data, error } = await table()
-        .select("dimension,week_start,reason,note,observed_score")
+        .select("dimension,week_start,reason,note,observed_score,verdict")
         .eq("user_id", userId)
         .order("week_start", { ascending: false })
         .limit(20);
@@ -49,6 +49,7 @@ export function useContestDimension(userId: string | undefined) {
       observedConfidence: "low" | "medium" | "high" | null;
       reason: FeedbackReason;
       note: string | null;
+      verdict?: "yes" | "partially" | "no";
     }) => {
       if (!userId) throw new Error("not_authenticated");
       const { error } = await table().upsert({
@@ -58,6 +59,7 @@ export function useContestDimension(userId: string | undefined) {
         observed_score: args.observedScore,
         observed_confidence: args.observedConfidence,
         reason: args.reason,
+        verdict: args.verdict ?? "no",
         note: cleanFeedbackNote(args.note),
       }, { onConflict: "user_id,dimension" });
       if (error) throw new Error(error.message);

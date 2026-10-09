@@ -38,7 +38,7 @@ describe("behavioral map cycle v2", () => {
     expect(mapCycle).toContain("wheel_set_a");
     expect(mapCycle).toContain("wheel_set_b");
     expect(mapCycle).toContain("wheel_set_c");
-    expect(wheel).toContain("behaviorQuestionForDimension");
+    expect(readFileSync("src/components/behavioral/AssessmentDialog.tsx", "utf8")).toContain("behaviorQuestionForDimension");
     expect(wheel).toContain("perguntas rotativas");
     expect(migration).toContain("interval '15 days'");
     expect(migration).toContain("'cadence_days',15");

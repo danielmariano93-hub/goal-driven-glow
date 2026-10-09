@@ -138,13 +138,24 @@ export function goalsFromReadings(
   return out;
 }
 
+/** Sexta do fim de semana de referência: hoje (sex), a próxima (seg–qui) ou a que acabou de passar (sáb/dom). */
+export function weekendFridayOf(today: string): string {
+  const d = dow(today);
+  if (d === 5) return today;
+  if (d === 6) return addDays(today, -1);
+  if (d === 0) return addDays(today, -2);
+  return addDays(today, 5 - d);
+}
+
 /** Previsões por categoria para o fim de semana que começa hoje (sexta). */
 export function buildWeekendForecasts(
   transactions: NudgeTransaction[],
   today: string,
   goals: Record<string, NudgeGoal> = {},
+  /** `anyDay`: leitura sob demanda (tela de hábitos) em qualquer dia; a mensagem proativa segue só na sexta. */
+  opts: { anyDay?: boolean } = {},
 ): WeekendForecast[] {
-  if (dow(today) !== 5) return [];
+  if (dow(today) !== 5 && !opts.anyDay) return [];
   const rules = WEEKEND_FORECAST_RULES;
   const month = today.slice(0, 7);
   const monthEnd = (() => {
@@ -241,7 +252,7 @@ export function buildWeekendForecasts(
     const target = rawTarget > 0 && rawTarget < expected ? rawTarget : null;
     out.push({
       category,
-      friday: today,
+      friday: weekendFridayOf(today),
       weekends: rules.weekends,
       active_weekends: active.length,
       typical: round2(typical),
