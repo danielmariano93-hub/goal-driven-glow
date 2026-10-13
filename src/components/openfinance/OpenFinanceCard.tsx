@@ -203,7 +203,7 @@ function ConnectionBlock(props: {
         <button disabled={!configured || busy} onClick={() => act.discover.mutate(c.id, { onSuccess: (r) => toast.success(`${r.accounts.length} conta(s) encontrada(s).`), onError: fail })} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Ler contas do banco</button>
         <button disabled={!configured || !mapped || busy} onClick={() => act.reconcile.mutate(c.id, { onSuccess: onRecon, onError: fail })} className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50">Conciliar mês atual</button>
         <button disabled={!configured || !mapped || busy} onClick={() => act.balance.mutate(c.id, { onSuccess: onBalance, onError: fail })} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Conferir saldo</button>
-        <button disabled={!configured || !mapped || busy} onClick={() => run("preview")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Prévia (mês atual)</button>
+        <button disabled={!configured || !mapped || busy} onClick={() => run("preview")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Prévia (só novidades)</button>
         <button disabled={!configured || !mapped || busy} onClick={() => run("stage")} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Enviar para revisão</button>
         {busy ? <Loader2 className="h-4 w-4 animate-spin self-center" /> : null}
       </div>
@@ -215,11 +215,12 @@ function ResultView({ result }: { result: SyncResult }) {
   const t = result.totals;
   return (
     <div className="mt-4 rounded-xl bg-muted/60 p-3 text-xs" aria-live="polite">
-      <p className="font-semibold">{result.mode === "preview" ? "Prévia" : "Enviado para revisão"} · {result.from} a {result.to}</p>
+      <p className="font-semibold">{result.mode === "preview" ? "Prévia" : "Enviado para revisão"} · {result.incremental ? `novidades desde ${result.from}` : `${result.from} a ${result.to}`}</p>
       <ul className="mt-1 space-y-0.5">
         <li>{t.total} movimentos lidos · {t.new} novos · {t.needs_review} para conferir</li>
         <li>{t.exact_duplicate} duplicados exatos · {t.probable_duplicate} possíveis duplicados</li>
         <li>{result.skipped_pending} pendentes ignorados · {result.skipped_invalid} inválidos</li>
+        {result.already_seen ? <li>{result.already_seen} já vistos antes (ignorados ou em revisão) não voltaram</li> : null}
       </ul>
       {result.sample.length > 0 ? (
         <ul className="mt-2 space-y-0.5 text-[11px]">
@@ -297,7 +298,7 @@ function ReconcileView({ report }: { report: ReconcileReport }) {
         <li>{c.matched_alta + c.matched_valor + c.matched_duvida} lançamentos seus casam com o banco ({c.matched_alta} certos · {c.matched_valor} com valor diferente · {c.matched_duvida} em dúvida)</li>
         <li>{c.new} movimentos do banco são novos: {brl(report.money.new_expense)} em saídas · {brl(report.money.new_income)} em entradas</li>
         <li>{c.waiting} seus ainda aguardam o banco · {c.not_shown} não apareceram no banco (5+ dias)</li>
-        <li>{c.already_reconciled} já conciliados antes · {c.known_by_statement} já estão no Nino por extrato · {report.skipped_pending} pendentes ignorados</li>
+        <li>{c.already_reconciled} já conciliados antes · {c.known_by_statement} já estão no Nino por extrato · {report.skipped_pending} pendentes ignorados{report.already_seen ? ` · ${report.already_seen} que você descartou não voltaram` : ""}</li>
         {report.duplicated_accounts > 0 ? <li className="font-semibold text-destructive">{report.duplicated_accounts} conta(s) do banco repetida(s) foram ignoradas</li> : null}
       </ul>
 
