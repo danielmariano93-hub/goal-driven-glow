@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Prefs = { due_reminders_enabled: boolean; due_reminders_days: number[]; due_reminders_hour: number; due_reminders_consent_at: string | null };
 
-const DEFAULTS: Prefs = { due_reminders_enabled: false, due_reminders_days: [1, 0], due_reminders_hour: 9, due_reminders_consent_at: null };
+const DEFAULTS: Prefs = { due_reminders_enabled: true, due_reminders_days: [1, 0], due_reminders_hour: 9, due_reminders_consent_at: null };
 const DAY_OPTIONS = [
   { value: 0, label: "No dia" },
   { value: 1, label: "1 dia antes" },
@@ -73,7 +73,7 @@ export default function DueRemindersCard() {
           <span className="mt-0.5 block text-xs text-muted-foreground">
             {local.due_reminders_consent_at
               ? `Ligado em ${new Date(local.due_reminders_consent_at).toLocaleDateString("pt-BR")}. Uma mensagem por dia, só quando houver o que vencer.`
-              : "Faturas, parcelas e contas da sua agenda de compromissos. Uma mensagem por dia, só quando houver o que vencer."}
+              : "Faturas, parcelas e contas da sua agenda de compromissos. Uma mensagem por dia, só quando houver o que vencer. Você pode desligar quando quiser."}
           </span>
         </span>
         <input type="checkbox" className="mt-1 h-4 w-4 accent-[hsl(var(--primary))]" checked={local.due_reminders_enabled}
