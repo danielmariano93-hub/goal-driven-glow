@@ -63,6 +63,7 @@ Deno.serve(async (req) => {
 
   const counts = { considered: 0, not_yet: 0, no_link: 0, nothing_due: 0, queued: 0, failed: 0 };
   const previews: Array<{ user_id: string; message: string; items: number }> = [];
+  const agendaPreview: Array<{ source: string; name: string; date: string; payment_status: string | null }> = [];
 
   for (const pref of (prefs ?? []) as any[]) {
     counts.considered++;
@@ -86,6 +87,13 @@ Deno.serve(async (req) => {
       const sentKeys = new Set(((logRows ?? []) as any[]).map((r) => `${r.obligation_key}|${r.days_before}`));
 
       const plan = planDueReminders({ items, asOf, daysBefore: normalizeDaysBefore(pref.due_reminders_days), sentKeys });
+      // Diagnóstico (só em dry_run, só para quem chamou com cron/admin): o que a agenda tem nos próximos 10 dias.
+      if (dryRun) {
+        for (const i of items) {
+          const d = Math.round((Date.parse(`${i.date}T12:00:00Z`) - Date.parse(`${asOf}T12:00:00Z`)) / 86_400_000);
+          if (d >= -1 && d <= 10) agendaPreview.push({ source: i.source, name: i.name, date: i.date, payment_status: i.payment_status ?? null });
+        }
+      }
       if (!plan.message) { counts.nothing_due++; continue; }
       if (dryRun) { previews.push({ user_id: userId, message: plan.message, items: plan.keys.length }); continue; }
 
@@ -122,5 +130,5 @@ Deno.serve(async (req) => {
       jobKey: "due-reminders-tick", ok: counts.failed === 0, processed: counts.queued, failed: counts.failed, sb,
     }).catch(() => undefined);
   }
-  return h.ok({ version: DUE_REMINDERS_VERSION, dry_run: dryRun, hour_sp: hourNow, ...counts, previews });
+  return h.ok({ version: DUE_REMINDERS_VERSION, dry_run: dryRun, hour_sp: hourNow, ...counts, previews, ...(dryRun ? { agenda_preview: agendaPreview } : {}) });
 });
