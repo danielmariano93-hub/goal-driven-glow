@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { failureDescription, invokeEdge } from "@/lib/edge/invoke";
 import AnticipationPreferencesCard from "@/components/antecipacoes/AnticipationPreferencesCard";
+import DueRemindersCard from "@/components/antecipacoes/DueRemindersCard";
 
 type BlockReason = { criterion: string; observed: number; required: number };
 
@@ -219,6 +220,7 @@ export default function Antecipacoes() {
       </header>
 
       <AnticipationPreferencesCard />
+      <DueRemindersCard />
 
       {diag && (
         <section className="rounded-2xl border border-border bg-card p-4 text-xs shadow-card md:p-6">

@@ -13,6 +13,10 @@
 //   reconcile → conciliação do MÊS ATUAL em modo relatório (provisório x banco). Não grava nada.
 //   stage    → igual ao preview, mas grava o lote para revisão (nada vira lançamento).
 //
+// Incremental: cada conta vinculada guarda `extracted_through` (até que dia já foi enviada para revisão).
+// A próxima prévia/envio começa ali (com sobreposição de poucos dias) e nunca devolve um item que já passou
+// por uma extração anterior (ignorado, aguardando revisão ou confirmado). `days` explícito amplia a janela.
+//
 // Autenticação: JWT real do usuário. Acesso: `open_finance_access` (liberado pelo dono).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -23,6 +27,7 @@ import {
 } from "../_shared/openfinance/pluggyClient.ts";
 import { fetchAllPages } from "../_shared/derived/pagedSelect.ts";
 import { aggregateBankRows, aggregateNinoRows } from "../_shared/openfinance/previewAnalysis.ts";
+import { dropAlreadySeen, loadSeenExternalIds, resolveExtractionWindow } from "../_shared/openfinance/incremental.ts";
 import { MATCH_WINDOW_DAYS, dedupeAcrossAccounts, planReconciliation, type Provisional } from "../_shared/openfinance/reconcile.ts";
 import { classifyBatch } from "../_shared/import/dedupe.ts";
 import { previewBatch, stageBatch, type PreviewRow, type StageCounters } from "../_shared/import/stage.ts";
@@ -32,7 +37,6 @@ import { computeAccountBalances } from "../_shared/finance-core/facts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MAX_DAYS = 365;
 
 const addDays = (iso: string, days: number) =>
   new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -206,19 +210,23 @@ Deno.serve(async (req) => {
   }
 
   // ---- preview | stage | reconcile ----
-  // Corte no mês atual: meses anteriores já foram conferidos e não são retroagidos.
+  // Preview/stage seguem o cursor de cada conta; a conciliação continua sobre o mês atual (é só relatório).
   const to = ninoToday();
   const monthStart = `${to.slice(0, 8)}01`;
   const explicitDays = Number(body.days);
-  const from = Number.isFinite(explicitDays) && explicitDays > 0
-    ? addDays(to, -Math.min(MAX_DAYS, Math.floor(explicitDays)))
-    : monthStart;
 
   const { data: links } = await sb.from("bank_account_links")
-    .select("external_account_id,external_type,external_name,account_id,credit_card_id")
+    .select("external_account_id,external_type,external_name,account_id,credit_card_id,extracted_through")
     .eq("connection_id", (connection as any).id).eq("user_id", userId);
   const mapped = (links ?? []).filter((l: any) => l.account_id || l.credit_card_id);
   if (mapped.length === 0) return h.fail("no_mapped_accounts", 409, { message: MESSAGES.no_mapped_accounts });
+
+  const windowFor = (link: any) => action === "reconcile"
+    ? { from: Number.isFinite(explicitDays) && explicitDays > 0 ? resolveExtractionWindow({ to, cursor: null, explicitDays }).from : monthStart, reason: "month_start" as const }
+    : resolveExtractionWindow({ to, cursor: link.extracted_through, explicitDays });
+  const windows = (mapped as any[]).map((l) => windowFor(l).from);
+  const from = windows.reduce((a, b) => (a < b ? a : b), to);
+  const incremental = action !== "reconcile" && (mapped as any[]).some((l) => windowFor(l).reason === "cursor");
 
   const mode = action === "stage" ? "stage" : action === "reconcile" ? "reconcile" : "preview";
   const { data: run } = await sb.from("bank_sync_runs")
@@ -234,7 +242,7 @@ Deno.serve(async (req) => {
     // Lê e traduz cada conta/cartão vinculado.
     const loaded: Array<{ id: string; link: any; target: { kind: "account" | "credit_card"; id: string; name: string }; items: ImportItem[]; fetched: number }> = [];
     for (const link of mapped as any[]) {
-      const raw = await listTransactions(apiKey, link.external_account_id, from, to);
+      const raw = await listTransactions(apiKey, link.external_account_id, windowFor(link).from, to);
       const adapted = adaptPluggyTransactions(raw, { accountType: link.external_type });
       skippedPending += adapted.skipped.pending;
       skippedInvalid += adapted.skipped.invalid;
@@ -245,6 +253,16 @@ Deno.serve(async (req) => {
           ? { kind: "credit_card", id: String(link.credit_card_id), name: String(link.external_name ?? "cartão") }
           : { kind: "account", id: String(link.account_id), name: String(link.external_name ?? "conta") },
       });
+    }
+    // O que já passou por uma extração anterior (ignorado, em revisão, confirmado) não volta.
+    let alreadySeen = 0;
+    const seenIds = await loadSeenExternalIds(sb, userId, loaded.flatMap((l) => l.items.map((i) => String(i.external_id ?? ""))),
+      // conciliação (relatório): só o que a pessoa descartou some; o resto ainda pode casar com um provisório.
+      action === "reconcile" ? ["ignored"] : undefined);
+    for (const entry of loaded) {
+      const { kept, dropped } = dropAlreadySeen(entry.items, seenIds);
+      entry.items = kept;
+      alreadySeen += dropped;
     }
     // Duas contas com os mesmos movimentos (ex.: mesmo final) não podem entrar em dobro.
     const dedup = dedupeAcrossAccounts(loaded);
@@ -338,10 +356,10 @@ Deno.serve(async (req) => {
 
       await sb.from("bank_sync_runs").update({
         status: "ok", finished_at: new Date().toISOString(),
-        counters: { from, to, ...counts, ...money, duplicated_accounts: duplicatedAccounts, skipped_pending: skippedPending, skipped_card_side: skippedCardSide },
+        counters: { from, to, ...counts, ...money, duplicated_accounts: duplicatedAccounts, skipped_pending: skippedPending, skipped_card_side: skippedCardSide, already_seen: alreadySeen },
       }).eq("id", runId);
       return h.ok({
-        mode, from, to, counts, money, duplicated_accounts: duplicatedAccounts,
+        mode, from, to, counts, money, duplicated_accounts: duplicatedAccounts, already_seen: alreadySeen,
         skipped_pending: skippedPending, skipped_card_side: skippedCardSide, report,
       });
     }
@@ -355,7 +373,10 @@ Deno.serve(async (req) => {
 
     for (const batch of batches) {
       let counters: StageCounters;
-      if (mode === "stage") {
+      if (mode === "stage" && batch.items.length === 0) {
+        // Nada novo nesta conta: não cria documento vazio para o assessor mostrar.
+        counters = emptyCounters();
+      } else if (mode === "stage") {
         const staged = await stageBatch(sb as any, {
           user_id: userId, source: "open_finance", items: batch.items, target: batch.target, raw_text: null, document_kind: "statement",
         });
@@ -372,6 +393,13 @@ Deno.serve(async (req) => {
       }
       for (const key of Object.keys(totals) as Array<keyof StageCounters>) totals[key] += counters[key];
       perAccount.push({ name: batch.link.external_name, fetched: batch.fetched, ...counters });
+    }
+
+    // O cursor só avança depois que TODOS os lotes foram gravados para revisão.
+    if (mode === "stage") {
+      await sb.from("bank_account_links").update({ extracted_through: to, updated_at: new Date().toISOString() })
+        .eq("connection_id", (connection as any).id).eq("user_id", userId)
+        .in("external_account_id", (mapped as any[]).map((l) => String(l.external_account_id)));
     }
 
     // Prévia: guarda um resumo só com números (banco x Nino) para análise de impacto. Sem descrições.
@@ -396,12 +424,12 @@ Deno.serve(async (req) => {
       status: "ok", finished_at: new Date().toISOString(), document_id: documents[0] ?? null,
       counters: {
         ...totals, skipped_pending: skippedPending, skipped_invalid: skippedInvalid, skipped_card_side: skippedCardSide,
-        duplicated_accounts: duplicatedAccounts, from, to, accounts: perAccount.length, ...(analysis ? { analysis } : {}),
+        duplicated_accounts: duplicatedAccounts, from, to, already_seen: alreadySeen, incremental, accounts: perAccount.length, ...(analysis ? { analysis } : {}),
       },
     }).eq("id", runId);
 
     return h.ok({
-      mode, from, to, totals, skipped_pending: skippedPending, skipped_invalid: skippedInvalid,
+      mode, from, to, incremental, already_seen: alreadySeen, totals, skipped_pending: skippedPending, skipped_invalid: skippedInvalid,
       skipped_card_side: skippedCardSide, duplicated_accounts: duplicatedAccounts,
       accounts: perAccount, sample, document_ids: documents,
     });

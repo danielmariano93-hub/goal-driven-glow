@@ -13,6 +13,9 @@ verify_jwt = false
 [functions.agent-proactive-tick]
 verify_jwt = false
 
+[functions.due-reminders-tick]
+verify_jwt = false
+
 [functions.anticipation-tick]
 # Internal cron calls authenticate in the handler with x-cron-secret.
 verify_jwt = false

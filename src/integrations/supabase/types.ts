@@ -9488,6 +9488,10 @@ export type Database = {
           achievement: boolean
           agent_confirmation: boolean
           anticipation_consent_at: string | null
+          due_reminders_consent_at: string | null
+          due_reminders_days: number[]
+          due_reminders_enabled: boolean
+          due_reminders_hour: number
           anticipation_enabled: boolean
           anticipation_kinds: Json
           anticipation_max_per_week: number
@@ -9524,6 +9528,10 @@ export type Database = {
           achievement?: boolean
           agent_confirmation?: boolean
           anticipation_consent_at?: string | null
+          due_reminders_consent_at?: string | null
+          due_reminders_days?: number[]
+          due_reminders_enabled?: boolean
+          due_reminders_hour?: number
           anticipation_enabled?: boolean
           anticipation_kinds?: Json
           anticipation_max_per_week?: number
@@ -9560,6 +9568,10 @@ export type Database = {
           achievement?: boolean
           agent_confirmation?: boolean
           anticipation_consent_at?: string | null
+          due_reminders_consent_at?: string | null
+          due_reminders_days?: number[]
+          due_reminders_enabled?: boolean
+          due_reminders_hour?: number
           anticipation_enabled?: boolean
           anticipation_kinds?: Json
           anticipation_max_per_week?: number

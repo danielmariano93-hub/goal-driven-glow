@@ -130,6 +130,11 @@ export type BudgetInput = {
   alreadyDeliveredWhatsapp?: Set<string>;
   /** Entregas recentes por tipo/canal (janela anti-repetição por assunto). */
   recentDeliveries?: RecentDelivery[];
+  /**
+   * Situações que o WhatsApp NÃO leva porque outro canal já cobre (ex.: lembrete de vencimento dedicado).
+   * Continuam valendo no app e na fila de prioridades.
+   */
+  whatsappSkip?: (situation: FinancialSituation) => boolean;
   now?: Date;
   minConfidence?: number;
 };
@@ -175,6 +180,10 @@ export function allocateAttention(input: BudgetInput): {
       // a única vaga de interrupção do WhatsApp.
       if (channel === "whatsapp" && isAppTaskKind(situation.communication_kind)) {
         decisions.push({ ...base, decision: "suppress", reason: "app_only_kind" });
+        continue;
+      }
+      if (channel === "whatsapp" && input.whatsappSkip?.(situation)) {
+        decisions.push({ ...base, decision: "suppress", reason: "covered_by_due_reminders" });
         continue;
       }
       const repeat = repeatedKind(situation, channel, input.recentDeliveries ?? [], input.now ?? new Date());

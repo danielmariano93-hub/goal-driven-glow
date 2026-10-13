@@ -10,6 +10,7 @@ import { SpendingReportCard, type SpendingReport } from "./SpendingReportCard";
 import { NinoMessageText } from "./NinoMessageText";
 import { ChartArtifactRenderer } from "./artifacts/ChartArtifactRenderer";
 import type { ChartArtifact } from "@/types/artifacts";
+import { buildImportCards, sortByTime, type ImportCard, type TimelineDocRow } from "@/lib/assessor/importTimeline";
 import { useAuth } from "@/context/AuthContext";
 import { useOptionalAssessor } from "@/context/AssessorContext";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
@@ -28,7 +29,21 @@ type DocDraft = IngestResult;
 
 type Msg =
   | { role: "user"; content: string; createdAt?: string }
-  | { role: "assistant"; content: string; createdAt?: string; pending?: Pending | null; doc?: DocDraft | null; report?: SpendingReport | null; artifact?: ChartArtifact | null };
+  | { role: "assistant"; content: string; createdAt?: string; pending?: Pending | null; doc?: DocDraft | null; importCard?: ImportCard | null; report?: SpendingReport | null; artifact?: ChartArtifact | null };
+
+/** Cartão de importação como mensagem da conversa (no ponto cronológico do envio). */
+function cardMessage(card: ImportCard): Msg {
+  return {
+    role: "assistant", content: card.text, createdAt: card.createdAt, importCard: card,
+    doc: { document_id: card.document_id, status: card.status, items_count: card.pending, document_kind: card.document_kind, error: card.error },
+  };
+}
+
+async function loadImportCards(): Promise<ImportCard[]> {
+  const { data, error } = await supabase.rpc("assistant_import_timeline" as never, { p_days: 30 } as never);
+  if (error) throw error;
+  return buildImportCards(data as unknown as TimelineDocRow[]);
+}
 
 function messageTime(value?: string) {
   if (!value) return "";
@@ -141,36 +156,20 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         });
       }
 
-      // Ao abrir o assessor, apenas recupere rascunhos úteis e jobs realmente
-      // recentes. Nunca retome automaticamente documentos antigos ou falhos.
-      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-      const { data: documents } = await supabase
-        .from("document_imports")
-        .select("id, status, document_kind, error, created_at, updated_at")
-        .in("status", ["uploaded", "processing", "needs_review", "partial"])
-        .gte("created_at", since)
-        .order("created_at", { ascending: false })
-        .limit(5);
+      // Histórico de importações: todos os documentos recentes (arquivo, WhatsApp, banco) entram na conversa
+      // no ponto em que aconteceram, com o balanço do que foi registrado, ignorado e falta revisar.
+      let cards: ImportCard[] = [];
+      try { cards = await loadImportCards(); } catch { /* sem o histórico de importações a conversa ainda abre */ }
       if (cancelled) return;
-      setMessages(history);
+      setMessages(sortByTime([...history, ...cards.map(cardMessage)]));
       setLoadingHistory(false);
 
-      for (const doc of documents ?? []) {
+      // Leitura somente de status dos que ainda estão sendo lidos; retomada exige ação explícita.
+      for (const card of cards.filter((c) => c.status === "uploaded" || c.status === "processing").slice(0, 3)) {
         try {
-          let result: IngestResult;
-          if (doc.status === "needs_review" || doc.status === "partial") {
-            const { count } = await supabase
-              .from("extracted_items")
-              .select("id", { count: "exact", head: true })
-              .eq("document_id", doc.id)
-              .in("status", ["needs_review", "duplicate_suspect"]);
-            result = { document_id: doc.id, status: doc.status, document_kind: doc.document_kind, items_count: count ?? 0 };
-          } else {
-            // Status somente leitura. Retomada exige ação explícita do usuário.
-            result = await getIngestionStatus(doc.id);
-          }
+          const result = await getIngestionStatus(card.document_id);
           if (cancelled) return;
-          onExtracted(result);
+          if (result.status !== card.status) onExtracted(result);
         } catch {
           // Não transforme falha de leitura em nova tentativa automática.
         }
@@ -332,6 +331,18 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
     }
   }
 
+  /** Recarrega o balanço dos documentos (depois de revisar, os números mudam). */
+  async function refreshImports() {
+    try {
+      const cards = await loadImportCards();
+      setMessages((current) => {
+        const ids = new Set(cards.map((c) => c.document_id));
+        const rest = current.filter((m) => !(m.role === "assistant" && m.doc && ids.has(m.doc.document_id)));
+        return sortByTime([...rest, ...cards.map(cardMessage)]);
+      });
+    } catch { /* mantém o que já está na tela */ }
+  }
+
   function refetchAll() {
     void invalidateFinancialQueries(qc);
   }
@@ -393,7 +404,12 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
                 {m.role === "assistant" && (m.doc?.status === "processing" || m.doc?.status === "uploaded") && (
                   <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
                 )}
-                {m.role === "assistant" ? <NinoMessageText text={m.content} /> : m.content}
+                {m.role === "assistant" && m.importCard ? (
+                  <>
+                    <p className="mb-0.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-primary"><FileText size={11} aria-hidden="true" /> {m.importCard.title}</p>
+                    <NinoMessageText text={m.content.split("\n").slice(1).join("\n")} />
+                  </>
+                ) : m.role === "assistant" ? <NinoMessageText text={m.content} /> : m.content}
               </div>
               {m.createdAt ? <time dateTime={m.createdAt} className="px-1 text-[9px] tabular-nums text-muted-foreground">{messageTime(m.createdAt)}</time> : null}
               {m.role === "assistant" && m.pending && (
@@ -506,7 +522,7 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
         </form>
       </div>
       </div>
-      {reviewDocId && <ReviewSheet documentId={reviewDocId} onClose={() => setReviewDocId(null)} />}
+      {reviewDocId && <ReviewSheet documentId={reviewDocId} onClose={() => { setReviewDocId(null); void refreshImports(); }} />}
     </div>
   );
 

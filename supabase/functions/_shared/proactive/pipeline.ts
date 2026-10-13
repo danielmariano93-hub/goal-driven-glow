@@ -37,6 +37,7 @@ import { loadCardCycles, loadDataQuality, loadDiscoveryInputs, loadDismissedTopi
 import { applyLearningAdjustment, learnFromPriorityEvents, mergeLearning, withoutDismissed } from "./priorityLearning.ts";
 import { buildPriorityFeed, writePriorityFeed } from "./priorityFeed.ts";
 import { reminderSituations, isReminderHour } from "./reminders.ts";
+import { coveredByDueReminders } from "./dueReminders.ts";
 import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
@@ -424,7 +425,13 @@ export async function runMultiFinanceProactive(
         .then((sent) => new Set([...alreadyDelivered].filter((fp) => sent.has(fp) || !/^nino_(weekday_nudge|weekend_forecast|weekend_recap|discovery)\./.test(fp))))
         .catch(() => undefined)
     : undefined;
+  // Lembrete de vencimento dedicado ligado: o WhatsApp do motor não repete o mesmo aviso.
+  const dueChannelOn = persist
+    ? await sb.from("notification_preferences").select("due_reminders_enabled").eq("user_id", userId).maybeSingle()
+        .then((r: any) => r?.data?.due_reminders_enabled === true).catch(() => false)
+    : false;
   const { decisions, selected, ranked } = allocateAttention({
+    whatsappSkip: dueChannelOn ? coveredByDueReminders : undefined,
     situations: timedSituations,
     ctx,
     channels,

@@ -18,7 +18,7 @@ export type ReconcileReport = {
   mode: "reconcile"; from: string; to: string;
   counts: { already_reconciled: number; known_by_statement: number; matched_alta: number; matched_valor: number; matched_duvida: number; new: number; waiting: number; not_shown: number };
   money: { new_expense: number; new_income: number; bank_delta_on_matches: number };
-  duplicated_accounts: number; skipped_pending: number; skipped_card_side: number;
+  duplicated_accounts: number; skipped_pending: number; skipped_card_side: number; already_seen?: number;
   report: {
     matches: Array<{ level: string; date: string; bank: string; bank_amount: number; nino: string; nino_amount: number; delta: number; origin: string | null }>;
     new_items: Array<{ date: string; description: string; amount: number; type: string; kind: string; issues: string[] }>;
@@ -33,6 +33,8 @@ export type BalanceReport = {
 
 export type SyncResult = {
   mode: "preview" | "stage"; from: string; to: string; totals: SyncCounters;
+  /** true quando a janela começou do último ponto já extraído (e não do dia 1). */
+  incremental?: boolean; already_seen?: number;
   skipped_pending: number; skipped_invalid: number;
   accounts: Array<{ name: string | null; fetched: number } & SyncCounters>;
   sample: Array<{ ordinal: number; verdict: string; movement_kind: string; type: string; amount: number; date: string; description: string }>;
