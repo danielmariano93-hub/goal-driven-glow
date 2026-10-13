@@ -320,7 +320,7 @@ export function GoalImpactCard({ impact }: { impact: GoalImpact }) {
       {impact.closed_goal_months ? (
         <details className="mt-2 text-[11px] text-muted-foreground">
           <summary className="cursor-pointer">Como calculamos</summary>
-          <p className="mt-1">{impact.explanation} A referência de cada categoria é a média dos 3 meses antes da primeira meta.</p>
+          <p className="mt-1">{impact.explanation} A referência de cada categoria é a média que você tinha ao criar a meta, e fica fixa: só muda quando um novo mês de meta fecha.</p>
         </details>
       ) : null}
     </section>
