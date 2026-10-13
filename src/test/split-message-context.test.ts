@@ -142,7 +142,8 @@ describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
       due_date: "01/07/2026",
       pix_key: "user@meunino.com.br",
     });
-    expect(msg).toContain("ainda consta como pendente");
+    expect(msg).toContain("está em aberto há");
+    expect(msg).toContain("Se já pagou");
     expect(msg).toContain("01/07/2026");
     expect(msg).toContain("Pix: user@meunino.com.br");
   });

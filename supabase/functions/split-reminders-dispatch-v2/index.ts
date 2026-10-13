@@ -7,7 +7,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
-import { renderMessageTemplate, buildLinkSentence, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
+import { renderMessageTemplate, renderOverdueMessage, buildLinkSentence, OVERDUE_COPY_VERSION, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
 import { activeReceivables, buildInstallmentSchedule, buildPaymentConfirmationParts, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
@@ -34,10 +34,26 @@ function formatBRL(value: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
 
-function notificationTitle(kind: string, title: string): string {
+const SP_TZ = "America/Sao_Paulo";
+
+/** Data civil (YYYY-MM-DD) e hora em São Paulo. */
+function spClock(at: Date = new Date()): { date: string; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: SP_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) };
+}
+
+/** Dias corridos entre duas datas civis (YYYY-MM-DD): `to` − `from`. */
+function civilDaysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from.slice(0, 10)}T12:00:00Z`);
+  const b = Date.parse(`${to.slice(0, 10)}T12:00:00Z`);
+  return Math.round((b - a) / 86_400_000);
+}
+
+function notificationTitle(kind: string, title: string, daysOverdue?: number | null): string {
   if (kind === "due_soon") return `“${title}” vence amanhã`;
   if (kind === "due_today") return `“${title}” vence hoje`;
-  if (kind === "overdue") return `Pagamento pendente em “${title}”`;
+  if (kind === "overdue") return daysOverdue && daysOverdue > 0 ? `Pagamento pendente em “${title}” (${daysOverdue} ${daysOverdue === 1 ? "dia" : "dias"} em atraso)` : `Pagamento pendente em “${title}”`;
   if (kind === "payment_confirmation") return `Pagamento registrado em “${title}”`;
   if (kind === "completed") return `Rolê “${title}” concluído`;
   if (kind === "invite") return `Você foi incluído em “${title}”`;
@@ -114,7 +130,8 @@ function messageFor(
   receivable: Receivable | null,
   participantRemaining: number,
   schedule: Receivable[] = [],
-): string {
+  overdue: { daysOverdue: number; seqToday: number; sendHour: number } | null = null,
+): { text: string; variant: string | null } {
   const activeSchedule = activeReceivables(schedule as any) as unknown as Receivable[];
   const scheduleFirst = activeSchedule[0] ?? null;
   const due = receivable?.due_date
@@ -152,7 +169,7 @@ function messageFor(
   const confirmationFallback = `Recebemos a sua *${installmentLabel(receivable)}* em “${titleLabel}”.${remainingSentence}`;
 
 
-  return renderMessageTemplate(kind, persona, {
+  const values: Record<string, string> = {
     participant_name: String(participant.name ?? "").trim() || "tudo bem",
     owner_name: String(expense.owner_name ?? "A pessoa responsável pelo rolê"),
     title: String(expense.title ?? "seu rolê"),
@@ -181,8 +198,14 @@ function messageFor(
     pix_key: String(expense.pix_key ?? ""),
     pix_sentence: expense.pix_key ? `\n\nPix: ${expense.pix_key}` : "",
     link_sentence: linkSentence,
-  });
+  };
+  if (kind === "overdue" && overdue) {
+    const rendered = renderOverdueMessage(persona, values, overdue);
+    return { text: rendered.text, variant: rendered.variant };
+  }
+  return { text: renderMessageTemplate(kind, persona, values), variant: null };
 }
+
 
 
 async function isRegisteredPhone(sb: any, phoneE164: string): Promise<boolean> {
@@ -473,10 +496,30 @@ Deno.serve(async (req) => {
         kind: "split_signup",
       });
       const linkSentence = buildLinkSentence({ isRegistered: registered, appLink, signupLink });
-      const message = messageFor(
+      // Cobrança em atraso: dias corridos de atraso (data civil de São Paulo) e a posição da
+      // mensagem no dia (1ª ou 2ª). Os dois entram no texto e garantem que a 2ª não repita a 1ª.
+      let overdueInfo: { daysOverdue: number; seqToday: number; sendHour: number } | null = null;
+      if (kind === "overdue") {
+        const clock = spClock();
+        const dueIso = receivable?.due_date ?? expense?.due_date ?? null;
+        const daysOverdue = dueIso ? Math.max(1, civilDaysBetween(String(dueIso), clock.date)) : 1;
+        let sentToday = 0;
+        if (job.installment_id) {
+          const dayStart = new Date(`${clock.date}T00:00:00-03:00`);
+          const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+          const { count } = await sb.from("reminder_jobs").select("id", { count: "exact", head: true })
+            .eq("installment_id", job.installment_id).eq("kind", "overdue").neq("id", job.id)
+            .in("status", ["sent", "enqueued"])
+            .gte("scheduled_for", dayStart.toISOString()).lt("scheduled_for", dayEnd.toISOString());
+          sentToday = count ?? 0;
+        }
+        overdueInfo = { daysOverdue, seqToday: Math.min(2, sentToday + 1), sendHour: clock.hour };
+      }
+      const composed = messageFor(
         kind, participant, expense, remaining, persona, linkSentence,
-        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule,
+        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule, overdueInfo,
       );
+      const message = composed.text;
 
 
       let deliveredSomewhere = false;
@@ -484,7 +527,7 @@ Deno.serve(async (req) => {
         const { error: notificationError } = await sb.from("notifications").upsert({
           user_id: participant.linked_user_id,
           type: kind === "invite" ? "split_participant_linked" : "split_reminder",
-          title: notificationTitle(kind, String(expense.title)),
+          title: notificationTitle(kind, String(expense.title), overdueInfo?.daysOverdue),
           body: message,
           action_url: `/app/divisao-do-role/${String(job.shared_expense_id)}`,
           dedup_key: `split-job:${job.id}:app`,
@@ -522,6 +565,7 @@ Deno.serve(async (req) => {
               total_installments: receivable?.total_installments ?? schedule[0]?.total_installments ?? 1,
               schedule_rows_loaded: schedule.length,
               canonical_source: "split_receivables_v1",
+              ...(overdueInfo ? { copy_version: OVERDUE_COPY_VERSION, message_variant: composed.variant, days_overdue: overdueInfo.daysOverdue, seq_today: overdueInfo.seqToday } : {}),
               message_preview: message.slice(0, 900),
             },
             surface: "whatsapp",
