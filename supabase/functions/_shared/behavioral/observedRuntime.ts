@@ -29,8 +29,8 @@ export async function loadObservedProfile(sb: any, userId: string): Promise<Obse
   const { data, error } = await sb.rpc("behavioral_dashboard_snapshot_for_user", { p_uid: userId });
   if (error) throw new Error(`behavioral_dashboard_snapshot_for_user:${error.message}`);
   const input = observedInputFromDashboardPayload(data ?? {});
-  // Hábitos v2 (liberação controlada): quem está em habits_v2_access é lido pelo método v3.
-  const { data: access } = await sb.from("habits_v2_access").select("user_id").eq("user_id", userId).maybeSingle();
+  // Hábitos v2: liberado para quem tem WhatsApp ativo (mesma regra de habits_v2_enabled()) é lido pelo método v3.
+  const { data: access } = await sb.from("whatsapp_links").select("user_id").eq("user_id", userId).eq("status", "active").limit(1).maybeSingle();
   if (!access) return buildObservedProfileV2(input);
   const since = new Date(Date.now() - 45 * 86_400_000).toISOString();
   const { count } = await sb.from("habit_context_answers").select("id", { count: "exact", head: true }).eq("user_id", userId).gte("updated_at", since);

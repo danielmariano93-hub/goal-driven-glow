@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 
-// Liberação controlada da experiência de hábitos v2: `habits_v2_enabled()` é true só
-// para quem está em `habits_v2_access`. Falha fechada (qualquer erro = experiência atual).
+// Liberação controlada da experiência de hábitos v2: `habits_v2_enabled()` é true para
+// quem tem WhatsApp ativo. Falha fechada (qualquer erro = experiência atual).
 export function useHabitsV2Enabled() {
   const { user } = useAuth();
   return useQuery({
