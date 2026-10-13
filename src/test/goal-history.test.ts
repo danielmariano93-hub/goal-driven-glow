@@ -115,7 +115,7 @@ describe("histórico das metas como série por categoria", () => {
     expect(l.months.filter((m) => m.goal_id).map((m) => [m.month, m.status])).toEqual([["2026-08", "met"], ["2026-09", "met"]]);
   });
 
-  it("impacto desconta o quanto os gastos sem meta variaram (diferenças em diferenças)", () => {
+  it("impacto: referência fixa × gasto fechado; a variação das categorias sem meta é só contexto", () => {
     const M = "cat-mercado";
     const r = [
       // Transporte (com meta a partir de julho): 1000/mês antes, 700 depois.
@@ -131,11 +131,27 @@ describe("histórico das metas como série por categoria", () => {
       goals: [goal({ id: "g", start_date: "2026-07-01", period_type: "monthly_recurring", computed_limit: 800 })],
     });
     expect(h.impact.control_change).toBe(0.1);
-    expect(h.impact.expected_without_goals).toBe(2200);
+    expect(h.impact.expected_without_goals).toBe(2000); // 2 meses × 1000 (não é escalado pelos +10%)
     expect(h.impact.actual_with_goals).toBe(1400);
-    expect(h.impact.estimated_savings).toBe(800);
-    expect(h.impact.net_effect).toBe(-0.4);
+    expect(h.impact.estimated_savings).toBe(600);
     expect(h.impact.alerts_delivered).toBe(4);
     expect(h.impact.explanation).toContain("subiram 10%");
+    expect(h.impact.explanation).toContain("não entra na conta");
+  });
+
+  it("o número não muda quando meses antigos são importados ou recategorizados depois", () => {
+    const base = [tx("2026-07-10", 700, "Uber"), tx("2026-08-10", 700, "Uber")];
+    const goals = [goal({ id: "g", start_date: "2026-07-01", period_type: "monthly_recurring", computed_limit: 800, baseline_value: 1000 })];
+    const run = (rows: SpendingLedgerTx[]) => buildGoalHistory({ today: "2026-09-05", entries: buildSpendingLedger(rows), categories, goals }).impact;
+    const before = run(base);
+    // Depois: a pessoa importa abril–junho (valores quaisquer) e uma categoria sem meta ganha lançamentos antigos.
+    const after = run([
+      ...base,
+      tx("2026-04-10", 3000, "Uber"), tx("2026-05-10", 90, "Uber"), tx("2026-06-10", 4000, "Uber"),
+      tx("2026-05-12", 900, "Cinema", L),
+    ]);
+    expect(before.estimated_savings).toBe(600);
+    expect(after.estimated_savings).toBe(before.estimated_savings);
+    expect(after.expected_without_goals).toBe(before.expected_without_goals);
   });
 });

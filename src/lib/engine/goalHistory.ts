@@ -245,14 +245,19 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
       months.push({ month, status, goal_id: goal.id, source: goal.source ?? "goal", limit, actual, projected, difference: round2(limit - actual), main_driver: driverOf(categoryId, month) });
     }
 
-    // Referência: a da meta (congelada na criação) ou a média dos meses antes dela.
-    // Referência: o que você gastava nos meses ANTES da primeira meta (o mesmo
-    // livro canônico); sem histórico, a referência informada na criação.
-    const firstGoal = [...list].sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
+    // Referência ESTÁVEL: a média que a pessoa tinha quando criou a (primeira) meta, congelada na criação —
+    // a mesma que ela viu ao definir o teto. Só sem esse valor usa a média dos meses antes da meta.
+    // (Recalcular a partir dos meses anteriores fazia o número mudar a cada importação ou recategorização
+    // de meses antigos.)
+    const frozen = [...list]
+      .filter((g) => g.baseline_value != null && Number(g.baseline_value) > 0)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
     const beforeValues = months.filter((m) => m.status === "before" && m.actual > 0).map((m) => m.actual);
-    const baseline = beforeValues.length
-      ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length)
-      : firstGoal.baseline_value && firstGoal.baseline_value > 0 ? round2(firstGoal.baseline_value) : null;
+    const baseline = frozen
+      ? round2(Number(frozen.baseline_value))
+      : beforeValues.length
+        ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length)
+        : null;
 
     const closed = months.filter((m) => m.status === "met" || m.status === "missed");
     let streak = 0;
@@ -357,8 +362,11 @@ export function goalImpact(args: {
     ? Math.max(-0.3, Math.min(0.3, (controlAfter - controlBefore) / controlBefore))
     : null;
 
+  // Retrovisor: o que você gastava (referência fixa) × o que gastou nos meses de meta já fechados.
+  // A variação dos gastos sem meta aparece só como CONTEXTO: não escala o esperado, porque uma janela
+  // curta e ruidosa de outras categorias fazia a economia oscilar de uma abertura para outra.
   const byCategory = closedBySeries.map(({ s, closed }) => {
-    const expected = round2(closed.length * (s.baseline ?? 0) * (1 + (controlChange ?? 0)));
+    const expected = round2(closed.length * (s.baseline ?? 0));
     const actual = round2(closed.reduce((a, m) => a + m.actual, 0));
     return { category_id: s.category_id, category_name: s.category_name, expected, actual, savings: round2(expected - actual) };
   }).sort((a, b) => b.savings - a.savings);
@@ -384,10 +392,10 @@ export function goalImpact(args: {
       : `Com meta, o gasto ficou ${brl(-savings)} acima do esperado`;
   const adjust = controlChange == null
     ? ""
-    : ` Seus gastos sem meta ${controlChange >= 0 ? "subiram" : "caíram"} ${pct(controlChange)} no mesmo período, e isso já foi descontado.`;
+    : ` Para contexto: seus gastos em categorias sem meta ${controlChange >= 0 ? "subiram" : "caíram"} ${pct(controlChange)} no mesmo período (não entra na conta).`;
   const explanation = !closedCount
     ? "Assim que um mês com meta fechar, o Nino compara o que você gastou com o que provavelmente gastaria sem ela."
-    : `Sem meta, você provavelmente gastaria ${brl(expected)} nessas categorias em ${closedCount} ${closedCount === 1 ? "mês" : "meses"} de meta; gastou ${brl(actual)}.${adjust}${savings > 0 && best ? ` A maior contribuição veio de ${best.category_name}.` : ""}`;
+    : `Pela média que você tinha ao criar as metas, você gastaria ${brl(expected)} nessas categorias em ${closedCount} ${closedCount === 1 ? "mês" : "meses"} de meta; gastou ${brl(actual)}.${adjust}${savings > 0 && best ? ` A maior contribuição veio de ${best.category_name}.` : ""}`;
 
   return {
     closed_goal_months: closedCount,
