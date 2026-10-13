@@ -100,8 +100,11 @@ export interface GoalImpact {
   categories_tracked: number;
   expected_without_goals: number;
   actual_with_goals: number;
-  /** Economia estimada (positivo = gastou menos do que gastaria sem meta). */
+  /** Saldo no conjunto frente à média de antes (positivo = gastou menos que a média de antes). */
   estimated_savings: number;
+  /** Quanto as categorias que ficaram ABAIXO da média de antes economizaram (nunca negativo). */
+  reduced_total: number;
+  reduced_categories: number;
   /** Variação dos gastos sem meta no mesmo período (o ajuste). */
   control_change: number | null;
   /** Variação das categorias com meta frente a antes. */
@@ -302,10 +305,11 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     monthsBefore, alertsDelivered: input.alertsDelivered ?? 0,
   });
   const highlights = goalHighlights(series, current);
-  if (impact.closed_goal_months > 0 && Math.abs(impact.estimated_savings) >= 1) {
+  // Só entra como destaque quando há onde a meta funcionou; o que está acima aparece nos destaques por categoria.
+  if (impact.closed_goal_months > 0 && impact.reduced_total >= 1) {
     highlights.unshift({
       id: "impact",
-      tone: impact.estimated_savings > 0 ? "positive" : "negative",
+      tone: "positive",
       category_id: null,
       title: impact.headline,
       body: impact.explanation,
@@ -384,18 +388,25 @@ export function goalImpact(args: {
   const monthsMet = closedBySeries.reduce((a, x) => a + x.closed.filter((m) => m.status === "met").length, 0);
   const closedCount = closedBySeries.reduce((a, x) => a + x.closed.length, 0);
 
-  const best = byCategory.find((c) => c.savings > 0);
+  // Retrovisor honesto: compara com a média que a pessoa tinha ANTES das metas. Não afirma o que aconteceria
+  // sem meta, e o conjunto não esconde onde a meta funcionou (uma categoria que subiu não anula a que caiu).
+  const reduced = byCategory.filter((c) => c.savings > 0);
+  const reducedTotal = round2(reduced.reduce((a, c) => a + c.savings, 0));
+  const best = reduced[0];
   const headline = !closedCount
-    ? "O impacto das metas aparece no primeiro fechamento"
-    : savings > 0
-      ? `As metas evitaram cerca de ${brl(savings)} em gastos`
-      : `Com meta, o gasto ficou ${brl(-savings)} acima do esperado`;
+    ? "O resultado das metas aparece no primeiro fechamento"
+    : reduced.length === 1
+      ? `Em ${best.category_name} você gastou ${brl(best.savings)} a menos do que antes da meta`
+      : reduced.length > 1
+        ? `${reduced.length} categorias ficaram ${brl(reducedTotal)} abaixo da sua média de antes das metas`
+        : "Ainda sem categoria abaixo da sua média de antes das metas";
+  const together = savings >= 0 ? `${brl(savings)} a menos` : `${brl(-savings)} a mais`;
   const adjust = controlChange == null
     ? ""
-    : ` Para contexto: seus gastos em categorias sem meta ${controlChange >= 0 ? "subiram" : "caíram"} ${pct(controlChange)} no mesmo período (não entra na conta).`;
+    : ` Enquanto isso, as categorias sem meta ${controlChange >= 0 ? "subiram" : "caíram"} ${pct(controlChange)}.`;
   const explanation = !closedCount
-    ? "Assim que um mês com meta fechar, o Nino compara o que você gastou com o que provavelmente gastaria sem ela."
-    : `Pela média que você tinha ao criar as metas, você gastaria ${brl(expected)} nessas categorias em ${closedCount} ${closedCount === 1 ? "mês" : "meses"} de meta; gastou ${brl(actual)}.${adjust}${savings > 0 && best ? ` A maior contribuição veio de ${best.category_name}.` : ""}`;
+    ? "Assim que um mês com meta fechar, o Nino compara o que você gastou com a média que você tinha antes da meta."
+    : `Antes das metas você gastava em média ${brl(expected)} nessas categorias, somando ${closedCount} ${closedCount === 1 ? "mês" : "meses"} de meta; nos meses com meta foram ${brl(actual)} (${together} no conjunto).${best && reduced.length > 1 ? ` ${best.category_name} foi a que mais ficou abaixo.` : ""}${adjust} É uma comparação com a sua média de antes, não uma previsão do que aconteceria sem as metas.`;
 
   return {
     closed_goal_months: closedCount,
@@ -403,6 +414,8 @@ export function goalImpact(args: {
     expected_without_goals: expected,
     actual_with_goals: actual,
     estimated_savings: savings,
+    reduced_total: reducedTotal,
+    reduced_categories: reduced.length,
     control_change: controlChange == null ? null : round2(controlChange),
     goal_change: goalChange,
     net_effect: net,

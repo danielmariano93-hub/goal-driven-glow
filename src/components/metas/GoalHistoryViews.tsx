@@ -255,35 +255,42 @@ export function GoalHistoryPanel({ series }: { series: GoalSeries }) {
   );
 }
 
-/** O que as metas já fizeram: economia estimada (contrafactual) e clareza. */
+/** O que as metas já fizeram: retrovisor frente à média de ANTES das metas (sem prever o "sem meta"). */
 export function GoalImpactCard({ impact }: { impact: GoalImpact }) {
-  const positive = impact.estimated_savings > 0;
   const pctText = (v: number) => `${Math.round(Math.abs(v) * 100)}%`;
+  const signed = (v: number) => `${v < 0 ? "−" : "+"}${pctText(v)}`;
+  const reduced = impact.reduced_total > 0;
+  const heldBetter = impact.goal_change != null && impact.control_change != null && impact.goal_change < impact.control_change;
   return (
     <section aria-label="Impacto das metas" className="mb-4 rounded-2xl border border-border bg-card p-4">
       <p className="text-sm font-semibold">O que as metas já fizeram por você</p>
       {impact.closed_goal_months ? (
         <>
-          <p className={`mt-2 font-display text-2xl font-bold tabular-nums ${positive ? "text-emerald-700" : "text-red-700"}`}>
-            {positive ? "" : "+"}{formatBRL(Math.abs(impact.estimated_savings))}
-          </p>
-          <p className="text-[12px] text-muted-foreground">
-            {positive ? "de gasto evitado (estimativa)" : "acima do que você gastaria sem meta (estimativa)"}
-          </p>
+          {reduced ? (
+            <>
+              <p className="mt-2 font-display text-2xl font-bold tabular-nums text-emerald-700">{formatBRL(impact.reduced_total)}</p>
+              <p className="text-[12px] text-muted-foreground">
+                a menos do que você gastava antes das metas, {impact.reduced_categories === 1 ? "na categoria em que você reduziu" : `nas ${impact.reduced_categories} categorias em que você reduziu`}
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-[13px] text-muted-foreground">Ainda nenhuma categoria ficou abaixo da sua média de antes das metas.</p>
+          )}
           <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
             <div className="rounded-xl bg-secondary/60 p-2.5">
-              <p className="text-muted-foreground">Sem meta, provavelmente</p>
+              <p className="text-muted-foreground">Antes das metas (média)</p>
               <p className="font-semibold tabular-nums">{formatBRL(impact.expected_without_goals)}</p>
             </div>
             <div className="rounded-xl bg-secondary/60 p-2.5">
-              <p className="text-muted-foreground">Com meta, de fato</p>
+              <p className="text-muted-foreground">Nos meses com meta</p>
               <p className="font-semibold tabular-nums">{formatBRL(impact.actual_with_goals)}</p>
             </div>
           </div>
-          {impact.net_effect != null && impact.control_change != null ? (
+          {impact.goal_change != null && impact.control_change != null ? (
             <p className="mt-2 text-[12px]">
-              Categorias com meta: <strong>{impact.goal_change != null ? `${impact.goal_change < 0 ? "−" : "+"}${pctText(impact.goal_change)}` : "—"}</strong> ·
-              sem meta: <strong>{impact.control_change < 0 ? "−" : "+"}{pctText(impact.control_change)}</strong> frente a antes.
+              {heldBetter
+                ? <>Enquanto o gasto das categorias sem meta foi <strong>{signed(impact.control_change)}</strong>, o das categorias com meta ficou em <strong>{signed(impact.goal_change)}</strong>.</>
+                : <>Categorias com meta: <strong>{signed(impact.goal_change)}</strong> · sem meta: <strong>{signed(impact.control_change)}</strong> frente a antes.</>}
             </p>
           ) : null}
           {impact.by_category.length > 1 ? (
@@ -291,7 +298,7 @@ export function GoalImpactCard({ impact }: { impact: GoalImpact }) {
               {impact.by_category.map((c) => (
                 <li key={c.category_id} className="flex justify-between gap-2">
                   <span className="truncate text-muted-foreground">{c.category_name}</span>
-                  <span className={`shrink-0 font-medium tabular-nums ${c.savings >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                  <span className={`shrink-0 font-medium tabular-nums ${c.savings >= 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                     {c.savings >= 0 ? `−${formatBRL(c.savings)}` : `+${formatBRL(-c.savings)}`}
                   </span>
                 </li>
@@ -320,7 +327,7 @@ export function GoalImpactCard({ impact }: { impact: GoalImpact }) {
       {impact.closed_goal_months ? (
         <details className="mt-2 text-[11px] text-muted-foreground">
           <summary className="cursor-pointer">Como calculamos</summary>
-          <p className="mt-1">{impact.explanation} A referência de cada categoria é a média que você tinha ao criar a meta, e fica fixa: só muda quando um novo mês de meta fecha.</p>
+          <p className="mt-1">{impact.explanation} A referência de cada categoria é a média que você tinha ao criar a meta e fica fixa: só muda quando um novo mês de meta fecha.</p>
         </details>
       ) : null}
     </section>
