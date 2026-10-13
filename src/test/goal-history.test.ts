@@ -61,8 +61,10 @@ describe("histórico das metas como série por categoria", () => {
     const titles = history.highlights.map((h) => h.title);
     expect(titles).toContain("Transporte subiu 26%");
     expect(titles).toContain("Transporte fechou setembro acima");
-    expect(history.highlights[0].id).toBe("impact");
+    // Sem categoria abaixo da média de antes: não há destaque de "impacto" (e nunca uma frase de que a meta piorou).
+    expect(history.highlights.some((h) => h.id === "impact")).toBe(false);
     expect(history.impact.estimated_savings).toBeLessThan(0);
+    expect(history.impact.reduced_total).toBe(0);
   });
 
   it("meta recorrente: sequência, economia e queda frente à referência", () => {
@@ -82,7 +84,7 @@ describe("histórico das metas como série por categoria", () => {
     expect(titles).toContain("Lazer caiu 35%");
     expect(titles).toContain("Lazer: 3 meses seguidos na meta");
     expect(h.impact.estimated_savings).toBe(1050);
-    expect(h.highlights[0].title).toMatch(/^As metas evitaram cerca de R\$\s1\.050,00 em gastos$/);
+    expect(h.highlights[0].title).toMatch(/^Em Lazer você gastou R\$\s1\.050,00 a menos do que antes da meta$/);
   });
 
   it("sem mês fechado ainda: avisa quando sai o primeiro fechamento", () => {
@@ -136,7 +138,32 @@ describe("histórico das metas como série por categoria", () => {
     expect(h.impact.estimated_savings).toBe(600);
     expect(h.impact.alerts_delivered).toBe(4);
     expect(h.impact.explanation).toContain("subiram 10%");
-    expect(h.impact.explanation).toContain("não entra na conta");
+    expect(h.impact.explanation).toContain("não uma previsão");
+  });
+
+  it("conjunto levemente acima da média de antes não vira 'a meta piorou': mostra onde reduziu e não prevê o 'sem meta'", () => {
+    const A = "cat-alim";
+    const r = [
+      // Transporte: referência 1000, gastou 1100 (acima). Alimentação: referência 1000, gastou 600 (abaixo).
+      tx("2026-08-10", 1100, "Uber"), tx("2026-09-10", 1100, "Uber"),
+      tx("2026-08-11", 600, "Padaria", A), tx("2026-09-11", 600, "Padaria", A),
+    ];
+    const h = buildGoalHistory({
+      today: "2026-10-05", entries: buildSpendingLedger(r),
+      categories: [...categories, { id: A, name: "Alimentação" }],
+      goals: [
+        goal({ id: "t", start_date: "2026-08-01", period_type: "monthly_recurring", computed_limit: 900, baseline_value: 1000 }),
+        goal({ id: "a", category_id: A, start_date: "2026-08-01", period_type: "monthly_recurring", computed_limit: 800, baseline_value: 1000 }),
+      ],
+    });
+    const i = h.impact;
+    expect(i.estimated_savings).toBe(600); // conjunto: 4000 de referência × 3400 gastos; Transporte −200, Alimentação +800
+    expect(i.reduced_total).toBe(800);
+    expect(i.reduced_categories).toBe(1);
+    expect(i.headline).toMatch(/^Em Alimentação você gastou R\$\s800,00 a menos do que antes da meta$/);
+    const text = `${i.headline} ${i.explanation}`;
+    expect(text).not.toMatch(/provavelmente|sem meta, você|evitaram|acima do esperado/i);
+    expect(h.highlights[0].tone).toBe("positive");
   });
 
   it("o número não muda quando meses antigos são importados ou recategorizados depois", () => {
