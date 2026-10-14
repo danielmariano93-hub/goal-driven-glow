@@ -33,6 +33,10 @@ export interface DebtScheduleRow extends DebtRow {
   start_date?: string | null;
   accounting_method?: string | null;
   creditor?: string | null;
+  /** Ajuste manual da PRÓXIMA parcela (vale só enquanto ela for a próxima). */
+  next_installment_index?: number | null;
+  next_installment_due?: string | null;
+  next_installment_amount?: number | null;
 }
 
 export interface DebtPaymentRow {
@@ -144,6 +148,20 @@ function dueDateOf(anchor: string, index: number): string {
  *     Sem isso, uma dívida cadastrada hoje com 18/35 pagas teria o próximo
  *     vencimento projetado 18 meses à frente e nunca acusaria atraso.
  */
+export interface NextInstallmentOverride { due: string | null; amount: number | null }
+
+/** Ajuste manual válido da próxima parcela (índice = cobertas + 1). A data só vale com agenda não derivada. */
+export function nextInstallmentOverride(debt: DebtScheduleRow, covered: number): NextInstallmentOverride | null {
+  if (debt.next_installment_index == null || Number(debt.next_installment_index) !== covered + 1) return null;
+  const total = debt.installments_total == null ? null : Number(debt.installments_total);
+  if (total != null && covered >= total) return null;
+  const derived = !debt.first_due_date && !debt.start_date;
+  const due = !derived && debt.next_installment_due ? String(debt.next_installment_due).slice(0, 10) : null;
+  const amount = debt.next_installment_amount == null ? null : round2(Number(debt.next_installment_amount));
+  if (!due && !(amount && amount > 0)) return null;
+  return { due, amount: amount && amount > 0 ? amount : null };
+}
+
 function anchorFor(debt: DebtScheduleRow, covered: number, today: string): string | null {
   if (debt.first_due_date) return debt.first_due_date.slice(0, 10);
   const day = Number(debt.due_day ?? 0);
@@ -321,21 +339,30 @@ function evaluateDebt(
 
   // Parcelas cujo vencimento já passou (limitadas ao total contratado).
   const cappedExpected = expectedInstallmentsThrough(anchor, today, total);
+  const ovr = nextInstallmentOverride(debt, covered);
+  const ovrDue = ovr?.due ?? null;
 
-  const overdueCount = Math.max(0, cappedExpected - covered);
+  let overdueCount = Math.max(0, cappedExpected - covered);
+  if (ovrDue) {
+    const natural = dueDateOf(anchor, covered + 1);
+    if (natural <= today && ovrDue > today) overdueCount = Math.max(0, overdueCount - 1);
+    else if (natural > today && ovrDue <= today) overdueCount += 1;
+  }
   const overdueAmount = round2(Math.min(outstanding, overdueCount * installment));
 
   const nextIndex = total ? Math.min(covered + 1, total) : covered + 1;
   const nextDue = covered >= (total ?? Number.POSITIVE_INFINITY)
     ? null
-    : dueDateOf(anchor, nextIndex);
-  const oldestUnpaidDue = overdueCount > 0 ? dueDateOf(anchor, covered + 1) : null;
+    : (ovrDue ?? dueDateOf(anchor, nextIndex));
+  const oldestUnpaidDue = overdueCount > 0
+    ? (ovrDue && ovrDue <= today ? ovrDue : dueDateOf(anchor, covered + (ovrDue ? 2 : 1)))
+    : null;
 
   // Próximo vencimento futuro (para avisos de "vence em breve").
   let upcoming: string | null = null;
   if (!total || covered < total) {
     for (let i = Math.max(1, covered + 1); i <= (total ?? covered + 24); i += 1) {
-      const due = dueDateOf(anchor, i);
+      const due = ovrDue && i === covered + 1 ? ovrDue : dueDateOf(anchor, i);
       if (due >= today) { upcoming = due; break; }
     }
   }
@@ -462,6 +489,8 @@ export interface DebtInstallmentRow {
   due_date: string;
   amount: number;
   state: DebtInstallmentState;
+  /** true quando a parcela foi ajustada manualmente (vencimento e/ou valor). */
+  adjusted?: boolean;
 }
 
 export interface DebtScheduleView {
@@ -502,8 +531,11 @@ export function buildDebtSchedule(
   const rows: DebtInstallmentRow[] = [];
   if (anchor && installment) {
     const count = total ?? Math.max(covered + 12, 12);
+    const ovr = nextInstallmentOverride(debt, covered);
     for (let i = 1; i <= Math.min(count, 600); i += 1) {
-      const due = dueDateOf(anchor, i);
+      const isNext = i === covered + 1;
+      const due = isNext && ovr?.due ? ovr.due : dueDateOf(anchor, i);
+      const rowAmount = isNext && ovr?.amount ? ovr.amount : installment;
       const state: DebtInstallmentState = i <= covered
         ? "paga"
         : due < day
@@ -511,7 +543,7 @@ export function buildDebtSchedule(
           : i === covered + 1
             ? "proxima"
             : "a_vencer";
-      rows.push({ index: i, due_date: due, amount: installment, state });
+      rows.push({ index: i, due_date: due, amount: rowAmount, state, adjusted: isNext && !!ovr });
     }
   }
 

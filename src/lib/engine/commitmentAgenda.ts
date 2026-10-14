@@ -15,7 +15,7 @@
 import { round2, todayISO, nextRecurringOccurrences, type RecurringRow, type TransactionRow } from "./facts";
 import { isAuthoritativeCardStatement } from "./cardExposure";
 import { civilAddDays, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate";
-import { computeDebtStatus, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus";
+import { computeDebtStatus, nextInstallmentOverride, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus";
 
 export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v3";
 
@@ -97,6 +97,9 @@ export interface AgendaDebtRow {
   installment_amount?: number | null;
   due_day?: number | null;
   outstanding_balance?: number | null;
+  next_installment_index?: number | null;
+  next_installment_due?: string | null;
+  next_installment_amount?: number | null;
 }
 
 const SETTLED = new Set(["paid", "settled", "closed_paid"]);
@@ -283,6 +286,26 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
         source_payment_id: canonical?.source_payment_id ?? null,
         next_due_date: canonical?.next_due_date ?? null,
       });
+    }
+    // Próxima parcela ajustada manualmente: vira o único item em aberto da dívida.
+    const adjusted = canonical ? nextInstallmentOverride(debt as unknown as DebtScheduleRow, canonical.installments_paid) : null;
+    if (adjusted) {
+      const date = adjusted.due ?? canonical?.next_due_date ?? null;
+      if (date && date <= addDaysISO(todayIso, horizonDays)) {
+        push({
+          id: `${debt.id}-${date}`,
+          name: `Parcela ${debt.name}`,
+          type: "expense",
+          amount: adjusted.amount ?? installment,
+          date,
+          source: "debt_installment",
+          estimated: false,
+          dedupKey: `debt:${debt.id}:${date.slice(0, 7)}`,
+          payment_status: date < todayIso ? "overdue" : "pending",
+          next_due_date: canonical?.next_due_date ?? null,
+        });
+      }
+      continue;
     }
     const currentCycleDue = debtDueDate(todayIso, debt.due_day);
     const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
