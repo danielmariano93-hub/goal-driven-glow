@@ -373,6 +373,23 @@
     padding-top: env(safe-area-inset-top);
   }
 
+  /* PWA instalado (Tela de Início): a barra de status é translúcida e cobre o topo da página.
+     A área segura entra uma única vez, na raiz; cabeçalhos e telas não precisam saber disso. */
+  .pwa-standalone body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .pwa-standalone #root {
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    box-sizing: border-box;
+  }
+
+  .pwa-standalone {
+    overscroll-behavior-y: none;
+  }
+
   .native-app {
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: none;

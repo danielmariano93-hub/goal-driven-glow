@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { failureDescription, invokeEdge } from "@/lib/edge/invoke";
 import AnticipationPreferencesCard from "@/components/antecipacoes/AnticipationPreferencesCard";
 import DueRemindersCard from "@/components/antecipacoes/DueRemindersCard";
+import PushNotificationsCard from "@/components/antecipacoes/PushNotificationsCard";
 
 type BlockReason = { criterion: string; observed: number; required: number };
 
@@ -219,6 +220,7 @@ export default function Antecipacoes() {
         </button>
       </header>
 
+      <PushNotificationsCard />
       <AnticipationPreferencesCard />
       <DueRemindersCard />
 
