@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { formatBRL } from "@/lib/engine/facts";
 import type { CommitmentItem, CommitmentSource } from "@/lib/engine/commitmentAgenda";
+import { todayISO } from "@/lib/engine/facts";
+import { upcomingCommitments } from "@/lib/engine/commitmentView";
+import { CommitmentStatusBadge } from "@/components/commitments/CommitmentStatusBadge";
 
 const SOURCE_META: Record<CommitmentSource, { label: string; icon: JSX.Element }> = {
   card_statement: { label: "Fatura do cartão", icon: <CreditCard size={17} weight="duotone" /> },
@@ -24,12 +27,13 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
   availability: "available" | "partial" | "unavailable";
   loading?: boolean;
 }) {
-  const expenses = commitments.filter((item) => item.type === "expense");
+  const today = todayISO();
+  const expenses = upcomingCommitments(commitments, today).filter((item) => item.type === "expense");
   // O que ainda é cobrança vem primeiro; o que já foi pago continua visível
   // como histórico do período, mas NUNCA entra no total a pagar.
   const pending = expenses.filter((item) => item.payment_status !== "paid");
   const paid = expenses.filter((item) => item.payment_status === "paid");
-  const visible = [...pending, ...paid].slice(0, 4);
+  const visible = [...pending, ...paid].slice(0, 5);
   const total = pending.reduce((sum, item) => sum + item.amount, 0);
   const paidTotal = paid.reduce((sum, item) => sum + item.amount, 0);
   const lastPending = pending[pending.length - 1];
@@ -50,12 +54,12 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
           <Button asChild variant="ghost" className="mt-2 min-h-11 px-0 text-primary"><Link to="/app/compromissos">Revisar informações <ArrowRight /></Link></Button>
         </div>
       ) : visible.length === 0 ? (
-        <p className="mt-2.5 text-[13px] leading-[19px] text-muted-foreground">Não identificamos compromissos com data nos próximos 30 dias.</p>
+        <p className="mt-2.5 text-[13px] leading-[19px] text-muted-foreground">Não identificamos compromissos até a primeira semana do mês que vem.</p>
       ) : (
         <>
           <p className="mt-1 text-[11px] text-muted-foreground">
             {pending.length === 0
-              ? `Nada a pagar nos próximos 30 dias · ${formatBRL(paidTotal)} já pago`
+              ? `Nada a pagar até a primeira semana do mês que vem · ${formatBRL(paidTotal)} já pago`
               : `${pending.length} a pagar · ${formatBRL(total)}${lastPending ? ` até ${formatDate(lastPending.date)}` : ""}${paid.length > 0 ? ` · ${formatBRL(paidTotal)} já pago` : ""}`}
           </p>
 
@@ -67,15 +71,9 @@ export function ProximosCompromissosCard({ commitments, availability, loading }:
                   <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${isPaid ? "bg-muted text-muted-foreground" : "bg-secondary text-primary"}`}>{SOURCE_META[item.source].icon}</span>
                   <div className="min-w-0 flex-1">
                     <p className={`truncate text-[13px] font-semibold ${isPaid ? "text-muted-foreground" : "text-foreground"}`}>{item.name}</p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {formatDate(item.date)} · {SOURCE_META[item.source].label}
-                      {isPaid
-                        ? " · pago"
-                        : item.payment_status === "overdue"
-                          ? " · em atraso"
-                          : item.payment_status === "partial"
-                            ? " · parcialmente pago"
-                            : item.estimated ? " · previsto" : " · confirmado"}
+                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <CommitmentStatusBadge item={item} today={today} />
+                      <span>{formatDate(item.date)} · {SOURCE_META[item.source].label}</span>
                     </p>
                   </div>
                   <strong className={`shrink-0 font-display text-[13px] font-bold tabular-nums ${isPaid ? "text-muted-foreground line-through" : "text-foreground"}`}>{formatBRL(item.amount)}</strong>
