@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   handleWeekendReply,
   loadAcceptedCommitments,
+  loadCommitmentForecasts,
   matchWeekendReply,
   persistWeekendOffer,
   recordCommitmentOutcomes,
@@ -217,5 +218,72 @@ describe("layout da mensagem no WhatsApp (renderizador real)", () => {
     const webhook = readFileSync("supabase/functions/whatsapp-webhook/index.ts", "utf8");
     expect(webhook).toMatch(/import \{ handleWeekendReply \} from "\.\.\/_shared\/proactive\/weekendCommitments\.ts"/);
     expect(webhook.indexOf("handleWeekendReply(sb")).toBeLessThan(webhook.indexOf("runOrchestrator({"));
+  });
+});
+
+
+describe("fechamento de segunda: rede de segurança pelo combinado aceito", () => {
+  // Caso real (09/10/2026): previsão enviada fora do fluxo normal, "topo" gravado, nenhum registro de previsão entregue.
+  const accepted = {
+    id: "c1", user_id: "u", friday: "2026-10-09", category: "Lazer", status: "accepted", target_amount: 160,
+    expected_amount: 271.62, projected_before: 1817.21, projected_if_met: 1705.59, anchor_kind: "goal", anchor_amount: 1059.88,
+  };
+  const tx = [
+    { occurred_at: "2026-10-09", amount: 29, category: "Lazer" },
+    { occurred_at: "2026-10-10", amount: 18, category: "Lazer" },
+    { occurred_at: "2026-10-10", amount: 27.5, category: "Lazer" },
+    { occurred_at: "2026-10-10", amount: 35, category: "Lazer" },
+    { occurred_at: "2026-10-10", amount: 60.08, category: "Lazer" },
+  ];
+
+  it("combinado aceito vira a base do fechamento e é medido contra o limite", async () => {
+    const { sb, rows } = fakeDb([accepted]);
+    const forecasts = await loadCommitmentForecasts(sb, "u", "2026-10-09");
+    expect(forecasts).toHaveLength(1);
+    expect(forecasts[0].forecast).toMatchObject({ category: "Lazer", expected_per_weekend: 271.62, from_commitment: true });
+
+    const recaps = buildWeekendRecaps(forecasts, tx, "2026-10-12", {}, await loadAcceptedCommitments(sb, "u", "2026-10-09"));
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0]).toMatchObject({ realized: 169.58, commitment_target: 160, commitment_kept: false, fair_next: null });
+    expect(recaps[0].projected_after).toBeCloseTo(1817.21 - 271.62 + 169.58, 2);
+
+    const situation = weekendRecapSituation(recaps, { as_of: "2026-10-12", snapshot_ref: { reconciliation_id: "r" } } as any, new Date("2026-10-12T13:00:00Z"));
+    expect(situation).not.toBeNull();
+    expect(situation!.body).toContain("combinou ficar em R$ 160");
+    expect(situation!.body).toMatch(/acima do combinado/);
+    // sem ritmo de dias úteis não há "quanto cabe": nada inventado
+    expect(situation!.body).not.toMatch(/cabem uns/);
+
+    await recordCommitmentOutcomes(sb, "u", (situation!.evidence as any).commitment_outcomes);
+    expect(rows[0]).toMatchObject({ status: "missed", realized_amount: 169.58 });
+    expect(rows[0].evaluated_at).toBeTruthy();
+  });
+
+  it("combinado já medido, recusado ou de outra sexta não entra", async () => {
+    const { sb } = fakeDb([
+      { ...accepted, status: "kept" },
+      { ...accepted, id: "c2", category: "Transporte", status: "declined" },
+      { ...accepted, id: "c3", category: "Mercado", friday: "2026-10-02" },
+    ]);
+    expect(await loadCommitmentForecasts(sb, "u", "2026-10-09")).toEqual([]);
+  });
+
+  it("o pipeline junta previsões entregues e combinados sem duplicar a categoria", () => {
+    const pipeline = readFileSync("supabase/functions/_shared/proactive/pipeline.ts", "utf8");
+    expect(pipeline).toContain("loadCommitmentForecasts(sb, userId, recapFriday)");
+    expect(pipeline).toContain("!covered.has(row.forecast.category)");
+  });
+
+  it("contrato de persistência: a previsão entregue guarda `forecasts` com categoria (o que o fechamento lê)", () => {
+    const loader = readFileSync("supabase/functions/_shared/proactive/profileLoaders.ts", "utf8");
+    expect(loader).toContain('.like("fingerprint", "nino_weekend_forecast.v1:%")');
+    const forecast = buildWeekendForecasts(
+      Array.from({ length: 12 }, (_, w) => {
+        const d = new Date(Date.UTC(2026, 6, 17 + w * 7));
+        return { occurred_at: d.toISOString().slice(0, 10), amount: 250 + w * 5, category: "Lazer" };
+      }).concat([{ occurred_at: "2026-10-02", amount: 80, category: "Lazer" }]),
+      "2026-10-09", { Lazer: { name: "Lazer", limit: 600 } } as any,
+    );
+    expect(Array.isArray(forecast)).toBe(true);
   });
 });

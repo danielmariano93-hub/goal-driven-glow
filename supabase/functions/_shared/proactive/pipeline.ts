@@ -43,7 +43,7 @@ import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
 import { weekendForecastSituation } from "./weekendMessages.ts";
 import { validAnswers } from "./habitContext.ts";
-import { loadAcceptedCommitments, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
+import { loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
@@ -355,7 +355,13 @@ export async function runMultiFinanceProactive(
     return new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 1 ? new Date(Date.UTC(y, m - 1, d - 3)).toISOString().slice(0, 10) : null;
   })();
   if (recapFriday && nudgeTransactions.length) {
-    const delivered = await loadDeliveredWeekendForecasts(sb, userId, recapFriday).catch(() => []);
+    const deliveredRows = await loadDeliveredWeekendForecasts(sb, userId, recapFriday).catch(() => []);
+    // Combinado aceito sem registro de entrega (previsão enviada fora do fluxo normal) também fecha na segunda.
+    const covered = new Set(deliveredRows.map((row: any) => row.forecast.category));
+    const delivered = [
+      ...deliveredRows,
+      ...(await loadCommitmentForecasts(sb, userId, recapFriday).catch(() => [])).filter((row) => !covered.has(row.forecast.category)),
+    ];
     const accepted = await loadAcceptedCommitments(sb, userId, recapFriday).catch(() => ({}));
     const recap = weekendRecapSituation(buildWeekendRecaps(delivered, nudgeTransactions, ctx.as_of, nudgeGoals, accepted), ctx, new Date());
     if (recap) refined.push(recap);

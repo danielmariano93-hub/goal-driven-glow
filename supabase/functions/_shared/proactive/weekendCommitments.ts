@@ -6,6 +6,7 @@
 // sem oferta, "topo" ou "detalhes" seguem para o agente como qualquer mensagem.
 // deno-lint-ignore-file no-explicit-any
 import { money0, type WeekendOffer } from "./weekendMessages.ts";
+import type { WeekendForecast } from "./weekendForecast.ts";
 
 type SupabaseClient = any;
 
@@ -86,6 +87,37 @@ export async function loadAcceptedCommitments(
   const out: Record<string, { target_amount: number }> = {};
   for (const row of ((data as any[]) ?? [])) out[String(row.category)] = { target_amount: Number(row.target_amount) };
   return out;
+}
+
+/**
+ * Rede de segurança do fechamento de segunda: combinados ACEITOS e ainda não medidos viram uma previsão mínima,
+ * para o fechamento acontecer mesmo quando a entrega da sexta não deixou o registro de "previsão enviada"
+ * (ex.: previsão enviada fora do fluxo normal). Só traz o que o combinado guardou; não inventa faixa nem ritmo.
+ */
+export async function loadCommitmentForecasts(
+  sb: SupabaseClient,
+  userId: string,
+  friday: string,
+): Promise<Array<{ forecast: WeekendForecast }>> {
+  const { data } = await sb.from("weekend_commitments")
+    .select("category,target_amount,expected_amount,projected_before,projected_if_met,anchor_kind,anchor_amount")
+    .eq("user_id", userId).eq("friday", friday).eq("status", "accepted")
+    .not("target_amount", "is", null).not("expected_amount", "is", null).limit(10);
+  return (((data as any[]) ?? []) as any[]).map((r) => {
+    const expected = Number(r.expected_amount);
+    const projected = Number(r.projected_before ?? 0);
+    const anchor = { kind: r.anchor_kind === "goal" ? "goal" as const : "average" as const, amount: Number(r.anchor_amount ?? 0) };
+    return {
+      forecast: {
+        category: String(r.category), friday, weekends: 12, active_weekends: 12, typical: expected, low: expected, high: expected,
+        weekend_share: 0, month_to_date: 0, weekend_units_left: 0, expected_per_weekend: expected,
+        projected_month: projected, projected_low: projected, projected_high: projected, anchor,
+        slack: 0, fair_per_weekend: 0, weekday_rest: 0, weekday_rate: 0,
+        target: Number(r.target_amount), projected_if_target: r.projected_if_met == null ? null : Number(r.projected_if_met),
+        tight: false, misaligned: false, avg3m: null, state: "pressure" as const, from_commitment: true, data_gap: null,
+      } as WeekendForecast,
+    };
+  });
 }
 
 /** Resultado medido no fechamento de segunda. */
