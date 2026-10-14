@@ -277,3 +277,13 @@ describe("hábitos v2 — página montada de verdade", () => {
     await waitFor(() => expect(screen.getByLabelText(/Seus fins de semana concentram/)).toBeInTheDocument());
   });
 });
+
+import { readFileSync } from "node:fs";
+describe("hábitos v2: sem troca de descoberta ao carregar", () => {
+  it("enquanto os padrões carregam, reserva o lugar em vez de mostrar a leitura da roda", () => {
+    const src = readFileSync("src/pages/HabitsV2.tsx", "utf8");
+    expect(src).toContain("patternsPending");
+    expect(src).toContain("Carregando a principal descoberta");
+    expect(src.indexOf("patternsPending ? (")).toBeLessThan(src.indexOf("<DiscoveryHero discovery"));
+  });
+});
