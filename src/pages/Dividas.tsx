@@ -11,6 +11,7 @@ import {
   useAllDebtPayments,
   useLinkTransactionToDebt,
   useUnlinkDebtPayment,
+  useSetNextInstallment,
   useDebtLinkCandidates,
   type DebtRow,
 } from "@/lib/db/finance";
@@ -28,6 +29,8 @@ export default function Dividas() {
   const link = useLinkTransactionToDebt();
   const unlink = useUnlinkDebtPayment();
   const [linking, setLinking] = useState<DebtRow | null>(null);
+  const setNext = useSetNextInstallment();
+  const [editingNext, setEditingNext] = useState<{ debt: DebtRow; due: string; amount: number; adjusted: boolean } | null>(null);
   const { data: accounts = [] } = useAccounts();
   const { data: debtPayments = [] } = useAllDebtPayments();
   const [open, setOpen] = useState(false);
@@ -205,9 +208,10 @@ export default function Dividas() {
                   onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
                   onPay={() => setPaying(d)}
                   onLink={() => setLinking(d)}
+                  onEditNext={(row) => setEditingNext({ debt: d, due: row.due_date, amount: row.amount, adjusted: !!row.adjusted })}
                   onUnlink={(id) => unlink.mutate(id, {
-                    onSuccess: () => toast.success("Vínculo desfeito"),
-                    onError: (e: unknown) => toast.error("Não foi possível desvincular", { description: String((e as Error).message) }),
+                    onSuccess: () => toast.success("Pagamento desfeito"),
+                    onError: (e: unknown) => toast.error("Não foi possível desfazer", { description: String((e as Error).message) }),
                   })}
                 />
               </li>
@@ -230,6 +234,18 @@ export default function Dividas() {
               setPaying(null);
             },
             onError: (error: unknown) => toast.error("Não foi possível registrar", { description: String((error as Error).message) }),
+          })}
+        />
+      )}
+
+      {editingNext && (
+        <NextInstallmentModal
+          info={editingNext}
+          saving={setNext.isPending}
+          onClose={() => setEditingNext(null)}
+          onSubmit={(due, amount) => setNext.mutate({ debt_id: editingNext.debt.id, due, amount }, {
+            onSuccess: () => { toast.success(due || amount ? "Parcela ajustada" : "Parcela restaurada", { description: "Compromissos e lembretes já usam o novo vencimento." }); setEditingNext(null); },
+            onError: (e: unknown) => toast.error("Não foi possível salvar", { description: String((e as Error).message) }),
           })}
         />
       )}
@@ -278,6 +294,7 @@ function DebtScheduleBlock({
   onPay,
   onLink,
   onUnlink,
+  onEditNext,
 }: {
   debt: DebtRow;
   payments: Array<{ id?: string; idempotency_key?: string | null; debt_id: string; paid_at: string | null; amount: number | null; amount_applied?: number | null; installments_covered?: number | null }>;
@@ -287,6 +304,7 @@ function DebtScheduleBlock({
   onPay: () => void;
   onLink: () => void;
   onUnlink: (paymentId: string) => void;
+  onEditNext: (row: { index: number; due_date: string; amount: number; adjusted?: boolean }) => void;
 }) {
   const schedule = buildDebtSchedule(
     debt as unknown as DebtScheduleRow,
@@ -349,6 +367,11 @@ function DebtScheduleBlock({
             <span className="text-[11px] text-muted-foreground">
               <span className="font-semibold text-foreground">{i.index}ª</span> · {fmtDate(i.due_date)} · {formatBRL(i.amount)}
             </span>
+            {i.state !== "paga" && i.index === schedule.installments_paid + 1 ? (
+              <button type="button" onClick={() => onEditNext(i)} className="min-h-11 px-2 text-[10px] font-semibold text-muted-foreground underline">
+                {i.adjusted ? "Ajustada · editar" : "Editar"}
+              </button>
+            ) : null}
             {i.state === "paga" ? (
               <span className="text-[10px] font-semibold text-success">Paga</span>
             ) : i.state === "vencida" ? (
@@ -379,8 +402,19 @@ function DebtScheduleBlock({
             {payments.filter((p) => p.debt_id === debt.id).map((p, idx) => (
               <li key={p.id ?? idx} className="flex items-center justify-between gap-2 rounded-xl bg-secondary/40 px-2.5 py-1.5 text-[11px]">
                 <span className="text-muted-foreground">{fmtDate(String(p.paid_at).slice(0, 10))} · {formatBRL(Number(p.amount ?? 0))}{String(p.idempotency_key ?? "").startsWith("link") ? " · lançamento vinculado" : ""}</span>
-                {p.id && String(p.idempotency_key ?? "").startsWith("link") ? (
-                  <button type="button" onClick={() => onUnlink(p.id!)} className="min-h-11 px-2 text-[10px] font-semibold text-destructive">Desvincular</button>
+                {p.id ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const linked = String(p.idempotency_key ?? "").startsWith("link");
+                      if (confirm(linked
+                        ? "Desvincular este lançamento da dívida? O gasto continua nos seus lançamentos."
+                        : "Desfazer este pagamento? O saldo e a parcela voltam a ficar em aberto; o gasto continua nos seus lançamentos.")) onUnlink(p.id!);
+                    }}
+                    className="min-h-11 px-2 text-[10px] font-semibold text-destructive"
+                  >
+                    {String(p.idempotency_key ?? "").startsWith("link") ? "Desvincular" : "Desfazer"}
+                  </button>
                 ) : null}
               </li>
             ))}
@@ -707,6 +741,54 @@ function LinkTransactionSheet({
           <button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Fechar</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function NextInstallmentModal({
+  info,
+  saving,
+  onClose,
+  onSubmit,
+}: {
+  info: { debt: DebtRow; due: string; amount: number; adjusted: boolean };
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (due: string | null, amount: number | null) => void;
+}) {
+  const [due, setDue] = useState(info.due);
+  const [amount, setAmount] = useState(String(info.amount).replace(".", ","));
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount.replace(",", "."));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || !Number.isFinite(value) || value <= 0) {
+      setError("Informe uma data e um valor válidos.");
+      return;
+    }
+    onSubmit(due, value);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <form onClick={(e) => e.stopPropagation()} onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-card">
+        <h2 className="font-display text-lg font-bold">Editar próxima parcela</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{info.debt.name} · vale só para esta parcela; as seguintes seguem o contrato. Compromissos e lembretes passam a usar o novo vencimento.</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <label className="text-xs font-medium">Vencimento<input type="date" value={due} onChange={(e) => setDue(e.target.value)} className="input-base mt-1" /></label>
+          <label className="text-xs font-medium">Valor<input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="input-base mt-1" /></label>
+        </div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          {info.adjusted && (
+            <button type="button" disabled={saving} onClick={() => onSubmit(null, null)} className="mr-auto min-h-11 px-2 text-xs font-semibold text-muted-foreground underline">Restaurar contrato</button>
+          )}
+          <button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Cancelar</button>
+          <button type="submit" disabled={saving} className="btn-brand">{saving ? "Salvando…" : "Salvar"}</button>
+        </div>
+      </form>
     </div>
   );
 }

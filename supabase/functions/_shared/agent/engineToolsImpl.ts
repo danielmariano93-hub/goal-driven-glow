@@ -358,7 +358,7 @@ export function discover_recurring(ctx: EngineToolContext, args: { days?: number
 
 async function loadDebts(ctx: EngineToolContext) {
   const { data } = await ctx.sb.from("debts")
-    .select("id,name,creditor,outstanding_balance,original_amount,installment_amount,due_day,status,installments_total,installments_paid,first_due_date,start_date,accounting_method")
+    .select("id,name,creditor,outstanding_balance,original_amount,installment_amount,due_day,status,installments_total,installments_paid,first_due_date,start_date,accounting_method,next_installment_index,next_installment_due,next_installment_amount")
     .eq("user_id", ctx.user_id);
   return (data ?? []).map((d: any) => ({
     ...d,

@@ -820,19 +820,41 @@ export function useLinkTransactionToDebt() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => { invalidateFinancialQueries(qc); void qc.invalidateQueries({ queryKey: ["debt_payments"] }); },
+    onSuccess: () => {
+      invalidateFinancialQueries(qc);
+      void qc.invalidateQueries({ queryKey: ["debt_payments"] });
+      void qc.invalidateQueries({ queryKey: ["debt_link_candidates"] });
+    },
   });
 }
 
-/** Desfaz um vínculo manual (pagamentos registrados pelo Nino não são desfeitos aqui). */
+/** Ajusta vencimento e/ou valor da próxima parcela (null/null restaura o contrato). */
+export function useSetNextInstallment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { debt_id: string; due: string | null; amount: number | null }) => {
+      const { error } = await (supabase as any).rpc("set_debt_next_installment", {
+        p_debt_id: input.debt_id, p_due: input.due, p_amount: input.amount,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidateFinancialQueries(qc); void qc.invalidateQueries({ queryKey: ["debts"] }); },
+  });
+}
+
+/** Desfaz um pagamento: vínculo manual só solta o lançamento; pagamento registrado devolve saldo e parcela (o gasto fica). */
 export function useUnlinkDebtPayment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (paymentId: string) => {
-      const { error } = await (supabase as any).rpc("unlink_debt_payment", { p_payment_id: paymentId });
+      const { error } = await (supabase as any).rpc("undo_debt_payment", { p_payment_id: paymentId });
       if (error) throw error;
     },
-    onSuccess: () => { invalidateFinancialQueries(qc); void qc.invalidateQueries({ queryKey: ["debt_payments"] }); },
+    onSuccess: () => {
+      invalidateFinancialQueries(qc);
+      void qc.invalidateQueries({ queryKey: ["debt_payments"] });
+      void qc.invalidateQueries({ queryKey: ["debt_link_candidates"] });
+    },
   });
 }
 

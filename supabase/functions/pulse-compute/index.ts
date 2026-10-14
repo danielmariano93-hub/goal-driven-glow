@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),
-      sb.from("debts").select("id,name,creditor,outstanding_balance,status,installment_amount,due_day,first_due_date,start_date,installments_total,installments_paid,accounting_method").eq("user_id", userId).eq("status", "active"),
+      sb.from("debts").select("id,name,creditor,outstanding_balance,status,installment_amount,due_day,first_due_date,start_date,installments_total,installments_paid,accounting_method,next_installment_index,next_installment_due,next_installment_amount").eq("user_id", userId).eq("status", "active"),
       sb.from("goal_contributions").select("goal_id,amount").eq("user_id", userId),
       sb.from("emotional_checkins").select("occurred_at,transaction_id").eq("user_id", userId).gte("occurred_at", cutoff30),
       sb.from("recurring_rules").select("id,status,amount").eq("user_id", userId).eq("status", "active"),

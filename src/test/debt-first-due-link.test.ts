@@ -51,3 +51,30 @@ describe("fontes que leem dívidas carregam a data da 1ª parcela", () => {
     expect(page).toContain("Vincular lançamento");
   });
 });
+
+describe("ajuste da próxima parcela", () => {
+  const ajustada = { ...debt, next_installment_index: 6, next_installment_due: "2026-10-30", next_installment_amount: 520 } as unknown as DebtScheduleRow;
+
+  it("lista de parcelas usa o novo vencimento/valor só na próxima parcela", () => {
+    const sched = buildDebtSchedule(ajustada, [], today);
+    const sexta = sched.installments[5];
+    expect(sexta).toMatchObject({ due_date: "2026-10-30", amount: 520, adjusted: true });
+    expect(sched.installments[6]).toMatchObject({ due_date: "2026-11-27", amount: 500 });
+  });
+  it("status e agenda seguem o ajuste", () => {
+    expect(computeDebtStatus({ debts: [ajustada], payments: [], today }).breakdown[0].next_due_date).toBe("2026-10-30");
+    const agenda = computeCommitmentAgenda({ recurring: [], txs: [], debts: [ajustada as never], debtPayments: [], today: new Date(`${today}T12:00:00`) });
+    const item = agenda.items.find((i) => i.source === "debt_installment");
+    expect(item).toMatchObject({ date: "2026-10-30", amount: 520, payment_status: "pending" });
+  });
+  it("ajuste para o passado vira atraso", () => {
+    const atrasada = { ...ajustada, next_installment_due: "2026-10-10" } as unknown as DebtScheduleRow;
+    const st = computeDebtStatus({ debts: [atrasada], payments: [], today }).breakdown[0];
+    expect(st.situation).toBe("em_atraso");
+    expect(st.days_overdue).toBe(4);
+  });
+  it("ajuste expira quando a parcela é paga (índice não coincide mais)", () => {
+    const paga = { ...ajustada, installments_paid: 6 } as unknown as DebtScheduleRow;
+    expect(buildDebtSchedule(paga, [], today).installments[5].adjusted).toBeFalsy();
+  });
+});
