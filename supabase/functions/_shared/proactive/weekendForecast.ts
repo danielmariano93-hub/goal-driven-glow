@@ -78,6 +78,8 @@ export type WeekendForecast = {
   /** Média mensal dos últimos meses fechados (contexto da meta). */
   avg3m: number | null;
   state: "pressure" | "room";
+  /** Previsão reconstruída a partir do combinado aceito (a entrega da sexta não deixou registro). */
+  from_commitment?: boolean;
   data_gap: "card_missing" | null;
 };
 

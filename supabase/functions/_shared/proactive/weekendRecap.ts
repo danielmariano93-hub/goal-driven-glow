@@ -114,7 +114,8 @@ function recapOf(
 
   const month = sameMonth ? round2(canonicalMonth != null ? canonicalMonth : monthToDate) : null;
   const slackNow = month != null ? round2(forecast.anchor.amount - month) : null;
-  const fairNext = slackNow != null && weekendsLeft > 0
+  // Previsão reconstruída do combinado não tem o ritmo de dias úteis: sem "quanto cabe" (não inventa).
+  const fairNext = !forecast.from_commitment && slackNow != null && weekendsLeft > 0
     ? round2(Math.max(0, (slackNow - (forecast.weekday_rate ?? 0) * weekdaysLeftInMonth(today)) / weekendsLeft))
     : null;
   const target = commitment ? Number(commitment.target_amount) : null;
