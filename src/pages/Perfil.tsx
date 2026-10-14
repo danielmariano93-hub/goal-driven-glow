@@ -12,6 +12,8 @@ import { FastLogTokenCard } from "@/components/FastLogTokenCard";
 import { OpenFinanceCard } from "@/components/openfinance/OpenFinanceCard";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { NativeSecurityCard } from "@/components/native/NativeSecurityCard";
+import PushNotificationsCard from "@/components/antecipacoes/PushNotificationsCard";
+import DueRemindersCard from "@/components/antecipacoes/DueRemindersCard";
 import { today } from "@/lib/engine/ninoClock";
 
 export default function Perfil() {
@@ -170,6 +172,8 @@ export default function Perfil() {
 
       <WhatsAppConnection />
       <OpenFinanceCard />
+      <div className="mt-6"><PushNotificationsCard /></div>
+      <div className="mt-6"><DueRemindersCard /></div>
       <NotificationPrefs />
       <DataZone />
     </div>
