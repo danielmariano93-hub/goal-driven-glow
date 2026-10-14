@@ -167,7 +167,7 @@ export default function MaisMenu() {
   );
 }
 
-/** Grade de atalhos: ícone + nome. A descrição fica no rótulo de acessibilidade (não ocupa a tela). */
+/** Lista enxuta: uma linha por assunto (ícone, nome e descrição curta), sem blocos quadrados. */
 function MoreGroup({
   title,
   items,
@@ -179,8 +179,8 @@ function MoreGroup({
 }) {
   return (
     <section>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
-      <div className="grid grid-cols-3 gap-2">
+      <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+      <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card">
         {items.map((it) => {
           const Icon = it.icon;
           return (
@@ -188,14 +188,14 @@ function MoreGroup({
               key={it.path + it.label}
               type="button"
               onClick={() => onGo(it.path)}
-              aria-label={it.desc ? `${it.label} — ${it.desc}` : it.label}
-              title={it.desc || undefined}
-              className="flex min-h-[84px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border border-border bg-card px-1.5 py-2.5 text-center shadow-card transition active:scale-[0.97] active:bg-secondary/50"
+              className="flex min-h-[48px] w-full items-center gap-3 px-3.5 py-2 text-left active:bg-secondary/50"
             >
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-secondary text-primary">
-                <Icon size={17} />
+              <Icon size={17} className="shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{it.label}</span>
+                {it.desc ? <span className="block truncate text-[11px] text-muted-foreground">{it.desc}</span> : null}
               </span>
-              <span className="line-clamp-2 w-full break-words text-[12px] font-medium leading-tight">{it.label}</span>
+              <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
             </button>
           );
         })}

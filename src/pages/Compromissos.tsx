@@ -3,6 +3,8 @@ import { CalendarDays, CreditCard, HandHeart, Landmark, Loader2, ReceiptText, Re
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import type { CommitmentItem, CommitmentSource } from "@/lib/engine/commitmentAgenda";
+import { upcomingCommitments } from "@/lib/engine/commitmentView";
+import { CommitmentStatusBadge } from "@/components/commitments/CommitmentStatusBadge";
 
 const META: Record<CommitmentSource, { label: string; icon: typeof CreditCard }> = {
   card_statement: { label: "Fatura oficial", icon: CreditCard },
@@ -25,7 +27,7 @@ export default function Compromissos() {
   const [year, month] = today.split("-").map(Number);
   const end = `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
   const snapshot = useFinancialSnapshot({ start: `${year}-${String(month).padStart(2, "0")}-01`, end });
-  const items = snapshot.data?.commitmentAgenda.items ?? [];
+  const items = useMemo(() => upcomingCommitments(snapshot.data?.commitmentAgenda.items ?? [], today), [snapshot.data, today]);
   const expenses = items.filter((item) => item.type === "expense");
   const income = items.filter((item) => item.type === "income");
   const groups = useMemo(() => {
@@ -46,7 +48,7 @@ export default function Compromissos() {
       <header>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Agenda financeira</p>
         <h1 className="mt-0.5 font-display text-2xl font-bold tracking-tight">Próximos compromissos</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Faturas, parcelas, contas e valores planejados em uma única linha do tempo.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Faturas, parcelas, contas e valores planejados até a primeira semana do mês que vem.</p>
       </header>
 
       {snapshot.loading ? (
@@ -75,7 +77,7 @@ export default function Compromissos() {
           {groups.length === 0 ? (
             <section className="surface-card p-8 text-center">
               <CalendarDays className="mx-auto h-8 w-8 text-primary" />
-              <p className="mt-3 text-sm font-semibold">Nenhum compromisso identificado nos próximos 30 dias</p>
+              <p className="mt-3 text-sm font-semibold">Nenhum compromisso até a primeira semana do mês que vem</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Quando houver parcelas, faturas, recorrências ou lançamentos planejados, eles aparecerão aqui automaticamente.</p>
             </section>
           ) : (
@@ -94,17 +96,13 @@ export default function Compromissos() {
                         <li key={item.dedupKey} className="flex items-center gap-2.5 rounded-xl bg-muted/40 px-3 py-2.5">
                           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon size={15} /></span>
                           <span className="min-w-0 flex-1">
-                            <strong className="block truncate text-[12px]">{item.name}</strong>
-                            <span className="text-[10px] text-muted-foreground">
-                              {meta.label}
-                              {item.payment_status === "paid"
-                                ? " · pago"
-                                : item.payment_status === "overdue"
-                                  ? " · em atraso"
-                                  : item.estimated ? " · valor estimado" : " · confirmado"}
+                            <strong className={`block truncate text-[12px] ${item.payment_status === "paid" ? "text-muted-foreground" : ""}`}>{item.name}</strong>
+                            <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <CommitmentStatusBadge item={item} today={today} />
+                              <span className="truncate">{meta.label}{item.estimated && item.payment_status !== "paid" ? " · estimado" : ""}</span>
                             </span>
                           </span>
-                          <strong className={item.type === "income" ? "shrink-0 text-[12px] tabular-nums text-success" : "shrink-0 text-[12px] tabular-nums"}>{item.type === "income" ? "+" : "−"}{formatBRL(item.amount)}</strong>
+                          <strong className={`shrink-0 text-[12px] tabular-nums ${item.type === "income" ? "text-success" : ""} ${item.payment_status === "paid" ? "text-muted-foreground line-through" : ""}`}>{item.type === "income" ? "+" : "−"}{formatBRL(item.amount)}</strong>
                         </li>
                       );
                     })}

@@ -7,7 +7,6 @@ import { displayNameSchema } from "@/lib/validation/auth";
 import { incomeFrequencyValues, type IncomeFrequency } from "@/lib/validation/onboarding";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { WhatsAppLinkSheet } from "@/components/whatsapp/WhatsAppLinkSheet";
-import { AIPreferencesCard } from "@/components/AIPreferencesCard";
 import { FastLogTokenCard } from "@/components/FastLogTokenCard";
 import { OpenFinanceCard } from "@/components/openfinance/OpenFinanceCard";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
@@ -129,17 +128,6 @@ export default function Perfil() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl border border-border bg-background p-3 text-xs">
-            <p className="text-muted-foreground">Fuso horário</p>
-            <p className="mt-0.5 font-medium">America/Sao_Paulo</p>
-          </div>
-          <div className="rounded-xl border border-border bg-background p-3 text-xs">
-            <p className="text-muted-foreground">Moeda</p>
-            <p className="mt-0.5 font-medium">BRL</p>
-          </div>
-        </div>
-
         <div className="flex justify-end">
           <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Save size={14} /> Salvar</>}
@@ -147,6 +135,20 @@ export default function Perfil() {
         </div>
       </form>
 
+      <p className="mb-2 mt-8 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Notificações</p>
+      <div className="space-y-4">
+        <PushNotificationsCard />
+        <DueRemindersCard />
+        <NotificationPrefs />
+      </div>
+
+      <p className="mb-2 mt-8 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Conexões</p>
+      <div className="space-y-4">
+        <WhatsAppConnection />
+        <OpenFinanceCard />
+      </div>
+
+      <p className="mb-2 mt-8 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Segurança e dados</p>
       <div className="mt-6 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
         <h2 className="text-sm font-semibold">Segurança</h2>
         <p className="mt-1 text-xs text-muted-foreground">Alteramos sua senha por link seguro enviado ao seu e-mail.</p>
@@ -161,20 +163,11 @@ export default function Perfil() {
       </div>
       <NativeSecurityCard />
 
-      <div className="mt-6">
-        <AIPreferencesCard />
-      </div>
+      <details className="group mt-4 rounded-2xl border border-border bg-card p-4 shadow-card md:p-6">
+        <summary className="cursor-pointer list-none text-sm font-semibold">Avançado <span className="font-normal text-muted-foreground">· atalho de registro rápido</span></summary>
+        <div className="mt-3"><FastLogTokenCard /></div>
+      </details>
 
-      <div className="mt-6">
-        <FastLogTokenCard />
-      </div>
-
-
-      <WhatsAppConnection />
-      <OpenFinanceCard />
-      <div className="mt-6"><PushNotificationsCard /></div>
-      <div className="mt-6"><DueRemindersCard /></div>
-      <NotificationPrefs />
       <DataZone />
     </div>
   );

@@ -74,7 +74,7 @@ export const APP_NAVIGATION: NavEntry[] = [
   // ---------- entender ----------
   e({ id: "relatorios", path: "/app/relatorios", label: "Relatórios", desc: "Período atual e fechamentos", icon: BarChart3, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", activePaths: ["/app/relatorios", "/app/relatorios-inteligentes"], featureStatus: "active" }),
   e({ id: "emocoes", path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
-  e({ id: "desafios", path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
+  e({ id: "desafios", path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy, navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "divisao-do-role", path: "/app/divisao-do-role", label: "Divisão do Rolê", desc: "Divida contas com quem foi junto", icon: Users, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "cobrancas", path: "/app/cobrancas", label: "Cobranças recebidas", desc: "O que pediram para você pagar", icon: ListChecks, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "metas-conjuntas", path: "/app/metas-conjuntas", label: "Metas conjuntas", desc: "Objetivos com outras pessoas", icon: Users, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
@@ -127,7 +127,7 @@ export const MOBILE_TABS = APP_NAVIGATION.filter((entry) => entry.mobilePlacemen
 
 /** Itens do menu Mais, agrupados. */
 export function moreGroups(): Array<{ group: NavGroup; label: string; items: NavEntry[] }> {
-  const order: NavGroup[] = ["organizar", "entender", "conta"];
+  const order: NavGroup[] = ["entender", "organizar", "conta"];
   return order
     .map((group) => ({
       group,
@@ -139,7 +139,7 @@ export function moreGroups(): Array<{ group: NavGroup; label: string; items: Nav
 
 /** Grupos do sidebar desktop — nada de funcionalidade sem acesso no desktop. */
 export function desktopGroups(): Array<{ group: NavGroup; label: string; items: NavEntry[] }> {
-  const order: NavGroup[] = ["principal", "organizar", "entender", "conta"];
+  const order: NavGroup[] = ["principal", "entender", "organizar", "conta"];
   return order
     .map((group) => ({
       group,
