@@ -82,6 +82,7 @@ export default function HabitsV2() {
   const [selected, setSelected] = useState<BehaviorDimensionKey | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [patternsWaitedTooLong, setPatternsWaitedTooLong] = useState(false);
 
   const dashboardQuery = useQuery({
     queryKey: ["behavioral-dashboard", "v3", user?.id],
@@ -101,6 +102,11 @@ export default function HabitsV2() {
   const contest = useContestDimension(user?.id);
   const removeContest = useRemoveFeedback(user?.id);
   useSaveObservedSnapshot(dashboardQuery.data?.observed ?? null, !!dashboardQuery.data && dashboardQuery.data.degradedSources.length === 0);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setPatternsWaitedTooLong(true), 8_000);
+    return () => window.clearTimeout(t);
+  }, []);
 
   // Âncora "#checkin": abre a camada de detalhes antes de rolar.
   useEffect(() => {
@@ -196,6 +202,9 @@ export default function HabitsV2() {
   // Fluxo principal: no máximo 2 descobertas no total (AC-06): até 2 padrões; sem padrão, a leitura da roda ocupa o lugar do primeiro.
   const patterns = patternsQuery.data?.shown ?? [];
   const mainPattern = patterns[0] ?? null;
+  // A descoberta principal vem de uma função mais lenta que o painel: enquanto ela carrega, reserva o lugar
+  // (skeleton) em vez de mostrar a leitura da roda e trocar segundos depois. Passou do prazo ou falhou: mostra a roda.
+  const patternsPending = patternsQuery.isLoading && !patternsWaitedTooLong;
   const secondPattern = patterns[1] ?? null;
   const patternBusy = limitDecision.accept.isPending || limitDecision.decline.isPending || ctx.answer.isPending || ctx.clear.isPending;
   const failToast = (error: unknown, tag: string) => { console.error(`[habits:v2:${tag}]`, error); toast.error("Não deu para registrar agora."); };
@@ -256,6 +265,11 @@ export default function HabitsV2() {
         <section aria-label="A principal descoberta" className="space-y-1">
           <p className="flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-primary"><Compass size={13} aria-hidden /> O que o Nino descobriu</p>
           {renderPattern(mainPattern)}
+        </section>
+      ) : patternsPending ? (
+        <section aria-label="Carregando a principal descoberta" aria-busy="true" className="space-y-1">
+          <p className="flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-primary"><Compass size={13} aria-hidden /> O que o Nino descobriu</p>
+          <div className="h-56 animate-pulse rounded-[24px] border border-border bg-muted/60" />
         </section>
       ) : (
         <DiscoveryHero discovery={discovery} onOpen={openDimension} />
