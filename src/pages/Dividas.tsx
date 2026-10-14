@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins, ChevronDown, ChevronUp, Trophy } from "lucide-react";
+import { Plus, Trash2, Loader2, Pencil, AlertOctagon, CheckCircle2, Coins, ChevronDown, ChevronUp, Trophy, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useAccounts,
@@ -9,6 +9,9 @@ import {
   useDeleteDebt,
   useRecordDebtPayment,
   useAllDebtPayments,
+  useLinkTransactionToDebt,
+  useUnlinkDebtPayment,
+  useDebtLinkCandidates,
   type DebtRow,
 } from "@/lib/db/finance";
 import { debtSchema } from "@/lib/validation/finance";
@@ -22,6 +25,9 @@ export default function Dividas() {
   const save = useSaveDebt();
   const del = useDeleteDebt();
   const payment = useRecordDebtPayment();
+  const link = useLinkTransactionToDebt();
+  const unlink = useUnlinkDebtPayment();
+  const [linking, setLinking] = useState<DebtRow | null>(null);
   const { data: accounts = [] } = useAccounts();
   const { data: debtPayments = [] } = useAllDebtPayments();
   const [open, setOpen] = useState(false);
@@ -198,6 +204,11 @@ export default function Dividas() {
                   expanded={expanded === d.id}
                   onToggle={() => setExpanded(expanded === d.id ? null : d.id)}
                   onPay={() => setPaying(d)}
+                  onLink={() => setLinking(d)}
+                  onUnlink={(id) => unlink.mutate(id, {
+                    onSuccess: () => toast.success("Vínculo desfeito"),
+                    onError: (e: unknown) => toast.error("Não foi possível desvincular", { description: String((e as Error).message) }),
+                  })}
                 />
               </li>
               );
@@ -219,6 +230,18 @@ export default function Dividas() {
               setPaying(null);
             },
             onError: (error: unknown) => toast.error("Não foi possível registrar", { description: String((error as Error).message) }),
+          })}
+        />
+      )}
+
+      {linking && (
+        <LinkTransactionSheet
+          debt={linking}
+          saving={link.isPending}
+          onClose={() => setLinking(null)}
+          onPick={(transactionId) => link.mutate({ debt_id: linking.id, transaction_id: transactionId }, {
+            onSuccess: () => { toast.success("Lançamento vinculado", { description: "A dívida e os compromissos foram atualizados." }); setLinking(null); },
+            onError: (e: unknown) => toast.error("Não foi possível vincular", { description: String((e as Error).message) }),
           })}
         />
       )}
@@ -253,13 +276,17 @@ function DebtScheduleBlock({
   expanded,
   onToggle,
   onPay,
+  onLink,
+  onUnlink,
 }: {
   debt: DebtRow;
-  payments: Array<{ debt_id: string; paid_at: string | null; amount: number | null; amount_applied?: number | null; installments_covered?: number | null }>;
+  payments: Array<{ id?: string; idempotency_key?: string | null; debt_id: string; paid_at: string | null; amount: number | null; amount_applied?: number | null; installments_covered?: number | null }>;
   today: string;
   expanded: boolean;
   onToggle: () => void;
   onPay: () => void;
+  onLink: () => void;
+  onUnlink: (paymentId: string) => void;
 }) {
   const schedule = buildDebtSchedule(
     debt as unknown as DebtScheduleRow,
@@ -339,6 +366,28 @@ function DebtScheduleBlock({
         ))}
       </ul>
 
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={onLink} className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border px-3 text-[11px] font-semibold text-primary">
+          <Link2 size={13} /> Vincular lançamento a esta dívida
+        </button>
+      </div>
+
+      {expanded && payments.some((p) => p.debt_id === debt.id) && (
+        <div className="mt-2">
+          <p className="text-[11px] font-semibold">Pagamentos registrados</p>
+          <ul className="mt-1 space-y-1">
+            {payments.filter((p) => p.debt_id === debt.id).map((p, idx) => (
+              <li key={p.id ?? idx} className="flex items-center justify-between gap-2 rounded-xl bg-secondary/40 px-2.5 py-1.5 text-[11px]">
+                <span className="text-muted-foreground">{fmtDate(String(p.paid_at).slice(0, 10))} · {formatBRL(Number(p.amount ?? 0))}{String(p.idempotency_key ?? "").startsWith("link") ? " · lançamento vinculado" : ""}</span>
+                {p.id && String(p.idempotency_key ?? "").startsWith("link") ? (
+                  <button type="button" onClick={() => onUnlink(p.id!)} className="min-h-11 px-2 text-[10px] font-semibold text-destructive">Desvincular</button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {schedule.payoff_date && (
         <p className="mt-2 text-[10px] text-muted-foreground">
           Quitação prevista em {fmtDate(schedule.payoff_date)} · falta {formatBRL(schedule.outstanding)}
@@ -368,6 +417,7 @@ function DebtModal({
   const [installmentsTotal, setInstallmentsTotal] = useState(initial?.installments_total ? String(initial.installments_total) : "");
   const [installmentsPaid, setInstallmentsPaid] = useState(initial?.installments_paid ? String(initial.installments_paid) : "0");
   const [dueDay, setDueDay] = useState(initial?.due_day != null ? String(initial.due_day) : "");
+  const [firstDue, setFirstDue] = useState(String((initial as { first_due_date?: string | null } | null)?.first_due_date ?? "").slice(0, 10));
   const [rate, setRate] = useState(initial?.interest_rate_pct != null ? String(initial.interest_rate_pct) : "");
   const [status, setStatus] = useState<string>(initial?.status ?? "active");
   const [notes, setNotes] = useState(initial?.notes ?? "");
@@ -393,6 +443,8 @@ function DebtModal({
       principal_amount: plan.originalAmount,
       amount_was_inferred: plan.inferredOriginal,
       due_day: dueDay ? Number(dueDay) : null,
+      first_due_date: isInstallment && firstDue ? firstDue : null,
+      start_date: (initial as { start_date?: string | null } | null)?.start_date ?? null,
       interest_rate_pct: rate ? Number(rate.replace(",", ".")) : null,
       notes,
     });
@@ -463,7 +515,16 @@ function DebtModal({
               <label className="mb-1 block text-xs font-medium">Dia venc.</label>
               <input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} className="input-base" />
             </div>
+            {isInstallment && (
+              <div>
+                <label className="mb-1 block text-xs font-medium">Venc. da 1ª parcela</label>
+                <input type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} className="input-base" />
+              </div>
+            )}
           </div>
+          {isInstallment && !firstDue && (
+            <p className="text-[11px] text-muted-foreground">Informe a data da 1ª parcela para o Nino montar a agenda exata (qual parcela já foi paga e qual vence agora).</p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="mb-1 block text-xs font-medium">Juros informado (% a.m.)</label>
@@ -585,6 +646,67 @@ function DebtPaymentModal({
           <button type="submit" disabled={saving} className="btn-brand">{saving ? "Salvando…" : "Registrar"}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+
+function LinkTransactionSheet({
+  debt,
+  saving,
+  onClose,
+  onPick,
+}: {
+  debt: DebtRow;
+  saving: boolean;
+  onClose: () => void;
+  onPick: (transactionId: string) => void;
+}) {
+  const { data = [], isLoading } = useDebtLinkCandidates(true);
+  const [query, setQuery] = useState("");
+  const installment = Number(debt.installment_amount ?? 0);
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const nameKey = debt.name.toLowerCase();
+    return data
+      .filter((t) => !q || t.description.toLowerCase().includes(q) || String(t.amount).includes(q.replace(",", ".")))
+      .map((t) => ({
+        t,
+        score: (installment > 0 && Math.abs(t.amount - installment) < 0.01 ? 2 : 0) + (t.description.toLowerCase().includes(nameKey) ? 1 : 0),
+      }))
+      .sort((a, b) => b.score - a.score || b.t.occurred_at.localeCompare(a.t.occurred_at))
+      .slice(0, 40);
+  }, [data, query, installment, debt.name]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-end bg-black/40 sm:place-items-center sm:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[85vh] w-full max-w-md overflow-hidden rounded-t-2xl border border-border bg-card shadow-card sm:rounded-2xl">
+        <div className="border-b border-border p-4">
+          <h2 className="font-display text-lg font-bold">Vincular lançamento</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Escolha o gasto que foi o pagamento de uma parcela de <strong>{debt.name}</strong>. Nada é duplicado: o lançamento só passa a contar como parcela paga.</p>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por nome ou valor" className="input-base mt-3" />
+        </div>
+        <ul className="max-h-[55vh] divide-y divide-border overflow-y-auto">
+          {isLoading ? (
+            <li className="grid place-items-center p-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></li>
+          ) : rows.length === 0 ? (
+            <li className="p-6 text-center text-xs text-muted-foreground">Nenhum gasto disponível para vincular.</li>
+          ) : rows.map(({ t, score }) => (
+            <li key={t.id}>
+              <button type="button" disabled={saving} onClick={() => onPick(t.id)} className="flex min-h-14 w-full items-center gap-3 px-4 py-2 text-left active:bg-secondary/50 disabled:opacity-50">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{t.description || "Sem descrição"}</span>
+                  <span className="block text-[11px] text-muted-foreground">{new Date(`${t.occurred_at}T12:00:00Z`).toLocaleDateString("pt-BR")}{score >= 2 ? " · valor da parcela" : ""}</span>
+                </span>
+                <strong className="shrink-0 text-sm tabular-nums">{formatBRL(t.amount)}</strong>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="border-t border-border p-3 text-right">
+          <button type="button" onClick={onClose} className="rounded-full border border-border px-4 py-2 text-sm">Fechar</button>
+        </div>
+      </div>
     </div>
   );
 }

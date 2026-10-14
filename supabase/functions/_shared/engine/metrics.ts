@@ -321,6 +321,9 @@ export async function computeAgentSnapshot(
     sb.from("goal_contributions").select("goal_id,amount,occurred_at").eq("user_id", user_id),
   ]);
 
+  const debtPaymentsRes = await sb.from("debt_payments")
+    .select("id,debt_id,amount,amount_applied,installments_covered,paid_at").eq("user_id", user_id);
+
   const snapshotSources: Array<[string, { error?: { message?: string } | null }]> = [
     ["accounts", accountsRes], ["recurring", recurringRes], ["category_goals", catGoalsRes],
     ["categories", catNamesRes], ["account_snapshots", snapshotsRes], ["investments", investmentsRes],
@@ -370,6 +373,12 @@ export async function computeAgentSnapshot(
     snapshots: realtimeSnapshots,
     investments: (investmentsRes.data ?? []) as InvestmentRow[],
     debts: (debtsRes.data ?? []) as DebtRow[],
+    debtPayments: ((debtPaymentsRes.data ?? []) as any[]).map((p) => ({
+      id: p.id, debt_id: p.debt_id, amount: Number(p.amount ?? 0),
+      amount_applied: p.amount_applied == null ? null : Number(p.amount_applied),
+      installments_covered: p.installments_covered == null ? null : Number(p.installments_covered),
+      paid_at: String(p.paid_at ?? "").slice(0, 10),
+    })),
     categoryGoals: (catGoalsRes.data ?? []) as CategorySpendingGoalRow[],
     categoryNameById: catNames,
     categories: ((catNamesRes.data ?? []) as any[]).map((category) => ({ id: category.id, name: category.name, type: category.type })),

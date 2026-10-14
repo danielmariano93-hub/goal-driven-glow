@@ -742,10 +742,13 @@ export function useAllDebtPayments() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("debt_payments")
-        .select("debt_id,paid_at,amount,amount_applied,installments_covered")
+        .select("id,debt_id,paid_at,amount,amount_applied,installments_covered,transaction_id,idempotency_key")
         .order("paid_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Array<{
+        id: string;
+        transaction_id: string | null;
+        idempotency_key: string | null;
         debt_id: string;
         paid_at: string;
         amount: number;
@@ -801,6 +804,59 @@ export function useRecordDebtPayment() {
       return data;
     },
     onSuccess: () => invalidateFinancialQueries(qc),
+  });
+}
+
+/** Vincula um lançamento já existente a uma dívida (não cria gasto novo). */
+export function useLinkTransactionToDebt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { debt_id: string; transaction_id: string; installments_covered?: number }) => {
+      const { data, error } = await (supabase as any).rpc("link_transaction_to_debt", {
+        p_debt_id: input.debt_id,
+        p_transaction_id: input.transaction_id,
+        p_installments_covered: input.installments_covered ?? 1,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => { invalidateFinancialQueries(qc); void qc.invalidateQueries({ queryKey: ["debt_payments"] }); },
+  });
+}
+
+/** Desfaz um vínculo manual (pagamentos registrados pelo Nino não são desfeitos aqui). */
+export function useUnlinkDebtPayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (paymentId: string) => {
+      const { error } = await (supabase as any).rpc("unlink_debt_payment", { p_payment_id: paymentId });
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidateFinancialQueries(qc); void qc.invalidateQueries({ queryKey: ["debt_payments"] }); },
+  });
+}
+
+/** Gastos recentes ainda não ligados a nenhuma dívida — candidatos ao vínculo. */
+export function useDebtLinkCandidates(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["debt_link_candidates", user?.id],
+    enabled: !!user && enabled,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
+      const [{ data: txs, error }, { data: linked }] = await Promise.all([
+        (supabase as any).from("transactions")
+          .select("id,occurred_at,description,amount,status")
+          .eq("type", "expense").eq("status", "confirmed").gte("occurred_at", since)
+          .order("occurred_at", { ascending: false }).limit(600),
+        (supabase as any).from("debt_payments").select("transaction_id").not("transaction_id", "is", null),
+      ]);
+      if (error) throw error;
+      const taken = new Set(((linked ?? []) as Array<{ transaction_id: string }>).map((r) => r.transaction_id));
+      return ((txs ?? []) as Array<{ id: string; occurred_at: string; description: string | null; amount: number | string }>)
+        .filter((t) => !taken.has(t.id))
+        .map((t) => ({ id: t.id, occurred_at: String(t.occurred_at).slice(0, 10), description: t.description ?? "", amount: Number(t.amount) }));
+    },
   });
 }
 

@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
         .eq("user_id", userId).eq("status", "confirmed")
         .order("balance_date", { ascending: true }), "accountSnapshots", true),
       q(sb.from("investments").select("id,name,invested_amount,current_value,goal_id").eq("user_id", userId), "investments", false),
-      q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day,installments_total,installments_paid,start_date").eq("user_id", userId), "debts", false),
+      q(sb.from("debts").select("id,name,outstanding_balance,original_amount,status,installment_amount,due_day,installments_total,installments_paid,start_date,first_due_date").eq("user_id", userId), "debts", false),
       q(sb.from("debt_payments").select("id,debt_id,amount,amount_applied,installments_covered,paid_at").eq("user_id", userId), "debtPayments", false),
       q(sb.from("categories").select("id,name,type").or(`user_id.eq.${userId},user_id.is.null`), "categories", false),
       q(sb.from("category_spending_goals").select("*").eq("user_id", userId), "categoryGoals", false),
@@ -267,6 +267,7 @@ Deno.serve(async (req) => {
         installments_total: d.installments_total == null ? null : num(d.installments_total),
         installments_paid: d.installments_paid == null ? null : num(d.installments_paid),
         start_date: d.start_date ?? null,
+        first_due_date: d.first_due_date ?? null,
       })),
       debtPayments: ((debtPayments ?? []) as Any[]).map((p) => ({
         id: p.id, debt_id: p.debt_id, amount: num(p.amount),
