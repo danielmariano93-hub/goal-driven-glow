@@ -19,3 +19,13 @@ e, como havia cobrança nas últimas 24 h (cobranças atrasadas saem 2×/dia), o
 - Novo "desvio" antes do agente precisa: (a) sinal explícito OU leitura de entendimento; (b) caso de teste com o texto real do
   fluxo mais usado (registro de gasto) **dentro** do contexto novo; (c) falha segura = fluxo normal.
 - Monitorar: mensagens com atalho cuja resposta seguinte foi `split_support` (deve ser zero).
+
+## Segundo incidente (15/10, 11:18): "Que registro é esse?" respondido com a cobrança do rolê
+O classificador de entendimento rodou, mas recebeu como contexto **só** as mensagens de cobrança. Sem enxergar o aviso de
+"Registrei R$ 500…" mandado 1 minuto antes, só havia um assunto possível e ele escolheu o rolê.
+Regra: o entendimento precisa receber a **conversa real** (últimas mensagens de qualquer assunto, com há quantos minutos e se é
+sobre o rolê), com a mais recente em destaque. Contexto montado só com as evidências de uma hipótese produz essa hipótese.
+
+## Aviso proativo de "gasto novo" só para fato recente
+O gatilho `nino_tx_behavioral_event` marcava LARGE_SPEND para qualquer lançamento confirmado, inclusive um de 27/05 vinculado
+a uma dívida; o Nino anunciou "Registrei R$ 500" 16 h depois. Agora só gera evento se `occurred_at` for de até 3 dias atrás.

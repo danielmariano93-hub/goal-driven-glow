@@ -37,8 +37,22 @@ describe("roteamento rolê × finanças próprias (entendimento, não palavra-ch
     expect(r).toHaveBeenCalledWith(expect.objectContaining({
       text: "gastei 40 no mercado",
       split: { title: base.title, pending_amount: 20, due_date: "2026-08-02" },
-      recent_bot: [{ kind: "split_overdue", hours_ago: 12 }],
+      conversation: [{ kind: "split_overdue", minutes_ago: 720, text: "", about_split: true }],
     }));
+  });
+
+  it("o modelo vê a conversa inteira, não só a cobrança: a mensagem de 1 minuto atrás de outro assunto vem primeiro", async () => {
+    const r = vi.fn(async () => reading("own_finance", 0.9));
+    const withProactive = [
+      { kind: "split_overdue", created_at: ago(12), body: "💸 Mc pro macarrazinho — sua parte" },
+      { kind: "proactive", created_at: new Date(now.getTime() - 90_000).toISOString(), body: "*O que essa compra move no seu plano*\n\nRegistrei R$ 500,00 em um gasto relevante." },
+    ];
+    await decideSplitReply({ ...base, text: "Que registro é esse?", hasMedia: false, quotedKind: null, recent: withProactive, readAddressee: r });
+    const ctx = (r.mock.calls[0] as unknown as [{ conversation: Array<{ kind: string; minutes_ago: number; text: string; about_split: boolean }> }])[0];
+    expect(ctx.conversation[0]).toMatchObject({ kind: "proactive", about_split: false });
+    expect(ctx.conversation[0].text).toContain("Registrei R$ 500,00");
+    expect(ctx.conversation[0].minutes_ago).toBeLessThanOrEqual(2);
+    expect(ctx.conversation.some((m) => m.about_split)).toBe(true);
   });
 
   it("pergunta sobre a cobrança só vai para o rolê com confiança alta", async () => {
