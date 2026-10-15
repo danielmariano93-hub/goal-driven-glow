@@ -240,8 +240,15 @@ export function renderCommunicationTemplate(
       .replace(/[ \t]+\n/g, "\n")
       .trim()
     : rawBody;
+  let title = render(template.title_template).slice(0, 100) || candidate.title;
+  // Título genérico do template não pode apagar o assunto: se o motor declarou DO QUE se trata e o título do
+  // template não o cita, vale o título do motor (que já o nomeia).
+  const subject = String((candidate.evidence as any)?.subject ?? "").trim();
+  if (subject && !title.toLowerCase().includes(subject.toLowerCase()) && candidate.title.toLowerCase().includes(subject.toLowerCase())) {
+    title = candidate.title.slice(0, 100);
+  }
   return {
-    title: render(template.title_template).slice(0, 100) || candidate.title,
+    title,
     body: framed.slice(0, 1800) || candidate.body,
   };
 }

@@ -36,3 +36,11 @@ Nino inicia sobre um lançamento/meta/dívida diz **do que está falando** (desc
 pessoa adivinhar. O evento comportamental passou a carregar `category_name`, `goal_name` e `debt_name`, e
 `describeEventForMessage` monta o "quê · quanto · quando". Sem descrição, a mensagem admite isso ("um lançamento sem descrição")
 em vez de ficar solta. Novos templates automáticos devem usar o mesmo helper e ter teste com um caso real.
+
+## Notificação "Isso parece acontecer todo mês" (15/10)
+Texto recebido: "Tem um comportamento se repetindo: as despesas ocorrem periodicamente. O valor típico é R$ 202,59 e foram registradas 3
+ocorrências." Quatro falhas encadeadas: (1) o detector sabia que era a "Claro" mas não passou o nome na evidência nem no texto;
+(2) o título fixo do template apagou o título específico; (3) o redator recebeu só números e uma abertura vaga; (4) nada exigia
+que a mensagem dissesse do que fala. Contrato novo: `evidence.subject` → o redator é obrigado a citá-lo e a guarda reprova
+(`missing_subject`) e cai no texto do motor; título do template não apaga o assunto; "ocorrências/periodicamente" viram jargão barrado.
+Também corrigido no SQL do diagnóstico: valor "R$ 1,316.16" (locale) e dívida atrasada sem nome / "1 dias".

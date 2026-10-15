@@ -28,6 +28,11 @@ export type NarrativeEvidencePack = {
   primary_fact: NarrativeFact | null;
   supporting_facts: NarrativeFact[];
   entities: { categories: string[]; merchants: string[]; goals: string[]; cards: string[] };
+  /**
+   * DO QUE a mensagem fala (nome que a pessoa reconhece). Quando existe, o texto final é obrigado a citá-lo:
+   * mensagem sem assunto ("as despesas ocorrem periodicamente") obriga a pessoa a adivinhar.
+   */
+  subject: string | null;
   /** Corpo determinístico do motor: fallback e fonte de todo número citável. */
   deterministic_body: string;
   deterministic_title: string;
@@ -210,6 +215,7 @@ export function buildNarrativeEvidencePack(
       goals: strList(evidence.goals ?? evidence.goal_name).slice(0, 4),
       cards: strList(evidence.cards ?? evidence.card_name).slice(0, 4),
     },
+    subject: typeof evidence.subject === "string" && evidence.subject.trim() ? evidence.subject.trim().slice(0, 80) : null,
     deterministic_body: deterministicBody,
     deterministic_title: deterministicTitle,
     allowed_numbers: [...allowedNumbers],

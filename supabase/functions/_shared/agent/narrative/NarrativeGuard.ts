@@ -24,6 +24,7 @@ export type GuardViolation =
   | "provider_mentioned"
   | "moral_judgement"
   | "internal_jargon"
+  | "missing_subject"
   | "unformatted_number";
 
 export type GuardResult = {
@@ -97,7 +98,7 @@ const MORAL_PATTERNS = [
   /\bdevia ter\b/i,
 ];
 // Vocabulário do motor que não é conversa com a pessoa.
-const INTERNAL_JARGON = [/\bscores?\b/i, /\bconfian[çc]a de\b/i, /\bamostras?\b/i, /\bprioridade \d/i, /\bdetector\b/i];
+const INTERNAL_JARGON = [/\bscores?\b/i, /\bconfian[çc]a de\b/i, /\bamostras?\b/i, /\bprioridade \d/i, /\bdetector\b/i, /\bocorr[eê]ncias?\b/i, /\bperiodicamente\b/i];
 // "190.09" em vez de "R$ 190,09": número cru vindo do JSON.
 const RAW_DECIMAL = /(?<![\d.,])\d+\.\d{1,2}(?![\d.])/;
 const PROVIDER_PATTERNS = [/\bgpt\b/i, /\bgemini\b/i, /\bopenai\b/i, /\bllm\b/i, /modelo de linguagem/i, /\bprompt\b/i];
@@ -164,6 +165,11 @@ export function guardNarrative(args: {
   for (const pattern of INTERNAL_JARGON) {
     const hit = text.match(pattern);
     if (hit) push("internal_jargon", hit[0]);
+  }
+  // A mensagem precisa dizer DO QUE fala: o assunto declarado pelo motor tem que aparecer no texto.
+  if (args.pack.subject) {
+    const fold = (v: string) => v.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (!fold(text).includes(fold(args.pack.subject))) push("missing_subject", `não cita “${args.pack.subject}”`);
   }
   const raw = text.match(RAW_DECIMAL);
   if (raw) push("unformatted_number", raw[0]);
