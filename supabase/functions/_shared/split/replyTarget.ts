@@ -1,41 +1,20 @@
-// split_reply_target.v1 — de que a pessoa está falando quando responde no WhatsApp?
+// split_reply_target.v2 — de que a pessoa está falando quando escreve no WhatsApp?
 //
-// Quem recebe cobrança de rolê pode ser, ao mesmo tempo, usuário do Nino. Antes, o fato de ter conta
-// fazia a resposta à cobrança cair no agente comum (sem saber da cobrança) e o comprovante ir para o Assessor.
-// Aqui a decisão é determinística e conservadora:
-//   • resposta citando uma cobrança, ou comprovante/relato logo depois de uma cobrança → pipeline do rolê;
-//   • mensagem curta e ambígua ("chega", "para") com mais de um assunto aberto → PERGUNTA, nunca adivinha;
-//   • caso contrário, segue o fluxo normal.
-import { detectParticipantIntent } from "./participantPipeline.ts";
+// Quem recebe cobrança de rolê pode ser, ao mesmo tempo, usuário do Nino. A decisão tem duas camadas:
+//   1) SINAIS EXPLÍCITOS (determinísticos, não são palpite): comando do próprio produto (atalho `!ja`),
+//      resposta que CITA a cobrança, resposta à pergunta de esclarecimento que o Nino fez;
+//   2) ENTENDIMENTO: para o resto, o Nino lê a mensagem com o contexto e diz a quem ela se dirige
+//      (cobrança do rolê × finanças da própria pessoa). Dúvida real → pergunta. Falha do modelo → fluxo normal.
+// Palavra-chave NUNCA decide o destino: "valor", "falta", "quanto" aparecem em registros de gasto e perguntas.
+import type { AddresseeReader, AddresseeReading } from "./inboundAddressee.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const norm = (t: string) => t.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 
 export type RecentOutbound = { kind: string; created_at: string; context_type?: string | null };
 
-export type SplitReplyDecision =
-  | { action: "participant_pipeline"; reason: string; text?: string }
-  | { action: "clarify"; reason: string; reply: string }
-  | { action: "pass"; reason: string };
-
 const SPLIT_KIND = /^split_(overdue|due_today|due_soon|reminder|invite|support)$|^split_clarification$/;
-const AMBIGUOUS_STOP = /^(chega|chega ai|chega de (msg|mensagem|mensagens)|para|pare|parou|basta|ja deu|cansei|ta bom|ok|beleza|blz|valeu)\W*$/;
 const HOURS = 3_600_000;
-
-// Mensagem que é um REGISTRO de gasto (atalho do iPhone/!ja, "registre…", bloco "Valor:/Estabelecimento:/Data:"),
-// nunca uma pergunta sobre a cobrança. Palavras como "valor" e "falta" aparecem nesses textos.
-const FAST_LOG_TOKEN = /^\s*[!#/][a-z0-9_]{1,16}(\s|$)|(\s|^)[!#/][a-z0-9_]{1,16}\s*$/;
-const EXPENSE_LOG_VERB = /\b(registr\w*|anot\w*|lanc\w*|adicion\w*)\b.*\b(gasto|compra|despesa|lancamento)\b|\b(gasto|compra|despesa)\b.*\b(registr\w*|anot\w*)\b/;
-const STRUCTURED_LOG = /(estabelecimento|data|conta|cartao)\s*:/;
-
-/** true quando o texto é claramente um registro de gasto (ou longo demais para ser pergunta sobre a cobrança). */
-export function looksLikeExpenseLog(raw: string): boolean {
-  const text = norm(raw ?? "");
-  if (FAST_LOG_TOKEN.test(raw ?? "") && /\d/.test(text)) return true;
-  if (EXPENSE_LOG_VERB.test(text)) return true;
-  if (STRUCTURED_LOG.test(text) && /(valor|r\$)/.test(text)) return true;
-  return (raw ?? "").split(/\n/).filter((l) => l.trim()).length >= 3 || text.length > 140;
-}
 
 export function isSplitKind(kind: string | null | undefined): boolean {
   return SPLIT_KIND.test(String(kind ?? ""));
@@ -49,7 +28,29 @@ export function topicClarifyText(firstName: string, title: string): string {
   return `Oi, ${firstName}! Só para eu não errar: você está falando da cobrança “${title}” ou da outra mensagem que te mandei (como você está se sentindo)?`;
 }
 
-export function decideSplitReply(args: {
+/** Confiança mínima para o Nino agir como se a mensagem fosse sobre a cobrança. Abaixo disso, pergunta. */
+export const SPLIT_ADDRESSEE_MIN_CONFIDENCE = 0.85;
+
+export function ownOrSplitClarifyText(firstName: string, title: string, amount: number): string {
+  return `Oi, ${firstName}! Só para eu não errar: sua mensagem é sobre a divisão “${title}” (sua parte: ${BRL.format(amount)}) ou sobre as suas finanças (por exemplo, registrar um gasto)?`;
+}
+
+export type SplitRouteEvidence = {
+  route: "split" | "normal" | "clarify";
+  /** Como a decisão foi tomada: sinal explícito, leitura do modelo, ou falha segura. */
+  basis: "explicit_command" | "quoted_split" | "clarification_answer" | "no_split_context" | "understanding" | "understanding_unavailable";
+  addressee?: AddresseeReading | null;
+};
+
+export type SplitReplyDecision =
+  | { action: "participant_pipeline"; reason: string; text?: string; evidence: SplitRouteEvidence }
+  | { action: "clarify"; reason: string; reply: string; evidence: SplitRouteEvidence }
+  | { action: "pass"; reason: string; evidence: SplitRouteEvidence };
+
+const ev = (route: SplitRouteEvidence["route"], basis: SplitRouteEvidence["basis"], addressee?: AddresseeReading | null): SplitRouteEvidence =>
+  ({ route, basis, addressee: addressee ?? null });
+
+export async function decideSplitReply(args: {
   text: string;
   hasMedia: boolean;
   quotedKind: string | null;
@@ -58,7 +59,12 @@ export function decideSplitReply(args: {
   firstName: string;
   title: string;
   amount: number;
-}): SplitReplyDecision {
+  dueDate?: string | null;
+  /** true quando a mensagem usa o comando explícito do produto (atalho de registro rápido). */
+  explicitCommand?: boolean;
+  /** Leitor de entendimento (modelo). Ausente ou com falha → segue o fluxo normal, nunca o do rolê. */
+  readAddressee?: AddresseeReader;
+}): Promise<SplitReplyDecision> {
   const now = (args.now ?? new Date()).getTime();
   const age = (r: RecentOutbound) => now - new Date(r.created_at).getTime();
   const strong = isSplitKind(args.quotedKind);
@@ -66,26 +72,47 @@ export function decideSplitReply(args: {
   const clarification = args.recent.find((r) => r.kind === "split_clarification" && age(r) <= 6 * HOURS);
   const text = norm(args.text ?? "");
 
-  // Resposta à pergunta de esclarecimento: 1 / 2 / 3.
+  // 1) Sinais explícitos ------------------------------------------------------------------------
+  // Comando do próprio produto vale mais que qualquer inferência: quem usa o atalho quer registrar.
+  if (args.explicitCommand) return { action: "pass", reason: "explicit_command", evidence: ev("normal", "explicit_command") };
+
+  // Resposta (1/2/3) à pergunta que o próprio Nino fez.
   if (clarification && /^[123]\W*$/.test(text)) {
     const map: Record<string, string> = { "1": "já paguei", "2": "para de mandar", "3": "quanto devo" };
-    return { action: "participant_pipeline", reason: "clarification_answer", text: map[text.charAt(0)] };
+    return { action: "participant_pipeline", reason: "clarification_answer", text: map[text.charAt(0)], evidence: ev("split", "clarification_answer") };
   }
 
-  if (!strong && recentSplit.length === 0) return { action: "pass", reason: "no_split_context" };
-
-  // Sem citar a cobrança, registro de gasto segue o fluxo normal (não é pergunta sobre o rolê).
-  if (!strong && !args.hasMedia && looksLikeExpenseLog(args.text ?? "")) return { action: "pass", reason: "expense_log_not_split" };
-
-  if (args.hasMedia) return { action: "participant_pipeline", reason: strong ? "receipt_quoted_split" : "receipt_after_split_reminder" };
-
-  const intent = detectParticipantIntent(args.text ?? "", false);
-  if (intent !== "other") return { action: "participant_pipeline", reason: `intent_${intent}` };
-
-  if (AMBIGUOUS_STOP.test(text) && text.length <= 24) {
-    if (strong) return { action: "clarify", reason: "ambiguous_stop_on_split", reply: splitClarifyOptionsText(args.firstName, args.title, args.amount) };
-    const competing = args.recent.some((r) => !isSplitKind(r.kind) && ["proactive", "agent", "due_reminder"].includes(r.kind) && age(r) <= 3 * HOURS);
-    if (competing) return { action: "clarify", reason: "ambiguous_between_topics", reply: topicClarifyText(args.firstName, args.title) };
+  // A pessoa apontou para a cobrança (responder/citar a mensagem dela).
+  if (strong) {
+    if (args.hasMedia) return { action: "participant_pipeline", reason: "receipt_quoted_split", evidence: ev("split", "quoted_split") };
+    return { action: "participant_pipeline", reason: "quoted_split", evidence: ev("split", "quoted_split") };
   }
-  return { action: "pass", reason: strong ? "quoted_split_free_text" : "recent_split_free_text" };
+
+  if (recentSplit.length === 0) return { action: "pass", reason: "no_split_context", evidence: ev("normal", "no_split_context") };
+
+  // 2) Entendimento -----------------------------------------------------------------------------
+  // Arquivo sem citar a cobrança: o conteúdo ainda não foi lido, então não há como saber de quem é.
+  // Não adivinha: segue o fluxo normal (Assessor). Vira comprovante do rolê quando a pessoa CITA a cobrança.
+  if (args.hasMedia) return { action: "pass", reason: "media_without_reference", evidence: ev("normal", "understanding_unavailable") };
+
+  if (!args.readAddressee) return { action: "pass", reason: "understanding_unavailable", evidence: ev("normal", "understanding_unavailable") };
+
+  const reading = await args.readAddressee({
+    text: args.text ?? "",
+    split: { title: args.title, pending_amount: args.amount, due_date: args.dueDate ?? null },
+    recent_bot: recentSplit.slice(0, 4).map((r) => ({ kind: r.kind, hours_ago: Math.round(age(r) / HOURS) })),
+  });
+
+  if (reading.source !== "llm") return { action: "pass", reason: "understanding_unavailable", evidence: ev("normal", "understanding_unavailable", reading) };
+  if (reading.addressee === "own_finance" && reading.confidence >= 0.5) {
+    return { action: "pass", reason: "own_finance", evidence: ev("normal", "understanding", reading) };
+  }
+  if (reading.addressee === "split_charge" && reading.confidence >= SPLIT_ADDRESSEE_MIN_CONFIDENCE) {
+    return { action: "participant_pipeline", reason: "understood_split_charge", evidence: ev("split", "understanding", reading) };
+  }
+  return {
+    action: "clarify", reason: "unclear_addressee",
+    reply: ownOrSplitClarifyText(args.firstName, args.title, args.amount),
+    evidence: ev("clarify", "understanding", reading),
+  };
 }
