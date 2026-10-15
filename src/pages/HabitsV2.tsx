@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { analysisNote } from "@/lib/behavioral/analysisWindow";
 import { toast } from "sonner";
 import { ArrowRight, Compass, Footprints, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -265,6 +266,7 @@ export default function HabitsV2() {
         <section aria-label="A principal descoberta" className="space-y-1">
           <p className="flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.16em] text-primary"><Compass size={13} aria-hidden /> O que o Nino descobriu</p>
           {renderPattern(mainPattern)}
+          {patternsQuery.data?.as_of ? <p className="px-1 text-[11px] leading-relaxed text-muted-foreground" data-testid="analysis-note">{analysisNote(patternsQuery.data.as_of)}</p> : null}
         </section>
       ) : patternsPending ? (
         <section aria-label="Carregando a principal descoberta" aria-busy="true" className="space-y-1">

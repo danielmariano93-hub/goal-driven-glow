@@ -31,7 +31,7 @@ export function ReconstructedHistoryNote({ weeks, compact = false }: { weeks?: n
         {weeks ? ` · ${weeks} semana${weeks === 1 ? "" : "s"}` : ""}
         {compact
           ? ". A base de comparação vem dessa reconstrução."
-          : ". Para semanas antigas, o Nino só reconstruiu as evidências que existiam na época (check-ins, metas, dívidas e aportes). Leituras novas já são completas."}
+          : ". Das semanas antigas, o Nino só consegue reconstruir o que existia na época (check-ins, metas fechadas, dívidas e aportes). Leituras novas já são completas: Planejamento, Consistência e Segurança só aparecem a partir delas, e a comparação com o passado leva o selo “método novo”."}
       </p>
     </div>
   );
@@ -246,7 +246,7 @@ export function HabitTrend({ series, changes, weeks, reconstructedWeeks = 0 }: {
       <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Semana a semana</h2>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
         {weeks >= 2
-          ? `${weeks} semanas de leitura guardadas. A linha ganha corpo a cada semana.`
+          ? `${weeks} semanas de leitura guardadas${reconstructedWeeks > 0 ? `: ${reconstructedWeeks} reconstruídas do passado e ${Math.max(0, weeks - reconstructedWeeks)} com leitura completa` : ""}. A linha ganha corpo a cada semana.`
           : "O Nino começou a guardar a leitura agora. A partir da próxima semana a linha de cada hábito aparece aqui."}
       </p>
       {reconstructedWeeks > 0 ? <ReconstructedHistoryNote weeks={reconstructedWeeks} /> : null}

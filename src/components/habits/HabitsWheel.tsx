@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AssessmentDialog } from "@/components/behavioral/AssessmentDialog";
@@ -43,6 +43,13 @@ export function HabitsWheel({
   onRemoveFeedback: (key: BehaviorDimensionKey) => void | Promise<void>;
 }) {
   const [showEvolution, setShowEvolution] = useState(false);
+  const wheelRef = useRef<SVGSVGElement | null>(null);
+  const toggleEvolution = () => {
+    const next = !showEvolution;
+    setShowEvolution(next);
+    // O contorno "antes" aparece na roda, bem acima do botão: leva a roda para a tela.
+    if (next) window.setTimeout(() => wheelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+  };
   const [mapOpen, setMapOpen] = useState(false);
 
   const rows = useMemo(() => BEHAVIOR_DIMENSIONS.map((d, i) => {
@@ -70,7 +77,7 @@ export function HabitsWheel({
         {latest ? "Toque numa dimensão para ver o porquê" : "Responda o mapa para comparar os dois olhares"} · {withScore} de 8 com leitura confiável
       </p>
 
-      <svg viewBox="0 0 360 300" role="img" aria-label="Roda com as oito dimensões" className="mx-auto mt-2 block w-full max-w-[380px]">
+      <svg ref={wheelRef} viewBox="0 0 360 300" role="img" aria-label="Roda com as oito dimensões" className="mx-auto mt-2 block w-full max-w-[380px]">
         {[2, 4, 6, 8, 10].map((lv) => (
           <polygon key={lv} points={rows.map((_, i) => { const p = point(i, lv); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(" ")} fill="none" stroke="hsl(var(--border))" strokeWidth={lv === 10 ? 1.2 : 0.7} />
         ))}
@@ -99,6 +106,7 @@ export function HabitsWheel({
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden /> Você</span>
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden /> Nino observa</span>
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" aria-hidden /> sem leitura confiável</span>
+        {showEvolution && baseline ? <span className="flex items-center gap-1.5" data-testid="before-legend"><i className="h-0 w-4 border-t-2 border-dotted border-muted-foreground" aria-hidden /> Antes ({baseline.date.split("-").reverse().slice(0, 2).join("/")})</span> : null}
       </div>
       <ul className="divide-y divide-border border-t border-border" aria-label="Dimensões">
         {rows.map((r) => {
@@ -113,6 +121,7 @@ export function HabitsWheel({
                   <span className="block text-[11px] text-muted-foreground">
                     {r.nino != null ? `Nino ${fmt(r.nino)}` : state === "partial" ? "Base parcial" : "Ainda não sei"}
                     {r.self != null ? ` · Você ${fmt(r.self)}` : ""}
+                    {showEvolution && baseline?.scores[r.key] != null ? ` · Antes ${fmt(Number(baseline.scores[r.key]))}` : ""}
                   </span>
                 </span>
                 <ChevronRight size={16} className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} aria-hidden />
@@ -144,7 +153,7 @@ export function HabitsWheel({
           {latest ? (cycle.due ? "Rever como me vejo" : "Revisar meu mapa") : "Responder meu mapa"}
         </Button>
         {baseline ? (
-          <Button type="button" variant="ghost" className="min-h-11 rounded-full text-xs" onClick={() => setShowEvolution((v) => !v)} aria-pressed={showEvolution}>
+          <Button type="button" variant="ghost" className="min-h-11 rounded-full text-xs" onClick={toggleEvolution} aria-pressed={showEvolution}>
             {showEvolution ? "Ocultar evolução" : "Ver evolução"}
           </Button>
         ) : null}
