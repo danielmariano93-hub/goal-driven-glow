@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { formatBRL } from "@/lib/split/math";
 import { today } from "@/lib/engine/ninoClock";
+import { groupReceivables, splitDueView, type ReceivableLite } from "@/lib/split/overdue";
 
 type ParticipantSlim = {
   amount_due: number | string;
@@ -27,6 +28,8 @@ type OwnedItem = {
   cancellation_reason: string | null;
   owner_user_id: string;
   shared_expense_participants: ParticipantSlim[];
+  /** Parcelas dos participantes externos (fonte canônica do atraso). */
+  receivables?: ReceivableLite[];
 };
 
 type JoinedItem = {
@@ -41,10 +44,26 @@ type JoinedItem = {
   my_due: number;
   my_paid: number;
   my_status: string;
+  /** Minhas parcelas (fonte canônica do atraso). */
+  receivables?: ReceivableLite[];
 };
 
 type Scope = "owned" | "joined";
 type Filter = "all" | "active" | "settled" | "cancelled";
+
+async function loadReceivables(expenseIds: string[]): Promise<ReceivableLite[]> {
+  if (!expenseIds.length) return [];
+  const out: ReceivableLite[] = [];
+  for (let i = 0; i < expenseIds.length; i += 100) {
+    const { data, error } = await supabase
+      .from("split_receivables_v1" as never)
+      .select("shared_expense_id,state,due_date,phone_e164,linked_user_id" as never)
+      .in("shared_expense_id" as never, expenseIds.slice(i, i + 100) as never);
+    // Sem as parcelas, a lista cai no vencimento da divisão (comportamento antigo) em vez de quebrar.
+    if (!error) out.push(...((data ?? []) as unknown as ReceivableLite[]));
+  }
+  return out;
+}
 
 const K = {
   owned: (uid: string, f: Filter) => ["shared_expenses", "owned", uid, f] as const,
@@ -74,7 +93,9 @@ export default function DivisaoDoRole() {
       else q = q.eq("status", "cancelled");
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as unknown as OwnedItem[];
+      const items = (data ?? []) as unknown as OwnedItem[];
+      const byExpense = groupReceivables(await loadReceivables(items.map((i) => i.id)));
+      return items.map((i) => ({ ...i, receivables: (byExpense.get(i.id) ?? []).filter((r) => Boolean(r.phone_e164)) }));
     },
   });
 
@@ -112,6 +133,10 @@ export default function DivisaoDoRole() {
           ((profs ?? []) as Array<{ id: string; display_name: string | null }>).map((p) => [p.id, p.display_name]),
         );
       }
+      const mine = groupReceivables(
+        (await loadReceivables(raw.map((r) => r.shared_expenses?.id).filter((v): v is string => Boolean(v))))
+          .filter((r) => r.linked_user_id === uid),
+      );
       return raw
         .map((r): JoinedItem | null => {
           const se = r.shared_expenses;
@@ -129,6 +154,7 @@ export default function DivisaoDoRole() {
             my_due: Number(r.amount_due),
             my_paid: Number(r.amount_paid),
             my_status: String(r.status ?? ""),
+            receivables: mine.get(se.id) ?? [],
           };
         })
         .filter(Boolean) as JoinedItem[];
@@ -236,7 +262,8 @@ function OwnedList({ items }: { items: OwnedItem[] }) {
         const received = ext.reduce((a, p) => a + Number(p.amount_paid), 0);
         const pending = ext.reduce((a, p) => a + Math.max(0, Number(p.amount_due) - Number(p.amount_paid)), 0);
         const count = ext.filter((p) => Number(p.amount_paid) < Number(p.amount_due)).length;
-        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < today());
+        const due = splitDueView({ status: s.status, deleted: Boolean(s.deleted_at), splitDueDate: s.due_date, receivables: s.receivables, today: today() });
+        const overdue = due.overdue;
         const pct = received + pending ? Math.round((received / (received + pending)) * 100) : 100;
         const deleted = Boolean(s.deleted_at);
         return (
@@ -254,7 +281,7 @@ function OwnedList({ items }: { items: OwnedItem[] }) {
                     ? "Tudo recebido"
                     : s.status === "cancelled"
                     ? "Cancelada"
-                    : `${count} pessoa${count === 1 ? "" : "s"} pendente${count === 1 ? "" : "s"}`}
+                    : `${count} pessoa${count === 1 ? "" : "s"} pendente${count === 1 ? "" : "s"}${due.nextDue ? ` · próximo vencimento ${new Date(`${due.nextDue}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}` : ""}`}
                 </p>
               </div>
               <p className="text-sm font-bold">{formatBRL(Number(s.total_amount))}</p>
@@ -295,7 +322,8 @@ function JoinedList({ items }: { items: JoinedItem[] }) {
       {items.map((s) => {
         const remaining = Math.max(0, s.my_due - s.my_paid);
         const pct = s.my_due > 0 ? Math.round((s.my_paid / s.my_due) * 100) : 100;
-        const overdue = Boolean(s.due_date && s.status === "active" && s.due_date < todayIso);
+        const due = splitDueView({ status: s.status, splitDueDate: s.due_date, receivables: s.receivables, today: todayIso });
+        const overdue = due.overdue;
         return (
           <Link key={s.id} to={`/app/divisao-do-role/${s.id}`} className="surface-card block p-4">
             <div className="flex justify-between gap-3">
@@ -307,9 +335,9 @@ function JoinedList({ items }: { items: JoinedItem[] }) {
                 <p className={`mt-0.5 text-[11px] ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
                   {overdue && <AlertCircle size={11} className="mr-1 inline" />}
                   {overdue
-                    ? `Vencido em ${new Date(`${s.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`
-                    : s.due_date
-                    ? `Vence ${new Date(`${s.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`
+                    ? `Parcela vencida${due.nextDue ? ` em ${new Date(`${due.nextDue}T12:00:00`).toLocaleDateString("pt-BR")}` : ""}`
+                    : due.nextDue
+                    ? `Próxima parcela vence ${new Date(`${due.nextDue}T12:00:00`).toLocaleDateString("pt-BR")}`
                     : participantStatusLabels[s.my_status] ?? "Minha parte"}
                 </p>
               </div>
