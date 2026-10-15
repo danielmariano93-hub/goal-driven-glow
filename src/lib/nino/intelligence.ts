@@ -11,6 +11,7 @@ import {
   type RefreshResult,
 } from "@/lib/nino/contracts.zod";
 import { fixMoneyLocale } from "@/lib/nino/format";
+import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
 
 export type NinoErrorKind = "network" | "auth" | "rpc" | "contract";
 
@@ -373,6 +374,8 @@ export function safeRoute(action: NinoAction, fallback = "/app/nino"): string {
   }
   if (/[<>"\s\\]/.test(decoded)) return fallback;
   if (!SAFE_ROUTE.test(decoded.replace(/%[0-9A-Fa-f]{2}/g, "a"))) return fallback;
+  // Caminho que não existe (ou apelido antigo) é corrigido aqui, antes de virar um link quebrado.
+  if (route.startsWith("/app")) return resolveAppRoute(route) ?? fallback;
   return route;
 }
 
