@@ -29,3 +29,10 @@ sobre o rolê), com a mais recente em destaque. Contexto montado só com as evid
 ## Aviso proativo de "gasto novo" só para fato recente
 O gatilho `nino_tx_behavioral_event` marcava LARGE_SPEND para qualquer lançamento confirmado, inclusive um de 27/05 vinculado
 a uma dívida; o Nino anunciou "Registrei R$ 500" 16 h depois. Agora só gera evento se `occurred_at` for de até 3 dias atrás.
+
+## Mensagem automática precisa de contexto (15/10)
+"Registrei R$ 500,00 em um gasto relevante" obrigou a pessoa a perguntar "que registro é esse?". Regra: toda mensagem que o
+Nino inicia sobre um lançamento/meta/dívida diz **do que está falando** (descrição, categoria, valor, quando) e nunca depende de a
+pessoa adivinhar. O evento comportamental passou a carregar `category_name`, `goal_name` e `debt_name`, e
+`describeEventForMessage` monta o "quê · quanto · quando". Sem descrição, a mensagem admite isso ("um lançamento sem descrição")
+em vez de ficar solta. Novos templates automáticos devem usar o mesmo helper e ter teste com um caso real.
