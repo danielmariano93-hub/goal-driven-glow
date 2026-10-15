@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, Play, Pause, Trash2, Loader2, RotateCw, CreditCard, Sparkles, Landmark } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Play, Pause, Trash2, Loader2, RotateCw, CreditCard, Sparkles, Landmark, ChevronDown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,9 @@ import { fetchAllPages } from "@/lib/db/pagedSelect";
 import { detectRecurringSuggestions, type DetectionTx, type RecurringSuggestion } from "@/lib/engine/recurringDetection";
 import { detectSubscriptions } from "@/lib/engine/subscriptions";
 import { SubscriptionsSummary } from "@/components/recurring/SubscriptionsSummary";
+import { RecurringOverviewCard } from "@/components/recurring/RecurringOverviewCard";
+import { buildRecurringOverview } from "@/lib/engine/recurringOverview";
+import { brandOfName } from "@/lib/engine/subscriptions";
 import { buildDebtSchedule, type DebtScheduleRow } from "@/lib/engine/debtStatus";
 
 export default function Recorrencias() {
@@ -26,6 +29,8 @@ export default function Recorrencias() {
   const [debtPayments, setDebtPayments] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const [accepted, setAccepted] = useState<string[]>([]);
   const [form, setForm] = useState({
     name: "", amount: "", kind: "expense" as "expense" | "income",
     account_id: "", category_id: "", frequency: "monthly" as any,
@@ -64,13 +69,24 @@ export default function Recorrencias() {
 
   const suggestions = detectRecurringSuggestions({
     txs, today: todayISO(), existingRules: (rules ?? []).map((r: any) => ({ name: r.name })), dismissedKeys: dismissed,
-  });
+  }).filter((sg) => !accepted.includes(sg.key));
 
   const subs = detectSubscriptions({ txs, today: todayISO() });
+
+  const ruleExists = (name: string) => {
+    const brand = brandOfName(name);
+    const norm = (x: string) => x.trim().toLowerCase();
+    return (rules ?? []).some((r: any) => r.status === "active" && (norm(r.name) === norm(name) ||
+      (brand && brandOfName(r.name)?.name === brand.name)));
+  };
 
   const acceptSuggestion = async (sg: RecurringSuggestion) => {
     const account = sg.account_id ?? accounts[0]?.id ?? null;
     if (!account) return toast.error("Cadastre uma conta antes de criar a regra");
+    if (lock.current) return;
+    if (ruleExists(sg.name)) { setAccepted((a) => [...a, sg.key]); return toast.info("Você já tem essa regra."); }
+    lock.current = true;
+    setAccepted((a) => [...a, sg.key]);
     setBusy(true);
     try {
       const { error } = await supabase.from("recurring_rules" as any).insert({
@@ -82,7 +98,7 @@ export default function Recorrencias() {
       toast.success("Regra criada", { description: `${sg.name} entra todo dia ${sg.day_of_month}.` });
       await generate();
       await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+    } catch (e: any) { setAccepted((a) => a.filter((k) => k !== sg.key)); toast.error(e.message); } finally { lock.current = false; setBusy(false); }
   };
 
   const adjustSuggestion = (sg: RecurringSuggestion) => {
@@ -111,8 +127,17 @@ export default function Recorrencias() {
     return next ? { id: d.id, name: d.name, creditor: d.creditor, next, paid: sched.installments_paid, total: sched.installments_total } : null;
   }).filter(Boolean) as Array<{ id: string; name: string; creditor: string | null; next: { index: number; due_date: string; amount: number }; paid: number; total: number | null }>;
 
+  const overview = buildRecurringOverview({
+    rules: (rules ?? []) as any,
+    detected: subs.active,
+    debtInstallments: debtInstallments.map((d) => ({ id: d.id, name: d.name, amount: d.next.amount })),
+  });
+
   const create = async () => {
     if (!form.name || !form.amount || !form.account_id) return toast.error("Preencha nome, valor e conta");
+    if (lock.current) return;
+    if (form.kind === "expense" && ruleExists(form.name)) return toast.error("Você já tem uma regra ativa com esse nome ou dessa assinatura.");
+    lock.current = true;
     setBusy(true);
     try {
       const { error } = await supabase.from("recurring_rules" as any).insert({
@@ -129,7 +154,7 @@ export default function Recorrencias() {
       setShowForm(false);
       await generate();
       await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+    } catch (e: any) { toast.error(e.message); } finally { lock.current = false; setBusy(false); }
   };
 
   const generate = async () => {
@@ -138,13 +163,15 @@ export default function Recorrencias() {
   };
 
   const confirm = async (oid: string) => {
+    if (lock.current) return;
+    lock.current = true;
     setBusy(true);
     try {
       const { error } = await supabase.rpc("recurring_confirm" as any, { p_occurrence_id: oid });
       if (error) throw error;
       toast.success("Lançamento confirmado");
       await load();
-    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+    } catch (e: any) { toast.error(e.message); } finally { lock.current = false; setBusy(false); }
   };
 
   const skip = async (oid: string) => {
@@ -232,6 +259,8 @@ export default function Recorrencias() {
         </div>
       )}
 
+      <RecurringOverviewCard overview={overview} monthlyIncome={income} />
+
       <SubscriptionsSummary active={subs.active} possiblyEnded={subs.possibly_ended} monthlyIncome={income} today={todayISO()} lastCardDate={txs.filter((t) => t.credit_card_id).map((t) => String(t.occurred_at).slice(0, 10)).sort().pop() ?? null} />
 
       {suggestions.length > 0 && (
@@ -263,8 +292,12 @@ export default function Recorrencias() {
         </div>
       )}
 
-      <div>
-        <h2 className="text-sm font-semibold mb-2">Próximas planejadas</h2>
+      <details className="group">
+        <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm font-semibold">
+          <span>Próximas planejadas{occs.length > 0 ? ` (${occs.length})` : ""}</span>
+          <ChevronDown size={16} className="transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-2">
         {occs.length === 0 ? (
           <p className="text-xs text-muted-foreground surface-card p-4">Nenhuma ocorrência planejada.</p>
         ) : (
@@ -273,7 +306,7 @@ export default function Recorrencias() {
               <div key={o.id} className="px-4 py-3 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">{o.recurring_rules?.name}</p>
-                  <p className="text-[11px] text-muted-foreground">{new Date(o.due_date).toLocaleDateString("pt-BR")} · {formatBRL(Number(o.recurring_rules?.amount || 0))}</p>
+                  <p className="text-[11px] text-muted-foreground">{new Date(`${String(o.due_date).slice(0, 10)}T12:00:00`).toLocaleDateString("pt-BR")} · {formatBRL(Number(o.recurring_rules?.amount || 0))}</p>
                 </div>
                 <div className="flex gap-1">
                   <button disabled={busy} onClick={() => confirm(o.id)} className="text-[11px] rounded-full bg-success/15 text-success px-2 py-1">Confirmar</button>
@@ -283,7 +316,8 @@ export default function Recorrencias() {
             ))}
           </div>
         )}
-      </div>
+        </div>
+      </details>
 
       <div>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold"><CreditCard size={15} /> Parcelas já conhecidas das próximas faturas</h2>
