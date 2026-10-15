@@ -65,8 +65,8 @@ export function detectEngagementDrop(activity?: ActivityWindow): ExtensionInsigh
     kind: "engagement_drop",
     severity: daysSince >= 21 ? "attention" : "info",
     score: Math.min(1, 0.55 + daysSince / 60),
-    title: "Seu acompanhamento financeiro perdeu ritmo",
-    body: `Faz ${daysSince} dias que você não atualiza ou consulta seus dados. Uma revisão curta pode ajudar a retomar o controle.`,
+    title: "Faz um tempinho que a gente não se fala",
+    body: `Faz ${daysSince} dias que você não passa por aqui. O controle é seu, eu só ajudo. Leva 2 minutos: vamos retomar juntos?`,
     action: { type: "navigate", payload: { route: "/app" } },
     evidence: {
       activity_last_30_days: current,
@@ -120,14 +120,13 @@ export function detectRecurringPattern(transactions: ProactiveTransaction[]): Ex
     // Nome que a pessoa reconhece (como ela lançou), não a chave normalizada.
     const subject = String(last.description ?? description).replace(/\s+/g, " ").trim().slice(0, 50);
     const brl = typicalAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    const gap = Math.round(typicalInterval);
     candidates.push({
       id: `recurring-pattern:${description}`,
       kind: "recurring_pattern",
       severity: "info",
       score: Math.min(0.95, 0.45 + rows.length * 0.08),
       title: `“${subject}” parece se repetir todo mês`,
-      body: `“${subject}” apareceu ${rows.length} vezes, sempre perto de ${brl}, com cerca de ${gap} dias entre uma e outra. Quer que o Nino registre isso sozinho todo mês?`,
+      body: `“${subject}” apareceu ${rows.length} vezes, sempre perto de ${brl}. Quer que o Nino registre isso sozinho todo mês?`,
       action: { type: "navigate", payload: { route: "/app/recorrencias" } },
       evidence: {
         subject,

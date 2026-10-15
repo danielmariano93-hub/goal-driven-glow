@@ -100,7 +100,7 @@ const MORAL_PATTERNS = [
 // Vocabulário do motor que não é conversa com a pessoa.
 const INTERNAL_JARGON = [/\bscores?\b/i, /\bconfian[çc]a de\b/i, /\bamostras?\b/i, /\bprioridade \d/i, /\bdetector\b/i, /\bocorr[eê]ncias?\b/i, /\bperiodicamente\b/i];
 // "190.09" em vez de "R$ 190,09": número cru vindo do JSON.
-const RAW_DECIMAL = /(?<![\d.,])\d+\.\d{1,2}(?![\d.])/;
+const RAW_DECIMAL = /(?<![\d.,])\d+\.\d{1,2}(?!\d|\.\d)/;
 const PROVIDER_PATTERNS = [/\bgpt\b/i, /\bgemini\b/i, /\bopenai\b/i, /\bllm\b/i, /modelo de linguagem/i, /\bprompt\b/i];
 
 export function guardNarrative(args: {

@@ -50,6 +50,10 @@ export function buildNarrativePrompt(args: {
     "- A PRIMEIRA frase diz DO QUE se trata: nomeie o item (estabelecimento, meta, conta) logo de cara. Se houver ASSUNTO, comece por ele.",
     "- Escreva como uma pessoa explicando a um amigo, não como relatório: nada de 'ocorrências', 'periodicamente', 'comportamento', 'padrão' ou 'amostra'. Diga 'vezes', 'todo mês', 'apareceu'.",
     "- Uma ideia só, nesta ordem: o que está acontecendo, por que importa para a pessoa, qual o próximo passo. Se a abertura sugerida for vaga, ignore-a.",
+    "VOZ (referência de qualidade): leitura de tela de bloqueio. No máximo 3 frases, cada uma com até 14 palavras, uma ideia por frase. Primeira pessoa e calor humano, como um parceiro que acompanha, não um relatório.",
+    "- Deixe claro que a decisão é da pessoa e que você apoia ('o controle é seu, eu fico de olho').",
+    "- NUNCA diga que já deixou algo pronto, separado ou preparado, a menos que PREPARADO apareça na evidência. Não prometa o que não aconteceu.",
+    "- Feche com UM convite para agir junto, concreto e fácil de responder ('Vamos revisar juntos?', 'Quer que eu registre isso sozinho?').",
     "- Conclusão antes do número. Uma pergunta no final, no máximo.",
     channel === "whatsapp"
       ? "- Canal WhatsApp: frases curtas, quebras de linha, no máximo um emoji."
@@ -75,6 +79,7 @@ export function buildNarrativePrompt(args: {
     lines.push(factLine(fact.label, fact.kind, fact.value, fact.text));
   }
   if (pack.subject) lines.push(`ASSUNTO (cite pelo nome na primeira frase): ${pack.subject}`, "");
+  if (pack.prepared) lines.push(`PREPARADO (aqui pode dizer que já deixou pronto): ${pack.prepared}`, "");
   const entities = [
     pack.entities.categories.length ? `categorias: ${pack.entities.categories.join(", ")}` : "",
     pack.entities.merchants.length ? `estabelecimentos: ${pack.entities.merchants.join(", ")}` : "",

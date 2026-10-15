@@ -33,6 +33,8 @@ export type NarrativeEvidencePack = {
    * mensagem sem assunto ("as despesas ocorrem periodicamente") obriga a pessoa a adivinhar.
    */
   subject: string | null;
+  /** O que o Nino JÁ deixou pronto para a pessoa. Só com isso a mensagem pode dizer "já deixei preparado". */
+  prepared: string | null;
   /** Corpo determinístico do motor: fallback e fonte de todo número citável. */
   deterministic_body: string;
   deterministic_title: string;
@@ -215,6 +217,7 @@ export function buildNarrativeEvidencePack(
       goals: strList(evidence.goals ?? evidence.goal_name).slice(0, 4),
       cards: strList(evidence.cards ?? evidence.card_name).slice(0, 4),
     },
+    prepared: typeof evidence.prepared === "string" && evidence.prepared.trim() ? evidence.prepared.trim().slice(0, 120) : null,
     subject: typeof evidence.subject === "string" && evidence.subject.trim() ? evidence.subject.trim().slice(0, 80) : null,
     deterministic_body: deterministicBody,
     deterministic_title: deterministicTitle,
