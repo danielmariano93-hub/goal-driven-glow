@@ -117,15 +117,21 @@ export function detectRecurringPattern(transactions: ProactiveTransaction[]): Ex
     if (maxDeviation > 0.35) continue;
 
     const last = rows[rows.length - 1];
+    // Nome que a pessoa reconhece (como ela lançou), não a chave normalizada.
+    const subject = String(last.description ?? description).replace(/\s+/g, " ").trim().slice(0, 50);
+    const brl = typicalAmount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const gap = Math.round(typicalInterval);
     candidates.push({
       id: `recurring-pattern:${description}`,
       kind: "recurring_pattern",
       severity: "info",
       score: Math.min(0.95, 0.45 + rows.length * 0.08),
-      title: `Parece que "${last.description ?? description}" se repete`,
-      body: `Encontrei ${rows.length} ocorrências, normalmente a cada ${Math.round(typicalInterval)} dias. Você pode transformar isso em recorrência para facilitar o acompanhamento.`,
+      title: `“${subject}” parece se repetir todo mês`,
+      body: `“${subject}” apareceu ${rows.length} vezes, sempre perto de ${brl}, com cerca de ${gap} dias entre uma e outra. Quer que o Nino registre isso sozinho todo mês?`,
       action: { type: "navigate", payload: { route: "/app/recorrencias" } },
       evidence: {
+        subject,
+        merchant: subject,
         occurrences: rows.length,
         typical_interval_days: typicalInterval,
         typical_amount: typicalAmount,

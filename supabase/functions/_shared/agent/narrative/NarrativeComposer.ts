@@ -47,6 +47,9 @@ export function buildNarrativePrompt(args: {
     "- Nunca fale de score, pontuação, confiança, amostras ou prioridade: são métricas internas.",
     "- Dinheiro sempre no formato brasileiro: R$ 190,09 (vírgula nos centavos, ponto no milhar).",
     `- No máximo ${rules.maxSentences} frases e ${rules.maxNumbers} números no texto inteiro.`,
+    "- A PRIMEIRA frase diz DO QUE se trata: nomeie o item (estabelecimento, meta, conta) logo de cara. Se houver ASSUNTO, comece por ele.",
+    "- Escreva como uma pessoa explicando a um amigo, não como relatório: nada de 'ocorrências', 'periodicamente', 'comportamento', 'padrão' ou 'amostra'. Diga 'vezes', 'todo mês', 'apareceu'.",
+    "- Uma ideia só, nesta ordem: o que está acontecendo, por que importa para a pessoa, qual o próximo passo. Se a abertura sugerida for vaga, ignore-a.",
     "- Conclusão antes do número. Uma pergunta no final, no máximo.",
     channel === "whatsapp"
       ? "- Canal WhatsApp: frases curtas, quebras de linha, no máximo um emoji."
@@ -71,6 +74,7 @@ export function buildNarrativePrompt(args: {
   for (const fact of pack.supporting_facts.slice(0, 5)) {
     lines.push(factLine(fact.label, fact.kind, fact.value, fact.text));
   }
+  if (pack.subject) lines.push(`ASSUNTO (cite pelo nome na primeira frase): ${pack.subject}`, "");
   const entities = [
     pack.entities.categories.length ? `categorias: ${pack.entities.categories.join(", ")}` : "",
     pack.entities.merchants.length ? `estabelecimentos: ${pack.entities.merchants.join(", ")}` : "",
