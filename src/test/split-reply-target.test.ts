@@ -55,4 +55,22 @@ describe("fiação", () => {
     expect(hook.indexOf("decideSplitReply({")).toBeLessThan(hook.indexOf("=== MEDIA PATH"));
     expect(readFileSync("supabase/functions/_shared/agent/core/ConversationHistory.ts", "utf8")).toContain('like("kind", "split');
   });
+
+  it("atalho !ja com 'Valor: R$' NÃO vira pergunta sobre a cobrança (bug real do iPhone)", () => {
+    const text = "!ja 💳 Registre esse novo gasto que tive\n\nValor: R$ 30,00\nEstabelecimento: A Ventana Itau Ceic\nData:15 de out. de 2026, 07:28\nConta Corrente Itaú";
+    const d = decideSplitReply({ ...base, text, hasMedia: false, quotedKind: null, recent });
+    expect(d.action).toBe("pass");
+  });
+
+  it("pergunta curta continua indo para o rolê, e citar a cobrança continua mandando para o rolê", () => {
+    expect(decideSplitReply({ ...base, text: "quanto devo?", hasMedia: false, quotedKind: null, recent }).action).toBe("participant_pipeline");
+    expect(decideSplitReply({ ...base, text: "qual o valor?", hasMedia: false, quotedKind: "split_overdue", recent }).action).toBe("participant_pipeline");
+    expect(decideSplitReply({ ...base, text: "paguei R$ 20", hasMedia: false, quotedKind: null, recent }).action).toBe("participant_pipeline");
+  });
+
+  it("outras formas de registrar gasto também passam", () => {
+    for (const text of ["registre um gasto de 45 no mercado", "gastei 30 no almoço #ja", "!ja 42 almoço"]) {
+      expect(decideSplitReply({ ...base, text, hasMedia: false, quotedKind: null, recent }).action).toBe("pass");
+    }
+  });
 });
