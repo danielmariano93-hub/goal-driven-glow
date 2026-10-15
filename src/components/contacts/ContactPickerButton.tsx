@@ -22,7 +22,10 @@ export function ContactPickerButton({ onPicked, label = "Contatos", className }:
 
   async function pick() {
     if (!supported) {
-      setHint("Seu dispositivo não permite escolher da agenda. Digite o telefone abaixo.");
+      const ios = typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
+      setHint(ios
+        ? "O iPhone não deixa sites e apps instalados pelo Safari abrirem seus contatos. Use “De rolês anteriores” ou “Colar vários números”."
+        : "Seu navegador não permite escolher da agenda. Use “Colar vários números” ou digite o telefone.");
       return;
     }
     try {
