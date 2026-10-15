@@ -76,19 +76,31 @@ export async function loadHistory(
       .eq("user_id", (conv as any).user_id)
       .eq("to_phone", (conv as any).phone_e164)
       .neq("channel", "inapp")
-      .in("kind", ["agent", "proactive"])
+      .in("kind", ["agent", "proactive", "due_reminder"])
       .order("created_at", { ascending: false })
       .limit(limit + 4)
     : Promise.resolve({ data: [] as any[] });
 
-  const [{ data }, { data: outbound }] = await Promise.all([q, outboundPromise]);
+  // Cobranças de rolê são enviadas em nome de quem organizou (user_id do dono), mas chegam a este telefone:
+  // sem elas, uma resposta como "chega" ou um comprovante ficava sem o assunto ao qual responde.
+  const splitPromise = conv
+    ? sb.from("outbound_messages")
+      .select("id, body, created_at, channel, to_phone, kind, metadata")
+      .eq("to_phone", (conv as any).phone_e164)
+      .like("kind", "split\\_%")
+      .gte("created_at", new Date(Date.now() - 72 * 3_600_000).toISOString())
+      .order("created_at", { ascending: false })
+      .limit(4)
+    : Promise.resolve({ data: [] as any[] });
+
+  const [{ data }, { data: outbound }, { data: splitOutbound }] = await Promise.all([q, outboundPromise, splitPromise]);
   const rows = ((data ?? []) as Array<{ id: string; direction: string; body_masked: string; created_at: string }>)
     .map(r => ({ id: r.id, role: r.direction === "inbound" ? "user" as const : "assistant" as const, content: r.body_masked, created_at: r.created_at }));
-  const directOutbound = ((outbound ?? []) as Array<{ id: string; body: string; created_at: string; kind?: string; metadata?: any }>)
+  const directOutbound = ([...((outbound ?? []) as any[]), ...((splitOutbound ?? []) as any[])] as Array<{ id: string; body: string; created_at: string; kind?: string; metadata?: any }>)
     // Agent replies may share the same user/phone across technical conversation
     // rows, so keep their canonical conversation_id check. Proactive messages
     // currently do not persist that metadata; same user+phone is their scope.
-    .filter((r) => r.kind === "proactive" || r.metadata?.conversation_id === conversation_id)
+    .filter((r) => r.kind !== "agent" || r.metadata?.conversation_id === conversation_id)
     .map(r => ({ id: `outbound:${r.id}`, role: "assistant" as const, content: r.body, created_at: r.created_at }));
   const filtered = opts.excludeMessageId
     ? [...rows, ...directOutbound].filter(r => r.id !== opts.excludeMessageId)

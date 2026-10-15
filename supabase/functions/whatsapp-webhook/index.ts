@@ -28,6 +28,7 @@ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
+import { decideSplitReply } from "../_shared/split/replyTarget.ts";
 import { coalesceWindowFromEnv, resolveInboundTurn } from "../_shared/messaging/inboundCoalescing.ts";
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
 import { planAcknowledgement } from "../_shared/agent/core/Acknowledgement.ts";
@@ -405,6 +406,72 @@ Deno.serve(async (req) => {
     return json({ ok: true, link: "created" });
   }
 
+  /** Trata a mensagem de quem é participante de um rolê (usuário do Nino ou não): comprovante, relato, perguntas. */
+  const supportSplitParticipant = async (participant: any, expense: any, textOverride?: string) => {
+    // Participante externo COM anexo processável: o comprovante é baixado,
+    // arquivado no storage do dono e o estado do participante avança para
+    // "aguardando confirmação". Mídia NUNCA é descartada antes disso.
+    const hasProcessableMedia = !!(evt.media && shouldFallbackForMedia(evt.media));
+    let body: string;
+    let pipelineResult: Awaited<ReturnType<typeof handleParticipantInbound>> | null = null;
+    try {
+      const access = getWahaAccess();
+      pipelineResult = await handleParticipantInbound(sb, {
+        participant: {
+          id: String(participant.id),
+          name: String(participant.name ?? ""),
+          amount_due: Number(participant.amount_due ?? 0),
+          amount_paid: Number(participant.amount_paid ?? 0),
+          shared_expense_id: String(participant.shared_expense_id),
+          phone_e164: evt.from_phone,
+        },
+        expense: {
+          id: String(participant.shared_expense_id),
+          title: String(expense.title ?? "rolê"),
+          due_date: expense.due_date ?? null,
+          pix_key: expense.pix_key ?? null,
+          user_id: String((expense as any).owner_user_id),
+        },
+        text: textOverride ?? evt.body,
+        media: hasProcessableMedia ? (evt.media as any) : null,
+        providerMessageId: evt.provider_message_id,
+        inboundMessageId: inbound_message_id,
+        waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
+      });
+      body = pipelineResult.reply;
+    } catch (e) {
+      console.error("[webhook] participant_pipeline_failed", String((e as Error).message ?? "").slice(0, 200));
+      body = participantSplitReply(textOverride ?? evt.body, {
+        participantName: participant.name,
+        title: expense.title,
+        amountDue: Number(participant.amount_due),
+        amountPaid: Number(participant.amount_paid),
+        dueDate: expense.due_date,
+        pixKey: expense.pix_key,
+        siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
+        hasAttachment: hasProcessableMedia,
+      });
+    }
+    await sb.from("outbound_messages").insert({
+      to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp",
+      inbound_message_id, idempotency_key: `split-support:${evt.provider_message_id}`, status: "queued",
+    }).then(() => {}, () => {});
+    await sb.from("inbound_messages").update({
+      processed_at: new Date().toISOString(),
+      participant_id: String(participant.id),
+      detected_intent: pipelineResult?.intent ?? "participant_support",
+      media_storage_path: pipelineResult?.storage_path ?? null,
+      media_error: pipelineResult?.media_error ?? null,
+    }).eq("id", inbound_message_id).then(() => {}, () => {});
+    triggerDispatcher();
+    return json({
+      ok: true,
+      participant_support: true,
+      intent: pipelineResult?.intent ?? null,
+      receipt_stored: pipelineResult?.receipt_stored ?? false,
+    });
+  };
+
   const phone_hash = await sha256Hex(evt.from_phone);
   const { data: link } = await sb.from("whatsapp_links")
     .select("user_id").eq("phone_hash", phone_hash).eq("status", "active").maybeSingle();
@@ -432,68 +499,7 @@ Deno.serve(async (req) => {
             .eq("status", "queued")
             .in("kind", ["reminder", "due_soon", "due_today", "overdue"]);
         }
-        // Participante externo COM anexo processável: o comprovante é baixado,
-        // arquivado no storage do dono e o estado do participante avança para
-        // "aguardando confirmação". Mídia NUNCA é descartada antes disso.
-        const hasProcessableMedia = !!(evt.media && shouldFallbackForMedia(evt.media));
-        let body: string;
-        let pipelineResult: Awaited<ReturnType<typeof handleParticipantInbound>> | null = null;
-        try {
-          const access = getWahaAccess();
-          pipelineResult = await handleParticipantInbound(sb, {
-            participant: {
-              id: String(participant.id),
-              name: String(participant.name ?? ""),
-              amount_due: Number(participant.amount_due ?? 0),
-              amount_paid: Number(participant.amount_paid ?? 0),
-              shared_expense_id: String(participant.shared_expense_id),
-              phone_e164: evt.from_phone,
-            },
-            expense: {
-              id: String(participant.shared_expense_id),
-              title: String(expense.title ?? "rolê"),
-              due_date: expense.due_date ?? null,
-              pix_key: expense.pix_key ?? null,
-              user_id: String((expense as any).owner_user_id),
-            },
-            text: evt.body,
-            media: hasProcessableMedia ? (evt.media as any) : null,
-            providerMessageId: evt.provider_message_id,
-            inboundMessageId: inbound_message_id,
-            waha: { apiUrl: access.api_url, apiKey: access.api_key, session: access.session },
-          });
-          body = pipelineResult.reply;
-        } catch (e) {
-          console.error("[webhook] participant_pipeline_failed", String((e as Error).message ?? "").slice(0, 200));
-          body = participantSplitReply(evt.body, {
-            participantName: participant.name,
-            title: expense.title,
-            amountDue: Number(participant.amount_due),
-            amountPaid: Number(participant.amount_paid),
-            dueDate: expense.due_date,
-            pixKey: expense.pix_key,
-            siteUrl: Deno.env.get("APP_PUBLIC_URL") || "https://meunino.com.br",
-            hasAttachment: hasProcessableMedia,
-          });
-        }
-        await sb.from("outbound_messages").insert({
-          to_phone: evt.from_phone, body, kind: "split_support", channel: "whatsapp",
-          inbound_message_id, idempotency_key: `split-support:${evt.provider_message_id}`, status: "queued",
-        }).then(() => {}, () => {});
-        await sb.from("inbound_messages").update({
-          processed_at: new Date().toISOString(),
-          participant_id: String(participant.id),
-          detected_intent: pipelineResult?.intent ?? "participant_support",
-          media_storage_path: pipelineResult?.storage_path ?? null,
-          media_error: pipelineResult?.media_error ?? null,
-        }).eq("id", inbound_message_id).then(() => {}, () => {});
-        triggerDispatcher();
-        return json({
-          ok: true,
-          participant_support: true,
-          intent: pipelineResult?.intent ?? null,
-          receipt_stored: pipelineResult?.receipt_stored ?? false,
-        });
+        return await supportSplitParticipant(participant, expense);
       }
     }
     await sb.from("outbound_messages").insert({
@@ -640,6 +646,66 @@ Deno.serve(async (req) => {
     body_masked: evt.body.slice(0, 500),
   });
 
+
+  // === RESPOSTA A COBRANÇA DE ROLÊ (quem também tem conta no Nino) ==========
+  // Antes, ter conta bastava para a resposta cair no agente comum — sem saber da cobrança — e o
+  // comprovante ir para o Assessor. Agora: citou/respondeu uma cobrança → pipeline do rolê;
+  // mensagem curta e ambígua com mais de um assunto aberto → pergunta, nunca adivinha.
+  try {
+    const { data: openParticipant } = await sb.from("shared_expense_participants")
+      .select("id,name,amount_due,amount_paid,shared_expense_id")
+      .eq("phone_e164", evt.from_phone)
+      .in("status", ["pending", "partial", "notified", "payment_reported", "awaiting_owner_confirmation"])
+      .is("opt_out_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (openParticipant) {
+      const { data: openExpense } = await sb.from("shared_expenses")
+        .select("title,due_date,pix_key,status,owner_user_id")
+        .eq("id", openParticipant.shared_expense_id).eq("status", "active").maybeSingle();
+      if (openExpense) {
+        const since = new Date(Date.now() - 72 * 3_600_000).toISOString();
+        const [{ data: recentRows }, quotedRow] = await Promise.all([
+          sb.from("outbound_messages").select("kind,created_at,context_type")
+            .eq("to_phone", evt.from_phone).gte("created_at", since)
+            .order("created_at", { ascending: false }).limit(12),
+          evt.quoted?.message_id
+            ? sb.from("outbound_messages").select("kind")
+              .or(`provider_message_id.eq.${String(evt.quoted.message_id).replace(/[^A-Za-z0-9_.@-]/g, "")},provider_message_id.like.*${String(evt.quoted.message_id).split("_").pop()!.replace(/[^A-Za-z0-9]/g, "")}`)
+              .limit(1).maybeSingle()
+            : Promise.resolve({ data: null }),
+        ]);
+        const firstName = (await firstNameFor(sb, link.user_id as string)) || String(openParticipant.name ?? "").split(/\s+/)[0] || "tudo bem";
+        const amount = Math.max(0, Number(openParticipant.amount_due ?? 0) - Number(openParticipant.amount_paid ?? 0));
+        const decision = decideSplitReply({
+          text: evt.body,
+          hasMedia: !!(evt.media && shouldFallbackForMedia(evt.media)),
+          quotedKind: ((quotedRow as any)?.data?.kind as string | undefined) ?? null,
+          recent: (recentRows ?? []) as Array<{ kind: string; created_at: string; context_type?: string | null }>,
+          firstName,
+          title: String(openExpense.title ?? "rolê"),
+          amount,
+        });
+        console.info("[webhook] split_reply_decision", JSON.stringify({ action: decision.action, reason: decision.reason }));
+        if (decision.action === "participant_pipeline") {
+          return await supportSplitParticipant(openParticipant, openExpense, decision.text);
+        }
+        if (decision.action === "clarify") {
+          await sb.from("outbound_messages").insert({
+            user_id: link.user_id, to_phone: evt.from_phone, kind: "split_clarification", channel: "whatsapp",
+            inbound_message_id, idempotency_key: `split-clarify:${inbound_message_id}`, status: "queued", body: decision.reply,
+          }).then(() => {}, () => {});
+          await sb.from("inbound_messages").update({ processed_at: new Date().toISOString(), detected_intent: `split_${decision.reason}` })
+            .eq("id", inbound_message_id).then(() => {}, () => {});
+          triggerDispatcher();
+          return json({ ok: true, clarification: decision.reason });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[webhook] split_reply_routing_failed", String((e as Error).message ?? "").slice(0, 160));
+  }
 
   // === MEDIA PATH: fallback com link direto para o Assessor ===
   // Decisão de produto: a leitura de mídias processáveis (imagem, PDF,
