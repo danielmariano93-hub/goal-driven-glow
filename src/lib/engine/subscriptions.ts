@@ -53,6 +53,12 @@ export function brandOf(tx: Pick<DetectionTx, "description" | "merchant_name" | 
   return BRANDS.find((b) => b.re.test(label)) ?? null;
 }
 
+/** Marca de uma regra pelo nome: tanto o nome bruto do banco quanto o nome já normalizado do Nino ("Apple (assinaturas)"). */
+export function brandOfName(name: string): Brand | null {
+  const n = norm(name);
+  return BRANDS.find((b) => norm(b.name) === n) ?? brandOf({ description: name, merchant_name: null, normalized_description: null });
+}
+
 export type Subscription = {
   key: string;
   name: string;
