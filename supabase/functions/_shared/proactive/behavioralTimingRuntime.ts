@@ -7,6 +7,7 @@
 //  3. aplica `assessTiming` (determinístico) e transforma o que está elegível em
 //     situação para o MESMO governador proativo (nada de dispatcher novo);
 //  4. registra o aprendizado de timing (trigger x janela x resultado).
+import { today } from "../finance-core/ninoClock.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import {
   assessTiming,
@@ -36,6 +37,29 @@ export type StoredBehavioralEvent = {
 };
 
 const TIMING_TRIGGERS = new Set<string>(Object.keys(DEFAULT_TIMING_WINDOWS));
+
+/**
+ * Toda mensagem automática sobre um lançamento precisa dizer DO QUE está falando: o quê, em qual categoria, quando e
+ * quanto. Mensagem solta ("registrei um gasto relevante") obriga a pessoa a perguntar e não gera confiança.
+ */
+export function describeEventForMessage(
+  payload: Record<string, unknown> | null | undefined,
+  amount: number,
+  today: string,
+): { what: string; detail: string; when: string } {
+  const p = payload ?? {};
+  const description = String(p.description ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const category = String(p.category_name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  const what = description ? `“${description}”` : category ? `um lançamento em ${category}` : "um lançamento sem descrição";
+  const detail = [brl(amount), description && category ? category : ""].filter(Boolean).join(" · ");
+  const occ = String(p.occurred_at ?? "").slice(0, 10);
+  let when = "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(occ)) {
+    const yesterday = new Date(Date.parse(`${today}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    when = occ === today ? "hoje" : occ === yesterday ? "ontem" : `em ${occ.slice(8, 10)}/${occ.slice(5, 7)}`;
+  }
+  return { what, detail, when };
+}
 
 function brl(value: number): string {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" })
@@ -237,14 +261,19 @@ function bodyFor(
   const principle = assessment.principle_candidates[0];
   if (!principle) return null;
 
+  const lead = (verb: string): string => {
+    const d = describeEventForMessage(input.payload as any, Number(input.materiality ?? 0), today());
+    return `${verb} ${d.what} (${d.detail})${d.when ? ` ${d.when}` : ""}.`;
+  };
+
   if (input.trigger === "MONEY_IN") {
     if (principle === "margin_of_safety") {
       const gap = Math.abs(ctx.projected_month_end_available);
       return {
         title: "Entrou dinheiro, mas o mês ainda fecha apertado",
         body: ctx.projected_month_end_available < 0
-          ? `Entrou dinheiro agora, e a projeção do mês ainda fecha ${brl(gap)} negativa. Antes de separar qualquer valor para meta, o passo que protege você é fechar essa diferença.`
-          : "Entrou dinheiro agora, mas a base financeira ainda não está confirmada. Antes de crescer, vale acertar a verdade do caixa.",
+          ? `${lead("Entrou")} A projeção do mês ainda fecha ${brl(gap)} negativa. Antes de separar qualquer valor para meta, o passo que protege você é fechar essa diferença.`
+          : `${lead("Entrou")} A base financeira ainda não está confirmada: antes de crescer, vale acertar a verdade do caixa.`,
         route: "/app/lancamentos",
         amount: gap,
       };
@@ -254,14 +283,14 @@ function bodyFor(
     if (principle === "friction_and_nudge") {
       return {
         title: "O dinheiro do combinado entrou",
-        body: `Entrou dinheiro hoje e o aporte que você combinou ainda não aconteceu. Enquanto o valor não se mistura ao restante do mês, dá para executar os ${brl(amount)} que seu plano já comporta.`,
+        body: `${lead("Entrou")} O aporte que você combinou ainda não aconteceu. Enquanto o valor não se mistura ao restante do mês, dá para executar os ${brl(amount)} que seu plano já comporta.`,
         route: nextBest?.action?.route ?? "/app/metas",
         amount,
       };
     }
     return {
       title: "Momento de separar antes de gastar",
-      body: `Entrou dinheiro hoje. Antes que ele se misture ao restante do mês, este é um bom momento para separar os ${brl(amount)} que seu plano já comporta.`,
+      body: `${lead("Entrou")} Antes que ele se misture ao restante do mês, este é um bom momento para separar os ${brl(amount)} que seu plano já comporta.`,
       route: nextBest?.action?.route ?? "/app/metas",
       amount,
     };
@@ -273,14 +302,14 @@ function bodyFor(
     const commitment = Number(nextBest?.action?.amount ?? 0);
     const months = commitment > 0 ? Math.round((spend / commitment) * 10) / 10 : null;
     const parts = [
-      `Registrei ${brl(spend)} em um gasto relevante.`,
+      lead("Registrei"),
       `Com esse valor, a projeção de fechamento do mês fica em ${brl(ctx.projected_month_end_available)}.`,
     ];
     if (months && months >= 0.5) {
       parts.push(`Em termos de plano, equivale a ${months.toString().replace(".", ",")} mês(es) do aporte que você já se comprometeu a fazer.`);
     }
     return {
-      title: "O que essa compra move no seu plano",
+      title: `O que ${describeEventForMessage(input.payload as any, spend, today()).what} move no seu plano`,
       body: parts.join(" "),
       route: "/app/relatorios",
       amount: spend,
@@ -289,9 +318,13 @@ function bodyFor(
 
   if (input.trigger === "BEHAVIOR_BREAKTHROUGH") {
     const count = Number(input.evidence_count ?? 0);
+    const p = (input.payload ?? {}) as Record<string, unknown>;
+    const goal = String(p.goal_name ?? "").trim();
+    const debt = String(p.debt_name ?? "").trim();
+    const what = goal ? `os aportes na meta “${goal}”` : debt ? `os pagamentos da dívida “${debt}”` : "esse movimento";
     return {
-      title: "Você repetiu o que funciona",
-      body: `Você repetiu esse movimento em ${count} ciclos seguidos. Não é sorte: é um padrão que os seus próprios dados comprovam.`,
+      title: goal ? `Você manteve a meta “${goal}”` : debt ? `Você manteve a dívida “${debt}” em dia` : "Você repetiu o que funciona",
+      body: `Você repetiu ${what} em ${count} ciclos seguidos. Não é sorte: é um padrão que os seus próprios dados comprovam.`,
       route: "/app/metas",
       amount: Number(input.materiality ?? 0),
     };
