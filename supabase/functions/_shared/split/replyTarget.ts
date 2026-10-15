@@ -22,6 +22,21 @@ const SPLIT_KIND = /^split_(overdue|due_today|due_soon|reminder|invite|support)$
 const AMBIGUOUS_STOP = /^(chega|chega ai|chega de (msg|mensagem|mensagens)|para|pare|parou|basta|ja deu|cansei|ta bom|ok|beleza|blz|valeu)\W*$/;
 const HOURS = 3_600_000;
 
+// Mensagem que é um REGISTRO de gasto (atalho do iPhone/!ja, "registre…", bloco "Valor:/Estabelecimento:/Data:"),
+// nunca uma pergunta sobre a cobrança. Palavras como "valor" e "falta" aparecem nesses textos.
+const FAST_LOG_TOKEN = /^\s*[!#/][a-z0-9_]{1,16}(\s|$)|(\s|^)[!#/][a-z0-9_]{1,16}\s*$/;
+const EXPENSE_LOG_VERB = /\b(registr\w*|anot\w*|lanc\w*|adicion\w*)\b.*\b(gasto|compra|despesa|lancamento)\b|\b(gasto|compra|despesa)\b.*\b(registr\w*|anot\w*)\b/;
+const STRUCTURED_LOG = /(estabelecimento|data|conta|cartao)\s*:/;
+
+/** true quando o texto é claramente um registro de gasto (ou longo demais para ser pergunta sobre a cobrança). */
+export function looksLikeExpenseLog(raw: string): boolean {
+  const text = norm(raw ?? "");
+  if (FAST_LOG_TOKEN.test(raw ?? "") && /\d/.test(text)) return true;
+  if (EXPENSE_LOG_VERB.test(text)) return true;
+  if (STRUCTURED_LOG.test(text) && /(valor|r\$)/.test(text)) return true;
+  return (raw ?? "").split(/\n/).filter((l) => l.trim()).length >= 3 || text.length > 140;
+}
+
 export function isSplitKind(kind: string | null | undefined): boolean {
   return SPLIT_KIND.test(String(kind ?? ""));
 }
@@ -58,6 +73,9 @@ export function decideSplitReply(args: {
   }
 
   if (!strong && recentSplit.length === 0) return { action: "pass", reason: "no_split_context" };
+
+  // Sem citar a cobrança, registro de gasto segue o fluxo normal (não é pergunta sobre o rolê).
+  if (!strong && !args.hasMedia && looksLikeExpenseLog(args.text ?? "")) return { action: "pass", reason: "expense_log_not_split" };
 
   if (args.hasMedia) return { action: "participant_pipeline", reason: strong ? "receipt_quoted_split" : "receipt_after_split_reminder" };
 
