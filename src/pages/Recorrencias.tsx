@@ -9,6 +9,8 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { todayISO } from "@/lib/engine/facts";
 import { fetchAllPages } from "@/lib/db/pagedSelect";
 import { detectRecurringSuggestions, type DetectionTx, type RecurringSuggestion } from "@/lib/engine/recurringDetection";
+import { detectSubscriptions } from "@/lib/engine/subscriptions";
+import { SubscriptionsSummary } from "@/components/recurring/SubscriptionsSummary";
 import { buildDebtSchedule, type DebtScheduleRow } from "@/lib/engine/debtStatus";
 
 export default function Recorrencias() {
@@ -19,6 +21,7 @@ export default function Recorrencias() {
   const [cardInstallments, setCardInstallments] = useState<any[]>([]);
   const [txs, setTxs] = useState<DetectionTx[]>([]);
   const [dismissed, setDismissed] = useState<string[]>([]);
+  const [income, setIncome] = useState<number | null>(null);
   const [debts, setDebts] = useState<any[]>([]);
   const [debtPayments, setDebtPayments] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -32,7 +35,7 @@ export default function Recorrencias() {
 
   const load = async () => {
     const since = new Date(Date.now() - 270 * 86_400_000).toISOString().slice(0, 10);
-    const [{ data: r }, { data: o }, { data: a }, { data: c }, { data: installments }, { data: txRows }, { data: dis }, { data: debtRows }, { data: payRows }] = await Promise.all([
+    const [{ data: r }, { data: o }, { data: a }, { data: c }, { data: installments }, { data: txRows }, { data: dis }, { data: settings }, { data: debtRows }, { data: payRows }] = await Promise.all([
       supabase.from("recurring_rules" as any).select("*").order("created_at", { ascending: false }),
       supabase.from("recurring_occurrences" as any).select("*,recurring_rules(name,kind,amount)").eq("status", "planned").order("due_date").limit(30),
       supabase.from("accounts").select("id,name"),
@@ -43,14 +46,16 @@ export default function Recorrencias() {
         .order("due_date").limit(60),
       fetchAllPages<DetectionTx>((from, to) =>
         supabase.from("transactions")
-          .select("id,description,merchant_name,normalized_description,amount,occurred_at,type,account_id,category_id,status,movement_kind,transfer_group_id,settles_card_id,superseded_by")
+          .select("id,description,merchant_name,normalized_description,amount,occurred_at,type,account_id,category_id,status,movement_kind,transfer_group_id,settles_card_id,superseded_by,credit_card_id,payment_method")
           .eq("status", "confirmed").gte("occurred_at", since).order("occurred_at", { ascending: false }).range(from, to) as any,
         { source: "transactions" },
       ).then((data) => ({ data })).catch(() => ({ data: [] as DetectionTx[] })),
       supabase.from("recurring_suggestion_dismissals" as any).select("key"),
+      supabase.from("user_financial_settings" as any).select("approximate_monthly_income").maybeSingle(),
       supabase.from("debts").select("*").eq("status", "active"),
       supabase.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered"),
     ]);
+    setIncome(Number((settings as any)?.approximate_monthly_income) > 0 ? Number((settings as any).approximate_monthly_income) : null);
     setTxs((txRows as any) ?? []); setDismissed(((dis as any) ?? []).map((d: any) => d.key));
     setDebts((debtRows as any) ?? []); setDebtPayments((payRows as any) ?? []);
     setRules((r as any) ?? []); setOccs((o as any) ?? []); setAccounts(a ?? []); setCats(c ?? []); setCardInstallments((installments as any) ?? []);
@@ -60,6 +65,8 @@ export default function Recorrencias() {
   const suggestions = detectRecurringSuggestions({
     txs, today: todayISO(), existingRules: (rules ?? []).map((r: any) => ({ name: r.name })), dismissedKeys: dismissed,
   });
+
+  const subs = detectSubscriptions({ txs, today: todayISO() });
 
   const acceptSuggestion = async (sg: RecurringSuggestion) => {
     const account = sg.account_id ?? accounts[0]?.id ?? null;
@@ -224,6 +231,8 @@ export default function Recorrencias() {
           </div>
         </div>
       )}
+
+      <SubscriptionsSummary active={subs.active} possiblyEnded={subs.possibly_ended} monthlyIncome={income} today={todayISO()} lastCardDate={txs.filter((t) => t.credit_card_id).map((t) => String(t.occurred_at).slice(0, 10)).sort().pop() ?? null} />
 
       {suggestions.length > 0 && (
         <div>
