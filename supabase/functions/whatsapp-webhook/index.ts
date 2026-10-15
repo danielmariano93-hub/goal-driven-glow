@@ -28,6 +28,8 @@ import { shouldFallbackForMedia, isUniqueViolation } from "../_shared/messaging/
 import { runOrchestrator, FRIENDLY_ORCHESTRATOR_ERROR } from "../_shared/agent/orchestrator.ts";
 import { participantSplitReply } from "../_shared/messaging/splitParticipantSupport.ts";
 import { handleParticipantInbound } from "../_shared/split/participantPipeline.ts";
+import { makeAddresseeReader } from "../_shared/split/inboundAddressee.ts";
+import { detectFastLog, loadFastLogToken, DEFAULT_FAST_LOG_TOKEN } from "../_shared/agent/core/FastLog.ts";
 import { decideSplitReply } from "../_shared/split/replyTarget.ts";
 import { coalesceWindowFromEnv, resolveInboundTurn } from "../_shared/messaging/inboundCoalescing.ts";
 import { getWahaAccess, sendEphemeralText, sendTypingPresence } from "../_shared/messaging/waha.ts";
@@ -678,7 +680,8 @@ Deno.serve(async (req) => {
         ]);
         const firstName = (await firstNameFor(sb, link.user_id as string)) || String(openParticipant.name ?? "").split(/\s+/)[0] || "tudo bem";
         const amount = Math.max(0, Number(openParticipant.amount_due ?? 0) - Number(openParticipant.amount_paid ?? 0));
-        const decision = decideSplitReply({
+        const fastLogToken = await loadFastLogToken(sb, link.user_id as string).catch(() => DEFAULT_FAST_LOG_TOKEN);
+        const decision = await decideSplitReply({
           text: evt.body,
           hasMedia: !!(evt.media && shouldFallbackForMedia(evt.media)),
           quotedKind: ((quotedRow as any)?.data?.kind as string | undefined) ?? null,
@@ -686,8 +689,17 @@ Deno.serve(async (req) => {
           firstName,
           title: String(openExpense.title ?? "rolê"),
           amount,
+          dueDate: (openExpense as any).due_date ?? null,
+          explicitCommand: detectFastLog(evt.body, fastLogToken).triggered,
+          readAddressee: makeAddresseeReader({ sb, user_id: link.user_id as string }),
         });
-        console.info("[webhook] split_reply_decision", JSON.stringify({ action: decision.action, reason: decision.reason }));
+        console.info("[webhook] split_reply_decision", JSON.stringify({
+          action: decision.action, reason: decision.reason, basis: decision.evidence.basis,
+          addressee: decision.evidence.addressee?.addressee ?? null,
+          confidence: decision.evidence.addressee?.confidence ?? null,
+          source: decision.evidence.addressee?.source ?? null,
+          error: decision.evidence.addressee?.error ?? null,
+        }));
         if (decision.action === "participant_pipeline") {
           return await supportSplitParticipant(openParticipant, openExpense, decision.text);
         }
