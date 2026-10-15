@@ -11,6 +11,11 @@ const today = "2026-10-15";
 describe("detecção de contas que se repetem", () => {
   const netflix = ["2026-07-27", "2026-08-27", "2026-09-27"].map((d) => tx("Netflix", 44.9, d));
 
+  it("marca conhecida (assinatura) basta com 2 meses e vira sugestão por marca", () => {
+    const two = netflix.slice(0, 2);
+    const [s] = detectRecurringSuggestions({ txs: two, today });
+    expect(s).toMatchObject({ name: "Netflix", key: "expense:brand:Netflix" });
+  });
   it("assinatura fixa em 3 meses vira sugestão, com próxima data", () => {
     const [s] = detectRecurringSuggestions({ txs: netflix, today });
     expect(s).toMatchObject({ name: "Netflix", amount: 44.9, day_of_month: 27, months: 3, next_date: "2026-10-27", amount_varies: false });
@@ -38,8 +43,9 @@ describe("detecção de contas que se repetem", () => {
     expect(detectRecurringSuggestions({ txs: netflix, today, dismissedKeys: ["expense:netflix"] })).toEqual([]);
   });
   it("menos de 3 meses ou com buraco grande não basta", () => {
-    expect(detectRecurringSuggestions({ txs: netflix.slice(0, 2), today })).toEqual([]);
-    const buraco = ["2026-03-27", "2026-04-27", "2026-09-27"].map((d) => tx("Spotify", 21.9, d));
+    const coral = ["2026-08-10", "2026-09-10"].map((d) => tx("Mensalidade Coral", 90, d));
+    expect(detectRecurringSuggestions({ txs: coral, today })).toEqual([]);
+    const buraco = ["2026-03-27", "2026-04-27", "2026-09-27"].map((d) => tx("Mensalidade Coral", 90, d));
     expect(detectRecurringSuggestions({ txs: buraco, today })).toEqual([]);
   });
 });

@@ -1,6 +1,8 @@
 // recurring_detection.v1 — contas que se repetem, achadas nos próprios lançamentos.
 // Só PROPÕE: nada vira regra sem o usuário confirmar. Conservador de propósito (assinatura, seguro, mensalidade,
 // conta fixa) — compras do dia a dia (mercado, app de transporte) repetem muito por mês e ficam de fora.
+import { brandOf, detectSubscriptions } from "./subscriptions";
+
 export const RECURRING_DETECTION_VERSION = "recurring_detection.v1";
 
 export type DetectionTx = {
@@ -18,6 +20,8 @@ export type DetectionTx = {
   transfer_group_id?: string | null;
   settles_card_id?: string | null;
   superseded_by?: string | null;
+  credit_card_id?: string | null;
+  payment_method?: string | null;
 };
 
 export type ExistingRule = { name: string };
@@ -92,6 +96,8 @@ export function detectRecurringSuggestions(input: {
   for (const [gk, rows] of groups) {
     if (dismissed.has(gk)) continue;
     const key = gk.slice(gk.indexOf(":") + 1);
+    // marcas conhecidas (assinaturas) vêm da leitura por marca, mais completa (cartão + conta, nomes diferentes).
+    if (brandOf({ description: rows[0].description, merchant_name: rows[0].merchant_name })) continue;
     if (existing.has(key) || [...existing].some((e) => e && (e === key || key.includes(e) || e.includes(key)) && Math.min(e.length, key.length) >= 5)) continue;
     rows.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 
@@ -150,5 +156,17 @@ export function detectRecurringSuggestions(input: {
       sample_ids: rows.slice(-3).map((r) => r.id),
     });
   }
-  return out.sort((a, b) => b.score - a.score || b.amount - a.amount).slice(0, 12);
+  // Assinaturas por marca: ChatGPT/OpenAI, Apple, Spotify… mesmo com nome diferente a cada mês ou pago no cartão.
+  const ruleBrands = new Set((input.existingRules ?? []).map((r) => brandOf({ description: r.name, merchant_name: null })?.name).filter(Boolean) as string[]);
+  for (const sub of detectSubscriptions({ txs: input.txs, today: input.today }).active) {
+    const gk = `expense:brand:${sub.name}`;
+    if (dismissed.has(gk) || dismissed.has(`expense:${norm(sub.name)}`) || ruleBrands.has(sub.name)) continue;
+    out.push({
+      key: gk, name: sub.name, kind: "expense", amount: sub.monthly, day_of_month: sub.day_of_month,
+      account_id: sub.account_id, category_id: sub.category_id, months: sub.months, occurrences: sub.months,
+      last_date: sub.last_date, next_date: sub.next_date, amount_varies: sub.amount_varies,
+      confidence: sub.months >= 3 ? "alta" : "media", score: sub.months >= 3 ? 0.9 : 0.75, sample_ids: sub.sample_ids,
+    });
+  }
+  return out.sort((a, b) => b.score - a.score || b.amount - a.amount).slice(0, 14);
 }
