@@ -98,8 +98,8 @@ const TONE_RULES: Record<NarrativeTone, Omit<ToneRules, "tone">> = {
     maxNumbers: 2,
   },
   behavior: {
-    guidance: "Observação de padrão, na primeira pessoa, sem julgamento moral.",
-    question: "Faz sentido pra você esse padrão?",
+    guidance: "Fale como um parceiro que acompanha: primeira pessoa ('reparei'), frases curtas, sem julgamento. Deixe claro que a decisão é da pessoa e que você ajuda.",
+    question: "Vamos olhar isso juntos?",
     maxSentences: 4,
     maxNumbers: 2,
   },
