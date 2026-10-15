@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
-import { Plus, Play, Pause, Trash2, Loader2, RotateCw, CreditCard } from "lucide-react";
+import { Plus, Play, Pause, Trash2, Loader2, RotateCw, CreditCard, Sparkles, Landmark } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/split/math";
 import { nextOccurrences } from "@/lib/recurring/schedule";
 import { CategorySelect } from "@/components/CategorySelect";
 import { todayISO } from "@/lib/engine/facts";
+import { fetchAllPages } from "@/lib/db/pagedSelect";
+import { detectRecurringSuggestions, type DetectionTx, type RecurringSuggestion } from "@/lib/engine/recurringDetection";
+import { buildDebtSchedule, type DebtScheduleRow } from "@/lib/engine/debtStatus";
 
 export default function Recorrencias() {
   const [rules, setRules] = useState<any[] | null>(null);
@@ -13,6 +17,10 @@ export default function Recorrencias() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [cats, setCats] = useState<any[]>([]);
   const [cardInstallments, setCardInstallments] = useState<any[]>([]);
+  const [txs, setTxs] = useState<DetectionTx[]>([]);
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const [debts, setDebts] = useState<any[]>([]);
+  const [debtPayments, setDebtPayments] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
@@ -23,7 +31,8 @@ export default function Recorrencias() {
   });
 
   const load = async () => {
-    const [{ data: r }, { data: o }, { data: a }, { data: c }, { data: installments }] = await Promise.all([
+    const since = new Date(Date.now() - 270 * 86_400_000).toISOString().slice(0, 10);
+    const [{ data: r }, { data: o }, { data: a }, { data: c }, { data: installments }, { data: txRows }, { data: dis }, { data: debtRows }, { data: payRows }] = await Promise.all([
       supabase.from("recurring_rules" as any).select("*").order("created_at", { ascending: false }),
       supabase.from("recurring_occurrences" as any).select("*,recurring_rules(name,kind,amount)").eq("status", "planned").order("due_date").limit(30),
       supabase.from("accounts").select("id,name"),
@@ -32,10 +41,68 @@ export default function Recorrencias() {
         .select("id,amount,due_date,competence_month,installment_number,status,credit_cards(name)")
         .gte("due_date", todayISO()).in("status", ["scheduled", "billed", "historical_unconfirmed"])
         .order("due_date").limit(60),
+      fetchAllPages<DetectionTx>((from, to) =>
+        supabase.from("transactions")
+          .select("id,description,merchant_name,normalized_description,amount,occurred_at,type,account_id,category_id,status,movement_kind,transfer_group_id,settles_card_id,superseded_by")
+          .eq("status", "confirmed").gte("occurred_at", since).order("occurred_at", { ascending: false }).range(from, to) as any,
+        { source: "transactions" },
+      ).then((data) => ({ data })).catch(() => ({ data: [] as DetectionTx[] })),
+      supabase.from("recurring_suggestion_dismissals" as any).select("key"),
+      supabase.from("debts").select("*").eq("status", "active"),
+      supabase.from("debt_payments").select("debt_id,paid_at,amount,amount_applied,installments_covered"),
     ]);
+    setTxs((txRows as any) ?? []); setDismissed(((dis as any) ?? []).map((d: any) => d.key));
+    setDebts((debtRows as any) ?? []); setDebtPayments((payRows as any) ?? []);
     setRules((r as any) ?? []); setOccs((o as any) ?? []); setAccounts(a ?? []); setCats(c ?? []); setCardInstallments((installments as any) ?? []);
   };
   useEffect(() => { load(); }, []);
+
+  const suggestions = detectRecurringSuggestions({
+    txs, today: todayISO(), existingRules: (rules ?? []).map((r: any) => ({ name: r.name })), dismissedKeys: dismissed,
+  });
+
+  const acceptSuggestion = async (sg: RecurringSuggestion) => {
+    const account = sg.account_id ?? accounts[0]?.id ?? null;
+    if (!account) return toast.error("Cadastre uma conta antes de criar a regra");
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("recurring_rules" as any).insert({
+        name: sg.name, amount: sg.amount, kind: sg.kind, account_id: account, category_id: sg.category_id,
+        frequency: "monthly", day_of_month: sg.day_of_month, weekday: null, start_date: sg.next_date, end_date: null,
+        user_id: (await supabase.auth.getUser()).data.user!.id,
+      });
+      if (error) throw error;
+      toast.success("Regra criada", { description: `${sg.name} entra todo dia ${sg.day_of_month}.` });
+      await generate();
+      await load();
+    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  const adjustSuggestion = (sg: RecurringSuggestion) => {
+    setForm({
+      name: sg.name, amount: String(sg.amount).replace(".", ","), kind: sg.kind, account_id: sg.account_id ?? "",
+      category_id: sg.category_id ?? "", frequency: "monthly", day_of_month: sg.day_of_month, weekday: 1,
+      start_date: sg.next_date, end_date: "",
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const dismissSuggestion = async (sg: RecurringSuggestion) => {
+    setDismissed((d) => [...d, sg.key]);
+    const uid = (await supabase.auth.getUser()).data.user!.id;
+    const { error } = await supabase.from("recurring_suggestion_dismissals" as any).insert({ user_id: uid, key: sg.key });
+    if (error && !/duplicate|unique/i.test(error.message)) toast.error(error.message);
+  };
+
+  const debtInstallments = debts.map((d: any) => {
+    const sched = buildDebtSchedule(d as DebtScheduleRow, debtPayments.filter((p: any) => p.debt_id === d.id).map((p: any) => ({
+      debt_id: p.debt_id, paid_at: String(p.paid_at).slice(0, 10), amount: Number(p.amount ?? 0),
+      amount_applied: Number(p.amount_applied ?? p.amount ?? 0), installments_covered: p.installments_covered ?? null,
+    })), todayISO());
+    const next = sched.installments.find((i) => i.state !== "paga");
+    return next ? { id: d.id, name: d.name, creditor: d.creditor, next, paid: sched.installments_paid, total: sched.installments_total } : null;
+  }).filter(Boolean) as Array<{ id: string; name: string; creditor: string | null; next: { index: number; due_date: string; amount: number }; paid: number; total: number | null }>;
 
   const create = async () => {
     if (!form.name || !form.amount || !form.account_id) return toast.error("Preencha nome, valor e conta");
@@ -158,6 +225,35 @@ export default function Recorrencias() {
         </div>
       )}
 
+      {suggestions.length > 0 && (
+        <div>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold"><Sparkles size={15} className="text-primary" /> O Nino achou estas contas que se repetem</h2>
+          <p className="mb-2 text-[11px] text-muted-foreground">Vi nos seus lançamentos. Nada é criado sem a sua confirmação.</p>
+          <div className="surface-card divide-y divide-border overflow-hidden">
+            {suggestions.map((sg) => (
+              <div key={sg.key} className="space-y-2 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{sg.name}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {sg.kind === "income" ? "Receita" : "Despesa"} · {sg.amount_varies ? "cerca de " : ""}{formatBRL(sg.amount)} · todo dia {sg.day_of_month} · visto em {sg.months} meses
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${sg.confidence === "alta" ? "bg-emerald-50 text-emerald-700" : "bg-secondary text-muted-foreground"}`}>
+                    {sg.confidence === "alta" ? "Quase certo" : "Provável"}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={busy} onClick={() => acceptSuggestion(sg)} className="min-h-10 rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Confirmar</button>
+                  <button disabled={busy} onClick={() => adjustSuggestion(sg)} className="min-h-10 rounded-full border border-border px-4 text-xs font-medium">Ajustar</button>
+                  <button disabled={busy} onClick={() => dismissSuggestion(sg)} className="min-h-10 px-3 text-xs text-muted-foreground">Agora não</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="text-sm font-semibold mb-2">Próximas planejadas</h2>
         {occs.length === 0 ? (
@@ -198,6 +294,24 @@ export default function Recorrencias() {
           </div>
         )}
       </div>
+
+      {debtInstallments.length > 0 && (
+        <div>
+          <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold"><Landmark size={15} /> Parcelas de dívidas</h2>
+          <p className="mb-2 text-[11px] text-muted-foreground">Só para você ver o que vem aí: elas já entram em Compromissos pela tela de Dívidas e não viram regra aqui, para não contar em dobro.</p>
+          <div className="surface-card divide-y divide-border overflow-hidden">
+            {debtInstallments.map((d) => (
+              <Link key={d.id} to="/app/dividas" className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{d.name}{d.creditor ? ` · ${d.creditor}` : ""}</p>
+                  <p className="text-[11px] text-muted-foreground">Parcela {d.next.index}{d.total ? `/${d.total}` : ""} · vence {new Date(`${d.next.due_date}T12:00:00`).toLocaleDateString("pt-BR")}</p>
+                </div>
+                <strong className="text-sm tabular-nums">{formatBRL(d.next.amount)}</strong>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <h2 className="text-sm font-semibold mb-2">Regras</h2>

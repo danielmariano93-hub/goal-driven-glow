@@ -13,6 +13,8 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { downloadInboundMedia, type MediaHint } from "../messaging/wahaMedia.ts";
+import { buildSharedExpenseUrl } from "../messaging/appUrl.ts";
+import { compareReceipt, describeReceipt, readPaymentReceipt, type ReceiptRead } from "./receiptReader.ts";
 import { today } from "../finance-core/ninoClock.ts";
 import {
   activeReceivables,
@@ -130,42 +132,41 @@ async function notifyOwner(
   body: string,
 ): Promise<boolean> {
   const remaining = Math.max(0, Number(participant.amount_due) - Number(participant.amount_paid));
-  const dedup = `split_receipt:${participant.id}:${today()}`;
+  const route = `/app/divisao-do-role/${expense.id}`;
+  let delivered = false;
+
+  // Aviso no app. (A tabela `notifications` não tem coluna `data` e exige `dedup_key`: a versão anterior
+  // falhava em silêncio e, por retornar antes, também deixava de avisar o organizador no WhatsApp.)
   const { error } = await sb.from("notifications").insert({
     user_id: expense.user_id,
     type: "split_reminder",
     title: `${participant.name.split(/\s+/)[0]} informou pagamento`,
-    body,
-    data: {
-      shared_expense_id: expense.id,
-      participant_id: participant.id,
-      remaining,
-      requires_owner_confirmation: true,
-      route: `/app/divisao-do-role/${expense.id}`,
-    },
-    logical_dedup_key: dedup,
+    body: `${body}${remaining > 0 ? ` Em aberto: ${BRL.format(remaining)}.` : ""}`.slice(0, 500),
+    action_url: route,
+    dedup_key: `split_receipt:${participant.id}:${Date.now()}`,
   });
-  if (error && !String(error.message).toLowerCase().includes("duplicate")) {
-    console.warn("[split_receipt] notify_failed", String(error.message).slice(0, 160));
-    return false;
-  }
+  if (error) console.warn("[split_receipt] notify_failed", String(error.message).slice(0, 160));
+  else delivered = true;
 
-  // Aviso no WhatsApp do dono, quando o número está vinculado e ativo.
+  // Aviso no WhatsApp do organizador, quando o número está vinculado e ativo — independe do aviso no app.
   const { data: link } = await sb.from("whatsapp_links")
     .select("phone_e164").eq("user_id", expense.user_id).eq("status", "active").maybeSingle();
   const phone = (link as any)?.phone_e164;
+  const ownerLink = buildSharedExpenseUrl({ APP_PUBLIC_URL: (globalThis as any).Deno?.env?.get?.("APP_PUBLIC_URL") ?? null }, expense.id);
   if (phone) {
-    await sb.from("outbound_messages").insert({
+    const { error: waError } = await sb.from("outbound_messages").insert({
       user_id: expense.user_id,
       to_phone: phone,
       channel: "whatsapp",
       kind: "split_support",
       idempotency_key: `split-receipt:${participant.id}:${Date.now()}`,
       status: "queued",
-      body,
-    }).then(() => {}, () => {});
+      body: ownerLink ? `${body}\n\nConfirme ou recuse a baixa: ${ownerLink}` : `${body}\n\nConfirme ou recuse a baixa em Divisão do Rolê, no app.`,
+    });
+    if (waError) console.warn("[split_receipt] owner_whatsapp_failed", String(waError.message).slice(0, 160));
+    else delivered = true;
   }
-  return true;
+  return delivered;
 }
 
 /**
@@ -210,7 +211,10 @@ export async function handleParticipantInbound(
       messageId: input.providerMessageId ?? undefined,
     });
 
+    let read: ReceiptRead | null = null;
     if (download.ok) {
+      // Lê o comprovante (valor, data, favorecido) antes de avisar o organizador; falha de leitura não bloqueia nada.
+      read = await readPaymentReceipt(sb, { bytes: download.bytes, mime_type: download.mime_type, filename: download.filename });
       const path = `${expense.user_id}/split-receipts/${participant.id}/${Date.now()}-${download.filename}`;
       const upload = await sb.storage.from("documents").upload(path, download.bytes, {
         contentType: download.mime_type,
@@ -226,7 +230,8 @@ export async function handleParticipantInbound(
       out.media_error = (download as { code?: string }).code ?? "download_failed";
     }
 
-    const reported = extractReportedAmount(input.text ?? "") ?? remaining;
+    const verdict = compareReceipt(read, remaining);
+    const reported = (read && verdict !== "not_a_receipt" ? read.amount : null) ?? extractReportedAmount(input.text ?? "") ?? remaining;
     await upsertContext(sb, participant, expense, {
       last_intent: "receipt_sent",
       awaiting_receipt: false,
@@ -237,19 +242,32 @@ export async function handleParticipantInbound(
         storage_path: out.storage_path,
         media_error: out.media_error,
         inbound_message_id: input.inboundMessageId ?? null,
+        receipt_read: read ? { ...read, verdict } : null,
       },
     });
+
+    // A imagem não parece um comprovante: guarda, mas não move o estado nem incomoda o organizador.
+    if (out.receipt_stored && verdict === "not_a_receipt") {
+      out.reply = `Recebi a imagem, ${firstName}, mas não consegui ver nela um comprovante de pagamento. Se era o comprovante, me manda de novo (print do Pix ou PDF do banco). Se pagou e não tem o arquivo, é só me dizer "já paguei".`;
+      return out;
+    }
 
     if (out.receipt_stored) {
       await sb.from("shared_expense_participants")
         .update({ status: "awaiting_owner_confirmation", updated_at: new Date().toISOString() })
         .eq("id", participant.id);
       out.status_changed = "awaiting_owner_confirmation";
+      const readLine = read ? describeReceipt(read) : "";
+      const differs = verdict === "amount_differs" && read?.amount != null;
       out.owner_notified = await notifyOwner(
         sb, expense, participant,
-        `${firstName} enviou um comprovante de ${BRL.format(reported)} em “${expense.title}”. Confirme ou recuse a baixa no app.`,
+        read && readLine
+          ? `${firstName} enviou um comprovante de “${expense.title}”. Li: ${readLine}.${differs ? ` Atenção: a parte em aberto é ${BRL.format(remaining)} — valor diferente, confira antes de dar baixa.` : ""}`
+          : `${firstName} enviou um comprovante de ${BRL.format(reported)} em “${expense.title}”. Confirme ou recuse a baixa no app.`,
       );
-      out.reply = `Recebi seu comprovante, ${firstName} 💛 Guardei junto do rolê “${expense.title}” e avisei quem organizou para confirmar a baixa de ${BRL.format(reported)}. Assim que confirmarem, eu te aviso.`;
+      out.reply = read && readLine
+        ? `Recebi seu comprovante, ${firstName} 💛 Li: ${readLine}. ${differs ? `Só reparei que sua parte em aberto em “${expense.title}” é ${BRL.format(remaining)} — avisei quem organizou para conferir a diferença.` : `Guardei junto do rolê “${expense.title}” e avisei quem organizou para confirmar a baixa.`} Assim que confirmarem, eu te aviso.`
+        : `Recebi seu comprovante, ${firstName} 💛 Guardei junto do rolê “${expense.title}” e avisei quem organizou para confirmar a baixa de ${BRL.format(reported)}. Assim que confirmarem, eu te aviso.`;
       return out;
     }
 
