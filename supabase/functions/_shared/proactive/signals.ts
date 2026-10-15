@@ -296,7 +296,7 @@ export function collectFinancialSignals(ctx: MultiFinanceProactiveContext): Fina
       days_until: obligation.days_until,
       confidence: 0.95,
       actionable: true,
-      route: "/app/mais/dividas",
+      route: "/app/dividas",
       evidence: {
         source: obligation.canonical_source,
         canonical_source: obligation.canonical_source,

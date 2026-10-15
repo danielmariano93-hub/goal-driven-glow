@@ -226,7 +226,7 @@ function stageCopy(step: NinoDecisionStep, situation: NinoDecisionSituation | nu
       recommendation: "Meu conselho: vamos acertar isso primeiro. Depois eu volto com o próximo passo.",
       amountCaption: "",
       tone: "risk",
-      primary: { kind: "link", label: "Resolver isso", route: safeRoute(step.route) ?? "/app/alertas" },
+      primary: { kind: "link", label: "Resolver isso", route: safeRoute(step.route) ?? "/app/nino" },
       secondary: null,
       compact: {
         headline: "Tem um número que não fecha",

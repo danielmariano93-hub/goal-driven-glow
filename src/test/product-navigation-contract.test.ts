@@ -24,7 +24,7 @@ function appRoutes(): string[] {
   const paths = new Set<string>(["/app"]);
   for (const match of block.matchAll(/<Route path="([^"]+)"/g)) {
     const raw = match[1];
-    if (raw.startsWith("/")) continue; // rotas de outro escopo
+    if (raw.startsWith("/") || raw === "*") continue; // outro escopo / catch-all de links antigos
     paths.add(`/app/${raw}`);
   }
   return [...paths];

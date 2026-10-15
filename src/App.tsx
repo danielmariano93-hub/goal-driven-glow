@@ -19,6 +19,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import OAuthConsent from "./pages/auth/OAuthConsent";
 import NotFound from "./pages/NotFound";
+import AppRouteFallback from "./pages/AppRouteFallback";
 import { NativeRuntime } from "@/components/native/NativeRuntime";
 import { NativeLockGate } from "@/components/native/NativeLockGate";
 import { PrivacyScreen } from "@/components/native/PrivacyScreen";
@@ -198,6 +199,7 @@ const App = () => (
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
                 <Route path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />} />
                 <Route path="antecipacoes/detalhe" element={<Antecipacoes />} />
+                <Route path="*" element={<AppRouteFallback />} />
 
               </Route>
 

@@ -257,7 +257,7 @@ export async function computeNextBestAction(
         title: "Resolver as divergências antes de decidir",
         detail:
           "Há sinal de conciliação pendente ou confiança insuficiente na ponte de caixa. O Nino não vai transformar um número duvidoso em recomendação de patrimônio.",
-        route: "/app/alertas",
+        route: "/app/nino",
         amount: null,
         amount_role: null,
         required_amount: null,
