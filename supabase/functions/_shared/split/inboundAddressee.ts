@@ -24,8 +24,11 @@ export type AddresseeReading = {
 export type AddresseeContext = {
   text: string;
   split: { title: string; pending_amount: number; due_date: string | null };
-  /** O que o Nino mandou por último sobre o rolê (tipo e há quantas horas). */
-  recent_bot: Array<{ kind: string; hours_ago: number }>;
+  /**
+   * O que o Nino mandou por último, de QUALQUER assunto (mais recente primeiro). Respostas curtas quase sempre
+   * se referem à mensagem imediatamente anterior; mostrar só a cobrança faria tudo parecer sobre ela.
+   */
+  conversation: Array<{ kind: string; minutes_ago: number; text: string; about_split: boolean }>;
 };
 
 export type AddresseeReader = (ctx: AddresseeContext) => Promise<AddresseeReading>;
@@ -41,7 +44,8 @@ const TOOL = {
         enum: ["split_charge", "own_finance", "unclear"],
         description:
           "split_charge: fala da cobrança/divisão do rolê (quanto deve, vencimento, Pix, já paguei, comprovante dessa dívida, parar de cobrar). " +
-          "own_finance: é sobre as finanças da própria pessoa no app (registrar gasto ou receita, saldo, metas, relatórios, qualquer pedido ao assistente). " +
+          "own_finance: é sobre qualquer outro assunto com o assistente: finanças da própria pessoa (registrar gasto ou receita, saldo, metas, relatórios), " +
+          "ou uma pergunta/reação a OUTRA mensagem que o assistente acabou de mandar (um aviso, um registro, uma sugestão). " +
           "unclear: pode ser qualquer um dos dois e errar custa caro.",
       },
       confidence: { type: "number", description: "0 a 1." },
@@ -58,6 +62,8 @@ function systemPrompt(): string {
     "A pessoa também deve uma parte de um rolê (despesa dividida), e o assistente cobrou isso recentemente.",
     "Sua única tarefa: dizer a quem a mensagem se dirige, via emit_inbound_addressee.",
     "Regras de leitura:",
+    "- A mensagem mais recente do assistente é o assunto mais provável de uma resposta ou pergunta curta. Se ela NÃO é sobre o rolê, a resposta provavelmente também não é.",
+    "- A cobrança do rolê só é o assunto quando a mensagem fala dela (dívida, parcela, vencimento, Pix, pagamento) ou responde a uma mensagem sobre ela.",
     "- Se a pessoa descreve um gasto ou receita dela (valor, estabelecimento, data, conta ou cartão, mesmo em formato de formulário ou atalho do celular), é own_finance.",
     "- Se ela pede algo ao assistente (saldo, relatório, meta, categoria), é own_finance.",
     "- Se ela fala da dívida do rolê (quanto falta, quando vence, chave Pix, já paguei, comprovante, 'para de cobrar'), é split_charge.",
@@ -68,13 +74,13 @@ function systemPrompt(): string {
 }
 
 function userPrompt(ctx: AddresseeContext): string {
-  const recent = ctx.recent_bot.length
-    ? ctx.recent_bot.map((r) => `- ${r.kind}, há ${r.hours_ago}h`).join("\n")
+  const conv = ctx.conversation.length
+    ? ctx.conversation.map((m, i) => `${i === 0 ? "(mais recente) " : ""}há ${m.minutes_ago} min — ${m.about_split ? "SOBRE O ROLÊ" : "outro assunto"} [${m.kind}]: ${m.text}`).join("\n")
     : "- nenhuma";
   return [
     `Rolê em aberto: "${ctx.split.title}", parte pendente da pessoa R$ ${ctx.split.pending_amount.toFixed(2)}${ctx.split.due_date ? `, vencimento ${ctx.split.due_date}` : ""}.`,
-    `Mensagens recentes do assistente sobre o rolê:\n${recent}`,
-    `Mensagem da pessoa:\n"""\n${String(ctx.text ?? "").slice(0, 800)}\n"""`,
+    `Últimas mensagens do assistente para a pessoa:\n${conv}`,
+    `Mensagem da pessoa agora:\n"""\n${String(ctx.text ?? "").slice(0, 800)}\n"""`,
     "Emita somente emit_inbound_addressee.",
   ].join("\n\n");
 }

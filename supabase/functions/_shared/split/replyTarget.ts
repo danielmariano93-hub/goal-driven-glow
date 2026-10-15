@@ -11,7 +11,7 @@ import type { AddresseeReader, AddresseeReading } from "./inboundAddressee.ts";
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const norm = (t: string) => t.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
 
-export type RecentOutbound = { kind: string; created_at: string; context_type?: string | null };
+export type RecentOutbound = { kind: string; created_at: string; context_type?: string | null; body?: string | null };
 
 const SPLIT_KIND = /^split_(overdue|due_today|due_soon|reminder|invite|support)$|^split_clarification$/;
 const HOURS = 3_600_000;
@@ -100,7 +100,16 @@ export async function decideSplitReply(args: {
   const reading = await args.readAddressee({
     text: args.text ?? "",
     split: { title: args.title, pending_amount: args.amount, due_date: args.dueDate ?? null },
-    recent_bot: recentSplit.slice(0, 4).map((r) => ({ kind: r.kind, hours_ago: Math.round(age(r) / HOURS) })),
+    conversation: [...args.recent]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .filter((r) => age(r) <= 24 * HOURS)
+      .slice(0, 4)
+      .map((r) => ({
+        kind: r.kind,
+        minutes_ago: Math.max(0, Math.round(age(r) / 60_000)),
+        text: String(r.body ?? "").replace(/\s+/g, " ").trim().slice(0, 180),
+        about_split: isSplitKind(r.kind),
+      })),
   });
 
   if (reading.source !== "llm") return { action: "pass", reason: "understanding_unavailable", evidence: ev("normal", "understanding_unavailable", reading) };

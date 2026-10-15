@@ -669,7 +669,7 @@ Deno.serve(async (req) => {
       if (openExpense) {
         const since = new Date(Date.now() - 72 * 3_600_000).toISOString();
         const [{ data: recentRows }, quotedRow] = await Promise.all([
-          sb.from("outbound_messages").select("kind,created_at,context_type")
+          sb.from("outbound_messages").select("kind,created_at,context_type,body")
             .eq("to_phone", evt.from_phone).gte("created_at", since)
             .order("created_at", { ascending: false }).limit(12),
           evt.quoted?.message_id
@@ -685,7 +685,7 @@ Deno.serve(async (req) => {
           text: evt.body,
           hasMedia: !!(evt.media && shouldFallbackForMedia(evt.media)),
           quotedKind: ((quotedRow as any)?.data?.kind as string | undefined) ?? null,
-          recent: (recentRows ?? []) as Array<{ kind: string; created_at: string; context_type?: string | null }>,
+          recent: (recentRows ?? []) as Array<{ kind: string; created_at: string; context_type?: string | null; body?: string | null }>,
           firstName,
           title: String(openExpense.title ?? "rolê"),
           amount,
