@@ -13,6 +13,27 @@ const ind = (over: Partial<MapaIndicator> & Pick<MapaIndicator, "id" | "pillar">
   evidence: ["ledger"], inputs: {}, reasons: [], formula_version: "t.v1", ...over,
 });
 
+describe("textos do Mapa: correções do uso real", () => {
+  it("cobertura mostra no máximo 100% e diz quanto sobra", () => {
+    const t = indicatorText(ind({ id: "equilibrio.cobertura_mes_com_estimativa", pillar: "equilibrio", value: 1, inputs: { dinheiro_hoje: 1378, entradas: 7800, obrigacoes: 5142, fatura: 3222, folga: 4036 } }));
+    expect(t.value).toBe("100% cobertas");
+    expect(t.explain).toMatch(/ainda sobram R\$\s?4\.036/);
+  });
+  it("resultado negativo explica quanto das entradas foi empréstimo, resgate e outras", () => {
+    const t = indicatorText(ind({ id: "equilibrio.resultado_3m", pillar: "equilibrio", value: -15723, unit: "brl", inputs: { renda_3m: 40603, consumo_3m: 56326, entrada_emprestimo_3m: 12359, entrada_resgate_3m: 9090, entrada_outras_3m: 8000 } }));
+    expect(t.explain).toMatch(/12\.359 de empréstimo \(\d+%\)/);
+    expect(t.explain).toMatch(/9\.090 de resgate de investimento \(\d+%\)/);
+    expect(t.explain).toMatch(/outras entradas/);
+  });
+  it("patrimônio líquido mostra o que tem e o que deve", () => {
+    const t = indicatorText(ind({ id: "futuro.patrimonio_liquido", pillar: "futuro", value: -60915, unit: "brl", inputs: { conta: 1378, investimentos: 4029, dividas_total: 66322, fatura_cartao: 3222, outras_dividas: 63099 } }));
+    expect(t.explain).toMatch(/1\.378 em conta/);
+    expect(t.explain).toMatch(/4\.029 em investimentos/);
+    expect(t.explain).toMatch(/deve R\$\s?66\.322/);
+    expect(t.explain).toMatch(/63\.099 em dívidas e empréstimos/);
+  });
+});
+
 describe("textos do Mapa", () => {
   it("usa unidade natural e nunca fala em nota", () => {
     const all: MapaIndicator[] = [

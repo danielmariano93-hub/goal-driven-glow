@@ -39,7 +39,7 @@ export function buildMapaReading(input: BuildMapaInput): MapaReading {
   const h: MapaHealthInputs = { ...EMPTY_HEALTH_INPUTS, ...(input.health ?? {}) };
   const hb: MapaHabitInputs = { ...EMPTY_HABIT_INPUTS, ...(input.habits ?? {}) };
 
-  const equilibrio = computeEquilibrio({ asOf: input.asOf, months, dq, income, snapshot: h.snapshot });
+  const equilibrio = computeEquilibrio({ asOf: input.asOf, months, dq, income, snapshot: h.snapshot, excludedInflows: h.excludedInflows });
   const { indicators: seguranca, essential } = computeSeguranca({ asOf: input.asOf, months, entries: input.entries, dq, income, snapshot: h.snapshot, categoryEssential: h.categoryEssential, debts: h.debts, investments: h.investments });
   const dividas = computeDividas({ asOf: input.asOf, dq, income, debts: h.debts, overdue: h.debtOverdue, snapshot: h.snapshot, principalPaid90: h.debtPrincipalPaid90 });
   const futuro = computeFuturo({ asOf: input.asOf, dq, income, snapshot: h.snapshot, savingsGoals: h.savingsGoals, redemptions90: h.redemptions90, debtPayments90: h.debtPayments90 });

@@ -21,6 +21,8 @@ export async function mapaAccess(sb: any, userId: string): Promise<boolean> {
   return data?.enabled === true;
 }
 
+/** Nome do lançamento que indica crédito tomado (ex.: "Crédito consignado"). Só rotula; o valor já está fora da renda. */
+const LOAN_NAME = /consignado|empr[eé]stimo|cr[eé]dito pessoal|financiamento/i;
 const num = (v: unknown): number => {
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;
@@ -37,7 +39,7 @@ async function safe<T>(label: string, fallback: T, run: () => Promise<T>): Promi
 
 export async function loadHealthInputs(sb: any, userId: string, today: string): Promise<MapaHealthInputs> {
   const since = shiftDays(today, -90);
-  const [snapshot, flags, debtRows, payments, investments, goals, contributions, movements, debtTx] = await Promise.all([
+  const [snapshot, flags, debtRows, payments, investments, goals, contributions, movements, debtTx, inflowRows] = await Promise.all([
     safe("snapshot", null, async () => {
       const { data } = await sb.from("financial_current_snapshots").select("payload").eq("user_id", userId).order("computed_at", { ascending: false, nullsFirst: false }).limit(1).maybeSingle();
       return snapshotInputFromPayload(data?.payload);
@@ -59,6 +61,13 @@ export async function loadHealthInputs(sb: any, userId: string, today: string): 
         .in("movement_kind", ["debt_payment", "loan_payment"]).gte("occurred_at", `${since}T00:00:00`)
         .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b),
       { source: "mapa_debt_payments" })),
+    // Entradas que não contam como renda, nos meses do resultado (até ~4 meses): resgate, empréstimo e outras entradas de fora.
+    safe("excluded_inflows", [] as any[], async () => fetchAllPages<any>((a, b) =>
+      sb.from("transactions").select("id,amount,occurred_at,movement_kind,description,friendly_description")
+        .eq("user_id", userId).eq("status", "confirmed").eq("type", "income").is("superseded_by", null)
+        .in("movement_kind", ["investment_redemption", "external_transfer_in"]).gte("occurred_at", `${shiftDays(today, -130)}T00:00:00`)
+        .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b),
+      { source: "mapa_excluded_inflows" })),
   ]);
 
   const activeDebts = (debtRows as any[]).filter((d) => String(d.status ?? "active") === "active");
@@ -95,6 +104,10 @@ export async function loadHealthInputs(sb: any, userId: string, today: string): 
       const rows = (payments as any[]).filter((p) => String(p.paid_at).slice(0, 10) >= since);
       return rows.length ? rows.reduce((a, p) => a + num(p.amount_applied ?? p.amount), 0) : (debtRows as any[]).length ? 0 : null;
     })(),
+    excludedInflows: (inflowRows as any[]).map((t) => ({
+      date: String(t.occurred_at).slice(0, 10), amount: num(t.amount),
+      kind: t.movement_kind === "investment_redemption" ? "resgate" as const : LOAN_NAME.test(`${t.description ?? ""} ${t.friendly_description ?? ""}`) ? "emprestimo" as const : "outras" as const,
+    })),
     redemptions90: (movements as any[]).map((m) => ({ date: String(m.occurred_at).slice(0, 10), amount: num(m.amount) })),
     debtPayments90: (debtTx as any[]).map((t) => ({ date: String(t.occurred_at).slice(0, 10), amount: num(t.amount) })),
   };

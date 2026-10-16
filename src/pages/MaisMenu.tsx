@@ -118,7 +118,7 @@ export default function MaisMenu() {
         </div>
       )}
 
-      {highlights.length > 0 && (
+      {!isLoading && highlights.length > 0 && (
         <section aria-label="Em destaque">
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card">
             {highlights.map((item) => {
@@ -145,7 +145,8 @@ export default function MaisMenu() {
         </section>
       )}
 
-      {groups.map((group) => (
+      {/* Só mostra a lista depois que o contexto chega: antes ela aparecia com nomes/ordem "genéricos" e depois pulava para os destaques. */}
+      {!isLoading && groups.map((group) => (
         <MoreGroup key={group.title} title={group.title} items={group.items} onGo={navigate} />
       ))}
 

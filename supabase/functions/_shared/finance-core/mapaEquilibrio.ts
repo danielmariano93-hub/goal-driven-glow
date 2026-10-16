@@ -3,12 +3,11 @@
 // E2 — Equilíbrio financeiro (saúde). Resultado e capacidade de honrar obrigações. Só meses fechados para razões.
 import type { DataQuality, IncomeBaseline, MapaIndicator, MapaStatus } from "./mapaContracts.ts";
 import { closedWindow, ledgerConfidence, noData, percent, pointWindow, reading, MAPA_ENGINE_VERSION, type IndicatorSpec } from "./mapaIndicator.ts";
-import type { MapaSnapshotInput } from "./mapaInputs.ts";
+import type { MapaExcludedInflow, MapaSnapshotInput } from "./mapaInputs.ts";
 import { lastClosedActiveMonths, type MapaMonthAgg } from "./mapaMonthly.ts";
 import { COVERAGE_CRITICAL, COVERAGE_OK, SAVINGS_OK_PCT } from "./mapaThresholds.ts";
 
 export const EQUILIBRIO_FORMULA = "mapa_equilibrio.v1";
-const COVERAGE_CAP = 10;
 
 export interface EquilibrioInput {
   asOf: string;
@@ -16,6 +15,7 @@ export interface EquilibrioInput {
   dq: DataQuality;
   income: IncomeBaseline;
   snapshot: MapaSnapshotInput | null;
+  excludedInflows?: MapaExcludedInflow[];
 }
 
 const base = (id: string, unit: IndicatorSpec["unit"], direction: IndicatorSpec["direction"], window: IndicatorSpec["window"], evidence: IndicatorSpec["evidence"]): IndicatorSpec =>
@@ -36,6 +36,14 @@ const stdev = (v: number[]) => {
   const m = v.reduce((a, b) => a + b, 0) / v.length;
   return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1));
 };
+
+/** Entradas dos mesmos 3 meses que ficaram de fora da renda: empréstimo, resgate e outras (Pix de terceiros, depósito). */
+function excludedTotals(list: MapaExcludedInflow[] | undefined, months: string[]): Record<string, number> {
+  if (!list) return {};
+  const set = new Set(months);
+  const sum = (kind: MapaExcludedInflow["kind"]) => Math.round(list.filter((x) => x.kind === kind && set.has(x.date.slice(0, 7))).reduce((a, x) => a + x.amount, 0) * 100) / 100;
+  return { entrada_emprestimo_3m: sum("emprestimo"), entrada_resgate_3m: sum("resgate"), entrada_outras_3m: sum("outras") };
+}
 
 export function computeEquilibrio(i: EquilibrioInput): MapaIndicator[] {
   const out: MapaIndicator[] = [];
@@ -58,7 +66,7 @@ export function computeEquilibrio(i: EquilibrioInput): MapaIndicator[] {
     const status: Exclude<MapaStatus, "sem_dados"> = total < 0 ? "critico" : pctr >= SAVINGS_OK_PCT ? "ok" : "atencao";
     out.push(reading(rSpec, {
       value: total, status, confidence: conf, reasons: irregular,
-      inputs: { renda_3m: last3.reduce((a, m) => a + m.income, 0), consumo_3m: last3.reduce((a, m) => a + m.consumption, 0), meses_negativos: results.filter((r) => r < 0).length },
+      inputs: { renda_3m: last3.reduce((a, m) => a + m.income, 0), consumo_3m: last3.reduce((a, m) => a + m.consumption, 0), meses_negativos: results.filter((r) => r < 0).length, ...excludedTotals(i.excludedInflows, last3.map((m) => m.month)) },
     }));
   }
 
@@ -81,12 +89,14 @@ export function computeEquilibrio(i: EquilibrioInput): MapaIndicator[] {
     const inflows = (snap.confirmedFutureInflows ?? 0) + (withEstimate ? snap.estimatedFixedInflows ?? 0 : 0);
     const obligations = snap.knownFutureCommitments + (snap.cardDueThisMonth ?? 0);
     const available = snap.availableToday + inflows;
-    const ratio = obligations <= 0 ? COVERAGE_CAP : Math.min(COVERAGE_CAP, available / obligations);
-    const status: Exclude<MapaStatus, "sem_dados"> = ratio >= COVERAGE_OK ? "ok" : ratio >= COVERAGE_CRITICAL ? "atencao" : "critico";
+    // Cobertura é "quanto das contas está coberto": passa de 100% não faz sentido. A folga vai à parte, em reais.
+    const raw = obligations <= 0 ? 1 : available / obligations;
+    const ratio = Math.min(1, raw);
+    const status: Exclude<MapaStatus, "sem_dados"> = raw >= COVERAGE_OK ? "ok" : raw >= COVERAGE_CRITICAL ? "atencao" : "critico";
     out.push(reading(spec, {
       value: ratio, status, confidence: i.dq.eligibility.caixa === "ok" ? (withEstimate ? "moderada" : "alta") : "moderada",
       reasons: obligations <= 0 ? ["sem_obrigacoes_no_mes"] : [],
-      inputs: { dinheiro_hoje: snap.availableToday, entradas: inflows, obrigacoes: obligations, fatura: snap.cardDueThisMonth ?? 0 },
+      inputs: { dinheiro_hoje: snap.availableToday, entradas: inflows, obrigacoes: obligations, fatura: snap.cardDueThisMonth ?? 0, folga: Math.max(0, Math.round((available - obligations) * 100) / 100) },
     }));
   }
 

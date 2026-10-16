@@ -85,7 +85,19 @@ export function indicatorText(i: MapaIndicator): IndicatorText {
     case "equilibrio.resultado_3m": {
       const inc = input(i, "renda_3m"), out = input(i, "consumo_3m");
       const facts = inc !== null && out !== null ? ` Entraram ${brl(inc)} de renda e saíram ${brl(out)}.` : "";
-      return { title: "Resultado dos últimos 3 meses", value: v === null ? "—" : sbrl(v), explain: v === null ? "" : `${v >= 0 ? `Sobrou ${brl(v)}` : `Saiu ${brl(-v)} a mais do que entrou`} nos 3 últimos meses fechados.${facts} Empréstimos, resgates e transferências não contam como renda.` };
+      const loan = input(i, "entrada_emprestimo_3m"), redeem = input(i, "entrada_resgate_3m"), other = input(i, "entrada_outras_3m");
+      const extra = (loan ?? 0) + (redeem ?? 0) + (other ?? 0);
+      let excluded = " Empréstimos, resgates e transferências não contam como renda.";
+      if (loan !== null && redeem !== null && other !== null) {
+        if (extra < 1) excluded = " Não entrou empréstimo nem resgate nesse período.";
+        else {
+          const all = (inc ?? 0) + extra;
+          const share = (x: number) => `${nf((x / all) * 100)}%`;
+          const parts = [loan >= 1 ? `${brl(loan)} de empréstimo (${share(loan)})` : "", redeem >= 1 ? `${brl(redeem)} de resgate de investimento (${share(redeem)})` : "", other >= 1 ? `${brl(other)} de outras entradas, como Pix recebido e depósito (${share(other)})` : ""].filter(Boolean);
+          excluded = ` Além da renda, entraram ${brl(extra)} que não contei como renda: ${parts.join("; ")}. As porcentagens são sobre tudo que entrou (${brl(all)}). Esse dinheiro não é ganho do período: empréstimo vira dívida e resgate vem de um dinheiro que você já tinha.`;
+        }
+      }
+      return { title: "Resultado dos últimos 3 meses", value: v === null ? "—" : sbrl(v), explain: v === null ? "" : `${v >= 0 ? `Sobrou ${brl(v)}` : `Saiu ${brl(-v)} a mais do que entrou`} nos 3 últimos meses fechados.${facts}${excluded}` };
     }
     case "equilibrio.taxa_poupanca_3m":
       return { title: "Quanto da renda sobrou", value: v === null ? "—" : `${nf(v, 1)}%`, explain: v === null ? "" : v >= 0 ? `De cada R$ 100 que entraram, sobraram R$ ${nf(v, 0)}.` : `De cada R$ 100 que entraram, faltaram R$ ${nf(-v, 0)}.` };
@@ -95,9 +107,9 @@ export function indicatorText(i: MapaIndicator): IndicatorText {
       const cash = input(i, "dinheiro_hoje"), obl = input(i, "obrigacoes"), inflow = input(i, "entradas") ?? 0, card = input(i, "fatura");
       const missing = cash !== null && obl !== null ? Math.max(0, obl - cash - inflow) : null;
       const detail = cash !== null && obl !== null
-        ? `Hoje você tem ${brl(cash)}${inflow > 0 ? ` e conto com mais ${brl(inflow)}${withEst ? " de renda esperada (é estimativa, não dinheiro garantido)" : " de entradas já confirmadas"}` : ""}. Até o fim do mês vencem ${brl(obl)}${card ? `, sendo ${brl(card)} de fatura de cartão` : ""}.${missing ? ` Faltam ${brl(missing)}.` : " Dá para cobrir."}`
+        ? `Hoje você tem ${brl(cash)}${inflow > 0 ? ` e conto com mais ${brl(inflow)}${withEst ? " de renda esperada (é estimativa, não dinheiro garantido)" : " de entradas já confirmadas"}` : ""}. Até o fim do mês vencem ${brl(obl)}${card ? `, sendo ${brl(card)} de fatura de cartão` : ""}.${missing ? ` Faltam ${brl(missing)}.` : ` Dá para cobrir${(input(i, "folga") ?? 0) >= 1 ? ` e ainda sobram ${brl(input(i, "folga") as number)}` : ""}.`}`
         : "";
-      return { title: withEst ? "Contas do mês, contando a renda esperada" : "Contas do mês que o dinheiro de hoje cobre", value: v === null ? "—" : v >= 10 ? "Sobra bastante" : `${nf(v * 100)}% cobertas`, explain: detail };
+      return { title: withEst ? "Contas do mês, contando a renda esperada" : "Contas do mês que o dinheiro de hoje cobre", value: v === null ? "—" : `${nf(Math.min(1, v) * 100)}% cobertas`, explain: detail };
     }
     case "equilibrio.tendencia": {
       // Só mostro número quando a variação é maior que o "ruído" normal dos seus meses; senão, o número enganaria.
@@ -130,7 +142,11 @@ export function indicatorText(i: MapaIndicator): IndicatorText {
     case "dividas.perfil_custo_alto":
       return { title: "Dívida de custo alto", value: v === null ? "—" : `${nf(v)}% do que você deve`, explain: "Parte do saldo em cartão rotativo, cheque especial ou dívida informal, que costumam ter juros mais altos." };
     case "futuro.patrimonio_liquido":
-      return { title: "Patrimônio líquido", value: v === null ? "—" : brl(v), explain: "O que você tem (conta e investimentos) menos o que você deve." };
+      const cashA = input(i, "conta"), inv = input(i, "investimentos"), owed = input(i, "dividas_total"), card = input(i, "fatura_cartao"), oth = input(i, "outras_dividas");
+      const comp = cashA !== null && inv !== null && owed !== null
+        ? ` Você tem ${brl(cashA + inv)} (${brl(cashA)} em conta e ${brl(inv)} em investimentos) e deve ${brl(owed)}${card !== null && oth !== null ? `, sendo ${brl(oth)} em dívidas e empréstimos e ${brl(card)} em fatura de cartão` : ""}.`
+        : "";
+      return { title: "Patrimônio líquido", value: v === null ? "—" : brl(v), explain: `O que você tem (conta e investimentos) menos o que você deve.${comp}` };
     case "futuro.variacao_mes": {
       const op = input(i, "resultado_operacional"), unexplained = input(i, "sem_explicacao"), yieldV = input(i, "rendimento");
       const parts: string[] = [];

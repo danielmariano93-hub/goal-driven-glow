@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, Compass } from "lucide-react";
 import { useLatestWellbeing, useMapaEnabled, useMapaReading } from "@/lib/mapa/client";
@@ -128,6 +128,12 @@ export function MapaEntender({ bemEstar }: { bemEstar?: ReactNode } = {}) {
   const wellbeing = useLatestWellbeing(enabled);
   const data = payload?.mapa;
   const [opened, setOpened] = useState<CaptureKind | null>(null);
+  // O cartão de captura fica abaixo dos pilares: leva a pessoa até ele, senão o toque parece não fazer nada.
+  useEffect(() => {
+    if (!opened) return;
+    const t = window.setTimeout(() => document.getElementById("mapa-captura")?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 50);
+    return () => window.clearTimeout(t);
+  }, [opened]);
   if (!enabled) return null;
   const by = (pillar: MapaPillarId) => (data?.indicators ?? []).filter((i) => i.pillar === pillar);
   return (
@@ -140,7 +146,7 @@ export function MapaEntender({ bemEstar }: { bemEstar?: ReactNode } = {}) {
       {data ? (
         <>
           {SAUDE.map((p) => <Pillar key={p} id={p} indicators={by(p)} onNeed={setOpened} />)}
-          <QuestionSlot reading={data} opened={opened} onClose={() => setOpened(null)} />
+          <div id="mapa-captura" className="scroll-mt-20"><QuestionSlot reading={data} opened={opened} onClose={() => setOpened(null)} /></div>
           <Heading hint="O que você faz com o dinheiro no dia a dia. Medidas em teste vêm avisadas.">Hábitos</Heading>
           {HABITOS.map((p) => <Pillar key={p} id={p} indicators={by(p)} onNeed={setOpened} />)}
           {bemEstar ? <div id="pilar-bem_estar" className="scroll-mt-20 space-y-3"><Heading hint="Como você se sente com o seu dinheiro. É a sua percepção, medida a cada 15 dias.">Bem-estar percebido</Heading>{bemEstar}</div> : null}

@@ -54,7 +54,7 @@ export function computeFuturo(i: FuturoInput): MapaIndicator[] {
 
   const pSpec = spec("futuro.patrimonio_liquido", "brl", i.asOf, ["balance", "derived"]);
   if (!snap || snap.netWorthNet === null) out.push(noData(pSpec, { reasons: ["sem_snapshot_financeiro"], needs: { kind: "connect", code: "snapshot" } }));
-  else out.push(reading(pSpec, { value: snap.netWorthNet, status: snap.netWorthNet >= 0 ? "ok" : "atencao", confidence: i.dq.eligibility.caixa === "ok" ? "alta" : "moderada", inputs: { patrimonio_liquido: round(snap.netWorthNet) } }));
+  else out.push(reading(pSpec, { value: snap.netWorthNet, status: snap.netWorthNet >= 0 ? "ok" : "atencao", confidence: i.dq.eligibility.caixa === "ok" ? "alta" : "moderada", inputs: { patrimonio_liquido: round(snap.netWorthNet), conta: snap.cashAsset ?? null, investimentos: snap.investedNow ?? null, dividas_total: snap.owedTotal ?? null, fatura_cartao: snap.cardsOwed ?? null, outras_dividas: snap.otherDebts ?? null } }));
 
   const vSpec = spec("futuro.variacao_mes", "brl", i.asOf, ["derived"]);
   const b = snap?.bridge;
