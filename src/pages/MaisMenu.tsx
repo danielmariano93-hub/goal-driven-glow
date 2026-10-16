@@ -15,7 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { markNinoSeen, useMoreMenuContext } from "@/lib/nino/intelligence";
 import { moreGroups } from "@/lib/navigation/appNavigationRegistry";
 
-type Item = { path: string; label: string; desc: string; icon: any; badge?: string | null };
+type Item = { path: string; label: string; desc: string; icon: any; badge?: string | null; tone?: "attention" | "neutral" };
 
 /** Destaque: linha enxuta com o estado do assunto (só aparece quando há algo a dizer). */
 type Highlight = Item & { tone?: "attention" | "neutral" };
@@ -99,11 +99,19 @@ export default function MaisMenu() {
     });
   }
 
-  // Cada assunto aparece uma vez: o que já está em destaque não se repete na grade.
-  const highlighted = new Set(highlights.map((h) => h.path));
-  const groups = registryGroups
-    .map((group) => ({ ...group, items: group.items.filter((item) => !highlighted.has(item.path)) }))
-    .filter((group) => group.items.length > 0);
+  // A lista de atalhos é estática e aparece na hora. O estado vivo (não lidos, em aberto…) entra DENTRO da própria linha
+  // quando o contexto chega — sem esconder a lista, sem reordenar e sem pular. Só o que não tem linha na lista
+  // (ex.: Nino, lançamentos sem categoria) vira "Em destaque", e só aparece quando há algo a dizer.
+  const inGrid = new Set(registryGroups.flatMap((group) => group.items.map((item) => item.path)));
+  const live = new Map<string, Highlight>(highlights.filter((h) => inGrid.has(h.path)).map((h) => [h.path, h]));
+  const extras = highlights.filter((h) => !inGrid.has(h.path));
+  const groups = registryGroups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      const hit = live.get(item.path);
+      return hit ? { ...item, desc: hit.desc, tone: hit.tone } : item;
+    }),
+  }));
 
   return (
     <div className="space-y-5 pt-2 pb-8">
@@ -118,10 +126,10 @@ export default function MaisMenu() {
         </div>
       )}
 
-      {!isLoading && highlights.length > 0 && (
+      {extras.length > 0 && (
         <section aria-label="Em destaque">
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-card">
-            {highlights.map((item) => {
+            {extras.map((item) => {
               const Icon = item.icon;
               return (
                 <button
@@ -145,8 +153,7 @@ export default function MaisMenu() {
         </section>
       )}
 
-      {/* Só mostra a lista depois que o contexto chega: antes ela aparecia com nomes/ordem "genéricos" e depois pulava para os destaques. */}
-      {!isLoading && groups.map((group) => (
+      {groups.map((group) => (
         <MoreGroup key={group.title} title={group.title} items={group.items} onGo={navigate} />
       ))}
 
@@ -194,7 +201,7 @@ function MoreGroup({
               <Icon size={17} className="shrink-0 text-primary" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{it.label}</span>
-                {it.desc ? <span className="block truncate text-[11px] text-muted-foreground">{it.desc}</span> : null}
+                {it.desc ? <span className={`block truncate text-[11px] ${it.tone === "attention" ? "font-medium text-warning" : "text-muted-foreground"}`}>{it.desc}</span> : null}
               </span>
               <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
             </button>
