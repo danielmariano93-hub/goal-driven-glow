@@ -1,10 +1,25 @@
-# Mapa Financeiro — especificação técnica (v0.1, para aprovação)
+# Mapa Financeiro — especificação técnica (v0.2)
 
 Escrita em 16/10/2026. Nada aqui foi implementado. Este documento é o refinamento antes da construção: auditoria do que existe, decisões, contratos de cada motor, fontes de dados, fórmulas, camada de IA, plano de entrega e testes.
 
 Convenções: **[verificado]** = conferido no código ou no banco da conta do dono nesta sessão. **[derivado]** = calculado por mim a partir de fonte citada. **[provisório]** = regra de produto sem base científica, precisa de calibração. **[decisão]** = definido pelo dono do produto.
 
 ---
+
+## Status de execução (atualizado em 16/10/2026)
+
+| Fase | Status | Onde |
+|---|---|---|
+| 0 — Correções imediatas (P-01, P-02, P-03, P-13) | **Feita e em produção** | PR #268 |
+| Nome da aba "Mapa Financeiro" (D1) | **Feito e em produção** (rota `/app/mapa`; `/app/emocoes` redireciona) | PR #269 |
+| 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Em revisão** | PR da fase 1 |
+| 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | Pendente | próximo |
+| 3 — Hábitos (E6 a E8, agendador E13) | Pendente | depois da 2 |
+| 4 — Evolução, recomendação e IA (E10 a E12) | Pendente | depois da 3 |
+| 5 — Troca do conteúdo da aba e remoção do legado | Pendente | depois da 4 |
+| 6 — Validação com pessoas | Pendente | contínuo |
+
+Decisões de produto registradas em 16/10/2026: nome Mapa Financeiro (feito); flag única `mapa_access` por ora, só a conta do dono; captura guiada de taxa/tipo de dívida, liquidez dos investimentos e flag de essencial aprovada; pergunta mensal de estimativa de gasto aprovada (exploratória); piloto só na conta do dono; CFPB mantido em 15 dias.
 
 ## 0. Decisões fechadas
 

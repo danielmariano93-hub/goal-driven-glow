@@ -60,6 +60,11 @@ export const FINANCE_CORE_MODULES = [
   "behaviorObservedV3",
   "behaviorEvolution",
   "emotionSpendPairing",
+  "mapaContracts",
+  "mapaMonthly",
+  "mapaIncomeBaseline",
+  "mapaDataQuality",
+  "mapaReading",
 ];
 
 export const REPORT_MODULES = [
