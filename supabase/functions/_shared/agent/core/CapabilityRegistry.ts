@@ -80,6 +80,7 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   // --- Emoções ---
   { key: "emotions.checkin", label: "Check-in emocional", domain: "emotions", tool: "log_emotional_checkin", writes: true, risk: "low", surfaces: ["app", "whatsapp"], says: "registrar como você está se sentindo" },
   { key: "emotions.patterns", label: "Emoção e gasto", domain: "emotions", tool: "get_emotion_finance_patterns", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "relacionar emoção e gasto" },
+  { key: "mapa.reading", label: "Mapa Financeiro", domain: "emotions", tool: "get_mapa_financeiro", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar o seu Mapa Financeiro: saúde, hábitos e o que fazer agora" },
   { key: "emotions.habits_evolution", label: "Evolução dos hábitos", domain: "emotions", tool: "get_behavior_evolution", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "dizer se seus hábitos com dinheiro melhoraram" },
 
   // --- Compartilhado ---

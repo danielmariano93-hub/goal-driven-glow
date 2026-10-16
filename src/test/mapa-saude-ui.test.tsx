@@ -235,4 +235,15 @@ describe("MapaEntender", () => {
       expect(changeText({ ...base, change: { previous: 1, delta: 0, direction: "parecido", comparable: true } })?.tone).toBe("same");
     });
   });
+
+  it("bem-estar percebido entra depois dos hábitos quando a página passa o cartão", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([ind({ id: "execucao.aderencia", pillar: "execucao", layer: "habitos", value: 80, unit: "pct", inputs: { cumpridos: 4, periodos: 5 } })]) }, error: null });
+    const { MapaEntender } = await import("@/components/mapa/MapaEntender");
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={qc}><MemoryRouter><MapaEntender bemEstar={<div>CARTAO-CFPB</div>} /></MemoryRouter></QueryClientProvider>);
+    const card = await screen.findByText("CARTAO-CFPB");
+    const habits = screen.getByText("Metas cumpridas");
+    expect(habits.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Bem-estar percebido")).toBeInTheDocument();
+  });
 });

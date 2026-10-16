@@ -15,8 +15,8 @@ Convenções: **[verificado]** = conferido no código ou no banco da conta do do
 | 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Feita e em produção** (em sombra, só conta piloto) | PR #270 |
 | 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | **Feita e em produção** (só conta piloto) | PRs #271 e #272 |
 | 3 — Hábitos (E6 a E8, agendador E13) | **Feita e em produção** (só conta piloto) | PR #273 |
-| 4 — Evolução, recomendação e IA (E10 a E12) | **Em revisão** (E10, E11, pacote de evidência, guarda, redação, ≥60 cenários, telas "Para agora" e "O que mudou"). **Fora desta fase:** conversa sobre o Mapa no app/WhatsApp (8b) e avaliação com modelo real | PR da fase 4 |
-| 5 — Troca do conteúdo da aba e remoção do legado | Pendente | depois da 4 |
+| 4 — Evolução, recomendação e IA (E10 a E12) | **Feita e em produção** (só conta piloto). Avaliação com modelo real **ainda não rodada** | PR #274 |
+| 5 — Troca do conteúdo da aba e remoção do legado | **Troca feita atrás da flag** (conta liberada vê o Mapa no lugar da roda 0–10; job semanal; conversa no app/WhatsApp; relatório de sombra). **Remoção do legado pendente** até cumprir o critério de 2 semanas (ver `mapa-financeiro-relatorio-de-sombra.md`) | PR da fase 5 |
 | 6 — Validação com pessoas | Pendente | contínuo |
 
 Decisões de produto registradas em 16/10/2026: nome Mapa Financeiro (feito); flag única `mapa_access` por ora, só a conta do dono; captura guiada de taxa/tipo de dívida, liquidez dos investimentos e flag de essencial aprovada; pergunta mensal de estimativa de gasto aprovada (exploratória); piloto só na conta do dono; CFPB mantido em 15 dias.
