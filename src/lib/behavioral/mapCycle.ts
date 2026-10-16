@@ -136,7 +136,7 @@ function safeDay(value: string): string {
   }).format(date);
 }
 
-function emptyDimension(evidence = "Ainda não há evidência suficiente."): ObservedDimension {
+function emptyDimension(evidence = "Ainda não tenho dados suficientes."): ObservedDimension {
   return { score: null, confidence: "low", evidence, source: "insufficient_data" };
 }
 
@@ -163,7 +163,7 @@ function buildObservedProfile(financialRow: FinancialRow | null, checkins: Emoti
   const checkin30 = checkins.filter((row) => Date.now() - new Date(row.occurred_at).getTime() <= 30 * 86_400_000);
 
   const awareness = categoryCoverage == null
-    ? emptyDimension("O Nino precisa de mais lançamentos confirmados para observar esta dimensão.")
+    ? emptyDimension("Preciso de mais lançamentos confirmados para avaliar este hábito.")
     : {
         score: round(clamp((categoryCoverage * 0.7 + Math.min(1, checkin30.length / 10) * 0.3) * 10)),
         confidence: confidenceBySample(confirmedTx.length, 15, 50),
@@ -276,12 +276,12 @@ function buildObservedProfile(financialRow: FinancialRow | null, checkins: Emoti
       ? clamp(5 + (debtReduction ?? 0) * 15 - (debtBurden ?? 0) * 3)
       : null;
   const debt: ObservedDimension = debtScore == null
-    ? emptyDimension("Ainda faltam dados comparáveis de dívida para observar esta dimensão.")
+    ? emptyDimension("Ainda faltam dados de dívida para avaliar este hábito.")
     : {
         score: round(debtScore),
         confidence: openingDebts > 0 ? "high" : "medium",
         evidence: closingDebts === 0
-          ? "Não há dívida financeira ativa registrada no snapshot atual."
+          ? "Não há dívida ativa registrada hoje."
           : `O saldo de dívidas está ${debtReduction != null && debtReduction > 0 ? "caindo" : "estável ou subindo"}; o Nino considera também o peso dessas dívidas sobre os ativos.`,
         source: "financial_snapshot.net_worth_bridge",
       };

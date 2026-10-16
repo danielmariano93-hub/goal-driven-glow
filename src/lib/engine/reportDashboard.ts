@@ -168,6 +168,41 @@ export interface ReportDashboard {
   projection: { expense: number; daysElapsed: number; daysInMonth: number; previousMonthExpense: number | null } | null;
   filterOptions: { categories: Array<{ id: string; name: string; total: number }> };
   coverage: { firstDate: string | null; monthsOfHistory: number; comparisonAvailable: boolean };
+  /** Dinheiro que entrou no período e NÃO é renda (resgate, empréstimo, reembolso, rendimento). Preenchido no servidor. */
+  otherInflows?: OtherInflow[];
+}
+
+export interface OtherInflow {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/** Como cada tipo de entrada fora da renda aparece para a pessoa. */
+export const OTHER_INFLOW_LABELS: Record<string, string> = {
+  investment_redemption: "Resgates de investimentos",
+  investment_yield: "Rendimentos de investimentos",
+  loan_proceeds: "Empréstimos recebidos",
+  external_transfer_in: "Transferências e Pix recebidos",
+  refund: "Reembolsos e estornos",
+};
+
+/** Agrupa as entradas que não são renda. Puro: o servidor passa as linhas já filtradas por período. */
+export function summarizeOtherInflows(rows: Array<{ movement_kind: string | null; amount: number | string; category?: string | null }>): OtherInflow[] {
+  const map = new Map<string, OtherInflow>();
+  for (const r of rows) {
+    const mk = String(r.movement_kind ?? "");
+    const amount = Number(r.amount || 0);
+    if (!OTHER_INFLOW_LABELS[mk] || !(amount > 0)) continue;
+    const label = mk === "external_transfer_in" && r.category && !/^(sem categoria|outros?)$/i.test(r.category) ? r.category : OTHER_INFLOW_LABELS[mk];
+    const key = `${mk}|${label}`;
+    const cur = map.get(key) ?? { key, label, amount: 0, count: 0 };
+    cur.amount = round2(cur.amount + amount);
+    cur.count += 1;
+    map.set(key, cur);
+  }
+  return [...map.values()].sort((a, b) => b.amount - a.amount);
 }
 
 // ---------------------------------------------------------------------------

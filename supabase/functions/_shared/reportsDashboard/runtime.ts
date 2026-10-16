@@ -2,8 +2,9 @@
 // canônico (competência, estornos, sem transferência/fatura/investimento) e
 // entrega o painel pronto. O app só desenha.
 // deno-lint-ignore-file no-explicit-any
+import { fetchAllPages } from "../derived/pagedSelect.ts";
 import { loadExecutiveInput } from "../insights/executive/load.ts";
-import { buildReportDashboard, type CompareMode, type ReportDashboard } from "../finance-core/reportDashboard.ts";
+import { buildReportDashboard, summarizeOtherInflows, type CompareMode, type ReportDashboard } from "../finance-core/reportDashboard.ts";
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 400;
@@ -40,7 +41,7 @@ export function parseDashboardParams(raw: Record<string, any>, today: string): D
 export async function loadReportDashboard(sb: any, userId: string, today: string, params: DashboardParams): Promise<ReportDashboard> {
   // 24 meses: o período escolhido (até 12 meses) e o período de comparação.
   const input = await loadExecutiveInput(sb, userId, today, 24, { includeDebtPayments: true });
-  return buildReportDashboard(input.entries, {
+  const dash = buildReportDashboard(input.entries, {
     today,
     start: params.start,
     end: params.end,
@@ -48,4 +49,23 @@ export async function loadReportDashboard(sb: any, userId: string, today: string
     categoryIds: params.categoryIds,
     merchant: params.merchant,
   });
+  // Só mostra o que entrou fora da renda quando não há filtro (filtro = só despesa).
+  if (!dash.filtered) dash.otherInflows = await loadOtherInflows(sb, userId, params.start, params.end);
+  return dash;
+}
+
+/** Entradas confirmadas do período que não contam como renda, para o "Entrou" não parecer o total. */
+async function loadOtherInflows(sb: any, userId: string, start: string, end: string) {
+  try {
+    const data = await fetchAllPages<any>((from, to) =>
+      sb.from("transactions")
+        .select("id,movement_kind,amount,categories(name)")
+        .eq("user_id", userId).eq("status", "confirmed").eq("type", "income")
+        .in("movement_kind", ["investment_redemption", "investment_yield", "loan_proceeds", "external_transfer_in", "refund"])
+        .gte("occurred_at", `${start}T00:00:00`).lte("occurred_at", `${end}T23:59:59`)
+        .order("occurred_at", { ascending: true }).order("id", { ascending: true })
+        .range(from, to),
+      { source: "report_other_inflows" });
+    return summarizeOtherInflows((data as any[]).map((r) => ({ movement_kind: r.movement_kind, amount: r.amount, category: r.categories?.name ?? null })));
+  } catch { return []; }
 }

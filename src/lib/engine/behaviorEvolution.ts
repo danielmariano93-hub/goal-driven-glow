@@ -130,7 +130,7 @@ function factorChanges(current: ObservedDimension, base: SnapshotDimension | und
 }
 
 function whyText(change: Pick<DimensionChange, "direction" | "delta" | "drivers" | "score" | "evidence">): string {
-  if (change.score == null) return "Ainda não há dados suficientes para o Nino medir esta dimensão.";
+  if (change.score == null) return "Ainda não tenho dados suficientes para avaliar este hábito.";
   if (change.direction === "new") {
     const top = change.drivers[0];
     return top
@@ -236,7 +236,7 @@ export function buildBehaviorVerdict(changes: DimensionChange[], baseline: Obser
       kind: "insufficient", ...common,
       headline: "Ainda não dá para dizer se você melhorou",
       summary: baseline
-        ? "Poucas dimensões têm dados confiáveis nos dois momentos. O Nino compara conforme o histórico cresce."
+        ? "Poucos hábitos têm dados nos dois momentos. Comparo melhor conforme o histórico cresce."
         : "A leitura de hoje foi guardada. Em cerca de uma semana o Nino já compara com ela e mostra o que mudou.",
     };
   }
@@ -453,7 +453,7 @@ export function buildHabitDiscovery(args: {
     return {
       kind: "room_to_grow",
       title: `Onde há mais espaço para evoluir: ${labelOf(weakest.key)}`,
-      body: `${weakest.obs.evidence} Uma ação pequena nessa dimensão tende a mexer mais na sua leitura do que várias ao mesmo tempo.`,
+      body: `${weakest.obs.evidence} Um passo pequeno nesse hábito costuma ajudar mais do que vários ao mesmo tempo.`,
       dimension: weakest.key, self: null, observed: weakest.obs.score,
       action: DIMENSION_ACTION[weakest.key],
     };

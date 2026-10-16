@@ -51,25 +51,18 @@ describe("exclusão de relatórios inteligentes", () => {
     expect(client).not.toMatch(/from\("financial_reports"\)[\s\S]{0,40}\.delete\(/);
   });
 
-  it("exige confirmação explícita na listagem e no detalhe", () => {
-    for (const page of ["src/pages/RelatoriosInteligentes.tsx", "src/pages/RelatorioInteligenteDetalhe.tsx"]) {
-      const body = read(page);
-      expect(body).toContain("AlertDialog");
-      expect(body).toContain("Excluir este relatório?");
-      expect(body).toContain("deleteReport");
-    }
+  it("a tela de relatórios não lista nem salva relatórios (o painel já cobre qualquer período)", () => {
+    const list = read("src/pages/RelatoriosInteligentes.tsx");
+    expect(list).not.toContain("Relatórios salvos");
+    expect(list).not.toContain("generateReportNow");
   });
 
-  it("atualiza a interface imediatamente após excluir", () => {
-    const list = read("src/pages/RelatoriosInteligentes.tsx");
-    expect(list).toContain("filter((r) => r.id !== pendingDelete.id)");
-    const detail = read("src/pages/RelatorioInteligenteDetalhe.tsx");
-    expect(detail).toContain('navigate("/app/relatorios-inteligentes")');
-  });
-
-  it("mostra erro amigável quando a exclusão falha", () => {
-    const list = read("src/pages/RelatoriosInteligentes.tsx");
-    expect(list).toContain("Não consegui excluir esse relatório agora.");
+  it("o detalhe ainda exige confirmação explícita para excluir", () => {
+    const body = read("src/pages/RelatorioInteligenteDetalhe.tsx");
+    expect(body).toContain("AlertDialog");
+    expect(body).toContain("Excluir este relatório?");
+    expect(body).toContain("deleteReport");
+    expect(body).toContain('navigate("/app/relatorios-inteligentes")');
   });
 });
 

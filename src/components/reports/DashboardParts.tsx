@@ -198,7 +198,11 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
   const dl = d.deltas;
   const cards: Array<{ label: string; value: string; delta: Delta | null; upIsGood: boolean; extra?: string; note?: string }> = [];
   if (!d.filtered) {
-    cards.push({ label: "Entrou", value: formatBRL(t.income), delta: dl?.income ?? null, upIsGood: true });
+    const other = (d.otherInflows ?? []).reduce((a, x) => a + x.amount, 0);
+    cards.push({
+      label: "Renda do período", value: formatBRL(t.income), delta: dl?.income ?? null, upIsGood: true,
+      note: other > 0 ? `Entrou também ${formatBRL(other)} que não é renda (veja abaixo)` : undefined,
+    });
   }
   cards.push({
     label: "Saiu", value: formatBRL(t.expense), delta: dl?.expense ?? null, upIsGood: false,
@@ -225,6 +229,29 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
         </div>
       ))}
     </section>
+  );
+}
+
+/** Entradas que não são renda (resgate, empréstimo, reembolso, rendimento): explica por que "Renda" não é tudo que entrou. */
+export function OtherInflowsCard({ d }: { d: ReportDashboard }) {
+  const rows = d.otherInflows ?? [];
+  if (d.filtered || !rows.length) return null;
+  const total = rows.reduce((a, r) => a + r.amount, 0);
+  return (
+    <details className="rounded-2xl border border-border bg-card px-4 py-3 print:break-inside-avoid">
+      <summary className="cursor-pointer text-sm font-semibold">Também entrou {formatBRL(total)}, mas não é renda</summary>
+      <p className="mt-2 text-[12px] leading-snug text-muted-foreground">
+        Esse dinheiro entrou na sua conta, mas não é ganho novo: resgate é dinheiro seu que voltou, empréstimo você vai pagar e reembolso devolve um gasto. Por isso não entra na renda nem na poupança.
+      </p>
+      <ul className="mt-2 divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-center justify-between gap-3 py-1.5 text-[13px]">
+            <span>{r.label}{r.count > 1 ? <span className="text-muted-foreground"> · {r.count} lançamentos</span> : null}</span>
+            <span className="font-semibold tabular-nums">{formatBRL(r.amount)}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
