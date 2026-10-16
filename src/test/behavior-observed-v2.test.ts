@@ -131,7 +131,7 @@ describe("behavior_observed.v2", () => {
 
   it("does not present a relative 5/10 high as a consolidated strength", () => {
     expect(wheel).toContain("Sua maior nota hoje");
-    expect(wheel).toContain("não um ponto forte consolidado");
+    expect(wheel).toContain("ainda não é um ponto forte");
   });
 
   it("labels heuristic hypothesis confidence as evidence strength, not probability", () => {

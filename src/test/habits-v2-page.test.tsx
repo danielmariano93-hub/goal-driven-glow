@@ -227,10 +227,10 @@ describe("hábitos v2 — página montada de verdade", () => {
     fireEvent.click(within(screen.getByLabelText("Dimensões")).getByText("Segurança").closest("button")!);
     const panel = await screen.findByLabelText(/Como o Nino chegou à leitura de Segurança/);
     const text = panel.textContent ?? "";
-    expect(text).toContain("O que observei");
-    expect(text).toContain("O que ainda não sei");
-    expect(text).toMatch(/Você se vê abaixo do que os indicadores mostram/);
-    expect(text).toMatch(/não significa que a sua percepção esteja errada/);
+    expect(text).toContain("O que eu vi");
+    expect(text).toContain("O que eu ainda não sei");
+    expect(text).toMatch(/Você se vê pior do que os números mostram/);
+    expect(text).toMatch(/não quer dizer que você esteja errado/);
     fireEvent.click(within(panel).getByText("Não"));
     fireEvent.change(within(panel).getByPlaceholderText(/contar o contexto/), { target: { value: "Tenho reserva fora do Nino" } });
     fireEvent.click(within(panel).getByText("Registrar"));

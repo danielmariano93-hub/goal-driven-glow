@@ -9,7 +9,7 @@ import { FEEDBACK_NOTE_MAX, FEEDBACK_REASONS, feedbackValidUntil, type BehaviorF
 
 const fmt = (n: number) => n.toFixed(1).replace(".", ",");
 const KIND_LABEL = { direct: "registro direto", derived: "calculado pelo Nino", declared: "informado por você" } as const;
-const CONF_LABEL = { low: "confiança baixa", medium: "confiança média", high: "confiança alta" } as const;
+const CONF_LABEL = { low: "leitura inicial", medium: "leitura razoável", high: "leitura firme" } as const;
 
 export type FeedbackAnswer = { verdict: "yes" | "partially" | "no"; reason: FeedbackReason; note: string | null };
 
@@ -55,10 +55,10 @@ export function DimensionPanel({
   const selfText = self == null
     ? "Você ainda não respondeu esta pergunta no mapa. Quando responder, as duas leituras aparecem lado a lado."
     : dimension.score == null
-      ? `Você se deu ${fmt(self)}. O Nino ainda não tem base para dar a dele, então não há comparação — e isso não diz que a sua percepção esteja errada.`
+      ? `Você se deu nota ${fmt(self)}. Ainda não tenho dados suficientes para dar a minha, então não dá para comparar. Isso não quer dizer que você esteja errado.`
       : Math.abs(gap!) < 1
-        ? `Você se deu ${fmt(self)} e o Nino observa ${fmt(dimension.score)}: as duas leituras estão próximas.`
-        : `Você se deu ${fmt(self)} e o Nino observa ${fmt(dimension.score)}. ${gap! > 0 ? "Você se vê abaixo do que os indicadores mostram" : "Você se vê acima do que os indicadores mostram"}. Isso não significa que a sua percepção esteja errada: o Nino só enxerga o que está nos registros${sources ? ` (${sources})` : ""}.`;
+        ? `Você se deu nota ${fmt(self)} e, pelos seus registros, eu daria ${fmt(dimension.score)}. As duas notas são parecidas.`
+        : `Você se deu nota ${fmt(self)} e, pelos seus registros, eu daria ${fmt(dimension.score)}. ${gap! > 0 ? "Você se vê pior do que os números mostram" : "Você se vê melhor do que os números mostram"}. Isso não quer dizer que você esteja errado: eu só enxergo o que está registrado${sources ? ` (${sources})` : ""}.`;
 
   const answer = async (verdict: "yes" | "partially" | "no") => {
     if (verdict === "yes") {
@@ -87,7 +87,7 @@ export function DimensionPanel({
 
       <div className="mt-3 space-y-3">
         <div>
-          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-success"><Check size={13} aria-hidden /> O que observei</p>
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-success"><Check size={13} aria-hidden /> O que eu vi</p>
           {record?.observed.length ? (
             <ul className="mt-1 space-y-1 text-[13px] leading-relaxed">
               {record.observed.map((line) => <li key={line}>• {line}</li>)}
@@ -96,7 +96,7 @@ export function DimensionPanel({
         </div>
 
         <div>
-          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"><HelpCircle size={13} aria-hidden /> O que ainda não sei</p>
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground"><HelpCircle size={13} aria-hidden /> O que eu ainda não sei</p>
           <ul className="mt-1 space-y-1 text-[13px] leading-relaxed text-muted-foreground">
             {record?.unavailable_reason ? <li>• {record.unavailable_reason}</li> : null}
             {record?.unknown.map((line) => <li key={line}>• {line}</li>)}
@@ -104,17 +104,17 @@ export function DimensionPanel({
         </div>
 
         <div>
-          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary"><ArrowLeftRight size={13} aria-hidden /> Como você se percebe</p>
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary"><ArrowLeftRight size={13} aria-hidden /> Como você se vê</p>
           <p className="mt-1 text-[13px] leading-relaxed">{selfText}</p>
           {onWeighs ? (
             weighs?.length ? (
               <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground" data-testid="weighs-saved">
-                O que mais pesa para você: {weighs.map((k) => options.find((o) => o.key === k)?.label ?? k).join(", ")}.{" "}
+                Para você, o que mais pesa: {weighs.map((k) => options.find((o) => o.key === k)?.label ?? k).join(", ")}.{" "}
                 <button type="button" onClick={() => onClearWeighs?.()} className="min-h-10 font-semibold text-primary">Alterar</button>
               </p>
             ) : (
               <div className="mt-2" data-testid="weighs-question">
-                <p className="text-[13px] font-semibold">O que mais pesa para você aqui? <span className="font-normal text-muted-foreground">(opcional, até 3)</span></p>
+                <p className="text-[13px] font-semibold">O que mais pesa para você nisso? <span className="font-normal text-muted-foreground">(opcional, até 3)</span></p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {options.map((o) => (
                     <button key={o.key} type="button" aria-pressed={picked.includes(o.key)} onClick={() => toggle(o.key)}
@@ -128,12 +128,12 @@ export function DimensionPanel({
         </div>
 
         {notComparable && dimension.score != null ? (
-          <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">Ainda não tenho comparação confiável para esta dimensão: a forma de leitura mudou. Esta é a nossa primeira referência — não é melhora nem piora.</p>
+          <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">Ainda não dá para comparar com antes, porque mudei a forma de calcular esta nota. Esta é a nossa primeira referência: não é melhora nem piora.</p>
         ) : null}
 
         {record ? (
           <details className="rounded-xl bg-secondary/40 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
-            <summary className="flex cursor-pointer items-center gap-1.5 font-semibold text-foreground"><Info size={12} aria-hidden /> De onde vem e o que não prova</summary>
+            <summary className="flex cursor-pointer items-center gap-1.5 font-semibold text-foreground"><Info size={12} aria-hidden /> De onde vem esta nota e o que ela não prova</summary>
             <p className="mt-2"><strong className="text-foreground">Não prova:</strong> {record.limit}</p>
             <p className="mt-1"><strong className="text-foreground">Fontes:</strong> {record.origin.map((o) => `${o.label} (${KIND_LABEL[o.kind]})`).join("; ")}.</p>
             <p className="mt-1"><strong className="text-foreground">Janela:</strong> {record.window} · <strong className="text-foreground">Cobertura:</strong> {record.coverage}</p>

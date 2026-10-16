@@ -100,7 +100,7 @@ describe("descoberta: a página começa por uma observação, não por um veredi
     expect(d.self).toBe(3);
     expect(d.observed).toBe(8);
     expect(d.title).toMatch(/Em Planejamento, você se vê abaixo do que seus registros mostram/);
-    expect(d.body).toMatch(/duas leituras diferentes, não uma certa e outra errada/);
+    expect(d.body).toMatch(/dois pontos de vista, e nenhum deles está errado/);
     expect(d.body).toMatch(/planejar ou em conseguir seguir/);
     expect(d.action?.to).toBe("#dimensao-planning");
   });

@@ -147,17 +147,17 @@ function whyText(change: Pick<DimensionChange, "direction" | "delta" | "drivers"
 
 /**
  * O que cada nota mede — e o que NÃO mede. Evita ler engajamento como entendimento
- * ou gasto baixo como autocontrole: o Nino vê registros e uso, não intenções.
+ * ou gasto baixo como autocontrole: só vejo registros e uso, não intenções.
  */
 export const DIMENSION_SCOPE: Record<BehaviorDimensionKey, string> = {
   awareness: "Mede o quanto você acompanha suas finanças (uso do app, consulta aos movimentos, check-ins, lançamentos categorizados). Não mede o quanto você entende o seu dinheiro.",
   planning: "Mede estruturas de antecipação: metas de gasto, compromissos recorrentes e uso das telas de planejamento. Não avalia se o plano é bom.",
-  control: "Mede o resultado contra limites que você mesmo escolheu (ciclos de meta fechados e metas atuais). Gastar pouco, sozinho, não prova autocontrole.",
+  control: "Mede o resultado contra limites que você mesmo escolheu (períodos de meta já terminados e metas atuais). Gastar pouco, sozinho, não prova autocontrole.",
   consistency: "Mede a estabilidade do ritmo de gasto e a regularidade de check-ins e acesso. Um gasto alto não é sinal de falta de hábito.",
-  security: "Mede a margem para imprevistos: reserva, folga depois dos compromissos, dívida frente aos ativos e saldo projetado.",
+  security: "Mede a margem para imprevistos: reserva, folga depois dos compromissos, dívida em relação ao que você tem e saldo projetado.",
   wealth: "Mede a recorrência de aportes e a poupança do mês. Uma boa fotografia isolada pesa pouco.",
   calm: "Vem dos check-ins em que você mesmo informa sua tranquilidade. O Nino não deduz sentimento a partir de transações.",
-  debt: "Mede a tendência do saldo devedor e o peso da dívida sobre os seus ativos. Dívida controlada não é penalizada só por existir.",
+  debt: "Mede para onde vai o que você deve e quanto a dívida pesa perto do que você tem. Dívida controlada não é penalizada só por existir.",
 };
 
 const NOT_COMPARABLE_WHY = "A leitura anterior usava outros componentes, então a comparação começa na próxima leitura completa — isso não é melhora nem piora.";
@@ -375,7 +375,7 @@ const GAP_QUESTION: Record<BehaviorDimensionKey, { selfLower: string; selfHigher
   security: { selfLower: "Talvez a sensação de insegurança venha de algo que os números não captam. O que pesa mais para você?", selfHigher: "A margem para imprevistos que os registros mostram é menor do que a que você sente. Vale olhar a reserva." },
   wealth: { selfLower: "Talvez os aportes estejam acontecendo, mas sem a sensação de avanço. Quer olhar o que já foi guardado?", selfHigher: "Os aportes recorrentes ainda não aparecem nos registros. Eles estão sendo lançados?" },
   calm: { selfLower: "Seus check-ins mostram mais tranquilidade do que a nota que você se deu. O que pesa mais na sua cabeça?", selfHigher: "Seus check-ins recentes mostram menos tranquilidade do que você sente. Como foram os últimos dias?" },
-  debt: { selfLower: "Talvez você esteja pagando e progredindo, mas o tamanho da dívida ainda pese. O que ajudaria hoje?", selfHigher: "O peso da dívida frente aos seus ativos é maior do que você sente. Vale olhar o plano de quitação." },
+  debt: { selfLower: "Talvez você esteja pagando e progredindo, mas o tamanho da dívida ainda pese. O que ajudaria hoje?", selfHigher: "A dívida pesa mais, perto do que você tem, do que você sente. Vale olhar o plano de quitação." },
 };
 
 export function buildHabitDiscovery(args: {
@@ -408,7 +408,7 @@ export function buildHabitDiscovery(args: {
       return {
         kind: "perception_gap",
         title: lower ? `Em ${label}, você se vê abaixo do que seus registros mostram` : `Em ${label}, seus registros mostram menos do que você sente`,
-        body: `Você se deu ${fmt(top.self)} e os sinais do Nino indicam ${fmt(top.observed)}. São duas leituras diferentes, não uma certa e outra errada. ${lower ? GAP_QUESTION[top.key].selfLower : GAP_QUESTION[top.key].selfHigher}`,
+        body: `Você se deu nota ${fmt(top.self)} e, pelos seus registros, eu daria ${fmt(top.observed)}. São dois pontos de vista, e nenhum deles está errado. ${lower ? GAP_QUESTION[top.key].selfLower : GAP_QUESTION[top.key].selfHigher}`,
         dimension: top.key, self: top.self, observed: top.observed,
         action: { label: "Ver como o Nino chegou nessa nota", to: `#dimensao-${top.key}` },
       };

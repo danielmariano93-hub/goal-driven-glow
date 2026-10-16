@@ -40,7 +40,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     expect(v3.dimensions.planning.score).toBeNull();
     expect(v3.dimensions.planning.state).toBe("partial");
     expect(v3.dimensions.planning.record?.observed.join(" ")).toContain("6 metas");
-    expect(v3.dimensions.planning.record?.unknown.join(" ")).toMatch(/ciclo fechado/);
+    expect(v3.dimensions.planning.record?.unknown.join(" ")).toMatch(/ainda não terminou nenhum período/);
     expect(JSON.stringify(v3.dimensions.planning)).not.toMatch(/87/);
   });
 
@@ -65,7 +65,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     const only = buildObservedProfileV3({ ...empty, checkins }, NOW);
     expect(only.dimensions.awareness.score).toBeLessThanOrEqual(7);
     expect(only.dimensions.awareness.record?.observed.join(" ")).toMatch(/não passa de 7,0/);
-    expect(only.dimensions.awareness.record?.unknown.join(" ")).toMatch(/responder as perguntas/);
+    expect(only.dimensions.awareness.record?.unknown.join(" ")).toMatch(/Responder às perguntas/);
     const declared = buildObservedProfileV3({ ...empty, checkins }, NOW, { declaredContextAnswers: 2 });
     expect(declared.dimensions.awareness.score).toBeGreaterThan(only.dimensions.awareness.score as number);
     expect(declared.dimensions.awareness.score).toBeLessThanOrEqual(10);
@@ -124,7 +124,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     const p = buildObservedProfileV3({ ...empty, goalCycles, planningStats: { active_category_goals: 3, active_recurring_rules: 2 } }, NOW);
     expect(p.dimensions.control.state).toBe("sufficient");
     expect(p.dimensions.planning.state).toBe("sufficient");
-    expect(p.dimensions.control.record?.observed[0]).toMatch(/1 de 2 ciclos/);
+    expect(p.dimensions.control.record?.observed[0]).toMatch(/1 de 2 períodos de meta/);
   });
 
   it("toda dimensão carrega proveniência: fontes, janela, cobertura, versão e o que não prova", () => {
