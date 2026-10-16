@@ -77,26 +77,26 @@ function scoreFromReserveMonths(months: number): number {
 
 /** O que cada dimensão NÃO prova (limite editorial fixo, nunca frase positiva universal). */
 export const DIMENSION_LIMITS: Record<BehaviorDimensionKey, string> = {
-  awareness: "Ter feito check-ins mostra atenção ao tema; não prova que você entende para onde o dinheiro vai, nem que gastar menos é estar consciente.",
-  planning: "Metas e compromissos cadastrados mostram intenção de se organizar; só a execução ao longo do tempo diz se o plano funciona. Abrir telas de planejamento não entra na conta.",
-  control: "Cumprir limites que você mesmo escolheu é um sinal de controle; gasto alto, sozinho, não prova impulsividade, e gasto baixo não prova autocontrole.",
-  consistency: "Repetir um comportamento verificável por semanas indica hábito; vários registros no mesmo dia não formam hábito.",
-  security: "Mede liquidez e folga depois dos compromissos já conhecidos; não prova que você está protegido de imprevistos específicos, e não ter dívida não equivale a segurança.",
-  wealth: "Aportes recorrentes indicam construção de patrimônio; a frequência não diz se a alocação é boa.",
-  calm: "Vem do que você mesmo declara nos check-ins. O Nino não deduz emoção a partir de transações.",
-  debt: "Mede o peso e a tendência das dívidas registradas. Não ter dívida cadastrada não significa que não exista nenhuma.",
+  awareness: "Fazer check-ins mostra que você presta atenção ao tema. Não prova que você entende para onde o dinheiro vai, nem que gastar menos é estar consciente.",
+  planning: "Metas e compromissos cadastrados mostram vontade de se organizar. Só cumprir o plano, mês após mês, mostra se ele funciona. Abrir as telas de planejamento não conta.",
+  control: "Cumprir limites que você mesmo escolheu é um bom sinal de controle. Gastar muito, sozinho, não prova impulsividade, e gastar pouco não prova autocontrole.",
+  consistency: "Repetir algo por várias semanas indica hábito. Vários registros no mesmo dia não formam um hábito.",
+  security: "Mede o dinheiro disponível e a folga depois dos compromissos já conhecidos. Não prova que você está protegido de um imprevisto específico, e não ter dívida não é o mesmo que estar seguro.",
+  wealth: "Aportes regulares mostram que você está construindo patrimônio. Não dizem se o investimento é bom.",
+  calm: "Vem do que você mesmo diz nos check-ins. O Nino não adivinha emoções pelos seus gastos.",
+  debt: "Mede o peso e a direção das dívidas registradas. Não ter dívida cadastrada não quer dizer que você não tenha nenhuma.",
 };
 
 /** O que a dimensão pretende medir (frase humana, sem fórmula). */
 export const DIMENSION_INTENT: Record<BehaviorDimensionKey, string> = {
-  awareness: "Se você presta atenção ao seu dinheiro e reconhece os próprios padrões.",
-  planning: "Se você antecipa e estrutura seus gastos antes de eles acontecerem.",
-  control: "Se o seu gasto fica dentro dos limites que você mesmo escolheu.",
-  consistency: "Se os seus comportamentos financeiros se repetem de forma estável ao longo das semanas.",
-  security: "Se você tem margem para absorver imprevistos sem desorganizar o mês.",
-  wealth: "Se você transforma renda em patrimônio de forma recorrente.",
-  calm: "Como você mesmo diz que se sente em relação ao dinheiro.",
-  debt: "O peso e a tendência das dívidas que você registrou.",
+  awareness: "Se você acompanha o seu dinheiro e reconhece os seus próprios hábitos.",
+  planning: "Se você organiza seus gastos antes de eles acontecerem.",
+  control: "Se você gasta dentro dos limites que escolheu.",
+  consistency: "Se os seus bons hábitos se repetem, semana após semana.",
+  security: "Se sobra margem para um imprevisto sem bagunçar o mês.",
+  wealth: "Se você transforma parte da renda em patrimônio, de forma regular.",
+  calm: "Como você diz que se sente em relação ao dinheiro.",
+  debt: "Quanto as dívidas que você registrou pesam e para onde estão indo.",
 };
 
 type Draft = {
@@ -186,25 +186,25 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const capped = sufficient && raw != null && declared === 0 && raw > AWARENESS_CHECKIN_ONLY_CAP;
     const score = raw == null ? null : declared === 0 ? Math.min(raw, AWARENESS_CHECKIN_ONLY_CAP) : raw;
     const observed: string[] = [];
-    if (n) observed.push(`Você fez ${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} recente${checkinWeeks === 1 ? "" : "s"}.`);
+    if (n) observed.push(`Você fez ${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} diferente${checkinWeeks === 1 ? "" : "s"}.`);
     observed.push(declared > 0
-      ? `Você respondeu ${declared} pergunta${declared === 1 ? "" : "s"} sobre os seus padrões.`
-      : "Você ainda não respondeu perguntas sobre os seus padrões; por isso a nota não passa de 7,0.");
+      ? `Você respondeu ${declared} pergunta${declared === 1 ? "" : "s"} sobre os seus hábitos de gasto.`
+      : "Você ainda não respondeu perguntas sobre os seus hábitos de gasto. Por isso a nota não passa de 7,0.");
     return finalize("awareness", {
       state: sufficient ? "sufficient" : n > 0 ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: "medium", // fonte principal (check-ins): nunca "alta"
       summary: n
-        ? `${n} check-in${n === 1 ? "" : "s"} nos últimos 30 dias, em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"}${capped ? "; sem perguntas respondidas sobre padrões, a nota para em 7,0" : ""}.`
-        : "Ainda não há check-ins para o Nino ler sua atenção ao dinheiro.",
+        ? `${n} check-in${n === 1 ? "" : "s"} nos últimos 30 dias, em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"}${capped ? ". Sem respostas sobre hábitos de gasto, a nota para em 7,0" : ""}.`
+        : "Ainda não há check-ins para eu entender o quanto você acompanha o seu dinheiro.",
       source: "checkins+declared_context",
-      factors: [f("checkin_count", "Check-ins nos últimos 30 dias", countScore, 0.5), f("checkin_weeks", "Semanas com check-in", weekScore, 0.3), f("recognized_patterns", "Padrões que você reconheceu", recognition, 0.2)],
-      origin: [{ key: "checkins", label: "Seus check-ins", kind: "declared" }, { key: "context_answers", label: "Suas respostas sobre padrões", kind: "declared" }],
+      factors: [f("checkin_count", "Check-ins nos últimos 30 dias", countScore, 0.5), f("checkin_weeks", "Semanas com check-in", weekScore, 0.3), f("recognized_patterns", "Hábitos que você reconheceu", recognition, 0.2)],
+      origin: [{ key: "checkins", label: "Seus check-ins", kind: "declared" }, { key: "context_answers", label: "Suas respostas sobre hábitos de gasto", kind: "declared" }],
       window: "últimos 30 dias (respostas: 45 dias)",
       coverage: `${n} check-in${n === 1 ? "" : "s"} em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} (mínimo: 4 em 2 semanas)`,
       observed,
-      unknown: declared > 0 ? ["Se você revisa seus gastos além dos check-ins."] : ["Se você reconhece os seus padrões de gasto: responder as perguntas dos insights ajuda."],
-      reason: n ? "Poucos check-ins para uma leitura confiável." : "Nenhum check-in nos últimos 30 dias.",
+      unknown: declared > 0 ? ["Se você revisa seus gastos além dos check-ins."] : ["Se você reconhece os seus hábitos de gasto. Responder às perguntas dos insights ajuda."],
+      reason: n ? "Há poucos check-ins para uma leitura segura." : "Nenhum check-in nos últimos 30 dias.",
     });
   })();
 
@@ -236,26 +236,26 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const observed: string[] = [];
     if (activeGoals) observed.push(`${activeGoals} meta${activeGoals === 1 ? "" : "s"} de gasto ativa${activeGoals === 1 ? "" : "s"}.`);
     observed.push(recurring ? `${recurring} compromisso${recurring === 1 ? "" : "s"} recorrente${recurring === 1 ? "" : "s"} cadastrado${recurring === 1 ? "" : "s"}.` : "Nenhum compromisso recorrente cadastrado.");
-    if (closedCycles.length) observed.push(`${hitCycles.length} de ${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} de meta fechou${closedCycles.length === 1 ? "" : "aram"} dentro do limite.`);
+    if (closedCycles.length) observed.push(`Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`);
     return finalize("planning", {
       state: sufficient ? "sufficient" : structure ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: closedCycles.length >= 3 ? "high" : "medium",
       summary: structure
-        ? `Encontrei estrutura de planejamento (${activeGoals} meta${activeGoals === 1 ? "" : "s"}, ${recurring} recorrência${recurring === 1 ? "" : "s"}); ${closedCycles.length ? "há ciclos fechados para verificar a execução" : "ainda não há ciclo fechado para verificar a execução"}.`
-        : "Ainda não encontrei metas nem compromissos recorrentes cadastrados.",
+        ? `Você tem ${activeGoals} meta${activeGoals === 1 ? "" : "s"} e ${recurring} compromisso${recurring === 1 ? "" : "s"} recorrente${recurring === 1 ? "" : "s"}. ${closedCycles.length ? "Já dá para ver se você cumpriu o que planejou." : "Ainda não terminou nenhum período de meta para ver se você cumpriu."}`
+        : "Ainda não há metas nem compromissos recorrentes cadastrados.",
       source: "goals+recurring_rules+goal_cycles",
-      factors: [f("goals", "Metas de gasto ativas", goalsStruct, 0.3), f("recurring", "Compromissos recorrentes", recStruct, 0.2), f("closed_cycles", "Ciclos de meta cumpridos", cycleScore, 0.5)],
+      factors: [f("goals", "Metas de gasto ativas", goalsStruct, 0.3), f("recurring", "Compromissos recorrentes", recStruct, 0.2), f("closed_cycles", "Períodos de meta cumpridos", cycleScore, 0.5)],
       origin: [
         { key: "goals", label: "Metas que você cadastrou", kind: "direct" },
         { key: "recurring_rules", label: "Compromissos recorrentes", kind: "direct" },
-        { key: "goal_cycles", label: "Ciclos de meta fechados", kind: "derived" },
+        { key: "goal_cycles", label: "Períodos de meta já terminados", kind: "derived" },
       ],
-      window: "metas atuais e ciclos fechados",
-      coverage: `${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} fechado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
+      window: "metas atuais e períodos já terminados",
+      coverage: `${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} terminado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
       observed,
-      unknown: closedCycles.length ? ["Se as metas foram revisadas e ajustadas ao longo dos meses."] : ["Se as metas foram acompanhadas e cumpridas: ainda não há um ciclo fechado."],
-      reason: structure ? "Há estrutura, mas falta execução verificada para avaliar a qualidade do planejamento." : "Sem metas ou compromissos cadastrados.",
+      unknown: closedCycles.length ? ["Se você revisou e ajustou as metas ao longo dos meses."] : ["Se você cumpriu as metas: ainda não terminou nenhum período."],
+      reason: structure ? "Você já organizou metas e compromissos, mas falta ver se cumpriu para avaliar o planejamento." : "Sem metas nem compromissos cadastrados.",
     });
   })();
 
@@ -264,26 +264,26 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const sufficient = closedCycles.length >= 1;
     const score = weighted([{ value: cycleScore, weight: 0.65 }, { value: currentGoalScore, weight: 0.35 }]);
     const observed: string[] = [];
-    if (closedCycles.length) observed.push(`${hitCycles.length} de ${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} de meta fechou${closedCycles.length === 1 ? "" : "aram"} dentro do limite.`);
-    if (goals.length) observed.push(`${goalsOnTrackCount} de ${goals.length} meta${goals.length === 1 ? "" : "s"} ${goals.length === 1 ? "está" : "estão"} no ritmo neste mês.`);
+    if (closedCycles.length) observed.push(`Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`);
+    if (goals.length) observed.push(`Neste mês, ${goalsOnTrackCount} de ${goals.length} meta${goals.length === 1 ? "" : "s"} ${goalsOnTrackCount === 1 ? "está" : "estão"} no ritmo.`);
     return finalize("control", {
       state: sufficient ? "sufficient" : goals.length ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: closedCycles.length >= 3 ? "high" : "medium",
       summary: sufficient
-        ? `${hitCycles.length} de ${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} de meta dentro do limite; as metas deste mês complementam.`
-        : goals.length ? `${goalsOnTrackCount} de ${goals.length} metas deste mês no ritmo; ainda não há ciclo fechado.` : "Ainda não há limites escolhidos para medir controle.",
+        ? `Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`
+        : goals.length ? `Neste mês, ${goalsOnTrackCount} de ${goals.length} metas estão no ritmo. Nenhum período de meta terminou ainda.` : "Ainda não há limites escolhidos para medir o controle.",
       source: "goal_cycles+current_goals",
-      factors: [f("closed_cycles", "Ciclos de meta fechados dentro do limite", cycleScore, 0.65), f("current_goals", "Metas deste mês no ritmo", currentGoalScore, 0.35)],
+      factors: [f("closed_cycles", "Períodos de meta dentro do limite", cycleScore, 0.65), f("current_goals", "Metas deste mês no ritmo", currentGoalScore, 0.35)],
       origin: [
-        { key: "goal_cycles", label: "Ciclos de meta fechados", kind: "derived" },
+        { key: "goal_cycles", label: "Períodos de meta já terminados", kind: "derived" },
         { key: "current_goals", label: "Metas deste mês", kind: "derived" },
       ],
-      window: "ciclos fechados + mês atual",
-      coverage: `${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} fechado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
+      window: "períodos terminados + mês atual",
+      coverage: `${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} terminado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
       observed,
-      unknown: ["Se os gastos acima do limite foram planejados ou decisões do momento (o Nino só vê o valor)."],
-      reason: goals.length ? "As metas deste mês ainda não fecharam: o resultado é parcial." : "Sem metas de gasto para comparar.",
+      unknown: ["Se os gastos acima do limite foram planejados ou por impulso: eu só vejo os valores."],
+      reason: goals.length ? "As metas deste mês ainda não terminaram: o resultado é parcial." : "Sem metas de gasto para comparar.",
     });
   })();
 
@@ -300,21 +300,21 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const sufficient = rhythm != null;
     const score = weighted([{ value: rhythm, weight: 0.7 }, { value: weeks, weight: 0.3 }]);
     const observed: string[] = [];
-    if (typical.length) observed.push(`${typical.length} dia${typical.length === 1 ? "" : "s"} com ritmo de gasto observado.`);
-    if (checkinWeeks) observed.push(`Check-ins em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} recente${checkinWeeks === 1 ? "" : "s"}.`);
+    if (typical.length) observed.push(`Tenho ${typical.length} dia${typical.length === 1 ? "" : "s"} do seu ritmo de gasto para comparar.`);
+    if (checkinWeeks) observed.push(`Você fez check-ins em ${checkinWeeks} semana${checkinWeeks === 1 ? "" : "s"} diferente${checkinWeeks === 1 ? "" : "s"}.`);
     return finalize("consistency", {
       state: sufficient ? "sufficient" : observed.length ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: typical.length >= 21 && checkinWeeks >= 3 ? "high" : "medium",
-      summary: sufficient ? `Ritmo de gasto estável em ${typical.length} dias${checkinWeeks ? ` e check-ins em ${checkinWeeks} semanas` : ""}.` : "Ainda não há semanas suficientes para observar repetição de hábitos.",
+      summary: sufficient ? `Seu gasto diário foi estável em ${typical.length} dias${checkinWeeks ? ` e você fez check-ins em ${checkinWeeks} semanas` : ""}.` : "Ainda não há semanas suficientes para ver se seus hábitos se repetem.",
       source: "rhythm_stability+checkin_weeks",
       factors: [f("rhythm", "Estabilidade do gasto diário", rhythm, 0.7), f("checkin_weeks", "Semanas com check-in", weeks, 0.3)],
       origin: [{ key: "transactions", label: "Seus lançamentos", kind: "derived" }, { key: "checkins", label: "Seus check-ins", kind: "declared" }],
       window: "últimas semanas",
-      coverage: `${typical.length} dia${typical.length === 1 ? "" : "s"} de ritmo (mínimo: 14)`,
+      coverage: `${typical.length} dia${typical.length === 1 ? "" : "s"} de ritmo de gasto (mínimo: 14)`,
       observed,
-      unknown: ["Quais hábitos específicos se repetem (aportes, revisão semanal, pagamento em dia)."],
-      reason: "Menos de 14 dias de ritmo de gasto para medir estabilidade.",
+      unknown: ["Quais hábitos você repete (aportes, revisão semanal, contas em dia)."],
+      reason: "Tenho menos de 14 dias de ritmo de gasto para medir a estabilidade.",
     });
   })();
 
@@ -331,16 +331,16 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const freeScore = freeKnown != null && hasExpense ? clamp(5 + (freeKnown / (expense as number)) * 5) : null;
     const sufficient = reserveScore != null && freeScore != null && txHistory >= 30;
     const observed: string[] = [];
-    if (months != null) observed.push(`Caixa${reserveValue > 0 ? " + reserva marcada" : ""} cobre cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} das despesas atuais.`);
-    if (freeKnown != null) observed.push(freeKnown >= 0 ? `Depois dos compromissos já conhecidos sobram ${brl(freeKnown)} no mês.` : `Os compromissos já conhecidos superam o saldo em ${brl(-freeKnown)}.`);
+    if (months != null) observed.push(`${reserveValue > 0 ? "Seu dinheiro e a reserva marcada cobrem" : "Seu dinheiro cobre"} cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} dos seus gastos atuais.`);
+    if (freeKnown != null) observed.push(freeKnown >= 0 ? `Depois dos compromissos que já conheço, sobram ${brl(freeKnown)} no mês.` : `Os compromissos que já conheço passam do seu saldo em ${brl(-freeKnown)}.`);
     return finalize("security", {
       state: sufficient ? "sufficient" : hasExpense ? "partial" : "none",
       // Liquidez é a evidência principal: folga futura não compensa caixa quase zero (teto = reserva + 3).
       score: sufficient ? Math.min(weighted([{ value: reserveScore, weight: 0.7 }, { value: freeScore, weight: 0.3 }]) as number, (reserveScore as number) + 3) : null,
       confidence: reserveValue > 0 && txHistory >= 30 ? "high" : "medium",
-      summary: months != null ? `O caixa cobre cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} das despesas atuais.` : "Ainda não há despesas suficientes para estimar sua margem de segurança.",
+      summary: months != null ? `Seu dinheiro cobre cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} dos seus gastos atuais.` : "Ainda não há gastos suficientes para estimar a sua margem de segurança.",
       source: "liquid_reserve+free_after_commitments",
-      factors: [f("reserve", "Meses de despesa cobertos", reserveScore, 0.7), f("free_after_commitments", "Folga após compromissos conhecidos", freeScore, 0.3)],
+      factors: [f("reserve", "Meses de gastos cobertos", reserveScore, 0.7), f("free_after_commitments", "Folga depois dos compromissos", freeScore, 0.3)],
       origin: [
         { key: "balances", label: "Saldos das suas contas", kind: "direct" },
         { key: "investments", label: "Investimentos marcados como reserva", kind: "direct" },
@@ -349,8 +349,8 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
       window: "mês atual",
       coverage: `${txHistory} dias de histórico (mínimo: 30)`,
       observed,
-      unknown: reserveValue > 0 ? ["Imprevistos específicos que podem acontecer."] : ["Nenhum investimento foi marcado como reserva de emergência: a leitura considera só o caixa."],
-      reason: !hasExpense ? "Sem despesas no mês para estimar a cobertura." : txHistory < 30 ? "Menos de 30 dias de histórico." : "Sem projeção de compromissos conhecidos.",
+      unknown: reserveValue > 0 ? ["Quais imprevistos podem acontecer."] : ["Nenhum investimento foi marcado como reserva de emergência, então considerei só o dinheiro em conta."],
+      reason: !hasExpense ? "Sem gastos no mês para estimar a cobertura." : txHistory < 30 ? "Menos de 30 dias de histórico." : "Sem compromissos conhecidos para projetar.",
     });
   })();
 
@@ -365,22 +365,22 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const savings = savingsRate != null ? clamp(5 + savingsRate * 12.5) : null;
     const sufficient = days >= 2;
     const observed: string[] = [];
-    if (days > 0) observed.push(`Aportes em ${days} dia${days === 1 ? "" : "s"} nos últimos 90 dias, somando ${brl(contributions)}.`);
+    if (days > 0) observed.push(`Você investiu em ${days} dia${days === 1 ? "" : "s"} nos últimos 90 dias, somando ${brl(contributions)}.`);
     else observed.push("Nenhum aporte registrado nos últimos 90 dias.");
-    if (savingsRate != null) observed.push(`Poupança do mês: ${Math.round(savingsRate * 100)}% da renda.`);
+    if (savingsRate != null) observed.push(`Neste mês, você guardou ${Math.round(savingsRate * 100)}% da renda.`);
     return finalize("wealth", {
       state: sufficient ? "sufficient" : days > 0 || savingsRate != null ? "partial" : "none",
       score: sufficient ? weighted([{ value: regularity, weight: 0.5 }, { value: rate, weight: 0.3 }, { value: savings, weight: 0.2 }]) : null,
       confidence: days >= 4 ? "high" : "medium",
-      summary: days > 0 ? `Aportes em ${days} dias nos últimos 90 (${brl(contributions)}).` : "Ainda não há aportes recorrentes para medir construção de patrimônio.",
+      summary: days > 0 ? `Você investiu em ${days} dias nos últimos 90 (${brl(contributions)}).` : "Ainda não há aportes regulares para medir a construção de patrimônio.",
       source: "investment_contributions+savings",
-      factors: [f("contribution_days", "Regularidade dos aportes (90d)", regularity, 0.5), f("contribution_rate", "Aportes sobre a renda", rate, 0.3), f("savings", "Poupança do mês", savings, 0.2)],
+      factors: [f("contribution_days", "Regularidade dos aportes (90 dias)", regularity, 0.5), f("contribution_rate", "Aportes em relação à renda", rate, 0.3), f("savings", "Quanto você guardou no mês", savings, 0.2)],
       origin: [{ key: "investments", label: "Aportes registrados", kind: "direct" }, { key: "income", label: "Renda do mês", kind: "derived" }],
       window: "últimos 90 dias",
       coverage: `${days} dia${days === 1 ? "" : "s"} com aporte (mínimo: 2)`,
       observed,
-      unknown: ["Se há aportes feitos fora do que está registrado no Nino.", "Se a alocação dos investimentos é adequada ao seu objetivo."],
-      reason: days === 0 ? "Sem aportes registrados: pode ser que não existam, ou que não tenham sido lançados." : "Poucos aportes para chamar de recorrência.",
+      unknown: ["Se você investiu fora do que está registrado no Nino.", "Se os seus investimentos combinam com o seu objetivo."],
+      reason: days === 0 ? "Sem aportes registrados: ou você não investiu, ou ainda não lançou." : "Há poucos aportes para chamar de regular.",
     });
   })();
 
@@ -392,21 +392,21 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const mean = avg(values);
     const last = direct30.length ? Number([...direct30].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1))[0].financial_calm_score) : null;
     const observed: string[] = [];
-    if (values.length) observed.push(`${values.length} ${values.length === 1 ? "medição direta" : "medições diretas"} de tranquilidade nos últimos 30 dias${mean != null ? ` (média ${mean.toFixed(1).replace(".", ",")})` : ""}.`);
-    if (legacyValues.length) observed.push(`${legacyValues.length} registro${legacyValues.length === 1 ? "" : "s"} antigo${legacyValues.length === 1 ? "" : "s"} são estimativas, não medições, e ficam fora da nota.`);
+    if (values.length) observed.push(`Você contou como se sente ${values.length} ${values.length === 1 ? "vez" : "vezes"} nos últimos 30 dias${mean != null ? ` (média ${mean.toFixed(1).replace(".", ",")})` : ""}.`);
+    if (legacyValues.length) observed.push(`${legacyValues.length} registro${legacyValues.length === 1 ? " antigo é" : "s antigos são"} estimativa${legacyValues.length === 1 ? "" : "s"}, não resposta sua, e ${legacyValues.length === 1 ? "fica" : "ficam"} fora da nota.`);
     return finalize("calm", {
       state: sufficient ? "sufficient" : values.length || legacyValues.length ? "partial" : "none",
       score: sufficient ? mean : null,
       confidence: values.length >= 10 ? "high" : "medium",
-      summary: values.length ? `${values.length} ${values.length === 1 ? "medição direta" : "medições diretas"} em 30 dias${last != null && !sufficient ? `; a última foi ${last.toFixed(0)}/10` : ""}.` : "Ainda não há medições diretas de tranquilidade.",
+      summary: values.length ? `Você contou como se sente ${values.length} ${values.length === 1 ? "vez" : "vezes"} em 30 dias${last != null && !sufficient ? `. A última nota foi ${last.toFixed(0)} de 10` : ""}.` : "Ainda não há respostas suas sobre tranquilidade.",
       source: "direct_financial_calm",
-      factors: [f("direct", "Tranquilidade informada nos check-ins", mean, 1)],
+      factors: [f("direct", "Tranquilidade que você informou nos check-ins", mean, 1)],
       origin: [{ key: "checkins", label: "O que você informou nos check-ins", kind: "declared" }],
       window: "últimos 30 dias",
-      coverage: `${values.length} ${values.length === 1 ? "medição direta" : "medições diretas"} (mínimo: 3)`,
+      coverage: `${values.length} ${values.length === 1 ? "resposta" : "respostas"} (mínimo: 3)`,
       observed,
-      unknown: ["O motivo das oscilações: o Nino só pergunta, não deduz."],
-      reason: "Menos de 3 medições diretas nos últimos 30 dias.",
+      unknown: ["O motivo das oscilações: eu só pergunto, não adivinho."],
+      reason: "Menos de 3 respostas suas nos últimos 30 dias.",
     });
   })();
 
@@ -422,22 +422,22 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const load = burden == null ? null : clamp(10 / (1 + 0.5 * burden));
     const sufficient = hasDebt && load != null && txHistory >= 20;
     const observed: string[] = [];
-    if (hasDebt) observed.push(`Dívida registrada de ${brl(closingDebts as number)}${assets > 0 ? ` frente a ${brl(assets)} em ativos` : ""}.`);
-    else observed.push("Nenhuma dívida está registrada hoje.");
-    if (reduction != null) observed.push(`O saldo devedor ${reduction >= 0 ? "caiu" : "subiu"} ${Math.round(Math.abs(reduction) * 100)}% no período.`);
+    if (hasDebt) observed.push(`Você registrou ${brl(closingDebts as number)} em dívidas${assets > 0 ? `, contra ${brl(assets)} em bens e investimentos` : ""}.`);
+    else observed.push("Você não tem nenhuma dívida registrada hoje.");
+    if (reduction != null) observed.push(`O que você deve ${reduction >= 0 ? "caiu" : "subiu"} ${Math.round(Math.abs(reduction) * 100)}% no período.`);
     return finalize("debt", {
       state: sufficient ? "sufficient" : "partial",
       score: sufficient ? weighted([{ value: trend, weight: 0.4 }, { value: load, weight: 0.6 }]) : null,
       confidence: openingDebts != null && openingDebts > 0 && txHistory >= 20 ? "high" : "medium",
-      summary: hasDebt ? `Dívida registrada de ${brl(closingDebts as number)}.` : "Não encontrei dívidas registradas; isso não prova que não existam.",
+      summary: hasDebt ? `Você registrou ${brl(closingDebts as number)} em dívidas.` : "Não há dívidas registradas. Isso não prova que você não tenha nenhuma.",
       source: "debt_trend+debt_load",
-      factors: [f("principal_trend", "Tendência do saldo devedor", trend, 0.4), f("debt_load", "Dívida frente aos ativos", load, 0.6)],
-      origin: [{ key: "debts", label: "Dívidas que você registrou", kind: "direct" }, { key: "assets", label: "Seus ativos", kind: "direct" }],
-      window: "snapshot atual e período anterior",
+      factors: [f("principal_trend", "Para onde vai o que você deve", trend, 0.4), f("debt_load", "Dívida em relação ao que você tem", load, 0.6)],
+      origin: [{ key: "debts", label: "Dívidas que você registrou", kind: "direct" }, { key: "assets", label: "Seus bens e investimentos", kind: "direct" }],
+      window: "situação atual e período anterior",
       coverage: hasDebt ? `${txHistory} dias de histórico (mínimo: 20)` : "nenhuma dívida registrada",
       observed,
-      unknown: hasDebt ? ["Atrasos e juros efetivamente pagos (o Nino só vê o saldo)."] : ["Se existem dívidas fora do Nino (cartão, empréstimos, financiamentos)."],
-      reason: hasDebt ? (load == null ? "Sem ativos registrados para comparar com a dívida." : "Histórico curto para ler a tendência.") : "Sem dívida registrada: o Nino não avalia uma relação com dívidas que ele não vê.",
+      unknown: hasDebt ? ["Quanto você já pagou de atraso e juros: eu só vejo o saldo."] : ["Se você tem dívidas fora do Nino (cartão, empréstimo, financiamento)."],
+      reason: hasDebt ? (load == null ? "Sem bens ou investimentos registrados para comparar com a dívida." : "O histórico é curto para ver a direção.") : "Sem dívida registrada: não dá para avaliar a sua relação com dívidas que eu não vejo.",
     });
   })();
 

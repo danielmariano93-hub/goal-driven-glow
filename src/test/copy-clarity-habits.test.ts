@@ -1,0 +1,26 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+// Texto que o usuário lê na tela de Hábitos: sem jargão interno e sem concordância quebrada.
+const FILES = [
+  "src/lib/engine/behaviorObservedV3.ts",
+  "src/components/habits/DimensionPanel.tsx",
+  "src/lib/engine/behaviorEvolution.ts",
+];
+const BANNED: Array<[RegExp, string]> = [
+  [/ciclos? de meta/i, "use “período(s) de meta”"],
+  [/confiança (alta|média|baixa)/i, "use “leitura firme/razoável/inicial”"],
+  [/os indicadores mostram/i, "use “os números mostram”"],
+  [/o Nino (só )?(vê|enxerga|observa)/i, "fale em primeira pessoa: “eu só vejo…”"],
+  [/saldo devedor|Seus ativos|em ativos/i, "use palavras do dia a dia"],
+  [/Seu dinheiro cobrem/, "concordância: “cobre”"],
+];
+
+describe("clareza do texto de Hábitos", () => {
+  for (const file of FILES) {
+    it(`${file} não usa jargão nem frases confusas`, () => {
+      const src = readFileSync(file, "utf8");
+      for (const [re, hint] of BANNED) expect(src, `${file}: ${hint}`).not.toMatch(re);
+    });
+  }
+});

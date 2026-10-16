@@ -182,7 +182,7 @@ export function BehaviorWheel({
                   </p>
                   <p className="mt-1 text-sm font-semibold">{strongest.label}</p>
                   <p className="text-xs text-muted-foreground">
-                    Você se deu {Number(latest.scores[strongest.key]).toFixed(1)} de 10{strongestScore != null && strongestScore < 7 ? "; é o maior valor relativo, não um ponto forte consolidado" : ""}.
+                    Você se deu nota {Number(latest.scores[strongest.key]).toFixed(1).replace(".", ",")} de 10{strongestScore != null && strongestScore < 7 ? ". É a sua maior nota, mas ainda não é um ponto forte" : ""}.
                   </p>
                 </div>
               ) : null}
