@@ -8,7 +8,8 @@ import { loadExecutiveInput } from "../insights/executive/load.ts";
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
 import { buildMapaReading } from "../finance-core/mapaReading.ts";
 import { EMPTY_HABIT_INPUTS, snapshotInputFromPayload, type MapaDebtIn, type MapaHealthInputs } from "../finance-core/mapaInputs.ts";
-import type { MapaReading } from "../finance-core/mapaContracts.ts";
+import type { MapaReading, MapaRecommendationFeedback, MapaStoredReading } from "../finance-core/mapaContracts.ts";
+import { storedRows } from "../finance-core/mapaEvolution.ts";
 import { detectRecurringSuggestions, type DetectionTx } from "../finance-core/recurringDetection.ts";
 import type { MapaCommitmentPeriod, MapaHabitInputs, MapaMonthlyEstimate, MapaQuestionRow } from "../finance-core/mapaInputs.ts";
 import { goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
@@ -167,10 +168,55 @@ export async function loadHabitInputs(sb: any, userId: string, today: string, es
   };
 }
 
-export async function loadMapaReading(sb: any, userId: string, today: string): Promise<MapaReading> {
+const HISTORY_DAYS = 120;
+const FEEDBACK_DAYS = 90;
+
+/** Segunda-feira da semana de `ymd`: uma leitura gravada por semana (reabrir o Mapa no mesmo dia só atualiza). */
+export function weekStartOf(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7; // segunda = 0
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Leituras anteriores (E10) e respostas a recomendações (E11). */
+export async function loadEvolutionInputs(sb: any, userId: string, today: string): Promise<{ history: MapaStoredReading[]; feedback: MapaRecommendationFeedback[] }> {
+  const [history, feedback] = await Promise.all([
+    safe("map_readings", [] as MapaStoredReading[], async () => {
+      const { data } = await sb.from("map_readings").select("indicator_id,as_of,value,formula_version,data").eq("user_id", userId).eq("period_kind", "semanal").gte("as_of", shiftDays(today, -HISTORY_DAYS)).order("as_of", { ascending: false }).limit(2500);
+      return ((data ?? []) as any[]).map((r) => ({
+        indicator_id: String(r.indicator_id), as_of: String(r.as_of), value: r.value == null ? null : num(r.value), formula_version: String(r.formula_version),
+        window_end: r.data?.window_end ?? null, window_kind: r.data?.window_kind ?? null, window_n: typeof r.data?.window_n === "number" ? r.data.window_n : null, dq_signature: r.data?.dq_signature ?? null,
+      }));
+    }),
+    safe("map_recommendation_events", [] as MapaRecommendationFeedback[], async () => {
+      const { data } = await sb.from("map_recommendation_events").select("rec_id,event,created_at").eq("user_id", userId).gte("created_at", `${shiftDays(today, -FEEDBACK_DAYS)}T00:00:00`).limit(500);
+      return ((data ?? []) as any[]).map((r) => ({ rec_id: String(r.rec_id), event: r.event, at: String(r.created_at) }));
+    }),
+  ]);
+  return { history, feedback };
+}
+
+/** Grava a leitura da semana (sobrescreve a anterior da mesma semana). Nunca derruba a resposta. */
+export async function persistReading(sb: any, userId: string, reading: MapaReading): Promise<void> {
+  try {
+    const week = weekStartOf(reading.as_of);
+    const rows = storedRows(reading).map((r) => ({
+      user_id: userId, as_of: week, period_kind: "semanal", indicator_id: r.indicator_id, value: r.value, unit: r.unit, status: r.status,
+      confidence: r.confidence, formula_version: r.formula_version, contract_version: reading.contract,
+      data: { inputs: r.inputs, window_end: r.window_end, window_kind: r.window_kind, window_n: r.window_n, dq_signature: r.dq_signature, read_on: reading.as_of },
+    }));
+    const { error } = await sb.from("map_readings").upsert(rows, { onConflict: "user_id,as_of,period_kind,indicator_id" });
+    if (error) throw new Error(error.message);
+  } catch (error) { console.warn("mapa:persist", String(error).slice(0, 160)); }
+}
+
+export async function loadMapaReading(sb: any, userId: string, today: string, opts: { persist?: boolean } = {}): Promise<MapaReading> {
   // 24 meses de histórico; leitura paginada dentro do loader.
-  const [input, health] = await Promise.all([loadExecutiveInput(sb, userId, today, 24), loadHealthInputs(sb, userId, today)]);
+  const [input, health, evolution] = await Promise.all([loadExecutiveInput(sb, userId, today, 24), loadHealthInputs(sb, userId, today), loadEvolutionInputs(sb, userId, today)]);
   const habits = await loadHabitInputs(sb, userId, today, health.categoryEssential);
   const entries = input.entries.map((e) => ({ date: e.date, kind: e.kind, amount: e.amount, category_id: e.category_id }));
-  return buildMapaReading({ asOf: today, entries, health, habits, nowIso: new Date().toISOString() });
+  const reading = buildMapaReading({ asOf: today, entries, health, habits, history: evolution.history, feedback: evolution.feedback, nowIso: new Date().toISOString() });
+  if (opts.persist) await persistReading(sb, userId, reading);
+  return reading;
 }

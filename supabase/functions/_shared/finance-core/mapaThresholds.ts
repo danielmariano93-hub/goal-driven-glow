@@ -60,3 +60,10 @@ export const QUESTION_SKIP_COOLDOWN_DAYS = 7;
 export const QUESTION_LATER_DAYS = 2;
 /** Estimativa mensal: perguntada nos primeiros dias após o fechamento do mês. */
 export const ESTIMATE_ASK_UNTIL_DAY = 20;
+
+// ---- Recomendação (fase 4) -------------------------------------------------------------------------------------------------
+/** Depois de recusar uma recomendação, ela não volta por este período (dias). */
+export const RECOMMENDATION_DISMISS_COOLDOWN_DAYS = 30;
+export const RECOMMENDATION_NOT_USEFUL_COOLDOWN_DAYS = 60;
+/** Depois de aceitar, dá tempo para a pessoa agir antes de insistir (dias). */
+export const RECOMMENDATION_ACCEPTED_COOLDOWN_DAYS = 14;

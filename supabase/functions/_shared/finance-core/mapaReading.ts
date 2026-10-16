@@ -12,6 +12,9 @@ import { computeAcompanhamento } from "./mapaAcompanhamento.ts";
 import { computeExecucao } from "./mapaExecucao.ts";
 import { computePlanejamento } from "./mapaPlanejamento.ts";
 import { scheduleQuestions } from "./mapaQuestions.ts";
+import { applyEvolution, dqSignature } from "./mapaEvolution.ts";
+import { computeRecommendation } from "./mapaRecommendation.ts";
+import type { MapaRecommendationFeedback, MapaStoredReading } from "./mapaContracts.ts";
 import { aggregateMonths, type MapaMonthlyEntry } from "./mapaMonthly.ts";
 import { computeSeguranca } from "./mapaSeguranca.ts";
 import { computeStructural } from "./mapaStructural.ts";
@@ -23,6 +26,10 @@ export interface BuildMapaInput {
   reconciliationDifference?: DataQualityInput["reconciliationDifference"];
   health?: Partial<MapaHealthInputs>;
   habits?: Partial<MapaHabitInputs>;
+  /** Leituras anteriores guardadas (E10). */
+  history?: MapaStoredReading[];
+  /** Respostas da pessoa a recomendações anteriores (E11). */
+  feedback?: MapaRecommendationFeedback[];
   /** Instante de referência para o agendador de perguntas (ISO). Padrão: meio-dia de `asOf`. */
   nowIso?: string;
 }
@@ -41,7 +48,10 @@ export function buildMapaReading(input: BuildMapaInput): MapaReading {
   const execucao = computeExecucao({ asOf: input.asOf, goalPeriods: hb.goalPeriods, weekendPeriods: hb.weekendPeriods });
   const planejamento = computePlanejamento({ asOf: input.asOf, dq, income, essential, savingsGoals: h.savingsGoals, habits: hb });
   const acompanhamento = computeAcompanhamento({ asOf: input.asOf, entries: input.entries, estimates: hb.estimates, usefulEvents: hb.usefulEvents, notUsefulEvents: hb.notUsefulEvents });
-  const indicators: MapaIndicator[] = [...equilibrio, ...seguranca, ...dividas, ...futuro, ...execucao, ...planejamento, ...acompanhamento];
+  const raw: MapaIndicator[] = [...equilibrio, ...seguranca, ...dividas, ...futuro, ...execucao, ...planejamento, ...acompanhamento];
+  const partial = { data_quality: dq };
+  const indicators = applyEvolution(raw, input.history ?? [], input.asOf, dqSignature(partial));
+  const structural = computeStructural({ months, income, essential, indicators });
 
   return {
     contract: MAPA_CONTRACT,
@@ -49,8 +59,8 @@ export function buildMapaReading(input: BuildMapaInput): MapaReading {
     data_quality: dq,
     income,
     indicators,
-    structural: computeStructural({ months, income, essential, indicators }),
-    recommendation: null,
+    structural,
+    recommendation: computeRecommendation({ asOf: input.asOf, indicators, structural, dq, feedback: input.feedback ?? [] }),
     questions_due: scheduleQuestions({ nowIso: input.nowIso ?? `${input.asOf}T12:00:00Z`, asOf: input.asOf, indicators, entries: input.entries, estimates: hb.estimates, questions: hb.questions, lastCfpbAt: hb.lastCfpbAt }),
   };
 }

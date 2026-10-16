@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { ChevronDown, Compass } from "lucide-react";
 import { useMapaEnabled, useMapaReading } from "@/lib/mapa/client";
 import type { MapaIndicator, MapaPillarId, MapaReading, MapaStatus } from "@/lib/engine/mapaContracts";
-import { CONFIDENCE_LABEL, NEEDS_ACTION, PILLAR_LABEL, PILLAR_QUESTION, STATUS_LABEL, indicatorText, reasonsText } from "@/lib/mapa/indicatorText";
+import { CONFIDENCE_LABEL, NEEDS_ACTION, PILLAR_LABEL, PILLAR_QUESTION, STATUS_LABEL, changeText, indicatorText, reasonsText } from "@/lib/mapa/indicatorText";
+import { MapaAgir } from "@/components/mapa/MapaAgir";
 import { MapaCaptureCards, type CaptureKind } from "@/components/mapa/MapaCaptureCards";
 import { MapaEstimateCard } from "@/components/mapa/MapaEstimateCard";
 import { useResolveQuestion } from "@/lib/mapa/questions";
@@ -32,6 +33,7 @@ function IndicatorRow({ ind, onNeed }: { ind: MapaIndicator; onNeed: (kind: Capt
   const informative = ind.direction === "neutral" && ind.status === "ok";
   const exploratory = ind.reasons.includes("exploratorio");
   const capture = ind.needs?.kind === "capture" ? NEED_TO_CAPTURE[ind.needs.code] : undefined;
+  const change = changeText(ind);
   return (
     <li className="border-t border-border py-3 first:border-t-0 first:pt-0 last:pb-0">
       <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex min-h-11 w-full items-start justify-between gap-3 text-left">
@@ -40,6 +42,7 @@ function IndicatorRow({ ind, onNeed }: { ind: MapaIndicator; onNeed: (kind: Capt
           <span className="mt-0.5 block font-display text-lg font-bold tabular-nums">{t.value}</span>
         </span>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 pt-0.5">
+          {change && change.tone !== "none" ? <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">{change.tone === "up" ? "↑ " : change.tone === "down" ? "↓ " : "= "}{change.label}</span> : null}
           {exploratory ? <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">Em teste</span> : null}
           <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${informative ? STATUS_STYLE.sem_dados : STATUS_STYLE[ind.status]}`}>{informative ? "Informativo" : STATUS_LABEL[ind.status]}</span>
           <ChevronDown size={16} aria-hidden className={`transition-transform ${open ? "rotate-180" : ""}`} />
@@ -49,6 +52,7 @@ function IndicatorRow({ ind, onNeed }: { ind: MapaIndicator; onNeed: (kind: Capt
         <div className="mt-1 space-y-1.5 text-[13px] leading-snug">
           {t.explain ? <p>{t.explain}</p> : null}
           {ind.status !== "sem_dados" ? <p className="text-muted-foreground">{CONFIDENCE_LABEL[ind.confidence]}.</p> : null}
+          {change ? <p className={change.tone === "up" ? "text-emerald-700 dark:text-emerald-300" : change.tone === "down" ? "text-rose-700 dark:text-rose-300" : "text-muted-foreground"}>{change.detail}</p> : null}
           {reasons.map((r) => <p key={r} className="text-muted-foreground">{r}</p>)}
           {capture && ind.needs ? <button type="button" onClick={() => onNeed(capture)} className="inline-flex min-h-11 items-center font-semibold text-primary">{NEEDS_ACTION[ind.needs.code]}</button> : null}
           {ind.needs?.code === "meta_de_poupanca" || ind.needs?.code === "metas_fechadas"
@@ -80,6 +84,23 @@ function Heading({ children, hint }: { children: string; hint: string }) {
   );
 }
 
+/** "O que mudou": só mudanças comparáveis e relevantes (melhorou ou piorou), no máximo 5. */
+function Evoluir({ indicators }: { indicators: MapaIndicator[] }) {
+  const moved = indicators.filter((i) => i.change?.comparable && (i.change.direction === "melhorou" || i.change.direction === "piorou")).slice(0, 5);
+  if (!moved.length) return null;
+  return (
+    <section aria-label="O que mudou" className="rounded-[22px] border border-border bg-card p-4 shadow-card">
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">O que mudou desde a última leitura</p>
+      <ul className="mt-2 space-y-1.5 text-[13px]">
+        {moved.map((i) => {
+          const t = indicatorText(i); const c = changeText(i)!;
+          return <li key={i.id}><span className={c.tone === "up" ? "font-semibold text-emerald-700 dark:text-emerald-300" : "font-semibold text-rose-700 dark:text-rose-300"}>{c.tone === "up" ? "↑" : "↓"} {c.label}:</span> {t.title}, {t.value}</li>;
+        })}
+      </ul>
+    </section>
+  );
+}
+
 /** A pergunta do dia (uma só, no máximo) ou a captura que a pessoa abriu por conta própria. */
 function QuestionSlot({ reading, opened, onClose }: { reading: MapaReading; opened: CaptureKind | null; onClose: () => void }) {
   const resolve = useResolveQuestion();
@@ -102,12 +123,14 @@ function QuestionSlot({ reading, opened, onClose }: { reading: MapaReading; open
 export function MapaEntender() {
   const flag = useMapaEnabled();
   const enabled = flag.data === true;
-  const { data, isLoading, isError } = useMapaReading(enabled);
+  const { data: payload, isLoading, isError } = useMapaReading(enabled);
+  const data = payload?.mapa;
   const [opened, setOpened] = useState<CaptureKind | null>(null);
   if (!enabled) return null;
   const by = (pillar: MapaPillarId) => (data?.indicators ?? []).filter((i) => i.pillar === pillar);
   return (
     <div className="space-y-3" data-testid="mapa-entender">
+      {payload?.evidence ? <MapaAgir evidence={payload.evidence} /> : null}
       <Heading hint="Em números de verdade, não em notas. Toque em cada um para ver de onde vem.">Saúde financeira</Heading>
       {isLoading ? <p className="px-1 text-[13px] text-muted-foreground" role="status">Montando a sua leitura…</p> : null}
       {isError ? <p className="px-1 text-[13px] text-muted-foreground" role="status">Não consegui montar a leitura agora. Tente de novo em instantes.</p> : null}
@@ -117,6 +140,7 @@ export function MapaEntender() {
           <QuestionSlot reading={data} opened={opened} onClose={() => setOpened(null)} />
           <Heading hint="O que você faz com o dinheiro no dia a dia. Medidas em teste vêm avisadas.">Hábitos</Heading>
           {HABITOS.map((p) => <Pillar key={p} id={p} indicators={by(p)} onNeed={setOpened} />)}
+          <Evoluir indicators={data.indicators} />
         </>
       ) : null}
     </div>
