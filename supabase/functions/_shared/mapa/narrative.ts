@@ -73,16 +73,16 @@ export function templateNarrative(pack: MapaEvidencePack, reason: string): MapaN
 }
 
 /** Compõe o texto com a IA e valida. `complete` é injetável (testes, avaliação offline). */
-export async function composeMapaNarrative(pack: MapaEvidencePack, complete: CompleteFn): Promise<{ narrative: MapaNarrative; guard: MapaGuardResult | null; model: string | null; latency_ms: number | null }> {
+export async function composeMapaNarrative(pack: MapaEvidencePack, complete: CompleteFn): Promise<{ narrative: MapaNarrative; guard: MapaGuardResult | null; model: string | null; latency_ms: number | null; raw?: string }> {
   if (!LLM_MODES.has(pack.mode)) return { narrative: templateNarrative(pack, "template_only_mode"), guard: null, model: null, latency_ms: null };
   let out: { text: string; model?: string; latency_ms?: number };
   try { out = await complete(buildMapaPrompt(pack)); } catch (error) {
     return { narrative: templateNarrative(pack, `gateway_error:${String(error).slice(0, 60)}`), guard: null, model: null, latency_ms: null };
   }
   const parsed = parseMapaNarrativeJson(out.text);
-  if (!parsed) return { narrative: templateNarrative(pack, "schema"), guard: null, model: out.model ?? null, latency_ms: out.latency_ms ?? null };
+  if (!parsed) return { narrative: templateNarrative(pack, "schema"), guard: null, model: out.model ?? null, latency_ms: out.latency_ms ?? null, raw: out.text.slice(0, 400) };
   const guard = guardMapaText({ title: parsed.title, body: parsed.body, question: parsed.question, pack });
-  if (!guard.ok) return { narrative: templateNarrative(pack, `guard:${guard.violations.join(",")}`), guard, model: out.model ?? null, latency_ms: out.latency_ms ?? null };
+  if (!guard.ok) return { narrative: templateNarrative(pack, `guard:${guard.violations.join(",")}`), guard, model: out.model ?? null, latency_ms: out.latency_ms ?? null, raw: `${parsed.title} | ${parsed.body} | ${parsed.question ?? ""}`.slice(0, 400) };
   return { narrative: { ...parsed, source: "llm", fallback_reason: null }, guard, model: out.model ?? null, latency_ms: out.latency_ms ?? null };
 }
 
