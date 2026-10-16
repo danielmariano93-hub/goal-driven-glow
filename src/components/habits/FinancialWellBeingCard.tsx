@@ -137,7 +137,7 @@ export function FinancialWellBeingCard() {
       <details className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
         <summary className="cursor-pointer font-semibold text-foreground">De onde vem esta nota</summary>
         <p className="mt-1">
-          É a Escala de Bem-Estar Financeiro do CFPB, órgão de proteção ao consumidor dos EUA, com 10 perguntas e pontuação oficial (de 14 a 95). Existe uma adaptação brasileira validada com 834 pessoas (Howat-Rodrigues e colegas, 2021). O texto em português é uma tradução minha. A escala não define o que é uma nota boa ou ruim: o mais útil é acompanhar se ela sobe ou desce com o tempo. Não é diagnóstico.
+          É a Escala de Bem-Estar Financeiro do CFPB, órgão de proteção ao consumidor dos EUA, com 10 perguntas e pontuação oficial (de 14 a 95). Existe uma adaptação brasileira validada com 834 pessoas (Howat-Rodrigues e colegas, 2021). Três das dez frases usam a redação da versão brasileira validada; as outras sete são tradução minha. A escala não define o que é uma nota boa ou ruim: o mais útil é acompanhar se ela sobe ou desce com o tempo. Não é diagnóstico.
         </p>
       </details>
     </section>

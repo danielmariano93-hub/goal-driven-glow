@@ -74,8 +74,8 @@ const QUESTION_SETS: Record<BehaviorDimensionKey, [string, string, string]> = {
     "Quanto do seu mês financeiro parece intencional em vez de simplesmente acontecer?",
   ],
   control: [
-    "Quanto você consegue gastar dentro dos limites que escolheu?",
-    "Quando aparece uma compra não planejada, quanto você consegue respeitar o limite que tinha definido?",
+    "Quanto você consegue gastar dentro das metas que definiu?",
+    "Quando aparece uma compra não planejada, quanto você consegue respeitar a meta que tinha definido?",
     "Quanto os seus gastos do mês ficam dentro do que você decidiu gastar?",
   ],
   consistency: [

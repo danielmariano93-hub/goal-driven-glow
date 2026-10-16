@@ -2,8 +2,10 @@
 // Fonte: CFPB, "Measuring financial well-being: a guide to using the CFPB Financial Well-Being Scale" (2015),
 // Apêndice A (planilha de pontuação, questionário autoaplicado). Adaptação brasileira validada:
 // Howat-Rodrigues, Laks e Marinho (2021), DOI 10.47626/2237-6089-2020-0034 (alfa 0,89; fator único).
-// ATENÇÃO: o texto em português abaixo é tradução do Nino. O artigo brasileiro não traz as perguntas finais
-// no corpo acessível; trocar pelo texto validado quando o obtivermos dos autores.
+// TEXTO EM PORTUGUÊS: 3 das 10 frases (itens 2, 3 e 10) usam a redação da versão brasileira validada da escala
+// PFWB, cujos itens coincidem com estes do CFPB (Ponchio e Cordeiro, 2020, RIMAR 10(1), DOI 10.4025/rimar.v10i1.45854;
+// 1.027 respondentes). As outras 7 são tradução do Nino (`validatedPt: false`): o artigo de Howat-Rodrigues et al. (2021)
+// não traz a versão final em português em nenhum formato que conseguimos acessar. Trocar pelo texto validado quando obtido.
 // Puro, sem I/O. Espelhado para as Edge Functions por scripts/sync-finance-core.mjs.
 
 export const FWB_VERSION = "cfpb_fwb10.v1";
@@ -17,6 +19,8 @@ export interface FwbItem {
   format: FwbFormat;
   /** Item com pontuação invertida: a 1ª opção vale 0 (pior) e a última vale 4. */
   reverse: boolean;
+  /** true = redação em português de versão brasileira validada; false = tradução do Nino. */
+  validatedPt: boolean;
 }
 
 export const FWB_OPTIONS: Record<FwbFormat, string[]> = {
@@ -26,16 +30,16 @@ export const FWB_OPTIONS: Record<FwbFormat, string[]> = {
 };
 
 export const FWB_ITEMS: FwbItem[] = [
-  { id: 1, text: "Eu conseguiria lidar com um grande gasto inesperado", format: "describes", reverse: false },
-  { id: 2, text: "Estou garantindo o meu futuro financeiro", format: "describes", reverse: false },
-  { id: 3, text: "Por causa da minha situação com dinheiro, sinto que nunca terei as coisas que quero na vida", format: "describes", reverse: true },
-  { id: 4, text: "Consigo aproveitar a vida por causa do jeito como administro meu dinheiro", format: "describes", reverse: false },
-  { id: 5, text: "Estou apenas me virando financeiramente", format: "describes", reverse: true },
-  { id: 6, text: "Me preocupa que o dinheiro que tenho ou vou guardar não dure", format: "describes", reverse: true },
-  { id: 7, text: "Dar um presente de casamento, aniversário ou outra ocasião pesaria nas minhas finanças do mês", format: "frequency", reverse: true },
-  { id: 8, text: "Sobra dinheiro no fim do mês", format: "frequency", reverse: false },
-  { id: 9, text: "Estou atrasado(a) com as minhas finanças", format: "frequency", reverse: true },
-  { id: 10, text: "As minhas finanças controlam a minha vida", format: "frequency", reverse: true },
+  { id: 1, text: "Eu conseguiria lidar com um grande gasto inesperado", format: "describes", reverse: false, validatedPt: false },
+  { id: 2, text: "Estou garantindo meu futuro financeiro", format: "describes", reverse: false, validatedPt: true },
+  { id: 3, text: "Por causa da minha situação financeira, sinto que nunca terei as coisas que quero na vida", format: "describes", reverse: true, validatedPt: true },
+  { id: 4, text: "Consigo aproveitar a vida por causa do jeito como administro meu dinheiro", format: "describes", reverse: false, validatedPt: false },
+  { id: 5, text: "Estou apenas me virando financeiramente", format: "describes", reverse: true, validatedPt: false },
+  { id: 6, text: "Me preocupa que o dinheiro que tenho ou vou guardar não dure", format: "describes", reverse: true, validatedPt: false },
+  { id: 7, text: "Dar um presente de casamento, aniversário ou outra ocasião pesaria nas minhas finanças do mês", format: "frequency", reverse: true, validatedPt: false },
+  { id: 8, text: "Sobra dinheiro no fim do mês", format: "frequency", reverse: false, validatedPt: false },
+  { id: 9, text: "Estou atrasado(a) com as minhas finanças", format: "frequency", reverse: true, validatedPt: false },
+  { id: 10, text: "Minhas finanças controlam minha vida", format: "frequency", reverse: true, validatedPt: true },
 ];
 
 /** Tabela oficial (questionário autoaplicado): soma bruta 0-40 → escala 0-100. Índice = soma bruta. */

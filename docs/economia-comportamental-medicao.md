@@ -40,7 +40,7 @@ Estado atual → recomendação. "Proxy" = mede um comportamento ligado ao conce
 |---|---|---|---|
 | **Acompanhamento** (antes "Consciência") | nº de check-ins e semanas com check-in, respostas de contexto | Comportamento de acompanhar as finanças (itens de "keeping watch" nas pesquisas de capacidade financeira, memória: OECD/INFE) | Renomeado. Medir também revisão de gastos no app, quando houver |
 | **Planejamento** | metas e recorrências + metas mensais cumpridas | Comportamentos de orçar, poupar ativamente e ter meta de longo prazo (OECD/INFE, memória); viés do presente justifica medir o cumprimento, não só a intenção | Manter; pesos seguem sendo decisão de produto |
-| **Cumprimento dos limites** (antes "Controle de impulso") | metas mensais cumpridas, agora pela mesma fonte da tela de Metas | Para traço de autocontrole: Escala de Autocontrole (Tangney; BR 36 itens). Para o que o app vê: adesão aos próprios limites | Renomeado. Escala de autocontrole só se quisermos medir traço, não é prioridade |
+| **Cumprimento das metas** (antes "Controle de impulso") | metas mensais cumpridas, agora pela mesma fonte da tela de Metas | Para traço de autocontrole: Escala de Autocontrole (Tangney; BR 36 itens). Para o que o app vê: adesão aos próprios limites | Renomeado. Escala de autocontrole só se quisermos medir traço, não é prioridade |
 | **Consistência** | estabilidade do gasto diário + check-ins | Regularidade de comportamentos repetidos; formação de hábito leva semanas (Lally, memória) | Manter, exigir mais semanas antes de dar nota forte |
 | **Segurança** | meses de gasto cobertos pelo caixa + folga após compromissos | **Escala CFPB** (itens 1, 6, 7 tratam de segurança) + folga objetiva. "3 a 6 meses de reserva" é regra prática, não resultado científico | CFPB agora aplicada a cada 15 dias |
 | **Patrimônio** | aportes líquidos de resgate + poupança do mês | Taxa de poupança e patrimônio líquido ao longo do tempo | Já ajustado (resgates descontados) |
@@ -59,7 +59,7 @@ Estado atual → recomendação. "Proxy" = mede um comportamento ligado ao conce
 
 ## 6. Limites desta entrega
 
-- O texto em português da escala CFPB é **tradução do Nino**; o artigo brasileiro validado não traz as perguntas finais no trecho que consegui ler. Trocar pelo texto validado quando obtido dos autores.
+- Texto em português da escala CFPB: **3 das 10 frases (itens 2, 3 e 10) usam a redação da versão brasileira validada do PFWB** (Ponchio e Cordeiro, 2020, [RIMAR](https://periodicos.uem.br/ojs/index.php/rimar/article/download/45854/751375150858), 1.027 respondentes), cujos itens coincidem com os do CFPB. As outras 7 são **tradução do Nino**: o artigo de Howat-Rodrigues et al. (2021) não traz a versão final em português em nenhum formato que consegui acessar (SciELO e PMC bloqueiam o acesso automático). O caminho para fechar isso é pedir a versão final aos autores (DOI 10.47626/2237-6089-2020-0034).
 - A pontuação usa as tabelas oficiais dos EUA (autoaplicado, 18-61 e 62+). Não há norma brasileira publicada que eu tenha encontrado.
 - Aplicar a escala a cada 15 dias é decisão de produto; o CFPB não prescreve intervalo. Em 15 dias a mudança real tende a ser pequena, então a tela só narra variações de 3 pontos ou mais.
-- A troca das perguntas da roda para "Acompanhamento" e "Cumprimento dos limites" torna o histórico dessas duas notas de autorrelato não estritamente comparável com o anterior.
+- A troca das perguntas da roda para "Acompanhamento" e "Cumprimento das metas" torna o histórico dessas duas notas de autorrelato não estritamente comparável com o anterior.
