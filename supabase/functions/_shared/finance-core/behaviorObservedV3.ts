@@ -22,7 +22,7 @@ import {
   type ObservedEvidenceRecord,
   type ObservedFactor,
 } from "./behaviorDimensions.ts";
-import type { ObservedProfileV2Input } from "./behaviorObserved.ts";
+import { cycleSentence, type ObservedProfileV2Input } from "./behaviorObserved.ts";
 
 export const OBSERVED_V3_METHODOLOGY_VERSION = "behavior_observed.v3";
 const DAY_MS = 86_400_000;
@@ -83,7 +83,7 @@ export const DIMENSION_LIMITS: Record<BehaviorDimensionKey, string> = {
   consistency: "Repetir algo por várias semanas indica hábito. Vários registros no mesmo dia não formam um hábito.",
   security: "Mede o dinheiro disponível e a folga depois dos compromissos já conhecidos. Não prova que você está protegido de um imprevisto específico, e não ter dívida não é o mesmo que estar seguro.",
   wealth: "Aportes regulares mostram que você está construindo patrimônio. Não dizem se o investimento é bom.",
-  calm: "Vem do que você mesmo diz nos check-ins. O Nino não adivinha emoções pelos seus gastos.",
+  calm: "Esta nota é só o que você respondeu nos check-ins. Eu não adivinho como você se sente pelos seus gastos.",
   debt: "Mede o peso e a direção das dívidas registradas. Não ter dívida cadastrada não quer dizer que você não tenha nenhuma.",
 };
 
@@ -236,25 +236,25 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const observed: string[] = [];
     if (activeGoals) observed.push(`${activeGoals} meta${activeGoals === 1 ? "" : "s"} de gasto ativa${activeGoals === 1 ? "" : "s"}.`);
     observed.push(recurring ? `${recurring} compromisso${recurring === 1 ? "" : "s"} recorrente${recurring === 1 ? "" : "s"} cadastrado${recurring === 1 ? "" : "s"}.` : "Nenhum compromisso recorrente cadastrado.");
-    if (closedCycles.length) observed.push(`Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`);
+    if (closedCycles.length) observed.push(cycleSentence(hitCycles.length, closedCycles.length));
     return finalize("planning", {
       state: sufficient ? "sufficient" : structure ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: closedCycles.length >= 3 ? "high" : "medium",
       summary: structure
-        ? `Você tem ${activeGoals} meta${activeGoals === 1 ? "" : "s"} e ${recurring} compromisso${recurring === 1 ? "" : "s"} recorrente${recurring === 1 ? "" : "s"}. ${closedCycles.length ? "Já dá para ver se você cumpriu o que planejou." : "Ainda não terminou nenhum período de meta para ver se você cumpriu."}`
+        ? `Você tem ${activeGoals} meta${activeGoals === 1 ? "" : "s"} e ${recurring} compromisso${recurring === 1 ? "" : "s"} recorrente${recurring === 1 ? "" : "s"}. ${closedCycles.length ? "Já dá para ver se você cumpriu o que planejou." : "Ainda não terminou nenhuma meta mensal para ver se você cumpriu."}`
         : "Ainda não há metas nem compromissos recorrentes cadastrados.",
       source: "goals+recurring_rules+goal_cycles",
-      factors: [f("goals", "Metas de gasto ativas", goalsStruct, 0.3), f("recurring", "Compromissos recorrentes", recStruct, 0.2), f("closed_cycles", "Períodos de meta cumpridos", cycleScore, 0.5)],
+      factors: [f("goals", "Metas de gasto ativas", goalsStruct, 0.3), f("recurring", "Compromissos recorrentes", recStruct, 0.2), f("closed_cycles", "Metas mensais cumpridas", cycleScore, 0.5)],
       origin: [
         { key: "goals", label: "Metas que você cadastrou", kind: "direct" },
         { key: "recurring_rules", label: "Compromissos recorrentes", kind: "direct" },
-        { key: "goal_cycles", label: "Períodos de meta já terminados", kind: "derived" },
+        { key: "goal_cycles", label: "Metas mensais já terminadas", kind: "derived" },
       ],
-      window: "metas atuais e períodos já terminados",
-      coverage: `${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} terminado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
+      window: "metas atuais e metas mensais já terminadas",
+      coverage: `${closedCycles.length} ${closedCycles.length === 1 ? "meta mensal terminada" : "metas mensais terminadas"} (mínimo: 1)`,
       observed,
-      unknown: closedCycles.length ? ["Se você revisou e ajustou as metas ao longo dos meses."] : ["Se você cumpriu as metas: ainda não terminou nenhum período."],
+      unknown: closedCycles.length ? ["Se você revisou e ajustou as metas ao longo dos meses."] : ["Se você cumpriu as metas: ainda não terminou nenhuma meta mensal."],
       reason: structure ? "Você já organizou metas e compromissos, mas falta ver se cumpriu para avaliar o planejamento." : "Sem metas nem compromissos cadastrados.",
     });
   })();
@@ -264,23 +264,23 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const sufficient = closedCycles.length >= 1;
     const score = weighted([{ value: cycleScore, weight: 0.65 }, { value: currentGoalScore, weight: 0.35 }]);
     const observed: string[] = [];
-    if (closedCycles.length) observed.push(`Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`);
+    if (closedCycles.length) observed.push(cycleSentence(hitCycles.length, closedCycles.length));
     if (goals.length) observed.push(`Neste mês, ${goalsOnTrackCount} de ${goals.length} meta${goals.length === 1 ? "" : "s"} ${goalsOnTrackCount === 1 ? "está" : "estão"} no ritmo.`);
     return finalize("control", {
       state: sufficient ? "sufficient" : goals.length ? "partial" : "none",
       score: sufficient ? score : null,
       confidence: closedCycles.length >= 3 ? "high" : "medium",
       summary: sufficient
-        ? `Você ficou dentro do limite em ${hitCycles.length} de ${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} de meta que já terminou${closedCycles.length === 1 ? "" : "aram"}.`
-        : goals.length ? `Neste mês, ${goalsOnTrackCount} de ${goals.length} metas estão no ritmo. Nenhum período de meta terminou ainda.` : "Ainda não há limites escolhidos para medir o controle.",
+        ? cycleSentence(hitCycles.length, closedCycles.length)
+        : goals.length ? `Neste mês, ${goalsOnTrackCount} de ${goals.length} metas estão no ritmo. Nenhuma meta mensal terminou ainda.` : "Ainda não há limites escolhidos para medir o controle.",
       source: "goal_cycles+current_goals",
-      factors: [f("closed_cycles", "Períodos de meta dentro do limite", cycleScore, 0.65), f("current_goals", "Metas deste mês no ritmo", currentGoalScore, 0.35)],
+      factors: [f("closed_cycles", "Metas mensais cumpridas", cycleScore, 0.65), f("current_goals", "Metas deste mês no ritmo", currentGoalScore, 0.35)],
       origin: [
-        { key: "goal_cycles", label: "Períodos de meta já terminados", kind: "derived" },
+        { key: "goal_cycles", label: "Metas mensais já terminadas", kind: "derived" },
         { key: "current_goals", label: "Metas deste mês", kind: "derived" },
       ],
-      window: "períodos terminados + mês atual",
-      coverage: `${closedCycles.length} período${closedCycles.length === 1 ? "" : "s"} terminado${closedCycles.length === 1 ? "" : "s"} (mínimo: 1)`,
+      window: "metas já terminadas + mês atual",
+      coverage: `${closedCycles.length} ${closedCycles.length === 1 ? "meta mensal terminada" : "metas mensais terminadas"} (mínimo: 1)`,
       observed,
       unknown: ["Se os gastos acima do limite foram planejados ou por impulso: eu só vejo os valores."],
       reason: goals.length ? "As metas deste mês ainda não terminaram: o resultado é parcial." : "Sem metas de gasto para comparar.",
@@ -392,7 +392,7 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const mean = avg(values);
     const last = direct30.length ? Number([...direct30].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1))[0].financial_calm_score) : null;
     const observed: string[] = [];
-    if (values.length) observed.push(`Você contou como se sente ${values.length} ${values.length === 1 ? "vez" : "vezes"} nos últimos 30 dias${mean != null ? ` (média ${mean.toFixed(1).replace(".", ",")})` : ""}.`);
+    if (values.length) if (mean != null) observed.push(`A média das suas respostas foi ${mean.toFixed(1).replace(".", ",")} de 10.`);
     if (legacyValues.length) observed.push(`${legacyValues.length} registro${legacyValues.length === 1 ? " antigo é" : "s antigos são"} estimativa${legacyValues.length === 1 ? "" : "s"}, não resposta sua, e ${legacyValues.length === 1 ? "fica" : "ficam"} fora da nota.`);
     return finalize("calm", {
       state: sufficient ? "sufficient" : values.length || legacyValues.length ? "partial" : "none",

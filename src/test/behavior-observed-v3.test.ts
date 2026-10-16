@@ -40,7 +40,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     expect(v3.dimensions.planning.score).toBeNull();
     expect(v3.dimensions.planning.state).toBe("partial");
     expect(v3.dimensions.planning.record?.observed.join(" ")).toContain("6 metas");
-    expect(v3.dimensions.planning.record?.unknown.join(" ")).toMatch(/ainda não terminou nenhum período/);
+    expect(v3.dimensions.planning.record?.unknown.join(" ")).toMatch(/ainda não terminou nenhuma meta mensal/);
     expect(JSON.stringify(v3.dimensions.planning)).not.toMatch(/87/);
   });
 
@@ -124,7 +124,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
     const p = buildObservedProfileV3({ ...empty, goalCycles, planningStats: { active_category_goals: 3, active_recurring_rules: 2 } }, NOW);
     expect(p.dimensions.control.state).toBe("sufficient");
     expect(p.dimensions.planning.state).toBe("sufficient");
-    expect(p.dimensions.control.record?.observed[0]).toMatch(/1 de 2 períodos de meta/);
+    expect(p.dimensions.control.record?.observed[0]).toMatch(/cumpriu 1 de 2 metas mensais/);
   });
 
   it("toda dimensão carrega proveniência: fontes, janela, cobertura, versão e o que não prova", () => {

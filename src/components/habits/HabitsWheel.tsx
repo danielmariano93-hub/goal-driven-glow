@@ -72,12 +72,12 @@ export function HabitsWheel({
 
   return (
     <section aria-label="Roda financeira comportamental" className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5">
-      <h2 className="font-display text-xl font-bold tracking-tight">Você e o que o Nino observa</h2>
+      <h2 className="font-display text-xl font-bold tracking-tight">Você e o que eu observo</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        {latest ? "Toque numa dimensão para ver o porquê" : "Responda o mapa para comparar os dois olhares"} · {withScore} de 8 com leitura confiável
+        {latest ? "Toque em um hábito para ver como cheguei nessa nota" : "Responda o mapa para comparar a sua visão com a minha"} · {withScore} de 8 já têm nota
       </p>
 
-      <svg ref={wheelRef} viewBox="0 0 360 300" role="img" aria-label="Roda com as oito dimensões" className="mx-auto mt-2 block w-full max-w-[380px]">
+      <svg ref={wheelRef} viewBox="0 0 360 300" role="img" aria-label="Roda com os oito hábitos" className="mx-auto mt-2 block w-full max-w-[380px]">
         {[2, 4, 6, 8, 10].map((lv) => (
           <polygon key={lv} points={rows.map((_, i) => { const p = point(i, lv); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join(" ")} fill="none" stroke="hsl(var(--border))" strokeWidth={lv === 10 ? 1.2 : 0.7} />
         ))}
@@ -104,8 +104,8 @@ export function HabitsWheel({
 
       <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 pb-2 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden /> Você</span>
-        <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden /> Nino observa</span>
-        <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" aria-hidden /> sem leitura confiável</span>
+        <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-success" aria-hidden /> O que eu observo</span>
+        <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full border border-dashed border-muted-foreground" aria-hidden /> ainda sem nota</span>
         {showEvolution && baseline ? <span className="flex items-center gap-1.5" data-testid="before-legend"><i className="h-0 w-4 border-t-2 border-dotted border-muted-foreground" aria-hidden /> Antes ({baseline.date.split("-").reverse().slice(0, 2).join("/")})</span> : null}
       </div>
       <ul className="divide-y divide-border border-t border-border" aria-label="Dimensões">
@@ -119,7 +119,7 @@ export function HabitsWheel({
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold">{r.label}</span>
                   <span className="block text-[11px] text-muted-foreground">
-                    {r.nino != null ? `Nino ${fmt(r.nino)}` : state === "partial" ? "Base parcial" : "Ainda não sei"}
+                    {r.nino != null ? `Nino ${fmt(r.nino)}` : state === "partial" ? "Poucos dados" : "Sem dados"}
                     {r.self != null ? ` · Você ${fmt(r.self)}` : ""}
                     {showEvolution && baseline?.scores[r.key] != null ? ` · Antes ${fmt(Number(baseline.scores[r.key]))}` : ""}
                   </span>

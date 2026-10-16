@@ -138,7 +138,7 @@ export function WhatChanged({
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">O que mudou e por quê</p>
       <h2 className="mt-1 font-display text-xl font-bold tracking-tight">{hasBaseline ? "Do que mais variou ao que menos variou" : "Do ponto mais fraco ao mais forte"}</h2>
       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-        Toque numa dimensão para ver o que o Nino observou, o que a nota mede, o que ainda falta saber e o peso de cada componente. {hasBaseline ? "" : "Sem leitura anterior ainda, a ordem é pela nota."}
+        Toque em um hábito para ver o que observei, o que a nota mede, o que ainda não sei e o peso de cada parte. {hasBaseline ? "" : "Sem leitura anterior ainda, a ordem é pela nota."}
       </p>
       <ul className="mt-3 divide-y divide-border">
         {ordered.map((c) => {

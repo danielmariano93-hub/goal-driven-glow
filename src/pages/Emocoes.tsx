@@ -159,7 +159,7 @@ function EmocoesLegacy() {
   const latest = dashboard.latestAssessment;
   const degraded = dashboard.degradedSources.length > 0;
   const confidence = observedMeta.overallConfidence ?? "low";
-  const confidenceLabel = confidence === "high" ? "alta" : confidence === "medium" ? "média" : "baixa";
+  const confidenceLabel = confidence === "high" ? "firme" : confidence === "medium" ? "razoável" : "inicial";
   const maturing = observed.coverage > 0 && confidence !== "high";
 
   // Contestações vigentes ("isso não representa minha realidade"): a nota não muda, mas não vira descoberta nem veredito.
@@ -204,7 +204,7 @@ function EmocoesLegacy() {
         </section>
       ) : maturing ? (
         <p className="rounded-[20px] border border-primary/15 bg-primary/5 px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-          <strong className="text-foreground">Leitura em amadurecimento.</strong> Confiança geral {confidenceLabel}{observedMeta.historyDays ? ` com ${observedMeta.historyDays} dias de histórico` : ""}. As notas já servem de sinal, mas podem mudar conforme entram novos dados.
+          <strong className="text-foreground">Ainda estou aprendendo sobre você.</strong> {observedMeta.historyDays ? `Tenho ${observedMeta.historyDays} dias de histórico e a minha leitura geral é ${confidenceLabel}.` : `A minha leitura geral ainda é ${confidenceLabel}.`} As notas já são um bom sinal, mas podem mudar quando entrarem novos dados.
         </p>
       ) : null}
 

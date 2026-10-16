@@ -45,7 +45,7 @@ export function DimensionPanel({
 
   const headline = state === "sufficient" && dimension.score != null
     ? `Nota ${fmt(dimension.score)} · ${CONF_LABEL[dimension.confidence]}`
-    : state === "partial" ? "Base parcial · sem nota" : "Ainda não sei · sem nota";
+    : state === "partial" ? "Poucos dados · sem nota" : "Sem dados · sem nota";
 
   const gap = self != null && dimension.score != null ? dimension.score - self : null;
   const options = DIMENSION_WEIGHS[dimensionKey] ?? [];
@@ -134,9 +134,9 @@ export function DimensionPanel({
         {record ? (
           <details className="rounded-xl bg-secondary/40 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
             <summary className="flex cursor-pointer items-center gap-1.5 font-semibold text-foreground"><Info size={12} aria-hidden /> De onde vem esta nota e o que ela não prova</summary>
-            <p className="mt-2"><strong className="text-foreground">Não prova:</strong> {record.limit}</p>
-            <p className="mt-1"><strong className="text-foreground">Fontes:</strong> {record.origin.map((o) => `${o.label} (${KIND_LABEL[o.kind]})`).join("; ")}.</p>
-            <p className="mt-1"><strong className="text-foreground">Janela:</strong> {record.window} · <strong className="text-foreground">Cobertura:</strong> {record.coverage}</p>
+            <p className="mt-2"><strong className="text-foreground">O que esta nota não prova:</strong> {record.limit}</p>
+            <p className="mt-1"><strong className="text-foreground">De onde vem:</strong> {record.origin.map((o) => `${o.label} (${KIND_LABEL[o.kind]})`).join("; ")}.</p>
+            <p className="mt-1"><strong className="text-foreground">Período analisado:</strong> {record.window} · <strong className="text-foreground">Dados que tenho:</strong> {record.coverage}</p>
           </details>
         ) : null}
       </div>
