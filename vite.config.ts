@@ -22,6 +22,24 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Bibliotecas estáveis em arquivos próprios: baixam em paralelo e ficam em cache entre os deploys
+        // (um deploy só invalida o código do app, não ~1 MB de bibliotecas).
+        manualChunks(id: string) {
+          // helper de interop CJS é usado pelo app inteiro: se caísse no chunk de gráficos, ele viraria dependência de partida
+          if (id.includes("commonjsHelpers")) return "vendor-react";
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@remix-run|clsx|tailwind-merge|class-variance-authority|react-is|prop-types|@babel|use-sync-external-store|tslib|object-assign)[\\/]/.test(id)) return "vendor-react";
+          if (/[\\/]node_modules[\\/](recharts|recharts-scale|victory-vendor|d3-[^\\/]+|internmap|decimal\.js-light)[\\/]/.test(id)) return "vendor-charts";
+          if (/[\\/]node_modules[\\/]@supabase[\\/]/.test(id)) return "vendor-supabase";
+          if (/[\\/]node_modules[\\/](@radix-ui|cmdk|sonner|vaul|@floating-ui)[\\/]/.test(id)) return "vendor-ui";
+          return undefined;
+        },
+      },
+    },
+  },
   plugins: [react(), mcpPlugin(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
     alias: {

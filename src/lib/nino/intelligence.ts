@@ -1,5 +1,6 @@
 // Cliente da inteligência unificada do Nino (nino_intelligence.v1).
 // Uma única fonte alimenta Home, página do Nino, Relatórios e aba Mais.
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -234,14 +235,35 @@ export function useNinoHomeItem() {
   });
 }
 
+const moreMenuQuery = (userId: string | undefined) => ({
+  queryKey: ["more-menu-context", userId] as const,
+  staleTime: 2 * 60_000,
+  queryFn: () => callRpc<MoreMenuContext>("my_more_menu_context"),
+});
+
 export function useMoreMenuContext() {
   const { user } = useAuth();
-  return useQuery<MoreMenuContext>({
-    queryKey: ["more-menu-context", user?.id],
-    enabled: !!user,
-    staleTime: 30_000,
-    queryFn: () => callRpc<MoreMenuContext>("my_more_menu_context"),
-  });
+  return useQuery<MoreMenuContext>({ ...moreMenuQuery(user?.id), enabled: !!user });
+}
+
+/**
+ * Aquece, em segundo plano, o que as telas mais abertas vão pedir (contexto do Mais). Roda quando o navegador está ocioso,
+ * logo depois do app abrir: quando a pessoa chega na tela o dado já está no cache e ela aparece completa na hora.
+ */
+export function usePrefetchShellContexts() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!user?.id) return;
+    const run = () => { void qc.prefetchQuery(moreMenuQuery(user.id)).catch(() => undefined); };
+    const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    if (w.requestIdleCallback) {
+      const handle = w.requestIdleCallback(run, { timeout: 3000 });
+      return () => w.cancelIdleCallback?.(handle);
+    }
+    const t = window.setTimeout(run, 1200);
+    return () => window.clearTimeout(t);
+  }, [user?.id, qc]);
 }
 
 export function useReportsContext(range?: { start: string; end: string }) {

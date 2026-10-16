@@ -1,11 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
-import { AssessorPanel } from '@/components/assessor/AssessorPanel';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
 import { usePrivacyMode } from '@/context/PrivacyModeContext';
 import { SessionInactivityGuard } from '@/components/auth/SessionInactivityGuard';
 import { BehavioralUsageTracker } from '@/components/behavioral/BehavioralUsageTracker';
+import { usePrefetchShellContexts } from '@/lib/nino/intelligence';
 
 /**
  * Painel único e global do Assessor. Fica montado condicionalmente aqui
@@ -13,14 +14,18 @@ import { BehavioralUsageTracker } from '@/components/behavioral/BehavioralUsageT
  * notificações compartilhem a mesma instância — nunca dois painéis
  * abertos ao mesmo tempo.
  */
+// O painel (com seus gráficos) só é baixado quando a pessoa abre o Assessor.
+const AssessorPanel = lazy(() => import('@/components/assessor/AssessorPanel').then((m) => ({ default: m.AssessorPanel })));
+
 function GlobalAssessorPanel() {
   const { isOpen, closeAssessor } = useAssessor();
   if (!isOpen) return null;
-  return <AssessorPanel onClose={closeAssessor} />;
+  return <Suspense fallback={null}><AssessorPanel onClose={closeAssessor} /></Suspense>;
 }
 
 export function AppLayout() {
   const { valuesHidden } = usePrivacyMode();
+  usePrefetchShellContexts();
   return (
     <SessionInactivityGuard>
       <AssessorProvider>
