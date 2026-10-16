@@ -64,6 +64,14 @@ export const FINANCE_CORE_MODULES = [
   "mapaMonthly",
   "mapaIncomeBaseline",
   "mapaDataQuality",
+  "mapaThresholds",
+  "mapaInputs",
+  "mapaIndicator",
+  "mapaEquilibrio",
+  "mapaSeguranca",
+  "mapaDividas",
+  "mapaFuturo",
+  "mapaStructural",
   "mapaReading",
 ];
 
