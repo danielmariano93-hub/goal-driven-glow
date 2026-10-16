@@ -7,6 +7,8 @@ export interface MapaMonthlyEntry {
   kind: "expense" | "income";
   /** Despesa: consumo (estorno negativo). Receita: valor positivo. */
   amount: number;
+  /** Categoria da despesa (para "essencial"). */
+  category_id?: string | null;
 }
 
 export interface MapaMonthAgg {
