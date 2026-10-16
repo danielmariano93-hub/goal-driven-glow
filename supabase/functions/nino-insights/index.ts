@@ -23,6 +23,7 @@ import { buildHabitPatterns } from "../_shared/proactive/habitPatterns.ts";
 import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
 import { loadContextAnswers, loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
 import { matchesAnySecret } from "../_shared/security/secrets.ts";
+import { loadMapaReading, mapaAccess } from "../_shared/mapa/runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -186,6 +187,11 @@ Deno.serve(async (req) => {
       }
       const answers = contextAnswers.map((r) => ({ subject: r.subject, question: r.question, answer_keys: r.answer_keys, updated_at: r.updated_at }));
       return h.ok({ ok: true, as_of: asOf, ...result, commitments, answers });
+    }
+    if (action === "map") {
+      // Mapa Financeiro (mapa_financeiro.v1), em sombra: só para contas liberadas em `mapa_access`.
+      if (!(await mapaAccess(sb, userId))) return h.fail("mapa_not_enabled", 403);
+      return h.ok({ ok: true, mapa: await loadMapaReading(sb, userId, todaySP()) });
     }
     if (action === "goal_merchants") {
       const categoryId = typeof body.category_id === "string" ? body.category_id : "";
