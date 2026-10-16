@@ -7,8 +7,11 @@ import { fetchAllPages } from "../derived/pagedSelect.ts";
 import { loadExecutiveInput } from "../insights/executive/load.ts";
 import { computeDebtStatus } from "../finance-core/debtStatus.ts";
 import { buildMapaReading } from "../finance-core/mapaReading.ts";
-import { snapshotInputFromPayload, type MapaDebtIn, type MapaHealthInputs } from "../finance-core/mapaInputs.ts";
+import { EMPTY_HABIT_INPUTS, snapshotInputFromPayload, type MapaDebtIn, type MapaHealthInputs } from "../finance-core/mapaInputs.ts";
 import type { MapaReading } from "../finance-core/mapaContracts.ts";
+import { detectRecurringSuggestions, type DetectionTx } from "../finance-core/recurringDetection.ts";
+import type { MapaCommitmentPeriod, MapaHabitInputs, MapaMonthlyEstimate, MapaQuestionRow } from "../finance-core/mapaInputs.ts";
+import { goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
 
 /** Acesso controlado por flag (`mapa_access`): por ora só quem foi liberado. */
 export async function mapaAccess(sb: any, userId: string): Promise<boolean> {
@@ -91,9 +94,83 @@ export async function loadHealthInputs(sb: any, userId: string, today: string): 
   };
 }
 
+const MONTHLY_FACTOR: Record<string, number> = { monthly: 1, weekly: 52 / 12, daily: 30, yearly: 1 / 12 };
+
+/** Insumos da camada Hábitos: compromissos cumpridos, recorrências, respostas e perguntas já feitas. */
+export async function loadHabitInputs(sb: any, userId: string, today: string, essentialFlags: Record<string, boolean>): Promise<MapaHabitInputs> {
+  const since90 = shiftDays(today, -90);
+  const since270 = shiftDays(today, -270);
+  const [goalPeriods, weekendPeriods, recurring, answers, events, questions, cfpb] = await Promise.all([
+    safe("goal_history", [] as MapaCommitmentPeriod[], async () => {
+      const ctx = await loadSpendingGoalContext(sb, userId, today);
+      const out: MapaCommitmentPeriod[] = [];
+      for (const series of goalHistoryOf(ctx).series) {
+        for (const m of series.months) {
+          if (m.status === "met" || m.status === "missed") out.push({ key: series.category_id, period: m.month, status: m.status === "met" ? "cumprido" : "estourado" });
+        }
+      }
+      return out;
+    }),
+    safe("weekend", [] as MapaCommitmentPeriod[], async () => {
+      const { data } = await sb.from("weekend_commitments").select("friday,category,status").eq("user_id", userId).in("status", ["kept", "missed"]).gte("friday", shiftDays(today, -90));
+      return ((data ?? []) as any[]).map((r) => ({ key: String(r.category), period: String(r.friday), status: r.status === "kept" ? "cumprido" as const : "estourado" as const }));
+    }),
+    safe("recurring", { detected: 0, registered: 0, nonEssentialMonthly: null as number | null }, async () => {
+      const [txs, rules, dismissed] = await Promise.all([
+        fetchAllPages<DetectionTx>((a, b) => sb.from("transactions")
+          .select("id,description,merchant_name,normalized_description,amount,occurred_at,type,account_id,category_id,status,movement_kind,transfer_group_id,settles_card_id,superseded_by,credit_card_id,payment_method")
+          .eq("user_id", userId).eq("status", "confirmed").gte("occurred_at", `${since270}T00:00:00`)
+          .order("occurred_at", { ascending: false }).order("id", { ascending: true }).range(a, b), { source: "mapa_recurring" }),
+        sb.from("recurring_rules").select("name,amount,kind,frequency,status,category_id").eq("user_id", userId).eq("status", "active"),
+        sb.from("recurring_suggestion_dismissals").select("key").eq("user_id", userId),
+      ]);
+      const ruleRows = ((rules.data ?? []) as any[]);
+      const dismissedKeys = ((dismissed.data ?? []) as any[]).map((d) => String(d.key));
+      const all = detectRecurringSuggestions({ txs, today, existingRules: [], dismissedKeys });
+      const open = detectRecurringSuggestions({ txs, today, existingRules: ruleRows.map((r) => ({ name: String(r.name) })), dismissedKeys });
+      const nonEssential = ruleRows
+        .filter((r) => r.kind === "expense" && !(r.category_id && essentialFlags[String(r.category_id)] === true))
+        .reduce((a, r) => a + num(r.amount) * (MONTHLY_FACTOR[String(r.frequency)] ?? 1), 0);
+      return { detected: all.length, registered: Math.max(0, all.length - open.length), nonEssentialMonthly: Math.round(nonEssential * 100) / 100 };
+    }),
+    safe("context_answers", { planned: 0, total: 0 }, async () => {
+      const { data } = await sb.from("habit_context_answers").select("answer_keys,updated_at").eq("user_id", userId).eq("question", "planned_vs_spontaneous").gte("updated_at", `${since90}T00:00:00`);
+      const rows = (data ?? []) as any[];
+      return { planned: rows.filter((r) => Array.isArray(r.answer_keys) && r.answer_keys.includes("planned")).length, total: rows.length };
+    }),
+    safe("insight_events", { useful: 0, notUseful: 0 }, async () => {
+      const { data } = await sb.from("habit_insight_events").select("event").eq("user_id", userId).in("event", ["useful", "not_useful"]).gte("created_at", `${since90}T00:00:00`);
+      const rows = (data ?? []) as any[];
+      return { useful: rows.filter((r) => r.event === "useful").length, notUseful: rows.filter((r) => r.event === "not_useful").length };
+    }),
+    safe("map_questions", [] as any[], async () =>
+      (await sb.from("map_questions").select("kind,due_at,answered_at,skipped_at,created_at,payload").eq("user_id", userId).gte("created_at", `${shiftDays(today, -400)}T00:00:00`).order("created_at", { ascending: false }).limit(200)).data ?? []),
+    safe("cfpb", null as string | null, async () => {
+      const { data } = await sb.from("financial_wellbeing_responses").select("answered_at").eq("user_id", userId).order("answered_at", { ascending: false }).limit(1).maybeSingle();
+      return data?.answered_at ? String(data.answered_at) : null;
+    }),
+  ]);
+
+  const estimates: MapaMonthlyEstimate[] = (questions as any[])
+    .filter((q) => q.kind === "estimativa_mensal" && q.answered_at && /^\d{4}-\d{2}$/.test(String(q.payload?.month)) && Number.isFinite(Number(q.payload?.estimate)) && Number(q.payload.estimate) >= 0)
+    .map((q) => ({ month: String(q.payload.month), estimate: Number(q.payload.estimate), top_category_id: q.payload.top_category_id ? String(q.payload.top_category_id) : null, answered_at: String(q.answered_at) }));
+  const questionRows: MapaQuestionRow[] = (questions as any[]).map((q) => ({
+    kind: String(q.kind), due_at: String(q.due_at), answered_at: q.answered_at ?? null, skipped_at: q.skipped_at ?? null, created_at: String(q.created_at),
+  }));
+
+  return {
+    ...EMPTY_HABIT_INPUTS,
+    goalPeriods, weekendPeriods,
+    recurringDetected: recurring.detected, recurringRegistered: recurring.registered, recurringNonEssentialMonthly: recurring.nonEssentialMonthly,
+    plannedAnswers: answers.planned, totalAnswers: answers.total, usefulEvents: events.useful, notUsefulEvents: events.notUseful,
+    estimates, questions: questionRows, lastCfpbAt: cfpb,
+  };
+}
+
 export async function loadMapaReading(sb: any, userId: string, today: string): Promise<MapaReading> {
   // 24 meses de histórico; leitura paginada dentro do loader.
   const [input, health] = await Promise.all([loadExecutiveInput(sb, userId, today, 24), loadHealthInputs(sb, userId, today)]);
+  const habits = await loadHabitInputs(sb, userId, today, health.categoryEssential);
   const entries = input.entries.map((e) => ({ date: e.date, kind: e.kind, amount: e.amount, category_id: e.category_id }));
-  return buildMapaReading({ asOf: today, entries, health });
+  return buildMapaReading({ asOf: today, entries, health, habits, nowIso: new Date().toISOString() });
 }

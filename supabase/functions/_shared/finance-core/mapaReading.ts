@@ -7,7 +7,11 @@ import { computeDividas } from "./mapaDividas.ts";
 import { computeEquilibrio } from "./mapaEquilibrio.ts";
 import { computeFuturo } from "./mapaFuturo.ts";
 import { computeIncomeBaseline } from "./mapaIncomeBaseline.ts";
-import { EMPTY_HEALTH_INPUTS, type MapaHealthInputs } from "./mapaInputs.ts";
+import { EMPTY_HABIT_INPUTS, EMPTY_HEALTH_INPUTS, type MapaHabitInputs, type MapaHealthInputs } from "./mapaInputs.ts";
+import { computeAcompanhamento } from "./mapaAcompanhamento.ts";
+import { computeExecucao } from "./mapaExecucao.ts";
+import { computePlanejamento } from "./mapaPlanejamento.ts";
+import { scheduleQuestions } from "./mapaQuestions.ts";
 import { aggregateMonths, type MapaMonthlyEntry } from "./mapaMonthly.ts";
 import { computeSeguranca } from "./mapaSeguranca.ts";
 import { computeStructural } from "./mapaStructural.ts";
@@ -18,6 +22,9 @@ export interface BuildMapaInput {
   lastSyncAgeDays?: DataQualityInput["lastSyncAgeDays"];
   reconciliationDifference?: DataQualityInput["reconciliationDifference"];
   health?: Partial<MapaHealthInputs>;
+  habits?: Partial<MapaHabitInputs>;
+  /** Instante de referência para o agendador de perguntas (ISO). Padrão: meio-dia de `asOf`. */
+  nowIso?: string;
 }
 
 export function buildMapaReading(input: BuildMapaInput): MapaReading {
@@ -25,12 +32,16 @@ export function buildMapaReading(input: BuildMapaInput): MapaReading {
   const dq = computeDataQuality({ asOf: input.asOf, entries: input.entries, months, lastSyncAgeDays: input.lastSyncAgeDays, reconciliationDifference: input.reconciliationDifference });
   const income = computeIncomeBaseline(months);
   const h: MapaHealthInputs = { ...EMPTY_HEALTH_INPUTS, ...(input.health ?? {}) };
+  const hb: MapaHabitInputs = { ...EMPTY_HABIT_INPUTS, ...(input.habits ?? {}) };
 
   const equilibrio = computeEquilibrio({ asOf: input.asOf, months, dq, income, snapshot: h.snapshot });
   const { indicators: seguranca, essential } = computeSeguranca({ asOf: input.asOf, months, entries: input.entries, dq, income, snapshot: h.snapshot, categoryEssential: h.categoryEssential, debts: h.debts, investments: h.investments });
   const dividas = computeDividas({ asOf: input.asOf, dq, income, debts: h.debts, overdue: h.debtOverdue, snapshot: h.snapshot });
   const futuro = computeFuturo({ asOf: input.asOf, dq, income, snapshot: h.snapshot, savingsGoals: h.savingsGoals, redemptions90: h.redemptions90, debtPayments90: h.debtPayments90 });
-  const indicators: MapaIndicator[] = [...equilibrio, ...seguranca, ...dividas, ...futuro];
+  const execucao = computeExecucao({ asOf: input.asOf, goalPeriods: hb.goalPeriods, weekendPeriods: hb.weekendPeriods });
+  const planejamento = computePlanejamento({ asOf: input.asOf, dq, income, essential, savingsGoals: h.savingsGoals, habits: hb });
+  const acompanhamento = computeAcompanhamento({ asOf: input.asOf, entries: input.entries, estimates: hb.estimates, usefulEvents: hb.usefulEvents, notUsefulEvents: hb.notUsefulEvents });
+  const indicators: MapaIndicator[] = [...equilibrio, ...seguranca, ...dividas, ...futuro, ...execucao, ...planejamento, ...acompanhamento];
 
   return {
     contract: MAPA_CONTRACT,
@@ -40,6 +51,6 @@ export function buildMapaReading(input: BuildMapaInput): MapaReading {
     indicators,
     structural: computeStructural({ months, income, essential, indicators }),
     recommendation: null,
-    questions_due: [],
+    questions_due: scheduleQuestions({ nowIso: input.nowIso ?? `${input.asOf}T12:00:00Z`, asOf: input.asOf, indicators, entries: input.entries, estimates: hb.estimates, questions: hb.questions, lastCfpbAt: hb.lastCfpbAt }),
   };
 }

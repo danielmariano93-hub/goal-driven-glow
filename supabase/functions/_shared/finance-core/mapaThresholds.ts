@@ -36,3 +36,27 @@ export const DEBT_GROWTH_CRITICAL = 0.05;
 export const REDEMPTION_MATCH_DAYS = 7;
 /** Sequência de meses fechados com resultado negativo que caracteriza pressão estrutural. */
 export const NEGATIVE_STREAK_STRUCTURAL = 3;
+
+// ---- Hábitos (fase 3). Também [provisório]; hábitos nunca chegam a "crítico": mostram atenção, não alarme. ----------------
+/** Períodos comparáveis mínimos para falar em aderência. */
+export const ADHERENCE_MIN_PERIODS = 3;
+/** Aderência (% de períodos cumpridos): ok a partir daqui. */
+export const ADHERENCE_OK_PCT = 70;
+/** Planejamento: compromissos planejados ÷ renda típica. ≤ OK cabe com folga; ≤ 1 cabe justo; > 1 não cabe. */
+export const VIABILITY_OK = 0.9;
+export const VIABILITY_LIMIT = 1;
+/** Recorrências detectadas no histórico que já estão cadastradas (%). */
+export const RECURRING_REGISTERED_OK_PCT = 70;
+export const RECURRING_MIN_DETECTED = 2;
+/** Respostas mínimas para falar em "intencionalidade" e "reconhecimento". */
+export const INTENT_MIN_ANSWERS = 5;
+/** Calibragem (erro médio da estimativa de gasto do mês, %). */
+export const CALIBRATION_MIN_ANSWERS = 2;
+export const CALIBRATION_OK_PCT = 15;
+/** Orçamento de atenção do agendador de perguntas. */
+export const QUESTIONS_PER_DAY = 1;
+export const QUESTIONS_PER_WEEK = 3;
+export const QUESTION_SKIP_COOLDOWN_DAYS = 7;
+export const QUESTION_LATER_DAYS = 2;
+/** Estimativa mensal: perguntada nos primeiros dias após o fechamento do mês. */
+export const ESTIMATE_ASK_UNTIL_DAY = 20;
