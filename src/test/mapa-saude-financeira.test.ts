@@ -52,7 +52,10 @@ describe("Equilíbrio (E2)", () => {
     const certo = ind(r, "equilibrio.cobertura_mes"), est = ind(r, "equilibrio.cobertura_mes_com_estimativa");
     expect(certo.value).toBeCloseTo(1437.69 / (1919.86 + 3222.39), 2);
     expect(certo.status).toBe("critico");
-    expect(est.value).toBeCloseTo((1437.69 + 7800) / (1919.86 + 3222.39), 2);
+    // cobertura nunca passa de 100%: o que passa vira "folga" em reais
+    expect(est.value).toBe(1);
+    expect(est.status).toBe("ok");
+    expect(est.inputs.folga).toBeCloseTo(1437.69 + 7800 - (1919.86 + 3222.39), 2);
     expect(est.evidence).toContain("estimate");
     expect(certo.evidence).not.toContain("estimate");
   });

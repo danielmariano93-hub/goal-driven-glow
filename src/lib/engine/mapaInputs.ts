@@ -25,6 +25,11 @@ export interface MapaSnapshotInput {
   netWorthNet: number | null;
   /** Total em investimentos hoje. */
   investedNow?: number | null;
+  /** Composição do patrimônio líquido (para explicar o número). */
+  cashAsset?: number | null;
+  owedTotal?: number | null;
+  cardsOwed?: number | null;
+  otherDebts?: number | null;
   bridge: MapaNetWorthBridgeIn | null;
 }
 
@@ -85,7 +90,11 @@ export interface MapaHealthInputs {
   debtPayments90: MapaDatedAmount[];
   /** Principal de dívida pago nos últimos 90 dias (tabela debt_payments; fatura de cartão NÃO entra). null = sem registro. */
   debtPrincipalPaid90?: number | null;
+  /** Entradas que NÃO contam como renda (resgate, empréstimo, Pix/depósito de fora), para explicar o resultado. */
+  excludedInflows?: MapaExcludedInflow[];
 }
+
+export interface MapaExcludedInflow { date: string; amount: number; kind: "emprestimo" | "resgate" | "outras" }
 
 export const EMPTY_HEALTH_INPUTS: MapaHealthInputs = {
   snapshot: null, categoryEssential: {}, debts: [], debtOverdue: null, investments: [], savingsGoals: [], redemptions90: [], debtPayments90: [],
@@ -112,6 +121,10 @@ export function snapshotInputFromPayload(payload: any): MapaSnapshotInput | null
     cardDueThisMonth: n(proj.cardDueThisMonth),
     netWorthNet: n(s.netWorth?.net),
     investedNow: n(s.netWorth?.invested),
+    cashAsset: n(s.netWorth?.cashAsset),
+    owedTotal: n(s.netWorth?.owed),
+    cardsOwed: n(s.netWorth?.cardsOwed),
+    otherDebts: n(s.netWorth?.otherDebts),
     bridge: b ? {
       openingDebts: n(b.openingDebts), closingDebts: n(b.closingDebts), netWorthChange: n(b.netWorthChange),
       operationalResult: n(b.operationalResult), investmentReturn: n(b.investmentReturn),
