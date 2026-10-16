@@ -222,3 +222,21 @@ describe("escopo da IA (achado da avaliação real)", () => {
     if (hit) expect(hit.pack.allowed_numbers).not.toContain(1000);
   });
 });
+
+describe("régua de voz: corpo e pergunta são campos diferentes (achado da avaliação real)", () => {
+  const pack = packs.find((p) => p.name === "G8 estrutural essenciais")!.pack;
+  it("3 frases curtas no corpo + 1 pergunta no campo próprio passam (antes a pergunta contava como 4ª frase)", () => {
+    const body = "Os gastos essenciais representam 140% da sua renda típica. A pressão vem das contas grandes. É hora de rever suas contas fixas.";
+    const g = guardMapaText({ title: "Revisão", body, question: "Vamos rever suas contas fixas?", pack: { ...pack, allowed_numbers: [...pack.allowed_numbers, 140] } });
+    expect(g.violations).not.toContain("voice");
+  });
+  it("pergunta dentro do corpo (duplicando a do campo) é reprovada", () => {
+    const g = guardMapaText({ title: "Revisão", body: `${pack.deterministic.body} Quer ver agora?`, question: "Vamos ver?", pack });
+    expect(g.violations).toContain("voice");
+    expect(g.detail.join(" ")).toMatch(/pergunta_no_corpo/);
+  });
+  it("4 frases no corpo continuam reprovadas", () => {
+    const g = guardMapaText({ title: "T", body: "Uma frase curta. Outra frase curta. Mais uma frase curta. E a quarta frase curta.", question: null, pack });
+    expect(g.violations).toContain("voice");
+  });
+});

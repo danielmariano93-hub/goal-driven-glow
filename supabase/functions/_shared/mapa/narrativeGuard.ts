@@ -68,7 +68,11 @@ export function guardMapaText(args: { title?: string; body: string; question?: s
   test(INFERENCE, "inference");
   if (args.pack.mode === "recomendacao_estrutural") test(SPEND_LESS, "spend_less_on_structural");
 
-  const voice = checkNotificationVoice({ body: [body, args.question].filter(Boolean).join(" ") });
+  // Régua de voz no CORPO (até 3 frases curtas). A pergunta é um campo à parte; o corpo não pode ter pergunta (senão seriam duas).
+  const voice = checkNotificationVoice({ body });
   if (!voice.ok) push("voice", voice.issues.join(","));
+  if (body.includes("?")) push("voice", "pergunta_no_corpo");
+  if (args.question && (args.question.match(/\?/g) ?? []).length !== 1) push("voice", "pergunta_invalida");
+  if (args.question && args.question.split(/\s+/).filter(Boolean).length > 18) push("voice", "pergunta_longa");
   return { ok: violations.length === 0, violations, detail };
 }

@@ -31,7 +31,7 @@ export function buildMapaPrompt(pack: MapaEvidencePack): { system: string; user:
     "- Sem diagnóstico, sem julgamento, sem promessa, sem nota ou pontuação, sem 'indicador', 'fórmula', 'modelo' ou 'IA'.",
     "- Se o MODO for recomendacao_estrutural, a dificuldade está na renda e nas contas grandes: NÃO diga para gastar ou cortar menos.",
     "- No máximo 3 frases; cada frase com até 15 palavras. No máximo 2 números no texto todo.",
-    "- Termine com UMA pergunta curta que convide para a ação recomendada (campo question).",
+    "- O corpo (body) NÃO tem pergunta. A pergunta vai SÓ no campo question: uma pergunta curta (até 12 palavras) que convide para a ação recomendada.",
     'Responda SOMENTE com um objeto JSON, sem markdown: {"title": "...", "body": "...", "question": "..."}',
   ].join("\n");
   const facts = pack.facts.map((f) => `- ${f.label} (${f.window_label}): ${f.text}`);
@@ -100,7 +100,7 @@ export function providerComplete(sb: any, userId: string | null, opts: { operati
       method: "POST",
       headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: normalizeAiModel(MODEL, provider), temperature: 0.3, max_tokens: opts.maxTokens ?? 700,
+        model: normalizeAiModel(MODEL, provider), temperature: 0.3, max_tokens: opts.maxTokens ?? 1500,
         messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
       }),
     });

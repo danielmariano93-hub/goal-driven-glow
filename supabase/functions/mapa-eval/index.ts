@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { /* padrão */ }
   const complete = providerComplete(null, null, { record: false });
   if (!complete) return json({ ok: false, error: "ai_not_configured" }, 503);
-  const judge = providerComplete(null, null, { record: false, operation: "mapa_eval_judge", maxTokens: 400 })!;
+  const judge = providerComplete(null, null, { record: false, operation: "mapa_eval_judge", maxTokens: 1000 })!;
 
   const all = evalScenarios();
   const offset = Math.max(0, Number(body.offset ?? 0) || 0);
