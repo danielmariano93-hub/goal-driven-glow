@@ -69,7 +69,7 @@ export async function loadHealthInputs(sb: any, userId: string, today: string): 
       today,
     })
     : null;
-  const maxDays = status ? Math.max(0, ...status.items.map((i: any) => (typeof i.days_overdue === "number" ? i.days_overdue : 0))) : null;
+  const maxDays = status ? Math.max(0, ...status.breakdown.map((i: any) => (typeof i.days_overdue === "number" ? i.days_overdue : 0))) : null;
 
   const debts: MapaDebtIn[] = (debtRows as any[]).map((d) => ({
     id: String(d.id), name: String(d.name ?? ""), status: String(d.status ?? "active"),
