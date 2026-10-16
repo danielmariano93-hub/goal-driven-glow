@@ -55,7 +55,9 @@ export function computeEssentialMonthly(months: MapaMonthAgg[], entries: MapaMon
   const flaggedSum = rows.reduce((a, r) => a + r.flagged, 0);
   const coverage = totalSum > 0 ? flaggedSum / totalSum : 0;
   const installments = debts.filter((d) => d.status === "active").reduce((a, d) => a + (d.installment_amount ?? 0), 0);
-  const useEssential = coverage >= ESSENTIAL_COVERAGE_MIN;
+  // Sem nenhuma categoria marcada como essencial, "essenciais" não significa nada: volta para os gastos totais.
+  const essentialSum = rows.reduce((a, r) => a + r.essential, 0);
+  const useEssential = coverage >= ESSENTIAL_COVERAGE_MIN && essentialSum > 0;
   const typical = mapaMedian(rows.map((r) => (useEssential ? r.essential : r.total))) ?? 0;
   return { value: round(typical + installments), basis: useEssential ? "essenciais" : "gastos_totais", coverage: round(coverage), months_used: window.length, debt_installments: round(installments) };
 }

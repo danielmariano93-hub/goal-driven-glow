@@ -116,3 +116,54 @@ export function snapshotInputFromPayload(payload: any): MapaSnapshotInput | null
     } : null,
   };
 }
+
+// ---- Hábitos (fase 3) --------------------------------------------------------------------------------------------------
+export interface MapaCommitmentPeriod {
+  /** Compromisso (meta da categoria) ou semana (sexta-feira do combinado). */
+  key: string;
+  /** Mês (YYYY-MM) para metas; sexta-feira (YYYY-MM-DD) para fim de semana. */
+  period: string;
+  status: "cumprido" | "estourado";
+}
+
+export interface MapaMonthlyEstimate {
+  /** Mês avaliado (YYYY-MM). */
+  month: string;
+  estimate: number;
+  top_category_id?: string | null;
+  answered_at: string;
+}
+
+/** Linhas de `map_questions` (E13). */
+export interface MapaQuestionRow {
+  kind: string;
+  due_at: string;
+  answered_at: string | null;
+  skipped_at: string | null;
+  created_at: string;
+}
+
+export interface MapaHabitInputs {
+  goalPeriods: MapaCommitmentPeriod[];
+  weekendPeriods: MapaCommitmentPeriod[];
+  /** Recorrências detectadas no histórico (inclui as já cadastradas) e quantas já estão cadastradas. */
+  recurringDetected: number;
+  recurringRegistered: number;
+  /** Equivalente mensal das regras recorrentes de despesa ativas em categorias não essenciais (ou sem categoria). */
+  recurringNonEssentialMonthly: number | null;
+  /** Respostas "já planejo" ÷ respondidas nos últimos 90 dias. */
+  plannedAnswers: number;
+  totalAnswers: number;
+  /** Insights marcados como úteis × não úteis nos últimos 90 dias. */
+  usefulEvents: number;
+  notUsefulEvents: number;
+  estimates: MapaMonthlyEstimate[];
+  questions: MapaQuestionRow[];
+  /** Data (YYYY-MM-DD) da última resposta do CFPB; null se nunca respondeu. */
+  lastCfpbAt: string | null;
+}
+
+export const EMPTY_HABIT_INPUTS: MapaHabitInputs = {
+  goalPeriods: [], weekendPeriods: [], recurringDetected: 0, recurringRegistered: 0, recurringNonEssentialMonthly: null,
+  plannedAnswers: 0, totalAnswers: 0, usefulEvents: 0, notUsefulEvents: 0, estimates: [], questions: [], lastCfpbAt: null,
+};

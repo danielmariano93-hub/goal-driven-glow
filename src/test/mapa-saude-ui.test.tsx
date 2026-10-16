@@ -48,32 +48,33 @@ describe("textos do Mapa", () => {
 let flag = true;
 const invoke = vi.fn();
 const upserts: unknown[] = [];
+const inserts: Array<{ table: string; row: any }> = [];
 vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "u1" } }) }));
 vi.mock("@/lib/ui/feedback", () => ({ notifySuccess: vi.fn(), notifyError: vi.fn() }));
 vi.mock("@/integrations/supabase/client", () => {
-  const table = (rows: unknown[]) => {
-    const q: any = { select: () => q, eq: () => q, is: () => q, order: () => q, then: (r: any) => r({ data: rows, error: null }), upsert: (v: unknown) => { upserts.push(v); return Promise.resolve({ error: null }); } };
+  const table = (rows: unknown[], table = "") => {
+    const q: any = { select: () => q, eq: () => q, is: () => q, order: () => q, then: (r: any) => r({ data: rows, error: null }), upsert: (v: unknown) => { upserts.push(v); return Promise.resolve({ error: null }); }, insert: (row: unknown) => { inserts.push({ table, row }); return Promise.resolve({ error: null }); } };
     return q;
   };
   const tables: Record<string, unknown[]> = {
     categories: [{ id: "c1", name: "Moradia" }, { id: "c2", name: "Lazer" }], category_essential_flags: [], debts: [], investments: [],
   };
-  return { supabase: { rpc: async () => ({ data: flag, error: null }), from: (t: string) => table(tables[t] ?? []), functions: { invoke: (...a: unknown[]) => invoke(...a) } } };
+  return { supabase: { rpc: async () => ({ data: flag, error: null }), from: (t: string) => table(tables[t] ?? [], t), functions: { invoke: (...a: unknown[]) => invoke(...a) } } };
 });
 
-const reading = (indicators: MapaIndicator[]): MapaReading => ({
-  contract: MAPA_CONTRACT, as_of: "2026-10-16", indicators, recommendation: null, questions_due: [],
+const reading = (indicators: MapaIndicator[], questions_due: MapaReading["questions_due"] = []): MapaReading => ({
+  contract: MAPA_CONTRACT, as_of: "2026-10-16", indicators, recommendation: null, questions_due,
   data_quality: {} as MapaReading["data_quality"], income: {} as MapaReading["income"], structural: {} as MapaReading["structural"],
 });
 
 async function mount() {
-  const { MapaSaude } = await import("@/components/mapa/MapaSaude");
+  const { MapaEntender } = await import("@/components/mapa/MapaEntender");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}><MemoryRouter><MapaSaude /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={qc}><MemoryRouter><MapaEntender /></MemoryRouter></QueryClientProvider>);
 }
 
-describe("MapaSaude", () => {
-  beforeEach(() => { flag = true; invoke.mockReset(); upserts.length = 0; });
+describe("MapaEntender", () => {
+  beforeEach(() => { flag = true; invoke.mockReset(); upserts.length = 0; inserts.length = 0; });
 
   it("sem acesso: não renderiza nada nem chama o servidor", async () => {
     flag = false;
@@ -83,23 +84,71 @@ describe("MapaSaude", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("com acesso: mostra os pilares, expande 'de onde vem' e oferece a captura guiada", async () => {
-    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([
-      ind({ id: "seguranca.meses_cobertos", pillar: "seguranca", value: 0.07, unit: "meses", status: "critico", reasons: ["essential_flag_missing"], inputs: { base: "gastos_totais" }, needs: { kind: "capture", code: "essencial_categoria" } }),
-      ind({ id: "dividas.custo_medio", pillar: "dividas", value: null, status: "sem_dados", confidence: "insuficiente", reasons: ["taxa_ou_periodo_ausente"], needs: { kind: "capture", code: "debt_rate" } }),
-    ]) }, error: null });
+  const essentialNeed = ind({ id: "seguranca.meses_cobertos", pillar: "seguranca", value: 0.07, unit: "meses", status: "critico", reasons: ["essential_flag_missing"], inputs: { base: "gastos_totais" }, needs: { kind: "capture", code: "essencial_categoria" } });
+  const rateNeed = ind({ id: "dividas.custo_medio", pillar: "dividas", value: null, status: "sem_dados", confidence: "insuficiente", reasons: ["taxa_ou_periodo_ausente"], needs: { kind: "capture", code: "debt_rate" } });
+
+  it("com acesso: mostra pilares de saúde e hábitos, expande 'de onde vem', sem pergunta quando nada está agendado", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([essentialNeed, rateNeed, ind({ id: "execucao.aderencia", pillar: "execucao", layer: "habitos", value: 80, unit: "pct", inputs: { cumpridos: 4, periodos: 5 } }), ind({ id: "planejamento.intencionalidade", pillar: "planejamento", layer: "habitos", value: 75, unit: "pct", direction: "neutral", inputs: { planejados: 6, respondidas: 8 } }), ind({ id: "acompanhamento.calibragem_total", pillar: "acompanhamento", layer: "habitos", value: 22.5, unit: "pct", direction: "lower_better", status: "atencao", reasons: ["exploratorio"], inputs: { vies_medio_pct: -2.5 } })]) }, error: null });
     await mount();
     expect(await screen.findByText("Quantos meses seu dinheiro cobre")).toBeInTheDocument();
     expect(screen.getByText("Precisa de cuidado")).toBeInTheDocument();
-    expect(screen.getByText("Sem dados")).toBeInTheDocument();
+    expect(screen.getByText("Metas cumpridas")).toBeInTheDocument();
+    expect(screen.getByText("Informativo")).toBeInTheDocument();       // intencionalidade é descritiva
+    expect(screen.getByText("Em teste")).toBeInTheDocument();          // calibragem é exploratória
     fireEvent.click(screen.getByText("Quantos meses seu dinheiro cobre"));
     expect(screen.getByText(/ainda não marcou o que é essencial/)).toBeInTheDocument();
-    // captura guiada de essenciais
+    expect(screen.queryByText(/Quais destes gastos/)).not.toBeInTheDocument(); // nada agendado: nenhuma pergunta imposta
+  });
+
+  it("o botão de 'o que falta' abre a captura por conta própria; 'Não sei dizer' fecha sem gravar nada", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([essentialNeed]) }, error: null });
+    await mount();
+    fireEvent.click(await screen.findByText("Quantos meses seu dinheiro cobre"));
+    fireEvent.click(screen.getByRole("button", { name: "Marcar o que é essencial" }));
     expect(await screen.findByText(/Quais destes gastos você não consegue cortar/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Não sei dizer" }));
+    await waitFor(() => expect(screen.queryByText(/Quais destes gastos/)).not.toBeInTheDocument());
+    expect(upserts).toHaveLength(0);
+    expect(inserts).toHaveLength(0);
+  });
+
+  it("pergunta agendada: grava as flags (não marcadas = não essencial) e registra a resposta no orçamento de atenção", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([essentialNeed], [{ kind: "essencial_categoria", reason: "destrava_1_indicador", priority: 11 }]) }, error: null });
+    await mount();
     fireEvent.click(await screen.findByRole("button", { name: "Moradia" }));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(upserts).toHaveLength(1));
     expect((upserts[0] as Array<{ category_id: string; essential: boolean }>).map((r) => [r.category_id, r.essential])).toEqual([["c1", true], ["c2", false]]);
+    await waitFor(() => expect(inserts).toHaveLength(1));
+    expect(inserts[0]).toMatchObject({ table: "map_questions", row: { kind: "essencial_categoria", channel: "app" } });
+    expect(inserts[0].row.answered_at).toBeTruthy();
+  });
+
+  it("'Pular' e 'Depois' viram linhas em map_questions (pular = skipped_at; depois = due_at no futuro)", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([essentialNeed], [{ kind: "essencial_categoria", reason: "x", priority: 11 }]) }, error: null });
+    await mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Pular" }));
+    await waitFor(() => expect(inserts).toHaveLength(1));
+    expect(inserts[0].row.skipped_at).toBeTruthy();
+    expect(upserts).toHaveLength(0);
+    fireEvent.click(await screen.findByRole("button", { name: "Depois" }));
+    await waitFor(() => expect(inserts).toHaveLength(2));
+    expect(inserts[1].row.skipped_at).toBeUndefined();
+    expect(Date.parse(inserts[1].row.due_at)).toBeGreaterThan(Date.now() + 86_400_000);
+  });
+
+  it("estimativa mensal: nunca mostra o gasto real e grava mês, valor e categoria", async () => {
+    invoke.mockResolvedValue({ data: { ok: true, mapa: reading([], [{ kind: "estimativa_mensal", reason: "calibragem_do_mes_fechado", priority: 3 }]) }, error: null });
+    await mount();
+    expect(await screen.findByText(/Quanto você acha que gastou em setembro/)).toBeInTheDocument();
+    expect(screen.getByText(/Não mostro o valor real agora/)).toBeInTheDocument();
+    const answer = screen.getByRole("button", { name: "Responder" });
+    expect(answer).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Quanto você gastou em setembro/), { target: { value: "4.500,50" } });
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "c1" } });
+    fireEvent.click(answer);
+    await waitFor(() => expect(inserts).toHaveLength(1));
+    expect(inserts[0].row).toMatchObject({ kind: "estimativa_mensal", payload: { month: "2026-09", estimate: 4500.5, top_category_id: "c1" } });
   });
 
   it("erro do servidor: mensagem calma, sem quebrar a página", async () => {

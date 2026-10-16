@@ -72,6 +72,12 @@ export const FINANCE_CORE_MODULES = [
   "mapaDividas",
   "mapaFuturo",
   "mapaStructural",
+  "mapaExecucao",
+  "mapaPlanejamento",
+  "mapaAcompanhamento",
+  "mapaQuestions",
+  "subscriptions",
+  "recurringDetection",
   "mapaReading",
 ];
 

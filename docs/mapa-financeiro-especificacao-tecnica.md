@@ -13,8 +13,8 @@ Convenções: **[verificado]** = conferido no código ou no banco da conta do do
 | 0 — Correções imediatas (P-01, P-02, P-03, P-13) | **Feita e em produção** | PR #268 |
 | Nome da aba "Mapa Financeiro" (D1) | **Feito e em produção** (rota `/app/mapa`; `/app/emocoes` redireciona) | PR #269 |
 | 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Feita e em produção** (em sombra, só conta piloto) | PR #270 |
-| 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | Motores **em produção** (PR #271); tela e captura guiada **em revisão** | PR da tela |
-| 3 — Hábitos (E6 a E8, agendador E13) | Pendente | depois da 2 |
+| 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | **Feita e em produção** (só conta piloto) | PRs #271 e #272 |
+| 3 — Hábitos (E6 a E8, agendador E13) | **Em revisão** (motores, tela, pergunta do dia e estimativa mensal) | PR da fase 3 |
 | 4 — Evolução, recomendação e IA (E10 a E12) | Pendente | depois da 3 |
 | 5 — Troca do conteúdo da aba e remoção do legado | Pendente | depois da 4 |
 | 6 — Validação com pessoas | Pendente | contínuo |
@@ -251,6 +251,8 @@ Abstração `Commitment { id, kind: 'meta_categoria'|'fim_de_semana'|'poupanca_r
 - `execucao.sequencia`: períodos consecutivos cumpridos.
 - `execucao.revisoes`: nº de ajustes do plano (meta editada com histórico preservado).
 Repetição = **regularidade**, nunca "hábito formado" (Lally: automaticidade varia muito entre pessoas).
+
+> **Notas de implementação (fase 3).** (1) `execucao.revisoes` **não foi implementada**: não existe fonte confiável de "meta editada" (os ciclos guardados também registram exclusão e virada de mês). Entra quando houver um log de edições. (2) `execucao.aderencia_fim_de_semana` foi acrescentada como indicador próprio, porque a regra "mesmo tipo de compromisso" proíbe misturar mensal com semanal. (3) Hábitos nunca chegam a "crítico" (só "atenção"); `sequencia` e `intencionalidade` são **neutros** (a tela mostra "Informativo"). (4) `acompanhamento.reconhecimento_padroes` usa "útil / não útil" dos insights (`habit_insight_events`) como aproximação do "isso faz sentido?" e está rotulado como tal. (5) A estimativa mensal **nunca mostra o gasto real** na hora da pergunta. (6) O agendador conta como "resolvida" a pergunta respondida ou pulada; "depois" adia 2 dias e não consome o orçamento.
 
 ### E7 — Planejamento (hábitos)
 - `planejamento.viabilidade` (razão): `(essential_monthly + Σ contribuições mensais de metas + compromissos recorrentes não essenciais) / typical`. ≤ 1 cabe; > 1 não cabe. Depende de E1.

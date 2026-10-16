@@ -9,7 +9,7 @@ import type { MapaMonthAgg } from "./mapaMonthly.ts";
 
 export const MAPA_ENGINE_VERSION = "mapa_engines.v1";
 
-const lastDayOf = (ym: string) => {
+export const lastDayOf = (ym: string) => {
   const [y, m] = ym.split("-").map(Number);
   return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
 };

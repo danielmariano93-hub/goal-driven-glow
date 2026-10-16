@@ -60,12 +60,21 @@ function useRefresh() {
   return () => Promise.all([qc.invalidateQueries({ queryKey: [KEY] }), qc.invalidateQueries({ queryKey: [MAPA_QUERY_KEY] })]);
 }
 
+export type CaptureKind = "essencial_categoria" | "taxa_divida" | "liquidez_investimento";
+export type Resolution = "answered" | "skipped" | "later";
+export interface CaptureHandlers {
+  /** Chamado quando a pergunta foi respondida, pulada ou adiada (a tela registra em `map_questions`). */
+  onResolve?: (kind: CaptureKind, how: Resolution) => void;
+  /** "Não sei": só fecha o cartão, sem gravar nada. */
+  onDismiss?: (kind: CaptureKind) => void;
+}
+
 const card = "rounded-[22px] border border-border bg-card p-4 shadow-card";
 const eyebrow = "text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground";
 const chip = (on: boolean) => `min-h-11 rounded-full border px-4 text-[13px] ${on ? "border-primary bg-primary/10 font-semibold" : "border-border"}`;
 
 /** Quais categorias são essenciais (moradia, mercado, saúde…). Sem isso a Segurança usa os gastos totais. */
-function EssentialCard({ data }: { data: CaptureData }) {
+function EssentialCard({ data, onResolve, onDismiss }: { data: CaptureData } & CaptureHandlers) {
   const { user } = useAuth();
   const refresh = useRefresh();
   const pending = data.categories.filter((c) => c.essential === null);
@@ -76,7 +85,7 @@ function EssentialCard({ data }: { data: CaptureData }) {
       const { error } = await db().from("category_essential_flags").upsert(rows, { onConflict: "user_id,category_id" });
       if (error) throw error;
     },
-    onSuccess: async () => { notifySuccess("Anotado. Já uso isso na sua leitura de segurança."); await refresh(); },
+    onSuccess: async () => { notifySuccess("Anotado. Já uso isso na sua leitura de segurança."); onResolve?.("essencial_categoria", "answered"); await refresh(); },
     onError: () => notifyError("Não consegui salvar agora. Tente de novo em instantes."),
   });
   if (!pending.length) return null;
@@ -101,16 +110,14 @@ function EssentialCard({ data }: { data: CaptureData }) {
           className="min-h-11 rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
           {save.isPending ? "Salvando…" : "Salvar"}
         </button>
-        <button type="button" disabled={save.isPending} onClick={() => save.mutate(new Set())} className="min-h-11 px-3 text-sm font-semibold text-muted-foreground">
-          Não sei dizer
-        </button>
+        <Actions kind="essencial_categoria" busy={save.isPending} onResolve={onResolve} onDismiss={onDismiss} dismissLabel="Não sei dizer" />
       </div>
     </section>
   );
 }
 
 /** Tipo e taxa de cada dívida. Cada campo aceita "não sei". */
-function DebtCard({ data }: { data: CaptureData }) {
+function DebtCard({ data, onResolve, onDismiss }: { data: CaptureData } & CaptureHandlers) {
   const refresh = useRefresh();
   const pending = data.debts.filter((d) => !d.kind || d.rate === null || !d.period);
   const [id, setId] = useState<string | null>(null);
@@ -129,7 +136,7 @@ function DebtCard({ data }: { data: CaptureData }) {
       const { error } = await db().from("debts").update(patch).eq("id", debt.id);
       if (error) throw error;
     },
-    onSuccess: async () => { notifySuccess("Anotado."); setKind(""); setRate(""); setId(null); await refresh(); },
+    onSuccess: async () => { notifySuccess("Anotado."); setKind(""); setRate(""); setId(null); onResolve?.("taxa_divida", "answered"); await refresh(); },
     onError: () => notifyError("Não consegui salvar agora. Tente de novo em instantes."),
   });
   if (!debt) return null;
@@ -166,12 +173,13 @@ function DebtCard({ data }: { data: CaptureData }) {
         className="mt-2 min-h-11 rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
         {save.isPending ? "Salvando…" : "Salvar"}
       </button>
+      <Actions kind="taxa_divida" busy={save.isPending} onResolve={onResolve} onDismiss={onDismiss} dismissLabel="Não sei" />
     </section>
   );
 }
 
 /** Em quanto tempo cada investimento vira dinheiro. Sem isso, não conto o investimento como reserva. */
-function LiquidityCard({ data }: { data: CaptureData }) {
+function LiquidityCard({ data, onResolve, onDismiss }: { data: CaptureData } & CaptureHandlers) {
   const refresh = useRefresh();
   const pending = data.investments.filter((i) => !i.liquidity || i.liquidity === "desconhecida");
   const save = useMutation({
@@ -179,7 +187,7 @@ function LiquidityCard({ data }: { data: CaptureData }) {
       const { error } = await db().from("investments").update({ liquidity: v.liquidity }).eq("id", v.id);
       if (error) throw error;
     },
-    onSuccess: async () => { await refresh(); },
+    onSuccess: async () => { onResolve?.("liquidez_investimento", "answered"); await refresh(); },
     onError: () => notifyError("Não consegui salvar agora. Tente de novo em instantes."),
   });
   if (!pending.length) return null;
@@ -199,19 +207,32 @@ function LiquidityCard({ data }: { data: CaptureData }) {
           </li>
         ))}
       </ul>
+      <Actions kind="liquidez_investimento" busy={save.isPending} onResolve={onResolve} onDismiss={onDismiss} dismissLabel="Não sei" />
     </section>
   );
 }
 
-/** Cartões de captura guiada. Só aparecem para o que o Mapa realmente precisa saber. */
-export function MapaCaptureCards({ needs }: { needs: ReadonlySet<string> }) {
+/** "Depois" e "Pular" (só na pergunta do dia) e "Não sei" (fecha sem gravar). */
+function Actions({ kind, busy, onResolve, onDismiss, dismissLabel }: { kind: CaptureKind; busy: boolean; dismissLabel: string } & CaptureHandlers) {
+  if (!onResolve && !onDismiss) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {onResolve ? <button type="button" disabled={busy} onClick={() => onResolve(kind, "later")} className="min-h-11 px-3 text-[13px] font-semibold text-muted-foreground">Depois</button> : null}
+      {onResolve ? <button type="button" disabled={busy} onClick={() => onResolve(kind, "skipped")} className="min-h-11 px-3 text-[13px] font-semibold text-muted-foreground">Pular</button> : null}
+      {onDismiss ? <button type="button" disabled={busy} onClick={() => onDismiss(kind)} className="min-h-11 px-3 text-[13px] font-semibold text-muted-foreground">{dismissLabel}</button> : null}
+    </div>
+  );
+}
+
+/** Cartões de captura guiada. Mostra só os tipos pedidos (a pergunta do dia ou o que a pessoa abriu). */
+export function MapaCaptureCards({ kinds, ...handlers }: { kinds: ReadonlySet<CaptureKind> } & CaptureHandlers) {
   const { data } = useCaptureData();
   if (!data) return null;
   return (
     <>
-      {needs.has("essencial_categoria") ? <EssentialCard data={data} /> : null}
-      {needs.has("debt_rate") || needs.has("debt_kind") ? <DebtCard data={data} /> : null}
-      {needs.has("liquidez_investimento") ? <LiquidityCard data={data} /> : null}
+      {kinds.has("essencial_categoria") ? <EssentialCard data={data} {...handlers} /> : null}
+      {kinds.has("taxa_divida") ? <DebtCard data={data} {...handlers} /> : null}
+      {kinds.has("liquidez_investimento") ? <LiquidityCard data={data} {...handlers} /> : null}
     </>
   );
 }
