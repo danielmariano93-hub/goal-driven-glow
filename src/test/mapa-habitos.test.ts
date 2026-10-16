@@ -184,3 +184,10 @@ describe("Leitura completa com hábitos", () => {
     expect(r.indicators.filter((i) => i.layer === "habitos" && i.status === "critico")).toEqual([]);
   });
 });
+
+describe("Guardas de captura", () => {
+  it("categorias todas marcadas como não essenciais NÃO viram 'essenciais = 0': volta para gastos totais", () => {
+    const r = run(steady(), {}, { categoryEssential: { "c-moradia": false, "c-lazer": false } });
+    expect(ind(r, "planejamento.viabilidade").status).toBe("sem_dados");
+  });
+});
