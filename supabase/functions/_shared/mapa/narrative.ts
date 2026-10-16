@@ -43,7 +43,9 @@ export function buildMapaPrompt(pack: MapaEvidencePack): { system: string; user:
     ...(facts.length ? facts : ["- sem fatos"]),
     "",
     "LEITURA DETERMINÍSTICA (fonte de verdade; reescreva com naturalidade, sem acrescentar fatos):",
-    `${pack.deterministic.title}. ${pack.deterministic.body}${pack.deterministic.question ? ` ${pack.deterministic.question}` : ""}`,
+    `TÍTULO: ${pack.deterministic.title}`,
+    `CORPO (sem pergunta): ${pack.deterministic.body}`,
+    `PERGUNTA (vai só no campo question): ${pack.deterministic.question ?? "nenhuma"}`,
     "",
     `NÚMEROS PERMITIDOS: ${pack.allowed_numbers.join(", ") || "nenhum"}`,
     `AFIRMAÇÕES PERMITIDAS: ${pack.allowed_claims.join(", ")}`,
@@ -64,8 +66,10 @@ export function parseMapaNarrativeJson(raw: string): { title: string; body: stri
   const title = typeof obj.title === "string" ? obj.title.trim() : "";
   const body = typeof obj.body === "string" ? obj.body.trim() : "";
   const q = typeof obj.question === "string" ? obj.question.trim() : "";
-  if (!title || title.length > 80 || !body || body.length > 500 || q.length > 120) return null;
-  return { title, body, question: q || null };
+  // Reparo seguro: o modelo às vezes repete a pergunta no corpo. Remove só frases terminadas em "?" (não altera fatos).
+  const bodyClean = body.includes("?") ? (body.match(/[^.!?]+[.!?]+/g) ?? [body]).filter((x) => !x.includes("?")).join(" ").trim() : body;
+  if (!title || title.length > 80 || !bodyClean || bodyClean.length > 500 || q.length > 120) return null;
+  return { title, body: bodyClean, question: q || null };
 }
 
 export function templateNarrative(pack: MapaEvidencePack, reason: string): MapaNarrative {
