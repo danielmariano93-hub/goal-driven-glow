@@ -4,7 +4,7 @@
 import type { MapaActionType, MapaConfidence, MapaIndicator, MapaReading, MapaStatus } from "./mapaContracts";
 
 export const MAPA_EVIDENCE_VERSION = "mapa_evidence.v1";
-export const MAPA_PROMPT_VERSION = "mapa_prompt.v1";
+export const MAPA_PROMPT_VERSION = "mapa_prompt.v2";
 const MAX_FACTS = 5;
 
 export type MapaNarrativeMode = "recomendacao_estrutural" | "recomendacao" | "em_dia" | "pouco_dado";
@@ -31,6 +31,8 @@ export interface MapaEvidencePack {
   recommendation: { id: string; kind: "estrutural" | "comportamento"; action: MapaActionType; action_label: string; deeplink: string; rationale: string[] } | null;
   facts: MapaFact[];
   allowed_numbers: number[];
+  /** Valores permitidos para "N mês/meses" (só indicadores em meses e a referência prática): evita "1 mês" vindo de qualquer outro número. */
+  allowed_months: number[];
   allowed_claims: MapaClaim[];
   prohibited_claims: string[];
   deterministic: { title: string; body: string; question: string | null };
@@ -95,7 +97,7 @@ export function factText(i: MapaIndicator): string {
     case "brl": return brl(v);
     case "pct": case "pct_pontos": return `${nf(v, 1)}%`;
     case "meses": return monthsText(v);
-    case "razao": return `${nf(v * 100)}%`;
+    case "razao": return v >= 10 ? "sobra bastante" : `${nf(v * 100)}%`;
     case "contagem": return nf(v);
     case "dias": return `${nf(v)} dias`;
     default: return nf(v, 2);
@@ -105,12 +107,15 @@ export function factText(i: MapaIndicator): string {
 /** Números que podem aparecer no texto por causa deste indicador (valor, versões arredondadas, ×100 de razões e insumos). */
 function numbersFor(i: MapaIndicator): number[] {
   const out: number[] = [];
-  const push = (n: unknown) => {
+  // "meses" nunca vira inteiro por arredondamento: 0,7 mês não pode virar "1 mês" no texto.
+  const monthsLike = i.unit === "meses";
+  const push = (n: unknown, months = monthsLike) => {
     if (typeof n !== "number" || !Number.isFinite(n)) return;
-    for (const x of [n, Math.abs(n), Math.round(n), Math.round(Math.abs(n)), Math.round(n * 10) / 10, Math.round(n * 100) / 100]) out.push(x);
+    const variants = months ? [n, Math.abs(n), Math.round(n * 10) / 10] : [n, Math.abs(n), Math.round(n), Math.round(Math.abs(n)), Math.round(n * 10) / 10, Math.round(n * 100) / 100];
+    for (const x of variants) out.push(x);
   };
   push(i.value);
-  if (i.value !== null && i.unit === "razao") push(i.value * 100);
+  if (i.value !== null && i.unit === "razao" && i.value < 10) push(i.value * 100, false);
   for (const v of Object.values(i.inputs)) push(v);
   return out;
 }
@@ -144,7 +149,7 @@ export function deterministicTemplate(r: MapaReading, facts: MapaFact[], mode: M
   const ind = (id: string) => r.indicators.find((x) => x.id === id);
   const rec = r.recommendation;
   if (mode === "pouco_dado") {
-    return { title: "Ainda é cedo para uma leitura firme", body: "Tenho poucos meses completos dos seus lançamentos. Com 3 meses fechados, a leitura fica bem mais firme.", question: null };
+    return { title: "Ainda é cedo para uma leitura firme", body: "Há poucos meses completos nos seus lançamentos. Com 3 meses fechados, a leitura fica bem mais firme.", question: null };
   }
   if (mode === "em_dia" || !rec) {
     return { title: "Nada pede ação agora", body: "Olhando os últimos meses, nada pede uma ação agora. Continue registrando para a leitura ficar mais firme.", question: null };
@@ -201,6 +206,9 @@ export function deterministicTemplate(r: MapaReading, facts: MapaFact[], mode: M
   }
 }
 
+/** A IA só reescreve quando há uma recomendação a explicar. "Nada pede ação" e "poucos dados" ficam com o texto fixo: a IA ali só acrescentava interpretação. */
+export const LLM_MODES: ReadonlySet<MapaNarrativeMode> = new Set(["recomendacao", "recomendacao_estrutural"]);
+
 export function buildMapaEvidencePack(r: MapaReading): MapaEvidencePack {
   const rec = r.recommendation;
   const mode: MapaNarrativeMode = rec ? (rec.kind === "estrutural" ? "recomendacao_estrutural" : "recomendacao")
@@ -219,7 +227,8 @@ export function buildMapaEvidencePack(r: MapaReading): MapaEvidencePack {
   const pack: Omit<MapaEvidencePack, "hash"> = {
     version: MAPA_EVIDENCE_VERSION, as_of: r.as_of, reading_level: "simples", tone: "calmo", mode,
     recommendation: rec ? { id: rec.id, kind: rec.kind, action: rec.action.type, action_label: ACTION_LABEL[rec.action.type], deeplink: rec.action.deeplink, rationale: rec.rationale_keys } : null,
-    facts, allowed_numbers: [...numbers].filter((n) => Number.isFinite(n)), allowed_claims: claims, prohibited_claims: PROHIBITED_CLAIMS,
+    facts, allowed_numbers: [...numbers].filter((n) => Number.isFinite(n)),
+    allowed_months: [...new Set(r.indicators.filter((x) => x.unit === "meses" && x.value !== null).flatMap((x) => [x.value as number, Math.round((x.value as number) * 10) / 10, ...(typeof x.inputs.meta_meses === "number" ? [x.inputs.meta_meses] : [])]))], allowed_claims: claims, prohibited_claims: PROHIBITED_CLAIMS,
     deterministic: deterministicTemplate(r, facts, mode),
   };
   const hash = fnv1a(JSON.stringify({ m: pack.mode, r: pack.recommendation?.id, rk: pack.recommendation?.rationale, f: pack.facts.map((x) => [x.key, x.text, x.status]), d: pack.deterministic, p: MAPA_PROMPT_VERSION }));

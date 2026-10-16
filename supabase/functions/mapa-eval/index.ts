@@ -60,18 +60,21 @@ Deno.serve(async (req) => {
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   rows.sort((a, b) => a.i - b.i);
 
-  const llm = rows.filter((r) => r.source === "llm");
+  // Só modos com recomendação usam a IA; "nada pede ação" e "poucos dados" são texto fixo e NÃO entram na taxa de fallback.
+  const eligible = rows.filter((r) => r.fallback_reason !== "template_only_mode");
+  const llm = eligible.filter((r) => r.source === "llm");
   const judged = llm.filter((r) => r.judge);
   const violations: Record<string, number> = {};
   for (const r of rows) for (const v of r.violations) violations[v] = (violations[v] ?? 0) + 1;
   const reasons: Record<string, number> = {};
-  for (const r of rows.filter((x) => x.source === "template")) { const k = String(r.fallback_reason ?? "?").split(":")[0]; reasons[k] = (reasons[k] ?? 0) + 1; }
+  for (const r of eligible.filter((x) => x.source === "template")) { const k = String(r.fallback_reason ?? "?").split(":")[0]; reasons[k] = (reasons[k] ?? 0) + 1; }
   const lat = llm.map((r) => r.latency_ms).filter((n) => typeof n === "number").sort((a, b) => a - b);
   return json({
     ok: true,
     summary: {
       scenarios_total: all.length, evaluated: rows.length, skipped_by_time: slice.length - rows.length,
-      llm_ok: llm.length, fallback: rows.length - llm.length, fallback_rate_pct: pct(rows.length - llm.length, rows.length),
+      template_only_mode: rows.length - eligible.length, llm_eligible: eligible.length,
+      llm_ok: llm.length, fallback: eligible.length - llm.length, fallback_rate_pct: pct(eligible.length - llm.length, eligible.length),
       fallback_reasons: reasons, guard_violations: violations,
       judge: { judged: judged.length, faithful_pct: pct(judged.filter((r) => r.judge.faithful).length, judged.length), clear_pct: pct(judged.filter((r) => r.judge.clear).length, judged.length), calm_pct: pct(judged.filter((r) => r.judge.calm).length, judged.length), actionable_pct: pct(judged.filter((r) => r.judge.actionable).length, judged.length) },
       latency_ms: { p50: lat[Math.floor(lat.length * 0.5)] ?? null, p95: lat[Math.floor(lat.length * 0.95)] ?? null },
