@@ -35,6 +35,13 @@ describe("textos do Mapa", () => {
     expect(indicatorText(all[4]).explain).toContain("2 dívidas em atraso");
   });
 
+  it("tendência: o texto concorda com o selo (queda dentro do ruído não vira 'piorando')", () => {
+    const base = ind({ id: "equilibrio.tendencia", pillar: "equilibrio", unit: "brl", direction: "higher_better", inputs: { desvio_resultado: 8108 } });
+    expect(indicatorText({ ...base, value: -909.88, status: "ok" }).explain).toMatch(/não há uma queda clara/);
+    expect(indicatorText({ ...base, value: -5000, status: "atencao" }).explain).toMatch(/piorando/);
+    expect(indicatorText({ ...base, value: 800, status: "ok" }).explain).toMatch(/estável ou melhorando/);
+  });
+
   it("indicador sem dados mostra traço, nunca zero", () => {
     const t = indicatorText(ind({ id: "dividas.custo_medio", pillar: "dividas", value: null, status: "sem_dados", confidence: "insuficiente" }));
     expect(t.value).toBe("—");

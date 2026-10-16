@@ -89,7 +89,7 @@ export function indicatorText(i: MapaIndicator): IndicatorText {
     case "equilibrio.cobertura_mes_com_estimativa":
       return { title: "Se a renda esperada chegar", value: v === null ? "—" : v >= 10 ? "Sobra bastante" : `${nf(v * 100)}% cobertas`, explain: "Mesma conta, contando também a renda que eu estimo que vai entrar. É uma estimativa, não dinheiro garantido." };
     case "equilibrio.tendencia":
-      return { title: "Para onde vai o resultado mensal", value: v === null ? "—" : `${sbrl(v)} por mês`, explain: v === null ? "" : v >= 0 ? "O resultado dos meses está melhorando." : "O resultado dos meses está piorando." };
+      return { title: "Para onde vai o resultado mensal", value: v === null ? "—" : `${sbrl(v)} por mês`, explain: v === null ? "" : i.status === "atencao" ? "O resultado dos meses está piorando." : v >= 0 ? "O resultado dos meses está estável ou melhorando." : "O resultado oscila de mês para mês, mas não há uma queda clara." };
     case "seguranca.meses_cobertos": {
       const base = i.inputs.base === "essenciais" ? "seus gastos essenciais" : "seus gastos totais";
       const target = input(i, "meta_meses");
