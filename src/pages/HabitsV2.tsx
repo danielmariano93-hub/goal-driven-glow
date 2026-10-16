@@ -9,7 +9,6 @@ import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { HabitsWheel } from "@/components/habits/HabitsWheel";
 import { EmotionAssociationCard } from "@/components/habits/EmotionAssociationCard";
 import { FinancialWellBeingCard } from "@/components/habits/FinancialWellBeingCard";
-import { MapaEntender } from "@/components/mapa/MapaEntender";
 import { PatternCard } from "@/components/habits/PatternCard";
 import { logInsightEvent, useContextAnswerMutations, useContextAnswers, useHabitPatterns, useLimitDecision } from "@/lib/behavioral/habitPatterns";
 import { dimensionSubject, patternSubject, type PatternAnswerKey } from "../../supabase/functions/_shared/proactive/habitContext";
@@ -304,8 +303,6 @@ export default function HabitsV2() {
         onAnswer={answer}
         onRemoveFeedback={removeAnswer}
       />
-
-      <MapaEntender />
 
       <FinancialWellBeingCard />
 

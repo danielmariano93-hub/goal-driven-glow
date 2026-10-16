@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, Compass } from "lucide-react";
 import { useMapaEnabled, useMapaReading } from "@/lib/mapa/client";
@@ -120,7 +120,7 @@ function QuestionSlot({ reading, opened, onClose }: { reading: MapaReading; open
 }
 
 /** Camadas "Saúde financeira" e "Hábitos" do Mapa. Aparece só para contas com `mapa_enabled()`. */
-export function MapaEntender() {
+export function MapaEntender({ bemEstar }: { bemEstar?: ReactNode } = {}) {
   const flag = useMapaEnabled();
   const enabled = flag.data === true;
   const { data: payload, isLoading, isError } = useMapaReading(enabled);
@@ -140,6 +140,7 @@ export function MapaEntender() {
           <QuestionSlot reading={data} opened={opened} onClose={() => setOpened(null)} />
           <Heading hint="O que você faz com o dinheiro no dia a dia. Medidas em teste vêm avisadas.">Hábitos</Heading>
           {HABITOS.map((p) => <Pillar key={p} id={p} indicators={by(p)} onNeed={setOpened} />)}
+          {bemEstar ? <><Heading hint="Como você se sente com o seu dinheiro. É a sua percepção, medida a cada 15 dias.">Bem-estar percebido</Heading>{bemEstar}</> : null}
           <Evoluir indicators={data.indicators} />
         </>
       ) : null}

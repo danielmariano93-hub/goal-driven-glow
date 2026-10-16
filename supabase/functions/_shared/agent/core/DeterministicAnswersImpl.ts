@@ -2,6 +2,7 @@
 // to calculate, rename fields or infer missing values.
 // deno-lint-ignore-file no-explicit-any
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { formatMapaForChat } from "../../mapa/agentTool.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import type { LLMTurn } from "../llm.ts";
 import { runTool } from "./ToolRuntime.ts";
@@ -912,6 +913,7 @@ export function formatGoalPerformance(
  * (`behaviorHabitsReading`), o mesmo da página Emocional.
  */
 export function formatBehaviorEvolution(result: any): string {
+  if (result?.engine === "mapa_financeiro") return formatMapaForChat(result);
   const verdict = result?.verdict ?? {};
   const lines: string[] = [`*${String(verdict.headline ?? "Ainda não dá para dizer se você melhorou")}*`];
   if (verdict.summary) lines.push(String(verdict.summary));

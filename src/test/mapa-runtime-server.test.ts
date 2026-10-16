@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { validateMapaReading } from "@/lib/engine/mapaContracts";
 import { loadMapaReading, weekStartOf, mapaAccess } from "../../supabase/functions/_shared/mapa/runtime";
+import { getMapaForAgent, formatMapaForChat } from "../../supabase/functions/_shared/mapa/agentTool";
 
 // Carga do servidor de ponta a ponta, com um banco simulado que responde por tabela. Antes deste teste a carga nunca tinha rodado:
 // um erro de tipo (`status.items`) derrubaria a leitura de qualquer conta com dívida ativa.
@@ -110,5 +111,33 @@ describe("carga do servidor do Mapa (banco simulado)", () => {
     expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: true }] }).sb, USER)).toBe(true);
     expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: false }] }).sb, USER)).toBe(false);
     expect(await mapaAccess(fakeDb({ mapa_access: [] }).sb, USER)).toBe(false);
+  });
+});
+
+describe("Mapa para o agente (app e WhatsApp)", () => {
+  it("conta liberada: devolve leitura rotulada, sem nota e sem respostas do CFPB", async () => {
+    const r = await getMapaForAgent(fakeDb(baseTables({ financial_wellbeing_responses: [{ answered_at: "2026-10-10T00:00:00Z", score: 55, total: 22 }] })).sb, USER, ASOF);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const json = JSON.stringify({ ...r.result, regras: undefined });
+    expect(r.result.engine).toBe("mapa_financeiro");
+    expect(r.result.indicadores.length).toBeGreaterThan(5);
+    expect(json).not.toMatch(/\bnota\b|\bscore\b|cfpb|"total"/i);
+    expect(r.result.regras.join(" ")).toContain("não diga para gastar ou cortar menos");
+  });
+
+  it("conta sem acesso: mapa_not_enabled, e nenhuma leitura é montada", async () => {
+    const { sb, writes } = fakeDb(baseTables({ mapa_access: [] }));
+    expect(await getMapaForAgent(sb, USER, ASOF)).toEqual({ ok: false, error: "mapa_not_enabled" });
+    expect(writes).toEqual([]);
+  });
+
+  it("texto de chat para 'como estão meus hábitos?': título, o que mudou e aviso da tela", async () => {
+    const r = await getMapaForAgent(fakeDb(baseTables()).sb, USER, ASOF);
+    if (!r.ok) throw new Error("esperava ok");
+    const text = formatMapaForChat({ ...r.result, o_que_mudou: [{ indicador: "Parcelas sobre a renda", mudou: "melhorou", antes: "20,0%" }] });
+    expect(text).toContain(`*${r.result.leitura.titulo}*`);
+    expect(text).toContain("▲ Parcelas sobre a renda (antes: 20,0%)");
+    expect(text).toContain("Mapa Financeiro, no app.");
   });
 });

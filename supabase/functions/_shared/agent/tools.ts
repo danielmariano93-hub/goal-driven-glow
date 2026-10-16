@@ -1728,6 +1728,7 @@ import {
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 import { goalNameMatches } from "./core/GoalNameMatch.ts";
 import { loadBehaviorHabitsReading, OBSERVED_RUNTIME_VERSION } from "../behavioral/observedRuntime.ts";
+import { getMapaForAgent } from "../mapa/agentTool.ts";
 
 export {
   analyze_merchants, merchant_distribution, merchant_profile, explain_behavior_change, discover_recurring,
@@ -2796,6 +2797,9 @@ async function loadEmotionFinanceSettings(ctx: ToolContext) {
  */
 async function get_behavior_evolution(ctx: ToolContext): Promise<ToolResult> {
   try {
+    // Conta com Mapa Financeiro: a resposta sobre hábitos vem do Mapa (a mesma leitura da tela), nunca da roda antiga.
+    const mapa = await getMapaForAgent(ctx.sb, ctx.user_id, todaySP());
+    if (mapa.ok) return { ok: true, result: mapa.result };
     const { profile, reading } = await loadBehaviorHabitsReading(ctx.sb, ctx.user_id);
     return {
       ok: true,
@@ -3758,6 +3762,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_emotional_checkins,
+  },
+  {
+    name: "get_mapa_financeiro",
+    description: "Mapa Financeiro do usuário (só para contas com o recurso liberado): saúde financeira (equilíbrio, segurança, dívidas, futuro), hábitos (execução, planejamento, acompanhamento), o que mudou desde a leitura anterior e a recomendação do momento, tudo já calculado, em unidades naturais e sem nota. Use para 'como está meu mapa financeiro?', 'minha reserva está boa?', 'o que devo fazer agora?', 'minhas dívidas cabem na renda?'. Repita os valores como vêm. Se devolver mapa_not_enabled, o recurso não está liberado: não invente a leitura. Read-only.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: async (ctx: ToolContext): Promise<ToolResult> => getMapaForAgent(ctx.sb, ctx.user_id, todaySP()),
   },
   {
     name: "get_behavior_evolution",
