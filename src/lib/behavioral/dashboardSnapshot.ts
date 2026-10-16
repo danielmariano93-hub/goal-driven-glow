@@ -17,6 +17,8 @@ import {
   type ExtendedBehavioralAssessment,
   type ObservedBehaviorProfile,
 } from "@/lib/behavioral/mapCycle";
+import { goalCyclesFromHistory } from "@/lib/behavioral/goalCyclesFromHistory";
+import type { GoalHistory } from "@/lib/engine/goalHistory";
 import { buildObservedProfileV3 } from "@/lib/engine/behaviorObservedV3";
 import { computeEmotionSpendAssociation, timedExpensesFromRows, type ExpenseRowForTiming, type TimedExpense } from "@/lib/engine/emotionSpendPairing";
 import {
@@ -167,6 +169,16 @@ async function countRecentContextAnswers(): Promise<number> {
   } catch { return 0; }
 }
 
+/** Histórico de metas da tela de Metas (mesma fonte). Se falhar, o Hábitos cai nos ciclos guardados. */
+async function loadGoalHistoryCycles(): Promise<BehavioralGoalCycle[] | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke("nino-insights", { body: { action: "goals" } });
+    if (error || !data || (data as { ok?: boolean }).ok !== true) return null;
+    const history = (data as { history?: GoalHistory | null }).history ?? null;
+    return history ? goalCyclesFromHistory(history) : null;
+  } catch { return null; }
+}
+
 export async function loadBehavioralDashboardSnapshot(opts: { v3?: boolean } = {}): Promise<BehavioralDashboardState> {
   const { data, error } = await (supabase.rpc as any)("behavioral_dashboard_snapshot");
   if (error) throw error;
@@ -249,6 +261,10 @@ export async function loadBehavioralDashboardSnapshot(opts: { v3?: boolean } = {
   }
 
   const observedInput = observedInputFromDashboardPayload(payload);
+  if (opts.v3) {
+    const fromHistory = await loadGoalHistoryCycles();
+    if (fromHistory) observedInput.goalCycles = fromHistory;
+  }
   const declaredContextAnswers = opts.v3 ? await countRecentContextAnswers() : 0;
   const observed = opts.v3 ? buildObservedProfileV3(observedInput, Date.now(), { declaredContextAnswers }) : buildObservedProfileV2(observedInput);
   const activeExperiments = experiments.filter((row) => row.status === "active");

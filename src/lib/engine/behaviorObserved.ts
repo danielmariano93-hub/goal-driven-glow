@@ -3,6 +3,14 @@
 import { emotionalScore, type BehaviorDimensionKey, type EmotionalCheckinRow, type ObservedBehaviorProfile, type ObservedDimension, type ObservedFactor } from "./behaviorDimensions";
 
 const DAY_MS = 86_400_000;
+/** Frase sobre as metas mensais já terminadas, sem montar plural por concatenação. */
+export function cycleSentence(hit: number, total: number): string {
+  if (total === 1) return hit ? "Você cumpriu a única meta mensal que já terminou." : "Você não cumpriu a única meta mensal que já terminou.";
+  if (hit === 0) return `Você não cumpriu nenhuma das ${total} metas mensais que já terminaram.`;
+  if (hit === total) return `Você cumpriu todas as ${total} metas mensais que já terminaram.`;
+  return `Você cumpriu ${hit} de ${total} metas mensais que já terminaram.`;
+}
+
 export const OBSERVED_METHODOLOGY_VERSION = "behavior_observed.v2";
 
 type FinancialRow = {
@@ -230,7 +238,7 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
         score: round(controlScore),
         confidence: closedCycles.length >= 3 ? "high" : closedCycles.length >= 1 || goals.length >= 2 ? "medium" : "low",
         evidence: closedCycles.length
-          ? `${hitCycles.length} de ${closedCycles.length} ciclo${closedCycles.length === 1 ? "" : "s"} de meta terminou${closedCycles.length === 1 ? "" : "aram"} dentro do limite; metas atuais entram apenas como complemento.`
+          ? `${cycleSentence(hitCycles.length, closedCycles.length)} As metas deste mês entram só como complemento.`
           : `${goals.filter((goal: any) => ["on_track", "achieved"].includes(String(goal?.status))).length} de ${goals.length} meta${goals.length === 1 ? "" : "s"} atual${goals.length === 1 ? "" : "is"} está${goals.length === 1 ? "" : "o"} no ritmo. Ainda não há ciclo fechado, então a confiança é menor.`,
         source: "goal_cycles+current_goals+spending_rhythm",
       };
@@ -341,7 +349,7 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
     : {
         score: round(calmScore),
         confidence: directValues.length >= 10 ? "high" : directValues.length >= 4 ? "medium" : "low",
-        evidence: `${directValues.length} check-in${directValues.length === 1 ? "" : "s"} mediu${directValues.length === 1 ? "" : "ram"} tranquilidade diretamente nos últimos 30 dias${legacyValues.length ? `; ${legacyValues.length} registro${legacyValues.length === 1 ? "" : "s"} antigo${legacyValues.length === 1 ? "" : "s"} entra${legacyValues.length === 1 ? "" : "m"} apenas como contexto estimado` : ""}.`,
+        evidence: `${directValues.length === 1 ? "1 check-in mediu" : `${directValues.length} check-ins mediram`} tranquilidade diretamente nos últimos 30 dias${legacyValues.length ? `; ${legacyValues.length === 1 ? "1 registro antigo entra" : `${legacyValues.length} registros antigos entram`} apenas como contexto estimado` : ""}.`,
         source: "direct_financial_calm+legacy_context",
       };
 

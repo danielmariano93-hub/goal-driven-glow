@@ -116,7 +116,7 @@ describe("hábitos v2 — página montada de verdade", () => {
   it("AC-01/AC-06: primeira dobra = descoberta consolidada + roda; no máximo 2 insights", async () => {
     const { container } = await mount();
     const text = container.textContent ?? "";
-    expect(text.indexOf("O que o Nino descobriu")).toBeLessThan(text.indexOf("Você e o que o Nino observa"));
+    expect(text.indexOf("O que o Nino descobriu")).toBeLessThan(text.indexOf("Você e o que eu observo"));
     // Lazer e Transporte num só insight
     const articles = [...container.querySelectorAll("article[aria-label]")];
     expect(articles.length).toBeLessThanOrEqual(2);
@@ -218,7 +218,7 @@ describe("hábitos v2 — página montada de verdade", () => {
   it("AC-04: dimensão sem base não vira 0 nem nota", async () => {
     const { container } = await mount();
     const planning = within(screen.getByLabelText("Dimensões")).getByText("Planejamento").closest("li")!;
-    expect(planning.textContent).toContain("Base parcial");
+    expect(planning.textContent).toContain("Poucos dados");
     expect(container.querySelector('[data-testid="no-reading-planning"]')).not.toBeNull();
   });
 
@@ -265,8 +265,8 @@ describe("hábitos v2 — página montada de verdade", () => {
     fireEvent.click(screen.getByText("Histórico e análises detalhadas"));
     const mood = screen.getByText("Histórico dos seus registros de tranquilidade").closest("details")!;
     expect(mood.hasAttribute("open")).toBe(false);
-    expect(mood.textContent).toMatch(/8 medições diretas.*10 estimativas/);
-    expect(container.textContent).toContain("associação, não uma causa");
+    expect(mood.textContent).toMatch(/8 respostas suas.*10 registros antigos estimados/);
+    expect(container.textContent).toContain("coincidência, não uma causa");
     expect(container.textContent ?? "").not.toMatch(/por causa|por ansiedade|impulsiv|perdeu|186%/);
   });
 

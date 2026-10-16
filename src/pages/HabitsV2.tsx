@@ -333,14 +333,14 @@ export default function HabitsV2() {
           <details className="rounded-[22px] border border-border bg-card p-3">
             <summary className="cursor-pointer text-sm font-semibold">Histórico dos seus registros de tranquilidade</summary>
             <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-              Nos últimos 30 dias: {directCount} {directCount === 1 ? "medição direta" : "medições diretas"} (você informou) e {estimatedCount} {estimatedCount === 1 ? "estimativa" : "estimativas"} de registros antigos. As estimativas não entram na nota.
+              Nos últimos 30 dias: {directCount === 1 ? "1 resposta sua" : `${directCount} respostas suas`} e {estimatedCount === 1 ? "1 registro antigo estimado" : `${estimatedCount} registros antigos estimados`}. Os registros estimados não entram na nota.
             </p>
             <div className="mt-3"><MoneyMoodTimeline snapshot={dashboard} /></div>
           </details>
           <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
           <div className="rounded-2xl bg-secondary/25 p-3 text-[11px] leading-relaxed text-muted-foreground">
-            <p className="font-semibold text-foreground">Como o Nino lê isso</p>
-            <p className="mt-1">Uma nota só aparece quando há evidência suficiente; com base parcial o Nino mostra o que viu, sem nota, e sem dados diz “ainda não sei”. Abrir telas do app não conta como hábito. As leituras são associações, não diagnóstico: o Nino não deduz emoção nem causa a partir de extratos. Método {observed.methodologyVersion ?? "behavior_observed.v3"}.</p>
+            <p className="font-semibold text-foreground">Como eu leio isso</p>
+            <p className="mt-1">Só dou nota quando tenho dados suficientes. Com poucos dados, mostro o que vi, sem nota. Sem dados, digo que ainda não sei. Abrir telas do app não conta como hábito. O que mostro são coincidências, não diagnóstico: não adivinho emoção nem causa a partir dos seus gastos.</p>
           </div>
         </div>
       </details>

@@ -56,7 +56,7 @@ export function QuickAddPeople({ existingPhones, onAdd }: Props) {
     }
     onAdd(fresh);
     toast.success(`${fresh.length} pessoa${fresh.length === 1 ? "" : "s"} adicionada${fresh.length === 1 ? "" : "s"}.`, {
-      description: ignored ? `${ignored} linha${ignored === 1 ? "" : "s"} sem telefone válido foi${ignored === 1 ? "" : "ram"} ignorada${ignored === 1 ? "" : "s"}.` : undefined,
+      description: ignored ? ignored === 1 ? "1 linha sem telefone válido foi ignorada." : `${ignored} linhas sem telefone válido foram ignoradas.` : undefined,
     });
     setText(""); setPasteOpen(false);
   };
