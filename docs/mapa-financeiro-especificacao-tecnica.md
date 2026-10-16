@@ -14,8 +14,8 @@ Convenções: **[verificado]** = conferido no código ou no banco da conta do do
 | Nome da aba "Mapa Financeiro" (D1) | **Feito e em produção** (rota `/app/mapa`; `/app/emocoes` redireciona) | PR #269 |
 | 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Feita e em produção** (em sombra, só conta piloto) | PR #270 |
 | 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | **Feita e em produção** (só conta piloto) | PRs #271 e #272 |
-| 3 — Hábitos (E6 a E8, agendador E13) | **Em revisão** (motores, tela, pergunta do dia e estimativa mensal) | PR da fase 3 |
-| 4 — Evolução, recomendação e IA (E10 a E12) | Pendente | depois da 3 |
+| 3 — Hábitos (E6 a E8, agendador E13) | **Feita e em produção** (só conta piloto) | PR #273 |
+| 4 — Evolução, recomendação e IA (E10 a E12) | **Em revisão** (E10, E11, pacote de evidência, guarda, redação, ≥60 cenários, telas "Para agora" e "O que mudou"). **Fora desta fase:** conversa sobre o Mapa no app/WhatsApp (8b) e avaliação com modelo real | PR da fase 4 |
 | 5 — Troca do conteúdo da aba e remoção do legado | Pendente | depois da 4 |
 | 6 — Validação com pessoas | Pendente | contínuo |
 
@@ -280,6 +280,8 @@ Marcado **exploratório** na UI (construto novo, sem validação da literatura).
 ### E10 — Evolução
 Entrada: `map_readings` + leitura atual. Saída: `Change` por indicador.
 Regras: janelas comparáveis (mensal×mensal, mesma janela); `comparable=false` se `formula_version` mudou, se a **completude** dos dados mudou (ex.: nova conta importada) ou se a janela difere; `direction` aplica o sentido favorável (dívida que cai = melhorou); margem de "parecido" por indicador (em % do valor ou erro de medida no E9); nunca compara mês parcial.
+
+> **Notas de implementação (fase 4).** (1) As leituras são gravadas em `map_readings` **quando a pessoa abre o Mapa** (uma linha por indicador por semana; reabrir só atualiza). Sem job semanal ainda: quem não abre não gera histórico, e a primeira comparação só existe depois de uma semana (leituras pontuais) ou de um mês fechado (janelas de meses fechados). O job vem na fase 5. (2) Comparação respeita fórmula, janela e completude dos dados; margem de "parecido" por unidade (pct 2 pontos, meses 0,25, R$ 100, razão 0,03). (3) Recusar uma recomendação a tira por 30 dias, "não ajudou" por 60, aceitar por 14; recusar a estrutural **não** a troca por dica de comportamento. (4) A IA só reescreve: guarda determinística (números, causa, emoção, diagnóstico, juízo, promessa, nota, código interno, modelo, "gaste menos" no estrutural, voz do Nino) e texto determinístico de reserva em qualquer falha; cache por hash da evidência. (5) A avaliação com **modelo real** (fidelidade, taxa de fallback, LLM-juiz e revisão humana) ainda **não foi rodada**: existe o conjunto de 60+ cenários, a guarda e o harness `runMapaNarrativeEval`, mas só foi exercitado com modelo simulado.
 
 ### E11 — Prioridade e recomendação
 **Gate estrutural primeiro:** `structural = essential_monthly/typical > 0,8` ou `comprometimento_renda > 0,5` ou `equilibrio` negativo em 3 de 3 meses. Se estrutural, a recomendação é estrutural (renegociar, revisar essenciais, aumentar renda) e **não** dica de comportamento (COM-B: capacidade e oportunidade antes de motivação). Senão:

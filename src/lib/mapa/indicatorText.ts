@@ -144,3 +144,23 @@ export function indicatorText(i: MapaIndicator): IndicatorText {
       return { title: i.id, value: v === null ? "—" : nf(v, 2), explain: "" };
   }
 }
+
+export interface ChangeText { label: string; tone: "up" | "down" | "same" | "none"; detail: string }
+
+const NOT_COMPARABLE: Record<string, string> = {
+  formula_changed: "A forma de calcular mudou desde a leitura anterior, então não comparo.",
+  data_completeness_changed: "Os dados mudaram (mais meses ou outra base) desde a leitura anterior, então não comparo.",
+  window_mismatch: "O período medido é diferente do da leitura anterior, então não comparo.",
+  within_measurement_error: "A diferença está dentro do que a própria medida costuma oscilar.",
+};
+
+/** Frase de evolução de um indicador (E10). null = não há leitura anterior. */
+export function changeText(i: MapaIndicator): ChangeText | null {
+  const c = i.change;
+  if (!c) return null;
+  if (!c.comparable) return { label: "Sem comparação", tone: "none", detail: (c.not_comparable_reason && NOT_COMPARABLE[c.not_comparable_reason]) || "Não há uma leitura anterior comparável." };
+  const before = c.previous === null ? "" : ` (antes: ${indicatorText({ ...i, value: c.previous }).value})`;
+  if (c.direction === "melhorou") return { label: "Melhorou", tone: "up", detail: `Melhorou desde a leitura anterior${before}.` };
+  if (c.direction === "piorou") return { label: "Piorou", tone: "down", detail: `Piorou desde a leitura anterior${before}.` };
+  return { label: "Parecido", tone: "same", detail: `Parecido com a leitura anterior${before}.` };
+}

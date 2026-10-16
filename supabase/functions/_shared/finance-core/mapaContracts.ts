@@ -106,13 +106,44 @@ export interface StructuralFlags {
   structural: boolean | null;
 }
 
+export type MapaRecommendationKind = "estrutural" | "comportamento";
+export type MapaActionType =
+  | "renegociar_dividas" | "regularizar_atrasos" | "revisar_essenciais" | "fechar_a_conta"
+  | "criar_reserva" | "ajustar_meta" | "cadastrar_contas_fixas" | "plano_de_pagamento";
+
 export interface MapaRecommendation {
+  /** Estável por situação (ex.: "estrutural:revisar_essenciais"): é a chave de supressão. */
   id: string;
+  kind: MapaRecommendationKind;
   indicator_ids: string[];
   rationale_keys: string[];
-  action: { type: string; deeplink: string; params?: Record<string, string | number> };
+  action: { type: MapaActionType; deeplink: string; params?: Record<string, string | number> };
+  /** severidade × reversibilidade × confiança (apenas para ordenar; não é mostrado). */
+  priority_score: number;
   suppress_until?: string;
   guardrails: string[];
+}
+
+/** Leitura guardada em `map_readings` (insumo do E10). */
+export interface MapaStoredReading {
+  indicator_id: string;
+  /** Data da leitura (YYYY-MM-DD). */
+  as_of: string;
+  value: number | null;
+  formula_version: string;
+  /** Fim da janela do indicador quando é de meses fechados (identifica o período). */
+  window_end: string | null;
+  window_kind: "meses_fechados" | "movel_dias" | "pontual" | null;
+  window_n: number | null;
+  /** Qualidade dos dados na hora da leitura (para detectar mudança de completude). */
+  dq_signature: string | null;
+}
+
+/** Feedback da pessoa sobre uma recomendação (insumo do E11). */
+export interface MapaRecommendationFeedback {
+  rec_id: string;
+  event: "shown" | "accepted" | "dismissed" | "useful" | "not_useful";
+  at: string;
 }
 
 export interface MapaQuestionDue {
@@ -164,6 +195,7 @@ export function validateMapaReading(reading: MapaReading): string[] {
   }
   const inc = reading.income;
   if (inc.typical !== null && !Number.isFinite(inc.typical)) out.push("income:non_finite_typical");
-  if (inc.regularity === "insuficiente" && inc.typical !== null) out.push("income:typical_without_history");
+  // renda típica exige ≥ 3 meses fechados (renda zero em 3+ meses é um valor válido: 0, sem regularidade calculável)
+  if (inc.typical !== null && inc.months_used < 3) out.push("income:typical_without_history");
   return out;
 }

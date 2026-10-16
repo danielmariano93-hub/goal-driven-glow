@@ -24,6 +24,8 @@ import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
 import { loadContextAnswers, loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
 import { matchesAnySecret } from "../_shared/security/secrets.ts";
 import { loadMapaReading, mapaAccess } from "../_shared/mapa/runtime.ts";
+import { buildMapaEvidencePack } from "../_shared/finance-core/mapaEvidencePack.ts";
+import { explainMapa } from "../_shared/mapa/narrative.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -191,7 +193,14 @@ Deno.serve(async (req) => {
     if (action === "map") {
       // Mapa Financeiro (mapa_financeiro.v1), em sombra: só para contas liberadas em `mapa_access`.
       if (!(await mapaAccess(sb, userId))) return h.fail("mapa_not_enabled", 403);
-      return h.ok({ ok: true, mapa: await loadMapaReading(sb, userId, todaySP()) });
+      const mapa = await loadMapaReading(sb, userId, todaySP(), { persist: true });
+      return h.ok({ ok: true, mapa, evidence: buildMapaEvidencePack(mapa) });
+    }
+    if (action === "map_explain") {
+      // Redação do Mapa pela IA (E12), sempre com guarda e texto determinístico de reserva.
+      if (!(await mapaAccess(sb, userId))) return h.fail("mapa_not_enabled", 403);
+      const pack = buildMapaEvidencePack(await loadMapaReading(sb, userId, todaySP()));
+      return h.ok({ ok: true, narrative: await explainMapa(sb, userId, pack), hash: pack.hash });
     }
     if (action === "goal_merchants") {
       const categoryId = typeof body.category_id === "string" ? body.category_id : "";

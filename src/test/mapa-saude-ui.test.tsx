@@ -4,7 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MapaIndicator, MapaReading } from "@/lib/engine/mapaContracts";
 import { MAPA_CONTRACT } from "@/lib/engine/mapaContracts";
-import { indicatorText, reasonsText, REASON_CODES_FOR_TEST } from "@/lib/mapa/indicatorText";
+import { changeText, indicatorText, reasonsText, REASON_CODES_FOR_TEST } from "@/lib/mapa/indicatorText";
+import { buildMapaEvidencePack } from "@/lib/engine/mapaEvidencePack";
 
 const win = { start: "2026-07-01", end: "2026-09-30", kind: "meses_fechados" as const, n: 3 };
 const ind = (over: Partial<MapaIndicator> & Pick<MapaIndicator, "id" | "pillar">): MapaIndicator => ({
@@ -155,5 +156,83 @@ describe("MapaEntender", () => {
     invoke.mockResolvedValue({ data: null, error: new Error("x") });
     await mount();
     expect(await screen.findByText(/Não consegui montar a leitura agora/, {}, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  describe("Agir e Evoluir (fase 4)", () => {
+    const withRec = () => {
+      const r = reading([ind({ id: "seguranca.meses_cobertos", pillar: "seguranca", value: 0.5, unit: "meses", status: "critico", inputs: { base: "essenciais", meta_meses: 6 } })]);
+      r.recommendation = { id: "comportamento:criar_reserva", kind: "comportamento", indicator_ids: ["seguranca.meses_cobertos"], rationale_keys: ["reserve_low"], action: { type: "criar_reserva", deeplink: "/app/metas" }, priority_score: 2.7, guardrails: [] };
+      r.data_quality = { closed_months: 6 } as MapaReading["data_quality"];
+      r.structural = { essential_share_of_income: null, debt_service_ratio: null, negative_result_streak: null, structural: false };
+      return r;
+    };
+    const serve = (mapa: MapaReading, narrative?: unknown, hashOverride?: string) => {
+      const evidence = buildMapaEvidencePack(mapa);
+      invoke.mockImplementation(async (_n: string, opts: { body: { action: string } }) =>
+        opts.body.action === "map" ? { data: { ok: true, mapa, evidence }, error: null }
+          : { data: { ok: true, narrative, hash: hashOverride ?? evidence.hash }, error: null });
+      return evidence;
+    };
+
+    it("mostra UMA recomendação com o texto determinístico, a evidência e a ação", async () => {
+      const ev = serve(withRec());
+      await mount();
+      expect(await screen.findByText(ev.deterministic.title)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Criar uma meta de reserva/ })).toHaveAttribute("href", "/app/metas");
+      expect(screen.getAllByRole("link", { name: /Criar uma meta de reserva/ })).toHaveLength(1);
+      expect(screen.getByText("Por que estou dizendo isso")).toBeInTheDocument();
+      expect(screen.queryByText(/escrito pelo Nino com IA/)).not.toBeInTheDocument();
+    });
+
+    it("a redação da IA substitui o texto quando chega com o mesmo hash, e avisa que é IA", async () => {
+      serve(withRec(), { title: "Reserva curta", body: "Seu dinheiro cobre pouco tempo.", question: "Quer criar uma meta?", source: "llm" });
+      await mount();
+      expect(await screen.findByText("Reserva curta")).toBeInTheDocument();
+      expect(screen.getByText(/Texto escrito pelo Nino com IA/)).toBeInTheDocument();
+    });
+
+    it("narrativa de outra leitura (hash diferente) é ignorada", async () => {
+      const ev = serve(withRec(), { title: "Texto velho", body: "x", question: null, source: "llm" }, "outrohash");
+      await mount();
+      expect(await screen.findByText(ev.deterministic.title)).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 40));
+      expect(screen.queryByText("Texto velho")).not.toBeInTheDocument();
+    });
+
+    it("'Agora não' e 'Isso ajudou?' viram eventos da recomendação", async () => {
+      serve(withRec());
+      await mount();
+      fireEvent.click(await screen.findByRole("button", { name: "Agora não" }));
+      await waitFor(() => expect(inserts.some((i) => i.table === "map_recommendation_events" && i.row.event === "dismissed" && i.row.rec_id === "comportamento:criar_reserva")).toBe(true));
+      fireEvent.click(screen.getByRole("button", { name: "Sim" }));
+      await waitFor(() => expect(inserts.some((i) => i.row.event === "useful")).toBe(true));
+    });
+
+    it("sem recomendação, mostra a leitura de 'nada pede ação' sem botão de ação", async () => {
+      const r = reading([ind({ id: "seguranca.meses_cobertos", pillar: "seguranca", value: 7, unit: "meses", inputs: { base: "essenciais", meta_meses: 6 } })]);
+      r.data_quality = { closed_months: 6 } as MapaReading["data_quality"];
+      serve(r);
+      await mount();
+      expect(await screen.findByText("Nada pede ação agora")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Agora não" })).not.toBeInTheDocument();
+    });
+
+    it("evolução: chip no indicador, detalhe com o valor anterior e seção 'O que mudou'", async () => {
+      const r = withRec();
+      r.indicators[0].change = { previous: 0.2, delta: 0.3, direction: "melhorou", comparable: true };
+      serve(r);
+      await mount();
+      expect(await screen.findByText("O que mudou desde a última leitura")).toBeInTheDocument();
+      expect(screen.getByText("↑ Melhorou")).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Quantos meses seu dinheiro cobre"));
+      expect(screen.getByText(/Melhorou desde a leitura anterior \(antes: 0,2 mês\)/)).toBeInTheDocument();
+    });
+
+    it("changeText explica por que não comparou e nunca inventa direção", () => {
+      const base = ind({ id: "seguranca.meses_cobertos", pillar: "seguranca" });
+      expect(changeText(base)).toBeNull();
+      expect(changeText({ ...base, change: { previous: 1, delta: null, direction: "indefinido", comparable: false, not_comparable_reason: "formula_changed" } })).toMatchObject({ tone: "none", detail: expect.stringMatching(/forma de calcular mudou/) });
+      expect(changeText({ ...base, change: { previous: 1, delta: 0, direction: "parecido", comparable: true } })?.tone).toBe("same");
+    });
   });
 });
