@@ -12,8 +12,8 @@ Convenções: **[verificado]** = conferido no código ou no banco da conta do do
 |---|---|---|
 | 0 — Correções imediatas (P-01, P-02, P-03, P-13) | **Feita e em produção** | PR #268 |
 | Nome da aba "Mapa Financeiro" (D1) | **Feito e em produção** (rota `/app/mapa`; `/app/emocoes` redireciona) | PR #269 |
-| 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Em revisão** | PR da fase 1 |
-| 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | Pendente | próximo |
+| 1 — Fundações (contratos, E0, E1, tabelas, flag, endpoint em sombra) | **Feita e em produção** (em sombra, só conta piloto) | PR #270 |
+| 2 — Saúde financeira (E2 a E5, campos novos, captura guiada, UI "Entender") | Motores **em produção** (PR #271); tela e captura guiada **em revisão** | PR da tela |
 | 3 — Hábitos (E6 a E8, agendador E13) | Pendente | depois da 2 |
 | 4 — Evolução, recomendação e IA (E10 a E12) | Pendente | depois da 3 |
 | 5 — Troca do conteúdo da aba e remoção do legado | Pendente | depois da 4 |
