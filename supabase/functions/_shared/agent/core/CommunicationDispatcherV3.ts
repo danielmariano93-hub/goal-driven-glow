@@ -427,7 +427,7 @@ export async function dispatchSuggestions(
   const columns = "id,user_id,channel_ready,kind,title,body,severity,dedup_key,action,evidence";
   const limit = opts.max ?? 5;
   // A fila é lida com folga: a escolha de quem fala é por valor, não por FIFO.
-  const poolSize = Math.max(limit * 6, 24);
+  const poolSize = Math.max(limit * 6, 60);
   const [pendingResp, deferredResp] = await Promise.all([
     sb.from("pending_proactive_suggestions").select(columns)
       .eq("user_id", userId).eq("status", "pending")
@@ -524,6 +524,12 @@ export async function dispatchSuggestions(
           status: "suppressed", reason: drop, dedup_key: item.dedup_key,
           evidence: item.evidence, block_context: { policy_reason: drop, value_score: value.score },
         });
+        // Barrada de vez: sai da fila. Se continuasse "pending", as mais antigas ocupariam sempre a janela de
+        // leitura (as N primeiras) e as novas nunca seriam avaliadas. Assunto que volta a importar chega como
+        // item novo (a chave inclui a data/período).
+        await sb.from("pending_proactive_suggestions")
+          .update({ status: "dismissed", dismissed_at: new Date().toISOString(), next_attempt_at: null, defer_reason: null })
+          .eq("id", item.id).eq("status", "pending");
       }
       results.push({ id: item.id, channel: "app", status: "skipped", reason: drop });
       continue;
