@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, Compass } from "lucide-react";
-import { useMapaEnabled, useMapaReading } from "@/lib/mapa/client";
+import { useLatestWellbeing, useMapaEnabled, useMapaReading } from "@/lib/mapa/client";
 import type { MapaIndicator, MapaPillarId, MapaReading, MapaStatus } from "@/lib/engine/mapaContracts";
 import { CONFIDENCE_LABEL, NEEDS_ACTION, PILLAR_LABEL, PILLAR_QUESTION, STATUS_LABEL, changeText, indicatorText, reasonsText } from "@/lib/mapa/indicatorText";
 import { MapaAgir } from "@/components/mapa/MapaAgir";
+import { MapaRoda } from "@/components/mapa/MapaRoda";
 import { MapaCaptureCards, type CaptureKind } from "@/components/mapa/MapaCaptureCards";
 import { MapaEstimateCard } from "@/components/mapa/MapaEstimateCard";
 import { useResolveQuestion } from "@/lib/mapa/questions";
@@ -67,7 +68,7 @@ function Pillar({ id, indicators, onNeed }: { id: MapaPillarId; indicators: Mapa
   if (!indicators.length) return null;
   const label = PILLAR_LABEL[id as keyof typeof PILLAR_LABEL];
   return (
-    <section aria-label={label} className="rounded-[22px] border border-border bg-card p-4 shadow-card">
+    <section id={`pilar-${id}`} aria-label={label} className="scroll-mt-20 rounded-[22px] border border-border bg-card p-4 shadow-card">
       <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold leading-snug">{PILLAR_QUESTION[id as keyof typeof PILLAR_QUESTION]}</p>
       <ul className="mt-3">{indicators.map((i) => <IndicatorRow key={i.id} ind={i} onNeed={onNeed} />)}</ul>
@@ -124,12 +125,14 @@ export function MapaEntender({ bemEstar }: { bemEstar?: ReactNode } = {}) {
   const flag = useMapaEnabled();
   const enabled = flag.data === true;
   const { data: payload, isLoading, isError } = useMapaReading(enabled);
+  const wellbeing = useLatestWellbeing(enabled);
   const data = payload?.mapa;
   const [opened, setOpened] = useState<CaptureKind | null>(null);
   if (!enabled) return null;
   const by = (pillar: MapaPillarId) => (data?.indicators ?? []).filter((i) => i.pillar === pillar);
   return (
     <div className="space-y-3" data-testid="mapa-entender">
+      {data ? <MapaRoda indicators={data.indicators} wellbeingText={wellbeing.data != null ? `${wellbeing.data} de 100 (percepção)` : null} /> : null}
       {payload?.evidence ? <MapaAgir evidence={payload.evidence} /> : null}
       <Heading hint="Em números de verdade, não em notas. Toque em cada um para ver de onde vem.">Saúde financeira</Heading>
       {isLoading ? <p className="px-1 text-[13px] text-muted-foreground" role="status">Montando a sua leitura…</p> : null}
@@ -140,7 +143,7 @@ export function MapaEntender({ bemEstar }: { bemEstar?: ReactNode } = {}) {
           <QuestionSlot reading={data} opened={opened} onClose={() => setOpened(null)} />
           <Heading hint="O que você faz com o dinheiro no dia a dia. Medidas em teste vêm avisadas.">Hábitos</Heading>
           {HABITOS.map((p) => <Pillar key={p} id={p} indicators={by(p)} onNeed={setOpened} />)}
-          {bemEstar ? <><Heading hint="Como você se sente com o seu dinheiro. É a sua percepção, medida a cada 15 dias.">Bem-estar percebido</Heading>{bemEstar}</> : null}
+          {bemEstar ? <div id="pilar-bem_estar" className="scroll-mt-20 space-y-3"><Heading hint="Como você se sente com o seu dinheiro. É a sua percepção, medida a cada 15 dias.">Bem-estar percebido</Heading>{bemEstar}</div> : null}
           <Evoluir indicators={data.indicators} />
         </>
       ) : null}

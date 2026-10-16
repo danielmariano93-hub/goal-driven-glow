@@ -149,3 +149,14 @@ describe("composição: saída fora do esquema ou reprovada cai no texto determi
     expect(report.violations.spend_less_on_structural).toBeGreaterThan(0);
   });
 });
+
+describe("texto da recomendação 'fechar a conta' (comportamento)", () => {
+  it("diz quanto saiu a mais, só com números dos fatos, e passa na guarda", () => {
+    const hit = packs.find((p) => p.pack.recommendation?.action === "fechar_a_conta" && p.pack.recommendation.kind === "comportamento");
+    expect(hit, "nenhum cenário de avaliação cobre fechar_a_conta de comportamento").toBeDefined();
+    const { pack } = hit!;
+    expect(pack.deterministic.title).toBe("Está saindo mais do que entra");
+    expect(pack.deterministic.body).toMatch(/a mais do que entraram/);
+    expect(guardMapaText({ title: pack.deterministic.title, body: pack.deterministic.body, question: pack.deterministic.question, pack }).violations).toEqual([]);
+  });
+});

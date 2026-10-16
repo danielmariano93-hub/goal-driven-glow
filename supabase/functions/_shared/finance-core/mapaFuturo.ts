@@ -61,11 +61,14 @@ export function computeFuturo(i: FuturoInput): MapaIndicator[] {
   if (!b || b.netWorthChange === null) out.push(noData(vSpec, { reasons: ["sem_ponte_patrimonial"], needs: { kind: "connect", code: "snapshot" } }));
   else {
     const status: Exclude<MapaStatus, "sem_dados"> = b.netWorthChange >= 0 ? "ok" : "atencao";
+    // Só o que a ponte consegue explicar: resultado do mês, rendimento e valorização. Pagar fatura ou principal de dívida troca dinheiro por
+    // dívida menor (patrimônio igual), então NÃO entra como causa. O que sobra é mostrado como "ainda sem explicação", nunca escondido.
+    const explained = (b.operationalResult ?? 0) + (b.investmentReturn ?? 0) + (b.valuationAdjustments ?? 0);
     out.push(reading(vSpec, {
       value: b.netWorthChange, status, confidence: bridgeConf(b.confidence), reasons: ["mes_parcial"],
       inputs: {
-        resultado_operacional: b.operationalResult, rendimento: b.investmentReturn, aplicacoes: b.investmentApplications, resgates: b.investmentRedemptions,
-        amortizacao_de_divida: b.debtPrincipalChange, valorizacao: b.valuationAdjustments,
+        resultado_operacional: b.operationalResult, rendimento: b.investmentReturn, valorizacao: b.valuationAdjustments,
+        sem_explicacao: round(b.netWorthChange - explained),
       },
     }));
   }
@@ -91,11 +94,12 @@ export function computeFuturo(i: FuturoInput): MapaIndicator[] {
     out.push(reading(gSpec, { value: percent(progress), status: onPace ? "ok" : "atencao", confidence: "alta", inputs: { metas: goals.length, guardado: round(saved), alvo: round(target), ritmo_esperado_pct: expected === null ? null : percent(expected) } }));
   }
 
-  const rSpec = { ...spec("futuro.resgates_sem_destino", "brl", i.asOf, ["ledger", "derived"]), direction: "lower_better" as const };
+  // Resgates: fato, sem julgamento. Resgatar para pagar fatura ou dívida é uso normal da reserva; o que importa é quanto sobrou investido.
+  const rSpec = { ...spec("futuro.resgates_90d", "brl", i.asOf, ["ledger", "balance"]), direction: "neutral" as const };
   const ex = explainRedemptions(i.redemptions90, i.debtPayments90);
   out.push(reading(rSpec, {
-    value: ex.unexplained, status: ex.unexplained <= 0 ? "ok" : "atencao", confidence: "moderada", reasons: ex.total === 0 ? ["sem_resgates_no_periodo"] : [],
-    inputs: { resgates_90d: ex.total, usados_em_divida: ex.explained_by_debt },
+    value: ex.total, status: "ok", confidence: "moderada", reasons: ex.total === 0 ? ["sem_resgates_no_periodo"] : [],
+    inputs: { resgates_90d: ex.total, coincidem_com_divida: ex.explained_by_debt, investido_hoje: snap?.investedNow ?? null },
   }));
   void conf;
   return out;

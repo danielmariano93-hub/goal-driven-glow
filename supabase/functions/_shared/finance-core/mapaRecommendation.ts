@@ -87,13 +87,19 @@ export function computeRecommendation(i: RecommendationInput): MapaRecommendatio
   const cost = by(ind, "dividas.custo_medio"), profile = by(ind, "dividas.perfil_custo_alto");
   const debtSeverity = Math.max(severe(cost), severe(profile));
   if (debtSeverity > 0) out.push(make("comportamento", "plano_de_pagamento", [cost, profile].filter((x): x is MapaIndicator => !!x && severe(x) > 0).map((x) => x.id), ["debt_cost_high"], debtSeverity * 0.7, []));
-  const reserve = by(ind, "seguranca.meses_cobertos");
-  if (severe(reserve) > 0) {
-    out.push(make("comportamento", "criar_reserva", [reserve!.id], ["reserve_low"], severe(reserve) * 0.9, reserve!.inputs.base === "gastos_totais" ? ["base_gastos_totais"] : []));
-  }
   const rate = by(ind, "equilibrio.taxa_poupanca_3m"), result = by(ind, "equilibrio.resultado_3m");
+  // Saindo mais do que entra, juntar reserva é prematuro: sem fechar a conta não há de onde guardar. Primeiro entender o desequilíbrio.
+  const overspending = (result?.value ?? 0) < 0 || (rate?.value ?? 0) < 0;
   const flow = Math.max(severe(rate), severe(result));
-  if (flow > 0) out.push(make("comportamento", "ajustar_meta", [rate, result].filter((x): x is MapaIndicator => !!x && severe(x) > 0).map((x) => x.id), ["savings_low"], flow * 0.9, []));
+  if (overspending && flow > 0) {
+    out.push(make("comportamento", "fechar_a_conta", [result, rate].filter((x): x is MapaIndicator => !!x && severe(x) > 0).map((x) => x.id), ["spending_above_income"], flow * 1.0, ["reserva_so_depois_de_fechar_a_conta"]));
+  } else {
+    const reserve = by(ind, "seguranca.meses_cobertos");
+    if (severe(reserve) > 0) {
+      out.push(make("comportamento", "criar_reserva", [reserve!.id], ["reserve_low"], severe(reserve) * 0.9, reserve!.inputs.base === "gastos_totais" ? ["base_gastos_totais"] : []));
+    }
+    if (flow > 0) out.push(make("comportamento", "ajustar_meta", [rate, result].filter((x): x is MapaIndicator => !!x && severe(x) > 0).map((x) => x.id), ["savings_low"], flow * 0.9, []));
+  }
   const fit = by(ind, "planejamento.viabilidade");
   if (severe(fit) > 0) out.push(make("comportamento", "ajustar_meta", [fit!.id], ["plan_does_not_fit"], severe(fit) * 0.9, []));
   const adherence = by(ind, "execucao.aderencia");

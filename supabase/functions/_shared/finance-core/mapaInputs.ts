@@ -25,6 +25,8 @@ export interface MapaSnapshotInput {
   knownFutureCommitments: number | null;
   cardDueThisMonth: number | null;
   netWorthNet: number | null;
+  /** Total em investimentos hoje. */
+  investedNow?: number | null;
   bridge: MapaNetWorthBridgeIn | null;
 }
 
@@ -83,6 +85,8 @@ export interface MapaHealthInputs {
   savingsGoals: MapaSavingsGoalIn[];
   redemptions90: MapaDatedAmount[];
   debtPayments90: MapaDatedAmount[];
+  /** Principal de dívida pago nos últimos 90 dias (tabela debt_payments; fatura de cartão NÃO entra). null = sem registro. */
+  debtPrincipalPaid90?: number | null;
 }
 
 export const EMPTY_HEALTH_INPUTS: MapaHealthInputs = {
@@ -109,6 +113,7 @@ export function snapshotInputFromPayload(payload: any): MapaSnapshotInput | null
     knownFutureCommitments: n(proj.upcomingConfirmedCommitments ?? s.knownFutureCommitments),
     cardDueThisMonth: n(proj.cardDueThisMonth),
     netWorthNet: n(s.netWorth?.net),
+    investedNow: n(s.netWorth?.invested),
     bridge: b ? {
       openingDebts: n(b.openingDebts), closingDebts: n(b.closingDebts), netWorthChange: n(b.netWorthChange),
       operationalResult: n(b.operationalResult), investmentReturn: n(b.investmentReturn),

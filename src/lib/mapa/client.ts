@@ -76,3 +76,20 @@ export function useRecommendationEvent() {
     onSuccess: (_d, v) => { if (v.event === "dismissed" || v.event === "not_useful") void qc.invalidateQueries({ queryKey: [MAPA_QUERY_KEY] }); },
   });
 }
+
+/** Última medição de bem-estar (CFPB) só para a legenda da roda; o cartão de bem-estar tem a sua própria leitura. */
+export function useLatestWellbeing(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery<number | null>({
+    queryKey: ["mapa-wellbeing-latest", user?.id],
+    enabled: !!user && enabled,
+    staleTime: 60_000,
+    retry: 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase as unknown as Db).from("financial_wellbeing_responses").select("score,answered_at").order("answered_at", { ascending: false }).limit(1);
+      if (error) return null;
+      const row = (data ?? [])[0];
+      return row && Number.isFinite(Number(row.score)) ? Number(row.score) : null;
+    },
+  });
+}
