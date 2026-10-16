@@ -52,3 +52,11 @@ describe("escala CFPB de bem-estar financeiro", () => {
     expect(fwbChange(50, null)).toBeNull();
   });
 });
+
+describe("texto em português da escala", () => {
+  it("só os itens 2, 3 e 10 usam redação validada; os demais ficam declarados como tradução do Nino", () => {
+    expect(FWB_ITEMS.filter((i) => i.validatedPt).map((i) => i.id)).toEqual([2, 3, 10]);
+    expect(FWB_ITEMS[1].text).toBe("Estou garantindo meu futuro financeiro");
+    expect(FWB_ITEMS[9].text).toBe("Minhas finanças controlam minha vida");
+  });
+});
