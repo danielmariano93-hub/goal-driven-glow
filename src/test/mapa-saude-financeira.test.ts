@@ -166,13 +166,18 @@ describe("Dívidas (E4)", () => {
     expect(ind(r, "dividas.comprometimento_renda").reasons).toContain("sem_dividas_ativas");
   });
 
-  it("atrasos vêm do motor debt_status; trajetória usa a ponte patrimonial como mês parcial", () => {
+  it("atrasos vêm do motor debt_status", () => {
     const r = run(steady(), { debts: [debt()], debtOverdue: { count: 2, amount: 800, max_days: 12 }, snapshot: snap() });
     expect(ind(r, "dividas.atrasos")).toMatchObject({ value: 2, status: "critico" });
-    const t = ind(r, "dividas.trajetoria");
-    expect(t.value).toBeCloseTo(((66321.63 - 72424.73) / 72424.73) * 100, 1);
-    expect(t.status).toBe("ok");
-    expect(t.reasons).toContain("mes_parcial");
+  });
+
+  it("REGRESSÃO conta real: pagar a FATURA do cartão não é 'dívida diminuiu'. A ponte (saldo caiu 6.103) não vira indicador; só principal pago registrado", () => {
+    const r = run(steady(), { debts: [debt()], snapshot: snap(), debtPrincipalPaid90: 2400 });
+    expect(r.indicators.find((i) => i.id === "dividas.trajetoria")).toBeUndefined();
+    const a = ind(r, "dividas.amortizacao_90d");
+    expect(a).toMatchObject({ value: 2400, direction: "neutral", status: "ok" });
+    expect(a.inputs).not.toHaveProperty("saldo_inicial");
+    expect(ind(run(steady(), { debts: [debt()], snapshot: snap(), debtPrincipalPaid90: null }), "dividas.amortizacao_90d").status).toBe("sem_dados");
   });
 });
 
@@ -185,12 +190,27 @@ describe("Construção de futuro (E5)", () => {
     expect(ex).toEqual({ total: 7000, explained_by_debt: 5000, unexplained: 2000 });
   });
 
-  it("variação do mês traz a decomposição e é marcada como mês parcial", () => {
+  it("variação do mês: só explica o que a ponte explica e mostra o resto como 'sem explicação' (nunca atribui à dívida paga)", () => {
     const v = ind(run(steady(), { snapshot: snap() }), "futuro.variacao_mes");
     expect(v.value).toBe(-2868.04);
     expect(v.reasons).toContain("mes_parcial");
-    expect(v.inputs).toMatchObject({ resgates: 7000, amortizacao_de_divida: -6103.1, resultado_operacional: -1341 });
+    expect(v.inputs).toMatchObject({ resultado_operacional: -1341, sem_explicacao: -1527.08 });
+    expect(v.inputs).not.toHaveProperty("amortizacao_de_divida");
     expect(v.confidence).toBe("moderada");
+  });
+
+  it("REGRESSÃO conta real: resgates são fato neutro ('sem destino' acusava a fatura paga com o resgate)", () => {
+    const r = run(steady(), { snapshot: { ...snap(), investedNow: 4029.29 }, redemptions90: [{ date: "2026-10-06", amount: 7000 }, { date: "2026-08-20", amount: 3602 }] });
+    expect(r.indicators.find((i) => i.id === "futuro.resgates_sem_destino")).toBeUndefined();
+    expect(ind(r, "futuro.resgates_90d")).toMatchObject({ value: 10602, direction: "neutral", status: "ok" });
+    expect(ind(r, "futuro.resgates_90d").inputs).toMatchObject({ investido_hoje: 4029.29 });
+  });
+
+  it("resultado dos 3 meses e taxa de poupança concordam (mesmo fato, mesmo selo)", () => {
+    // 2 de 3 meses negativos, soma negativa: antes o resultado dizia 'atenção' e a taxa 'precisa de cuidado'.
+    const r = run([...month("2026-07", 8000, [["a", 14000]]), ...month("2026-08", 8000, [["a", 12000]]), ...month("2026-09", 14000, [["a", 12000]])]);
+    expect(ind(r, "equilibrio.resultado_3m").status).toBe("critico");
+    expect(ind(r, "equilibrio.taxa_poupanca_3m").status).toBe("critico");
   });
 
   it("patrimônio negativo é atenção; metas de poupança comparam com o ritmo esperado", () => {

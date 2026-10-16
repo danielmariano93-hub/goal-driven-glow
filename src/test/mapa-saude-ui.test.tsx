@@ -22,24 +22,27 @@ describe("textos do Mapa", () => {
       ind({ id: "dividas.comprometimento_renda", pillar: "dividas", value: 13.2, unit: "pct" }),
       ind({ id: "dividas.atrasos", pillar: "dividas", value: 2, unit: "contagem", inputs: { valor_em_atraso: 800 } }),
       ind({ id: "futuro.patrimonio_liquido", pillar: "futuro", value: -60335, unit: "brl" }),
-      ind({ id: "futuro.resgates_sem_destino", pillar: "futuro", value: 6820.86, unit: "brl", inputs: { resgates_90d: 9000, usados_em_divida: 2000 } }),
+      ind({ id: "futuro.resgates_90d", pillar: "futuro", value: 9000, unit: "brl", direction: "neutral", inputs: { resgates_90d: 9000, coincidem_com_divida: 2000, investido_hoje: 4000 } }),
     ];
     for (const i of all) {
       const t = indicatorText(i);
       expect(t.value).not.toMatch(/NaN|undefined|null/);
       expect(`${t.title} ${t.value} ${t.explain}`.toLowerCase()).not.toMatch(/\bnota\b|\bscore\b|\/\s*10/);
     }
-    expect(indicatorText(all[0]).explain).toContain("Faltou R$ 1.500");
+    expect(indicatorText(all[0]).explain).toContain("Saiu R$ 1.500 a mais do que entrou");
     expect(indicatorText(all[2]).value).toBe("0,1 mês");
     expect(indicatorText(all[2]).explain).toContain("gastos totais");
     expect(indicatorText(all[4]).explain).toContain("2 dívidas em atraso");
   });
 
   it("tendência: o texto concorda com o selo (queda dentro do ruído não vira 'piorando')", () => {
-    const base = ind({ id: "equilibrio.tendencia", pillar: "equilibrio", unit: "brl", direction: "higher_better", inputs: { desvio_resultado: 8108 } });
-    expect(indicatorText({ ...base, value: -909.88, status: "ok" }).explain).toMatch(/não há uma queda clara/);
-    expect(indicatorText({ ...base, value: -5000, status: "atencao" }).explain).toMatch(/piorando/);
-    expect(indicatorText({ ...base, value: 800, status: "ok" }).explain).toMatch(/estável ou melhorando/);
+    const base = ind({ id: "equilibrio.tendencia", pillar: "equilibrio", unit: "brl", direction: "higher_better", inputs: { desvio_resultado: 8108, significativa: 0 } });
+    const noise = indicatorText({ ...base, value: -909.88, status: "ok" });
+    expect(noise.value).toBe("Sem tendência clara"); // nunca mostra "−R$ 910 por mês" com selo verde
+    expect(noise.explain).toMatch(/não dá para dizer que está melhorando ou piorando/);
+    const clear = { ...base, inputs: { ...base.inputs, significativa: 1 } };
+    expect(indicatorText({ ...clear, value: -5000, status: "atencao" }).value).toBe("−R$ 5.000 por mês");
+    expect(indicatorText({ ...clear, value: -5000, status: "atencao" }).explain).toMatch(/piorando/);
   });
 
   it("indicador sem dados mostra traço, nunca zero", () => {
@@ -251,6 +254,7 @@ describe("MapaEntender", () => {
     const card = await screen.findByText("CARTAO-CFPB");
     const habits = screen.getByText("Metas cumpridas");
     expect(habits.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Bem-estar percebido")).toBeInTheDocument();
+    expect(document.getElementById("pilar-bem_estar")).toContainElement(card);
+    expect(document.getElementById("pilar-seguranca")).toBeNull(); // sem indicadores de segurança nesta leitura
   });
 });

@@ -34,6 +34,8 @@ const REASON_TEXT: Record<string, string> = {
   liquidez_de_investimentos_desconhecida: "Não contei seus investimentos porque ainda não sei em quanto tempo viram dinheiro.",
   poucos_meses_fechados: "Preciso de pelo menos 3 meses completos de registros.",
   sem_dividas_ativas: "Você não tem dívidas ativas registradas.",
+  so_pagamentos_registrados: "Só conto o que foi registrado como pagamento de dívida; parcelas debitadas direto e não registradas ficam de fora.",
+  sem_pagamentos_de_divida_registrados: "Ainda não há pagamentos de dívida registrados.",
   parcela_ausente: "Alguma dívida está sem o valor da parcela, então o total pode estar menor do que é.",
   taxa_ou_periodo_ausente: "Faltam a taxa e o período (ao mês ou ao ano) das suas dívidas.",
   tipo_de_divida_ausente: "Falta dizer o tipo das suas dívidas (cartão, empréstimo, financiamento…).",
@@ -80,47 +82,68 @@ export function reasonsText(i: MapaIndicator): string[] {
 export function indicatorText(i: MapaIndicator): IndicatorText {
   const v = i.value;
   switch (i.id) {
-    case "equilibrio.resultado_3m":
-      return { title: "Resultado dos últimos 3 meses", value: v === null ? "—" : sbrl(v), explain: v === null ? "" : v >= 0 ? `Sobrou ${brl(v)} depois de pagar os gastos.` : `Faltou ${brl(-v)}: o gasto passou da renda.` };
+    case "equilibrio.resultado_3m": {
+      const inc = input(i, "renda_3m"), out = input(i, "consumo_3m");
+      const facts = inc !== null && out !== null ? ` Entraram ${brl(inc)} de renda e saíram ${brl(out)}.` : "";
+      return { title: "Resultado dos últimos 3 meses", value: v === null ? "—" : sbrl(v), explain: v === null ? "" : `${v >= 0 ? `Sobrou ${brl(v)}` : `Saiu ${brl(-v)} a mais do que entrou`} nos 3 últimos meses fechados.${facts} Empréstimos, resgates e transferências não contam como renda.` };
+    }
     case "equilibrio.taxa_poupanca_3m":
       return { title: "Quanto da renda sobrou", value: v === null ? "—" : `${nf(v, 1)}%`, explain: v === null ? "" : v >= 0 ? `De cada R$ 100 que entraram, sobraram R$ ${nf(v, 0)}.` : `De cada R$ 100 que entraram, faltaram R$ ${nf(-v, 0)}.` };
     case "equilibrio.cobertura_mes":
-      return { title: "Dinheiro certo para as contas do mês", value: v === null ? "—" : v >= 10 ? "Sobra bastante" : `${nf(v * 100)}% cobertas`, explain: "Compara o que você tem na conta, mais as entradas já confirmadas, com as contas e a fatura que vencem até o fim do mês." };
-    case "equilibrio.cobertura_mes_com_estimativa":
-      return { title: "Se a renda esperada chegar", value: v === null ? "—" : v >= 10 ? "Sobra bastante" : `${nf(v * 100)}% cobertas`, explain: "Mesma conta, contando também a renda que eu estimo que vai entrar. É uma estimativa, não dinheiro garantido." };
-    case "equilibrio.tendencia":
-      return { title: "Para onde vai o resultado mensal", value: v === null ? "—" : `${sbrl(v)} por mês`, explain: v === null ? "" : i.status === "atencao" ? "O resultado dos meses está piorando." : v >= 0 ? "O resultado dos meses está estável ou melhorando." : "O resultado oscila de mês para mês, mas não há uma queda clara." };
-    case "seguranca.meses_cobertos": {
-      const base = i.inputs.base === "essenciais" ? "seus gastos essenciais" : "seus gastos totais";
-      const target = input(i, "meta_meses");
-      return { title: "Quantos meses seu dinheiro cobre", value: v === null ? "—" : months(v), explain: v === null ? "" : `Seu dinheiro disponível cobre ${months(v)} de ${base}.${target ? ` Como referência prática, para a sua renda vale ter cerca de ${months(target)}.` : ""}` };
+    case "equilibrio.cobertura_mes_com_estimativa": {
+      const withEst = i.id.endsWith("estimativa");
+      const cash = input(i, "dinheiro_hoje"), obl = input(i, "obrigacoes"), inflow = input(i, "entradas") ?? 0, card = input(i, "fatura");
+      const missing = cash !== null && obl !== null ? Math.max(0, obl - cash - inflow) : null;
+      const detail = cash !== null && obl !== null
+        ? `Hoje você tem ${brl(cash)}${inflow > 0 ? ` e conto com mais ${brl(inflow)}${withEst ? " de renda esperada (é estimativa, não dinheiro garantido)" : " de entradas já confirmadas"}` : ""}. Até o fim do mês vencem ${brl(obl)}${card ? `, sendo ${brl(card)} de fatura de cartão` : ""}.${missing ? ` Faltam ${brl(missing)}.` : " Dá para cobrir."}`
+        : "";
+      return { title: withEst ? "Contas do mês, contando a renda esperada" : "Contas do mês que o dinheiro de hoje cobre", value: v === null ? "—" : v >= 10 ? "Sobra bastante" : `${nf(v * 100)}% cobertas`, explain: detail };
     }
-    case "seguranca.choque_1_renda":
-      return { title: "Dá para pagar um mês de renda sem dívida?", value: v === null ? "—" : `${nf(v * 100)}% de uma renda`, explain: v === null ? "" : v >= 1 ? "Você conseguiria pagar uma despesa do tamanho de uma renda mensal sem pedir emprestado." : "Seu dinheiro disponível ainda não cobre uma despesa do tamanho de uma renda mensal." };
-    case "dividas.comprometimento_renda":
-      return { title: "Parcelas sobre a renda", value: v === null ? "—" : `${nf(v, 1)}%`, explain: v === null ? "" : `As parcelas das suas dívidas pesam ${nf(v, 1)}% da sua renda típica.` };
+    case "equilibrio.tendencia": {
+      // Só mostro número quando a variação é maior que o "ruído" normal dos seus meses; senão, o número enganaria.
+      const clear = input(i, "significativa") === 1;
+      return {
+        title: "Para onde vai o resultado mensal",
+        value: v === null ? "—" : clear ? `${sbrl(v)} por mês` : "Sem tendência clara",
+        explain: v === null ? "" : !clear ? "O seu resultado varia bastante de um mês para o outro, e essa variação é maior do que qualquer tendência. Por isso não dá para dizer que está melhorando ou piorando." : v < 0 ? "O resultado dos meses está piorando de forma consistente." : "O resultado dos meses está melhorando de forma consistente.",
+      };
+    }
+    case "seguranca.meses_cobertos": {
+      const base = i.inputs.base === "essenciais" ? "gastos essenciais" : "gastos totais";
+      const target = input(i, "meta_meses"), spend = input(i, "gasto_mensal_tipico"), cash = input(i, "dinheiro_em_conta");
+      return { title: "Quantos meses seu dinheiro cobre", value: v === null ? "—" : months(v), explain: v === null ? "" : `${spend !== null && cash !== null ? `Seus ${base} somam cerca de ${brl(spend)} por mês (parcelas de dívida incluídas) e você tem ${brl(cash)} disponíveis, o que cobre ${months(v)}.` : `Seu dinheiro disponível cobre ${months(v)} de ${base}.`}${target ? ` Como referência prática, para a sua renda vale ter cerca de ${months(target)}.` : ""}` };
+    }
+    case "seguranca.choque_1_renda": {
+      const cash = input(i, "liquidez"), inc = input(i, "renda_tipica");
+      return { title: "Dinheiro disponível frente a uma renda mensal", value: v === null ? "—" : `${nf(v * 100)}% de uma renda`, explain: v === null ? "" : `${cash !== null && inc !== null ? `Seu dinheiro disponível (${brl(cash)}) equivale a ${nf(v * 100)}% de uma renda mensal típica (${brl(inc)}). ` : ""}${v >= 1 ? "Uma despesa do tamanho de uma renda mensal não te obrigaria a pedir emprestado." : "Uma despesa do tamanho de uma renda mensal te obrigaria a recorrer a empréstimo ou investimento."}` };
+    }
+    case "dividas.comprometimento_renda": {
+      const inst = input(i, "parcelas_mensais"), inc = input(i, "renda_tipica");
+      return { title: "Parcelas sobre a renda", value: v === null ? "—" : `${nf(v, 1)}%`, explain: v === null ? "" : `${inst !== null && inc !== null ? `As parcelas das suas dívidas somam ${brl(inst)} por mês, ${nf(v, 1)}% da sua renda típica de ${brl(inc)}.` : `As parcelas das suas dívidas pesam ${nf(v, 1)}% da sua renda típica.`} Não inclui a fatura do cartão.` };
+    }
     case "dividas.atrasos":
       return { title: "Dívidas em atraso", value: v === null ? "—" : nf(v), explain: v === null ? "" : v === 0 ? "Nenhuma parcela em atraso." : `${nf(v)} ${v === 1 ? "dívida em atraso" : "dívidas em atraso"}${input(i, "valor_em_atraso") ? `, somando ${brl(input(i, "valor_em_atraso") as number)}` : ""}.` };
     case "dividas.custo_medio":
       return { title: "Custo médio das dívidas", value: v === null ? "—" : `${nf(v, 1)}% ao mês`, explain: "Média da taxa das suas dívidas, ponderada pelo quanto você deve em cada uma." };
-    case "dividas.trajetoria":
-      return { title: "Saldo devedor no mês", value: v === null ? "—" : `${v > 0 ? "+" : v < 0 ? "−" : ""}${nf(Math.abs(v), 1)}%`, explain: v === null ? "" : v < 0 ? "O que você deve diminuiu neste mês." : v > 0 ? "O que você deve aumentou neste mês." : "O que você deve ficou igual neste mês." };
+    case "dividas.amortizacao_90d":
+      return { title: "Principal de dívida pago (90 dias)", value: v === null ? "—" : brl(v), explain: v === null ? "" : `Nos últimos 90 dias foram registrados ${brl(v)} pagos do principal das suas dívidas (hoje você deve ${brl(input(i, "saldo_devedor_hoje") ?? 0)}). Pagar a fatura do cartão não conta aqui, porque só quita o que já foi gasto.` };
     case "dividas.perfil_custo_alto":
       return { title: "Dívida de custo alto", value: v === null ? "—" : `${nf(v)}% do que você deve`, explain: "Parte do saldo em cartão rotativo, cheque especial ou dívida informal, que costumam ter juros mais altos." };
     case "futuro.patrimonio_liquido":
       return { title: "Patrimônio líquido", value: v === null ? "—" : brl(v), explain: "O que você tem (conta e investimentos) menos o que você deve." };
     case "futuro.variacao_mes": {
+      const op = input(i, "resultado_operacional"), unexplained = input(i, "sem_explicacao"), yieldV = input(i, "rendimento");
       const parts: string[] = [];
-      const op = input(i, "resultado_operacional"), am = input(i, "amortizacao_de_divida");
-      if (op !== null) parts.push(`resultado do mês ${sbrl(op)}`);
-      if (am !== null && am !== 0) parts.push(`${am < 0 ? "dívida paga" : "dívida nova"} ${brl(Math.abs(am))}`);
-      return { title: "Variação do patrimônio no mês", value: v === null ? "—" : sbrl(v), explain: parts.length ? `Neste mês até agora: ${parts.join("; ")}. Resgate de investimento só muda o dinheiro de lugar.` : "" };
+      if (op !== null && op !== 0) parts.push(`${brl(op)} pelo resultado do mês (${op < 0 ? "saiu mais do que entrou" : "entrou mais do que saiu"})`);
+      if (yieldV !== null && yieldV !== 0) parts.push(`${sbrl(yieldV)} de rendimento`);
+      if (unexplained !== null && Math.abs(unexplained) >= 1) parts.push(`${brl(unexplained)} que ainda não consegui explicar`);
+      return { title: "Variação do patrimônio no mês", value: v === null ? "—" : sbrl(v), explain: v === null ? "" : `O mês ainda não acabou. ${parts.length ? `Até agora: ${parts.join("; ")}. ` : ""}Pagar fatura ou dívida e resgatar investimento só trocam dinheiro de lugar, sem mudar o patrimônio.` };
     }
     case "futuro.progresso_metas":
       return { title: "Metas de poupança", value: v === null ? "—" : `${nf(v)}% guardado`, explain: v === null ? "" : `Você guardou ${brl(input(i, "guardado") ?? 0)} de ${brl(input(i, "alvo") ?? 0)}.` };
-    case "futuro.resgates_sem_destino": {
-      const total = input(i, "resgates_90d") ?? 0, used = input(i, "usados_em_divida") ?? 0;
-      return { title: "Resgates sem destino identificado", value: v === null ? "—" : brl(v), explain: total === 0 ? "" : `Em 90 dias você resgatou ${brl(total)}${used > 0 ? `, e ${brl(used)} parece ter ido para dívidas` : ""}. O restante não consegui ligar a um destino; isso não é perda, só falta contexto.` };
+    case "futuro.resgates_90d": {
+      const used = input(i, "coincidem_com_divida") ?? 0, now = input(i, "investido_hoje");
+      return { title: "Resgates de investimentos (90 dias)", value: v === null ? "—" : brl(v), explain: v === null ? "" : v === 0 ? "Você não resgatou investimentos nos últimos 90 dias." : `Em 90 dias você resgatou ${brl(v)} de investimentos${now !== null ? ` e hoje tem ${brl(now)} investidos` : ""}.${used > 0 ? ` ${brl(used)} coincidiram com pagamento de dívida.` : ""} Resgatar para pagar contas é uso normal da reserva; o que importa é quanto sobra.` };
     }
     case "execucao.aderencia":
       return { title: "Metas cumpridas", value: v === null ? "—" : `${nf(v)}%`, explain: v === null ? "" : `Você cumpriu ${nf(input(i, "cumpridos") ?? 0)} de ${nf(input(i, "periodos") ?? 0)} metas mensais fechadas. Não precisa ser 100%: serve para ver se o limite combina com a sua vida.` };

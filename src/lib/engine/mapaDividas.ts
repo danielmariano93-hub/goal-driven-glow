@@ -3,7 +3,7 @@ import type { DataQuality, IncomeBaseline, MapaConfidence, MapaIndicator, MapaSt
 import { ledgerConfidence, noData, percent, pointWindow, reading, round, type IndicatorSpec } from "./mapaIndicator";
 import type { MapaDebtIn, MapaDebtOverdueIn, MapaSnapshotInput } from "./mapaInputs";
 import {
-  DEBT_COST_CRITICAL_PM, DEBT_COST_OK_PM, DEBT_DATA_COVERAGE_MIN, DEBT_GROWTH_CRITICAL, DEBT_HIGH_COST_ATTENTION, DEBT_HIGH_COST_CRITICAL,
+  DEBT_COST_CRITICAL_PM, DEBT_COST_OK_PM, DEBT_DATA_COVERAGE_MIN, DEBT_HIGH_COST_ATTENTION, DEBT_HIGH_COST_CRITICAL,
   DEBT_SERVICE_ATTENTION, DEBT_SERVICE_CRITICAL, HIGH_COST_DEBT_KINDS,
 } from "./mapaThresholds";
 
@@ -16,6 +16,7 @@ export interface DividasInput {
   debts: MapaDebtIn[];
   overdue: MapaDebtOverdueIn | null;
   snapshot: MapaSnapshotInput | null;
+  principalPaid90?: number | null;
 }
 
 const spec = (id: string, unit: IndicatorSpec["unit"], asOf: string, evidence: IndicatorSpec["evidence"]): IndicatorSpec =>
@@ -24,7 +25,6 @@ const spec = (id: string, unit: IndicatorSpec["unit"], asOf: string, evidence: I
 /** Taxa anual efetiva → mensal equivalente. */
 export const annualToMonthlyPct = (annualPct: number) => ((1 + annualPct / 100) ** (1 / 12) - 1) * 100;
 
-const bridgeConfidence = (c: "high" | "medium" | "low" | null): Exclude<MapaConfidence, "insuficiente"> => (c === "high" ? "alta" : "moderada");
 
 export function computeDividas(i: DividasInput): MapaIndicator[] {
   const out: MapaIndicator[] = [];
@@ -69,18 +69,12 @@ export function computeDividas(i: DividasInput): MapaIndicator[] {
     }
   }
 
-  // trajetória do saldo devedor no mês (ponte patrimonial; mês parcial, em R$ e %, nunca razão sobre renda)
-  const tSpec = spec("dividas.trajetoria", "pct", i.asOf, ["derived"]);
-  const b = i.snapshot?.bridge;
-  if (!b || b.openingDebts === null || b.closingDebts === null) out.push(noData(tSpec, { reasons: ["sem_ponte_patrimonial"], needs: { kind: "connect", code: "snapshot" } }));
-  else if (b.openingDebts <= 0) out.push(reading(tSpec, { value: 0, status: "ok", confidence: bridgeConfidence(b.confidence), reasons: ["mes_parcial", "sem_saldo_inicial"], inputs: { saldo_inicial: b.openingDebts, saldo_atual: b.closingDebts } }));
-  else {
-    const change = (b.closingDebts - b.openingDebts) / b.openingDebts;
-    out.push(reading(tSpec, {
-      value: percent(change), status: change > DEBT_GROWTH_CRITICAL ? "critico" : change > 0 ? "atencao" : "ok", confidence: bridgeConfidence(b.confidence), reasons: ["mes_parcial"],
-      inputs: { saldo_inicial: round(b.openingDebts), saldo_atual: round(b.closingDebts), amortizacao_principal: b.debtPrincipalChange },
-    }));
-  }
+  // principal pago (informativo): só `debt_payments`. A fatura do cartão NÃO é amortização (pagar a fatura zera o que já foi gasto,
+  // não reduz dívida), então a variação do saldo da ponte patrimonial não serve para dizer "a dívida diminuiu".
+  const tSpec = { ...spec("dividas.amortizacao_90d", "brl", i.asOf, ["ledger"]), direction: "neutral" as const };
+  if (!active.length) out.push(noData(tSpec, none));
+  else if (i.principalPaid90 == null) out.push(noData(tSpec, { reasons: ["sem_pagamentos_de_divida_registrados"] }));
+  else out.push(reading(tSpec, { value: round(i.principalPaid90), status: "ok", confidence: "moderada", reasons: ["so_pagamentos_registrados"], inputs: { principal_pago_90d: round(i.principalPaid90), saldo_devedor_hoje: round(balance) } }));
 
   // perfil: parte do saldo em modalidades de custo alto (exige tipo informado em ≥ 70% do saldo)
   const pSpec = spec("dividas.perfil_custo_alto", "pct", i.asOf, ["declared", "balance"]);

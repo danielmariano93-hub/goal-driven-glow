@@ -52,7 +52,10 @@ export function computeEquilibrio(i: EquilibrioInput): MapaIndicator[] {
   else {
     const results = last3.map((m) => m.income - m.consumption);
     const total = results.reduce((a, b) => a + b, 0);
-    const status: Exclude<MapaStatus, "sem_dados"> = results.every((r) => r < 0) ? "critico" : total < 0 ? "atencao" : "ok";
+    // Mesmo critério da taxa de poupança (são o mesmo fato em duas unidades): negativo = crítico; abaixo da referência = atenção.
+    const income3r = last3.reduce((a, m) => a + m.income, 0);
+    const pctr = income3r > 0 ? (total / income3r) * 100 : total < 0 ? -100 : 0;
+    const status: Exclude<MapaStatus, "sem_dados"> = total < 0 ? "critico" : pctr >= SAVINGS_OK_PCT ? "ok" : "atencao";
     out.push(reading(rSpec, {
       value: total, status, confidence: conf, reasons: irregular,
       inputs: { renda_3m: last3.reduce((a, m) => a + m.income, 0), consumo_3m: last3.reduce((a, m) => a + m.consumption, 0), meses_negativos: results.filter((r) => r < 0).length },
@@ -94,7 +97,7 @@ export function computeEquilibrio(i: EquilibrioInput): MapaIndicator[] {
     const results = last6.map((m) => m.income - m.consumption);
     const slope = olsSlope(results) ?? 0;
     const sd = stdev(results);
-    out.push(reading(tSpec, { value: slope, status: slope < -0.5 * sd ? "atencao" : "ok", confidence: conf, reasons: irregular, inputs: { meses: last6.length, desvio_resultado: sd } }));
+    out.push(reading(tSpec, { value: slope, status: slope < -0.5 * sd ? "atencao" : "ok", confidence: conf, reasons: irregular, inputs: { meses: last6.length, desvio_resultado: sd, significativa: Math.abs(slope) > 0.5 * sd ? 1 : 0 } }));
   }
   return out;
 }

@@ -64,6 +64,12 @@ export function evalScenarios(): EvalScenario[] {
   out.push(build("dívida de custo alto sem estrutura", MONTHS.flatMap((m) => month(m, 14000, [["c-moradia", 3000], ["c-lazer", 2000]])), {
     categoryEssential: flags, snapshot: snap(30000), debts: [debt(500, { kind: "cheque_especial", interest_rate_pct: 8, outstanding_balance: 12000 })],
   }));
+  // Conta real do piloto (forma): 2 de 3 meses no negativo, reserva ≈ 0, financiado por empréstimo/resgate: não é estrutural, e reserva é prematura.
+  out.push(build("saindo mais do que entra (não estrutural)", [
+    ...month("2026-04", 18000, [["c-moradia", 3000], ["c-lazer", 7000]]), ...month("2026-05", 10800, [["c-moradia", 3000], ["c-lazer", 12000]]),
+    ...month("2026-06", 34000, [["c-moradia", 3000], ["c-lazer", 33000]]), ...month("2026-07", 7700, [["c-moradia", 3000], ["c-lazer", 15800]]),
+    ...month("2026-08", 8500, [["c-moradia", 3000], ["c-lazer", 12000]]), ...month("2026-09", 24400, [["c-moradia", 3000], ["c-lazer", 13000]]),
+  ], { categoryEssential: flags, snapshot: snap(1377) }));
   out.push(build("tudo em dia", MONTHS.flatMap((m) => month(m, 15000, [["c-moradia", 3000], ["c-mercado", 1500], ["c-lazer", 1500]])), { categoryEssential: flags, snapshot: snap(120000) }));
   out.push(build("lazer alto com tudo em dia", MONTHS.flatMap((m) => month(m, 20000, [["c-moradia", 3000], ["c-lazer", 9000]])), { categoryEssential: flags, snapshot: snap(150000) }));
   out.push(build("metas estouradas", MONTHS.flatMap((m) => month(m, 9000, [["c-moradia", 3000], ["c-lazer", 1200]])), { categoryEssential: flags, snapshot: snap(30000) }, {

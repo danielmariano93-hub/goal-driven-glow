@@ -125,6 +125,20 @@ describe("Recomendação (E11)", () => {
     expect(r.recommendation).toMatchObject({ kind: "comportamento", action: { type: "criar_reserva" }, indicator_ids: ["seguranca.meses_cobertos"] });
   });
 
+  it("REGRESSÃO conta real: saindo mais do que entra, NÃO recomenda 'criar reserva' (prematuro) e sim entender o desequilíbrio", () => {
+    // 3 meses: dois negativos e um positivo (não é a sequência estrutural), reserva baixíssima.
+    const entries = [...month("2026-07", 8000, [["c-moradia", 3000], ["c-lazer", 11000]]), ...month("2026-08", 8500, [["c-moradia", 3000], ["c-lazer", 9500]]), ...month("2026-09", 24000, [["c-moradia", 3000], ["c-lazer", 13000]])];
+    const h = health({
+      categoryEssential: { "c-moradia": true, "c-lazer": false },
+      snapshot: { availableToday: 1377, confirmedFutureInflows: 0, estimatedFixedInflows: 0, knownFutureCommitments: 0, cardDueThisMonth: 0, netWorthNet: -60000, bridge: null },
+    });
+    const r = run(entries, { health: h });
+    expect(r.structural.structural).toBe(false);
+    expect(ind(r, "seguranca.meses_cobertos").status).toBe("critico");
+    expect(r.recommendation).toMatchObject({ kind: "comportamento", action: { type: "fechar_a_conta" }, guardrails: ["reserva_so_depois_de_fechar_a_conta"] });
+    expect(r.recommendation!.indicator_ids).toContain("equilibrio.resultado_3m");
+  });
+
   it("lazer alto com tudo mais em dia NÃO gera recomendação", () => {
     const h = health({
       categoryEssential: { "c-moradia": true, "c-lazer": false },

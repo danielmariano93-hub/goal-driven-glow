@@ -90,6 +90,11 @@ export async function loadHealthInputs(sb: any, userId: string, today: string): 
     savingsGoals: (goals as any[])
       .filter((g) => g.kind !== "donation" && String(g.status ?? "active") === "active")
       .map((g) => ({ id: String(g.id), name: String(g.name ?? ""), target_amount: num(g.target_amount), saved_amount: saved.get(String(g.id)) ?? 0, created_at: String(g.created_at ?? today).slice(0, 10), target_date: g.target_date ? String(g.target_date).slice(0, 10) : null })),
+    debtPrincipalPaid90: (() => {
+      const since = shiftDays(today, -90);
+      const rows = (payments as any[]).filter((p) => String(p.paid_at).slice(0, 10) >= since);
+      return rows.length ? rows.reduce((a, p) => a + num(p.amount_applied ?? p.amount), 0) : (debtRows as any[]).length ? 0 : null;
+    })(),
     redemptions90: (movements as any[]).map((m) => ({ date: String(m.occurred_at).slice(0, 10), amount: num(m.amount) })),
     debtPayments90: (debtTx as any[]).map((t) => ({ date: String(t.occurred_at).slice(0, 10), amount: num(t.amount) })),
   };

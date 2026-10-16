@@ -76,6 +76,8 @@ const LABEL: Record<string, string> = {
   "dividas.custo_medio": "custo médio das dívidas",
   "dividas.perfil_custo_alto": "parte da dívida em modalidades de custo alto",
   "futuro.patrimonio_liquido": "patrimônio líquido",
+  "dividas.amortizacao_90d": "principal de dívida pago nos últimos 90 dias",
+  "futuro.resgates_90d": "resgates de investimentos nos últimos 90 dias",
   "execucao.aderencia": "metas mensais cumpridas",
   "planejamento.viabilidade": "plano comparado com a renda típica",
   "planejamento.recorrentes_registrados": "contas fixas cadastradas",
@@ -156,8 +158,14 @@ export function deterministicTemplate(r: MapaReading, facts: MapaFact[], mode: M
       const share = r.structural.essential_share_of_income;
       return { title: "Os gastos essenciais pesam na renda", body: `${share !== null ? `Seus gastos essenciais ocupam ${nf(share * 100)}% da sua renda típica.` : "Seus gastos essenciais ocupam boa parte da sua renda típica."} O aperto vem das contas grandes, não de pequenos gastos.`, question: "Quer rever suas contas fixas?" };
     }
-    case "fechar_a_conta":
+    case "fechar_a_conta": {
+      if (rec.kind === "comportamento") {
+        const res = ind("equilibrio.resultado_3m");
+        const gap = res && res.value !== null && res.value < 0 ? brl(Math.abs(res.value)) : null;
+        return { title: "Está saindo mais do que entra", body: `${gap ? `Nos últimos 3 meses saíram ${gap} a mais do que entraram.` : "Nos últimos 3 meses saiu mais dinheiro do que entrou."} Antes de juntar reserva, vale entender onde está o maior peso.`, question: "Quer ver para onde foi o dinheiro?" };
+      }
       return { title: "O que sai passou do que entra", body: "Nos últimos três meses, o dinheiro que saiu passou do que entrou. Vale entender onde está o maior peso antes de criar metas.", question: "Quer ver para onde foi o dinheiro?" };
+      }
     case "regularizar_atrasos": {
       const n = ind("dividas.atrasos");
       const count = n?.value ?? 0;

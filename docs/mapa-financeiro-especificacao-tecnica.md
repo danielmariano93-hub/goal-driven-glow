@@ -229,6 +229,8 @@ meses_cobertos = liquid / essential_monthly                // denominador = típ
 - `seguranca.obrigacoes_30d`: razão `liquid / (compromissos 30d)`.
 Status [provisório, "referência prática"]: meta de meses por estabilidade da renda — regular 3, variável 4,5, irregular 6. `ok` ≥ meta; `atencao` ≥ 1; `critico` < 1. O texto sempre diz que é referência prática e não regra científica.
 
+> **Correção de sentido (16/10/2026, depois da primeira leitura real).** (1) `dividas.trajetoria` foi **removida**: a queda do saldo na ponte patrimonial era o pagamento da **fatura do cartão**, que quita gasto já feito e não reduz dívida. Entrou `dividas.amortizacao_90d` (R$ de principal pago em `debt_payments`, neutro). (2) `futuro.resgates_sem_destino` virou `futuro.resgates_90d` (neutro): chamar de "sem destino" um resgate que pagou a fatura era falso. (3) `futuro.variacao_mes` não atribui mais a variação a "dívida paga"; mostra o resultado do mês, o rendimento e o que **ainda não foi explicado**. (4) `equilibrio.resultado_3m` e `taxa_poupanca_3m` usam o mesmo critério de selo. (5) `equilibrio.tendencia` só mostra número quando maior que o ruído dos meses. (6) Recomendação: com resultado dos 3 meses negativo, **não** se recomenda reserva (prematura); recomenda-se entender o desequilíbrio.
+
 ### E4 — Dívidas (saúde)
 - `dividas.comprometimento_renda` (% da renda típica): `Σ parcela mensal normalizada / typical`. Exige E1 com `closed_months≥3`. [provisório] atenção > 35%, crítico > 50%.
 - `dividas.atrasos` (contagem e R$): `next_installment_due < hoje` + cartão em atraso.
