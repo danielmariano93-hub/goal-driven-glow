@@ -8,7 +8,7 @@ import type { MapaEvidencePack } from "../finance-core/mapaEvidencePack.ts";
 export type MapaGuardViolation =
   | "empty_text" | "too_long" | "number_not_in_evidence" | "unit_number_not_in_evidence" | "banned_word" | "cause_claim"
   | "emotion_or_diagnosis" | "moral_judgement" | "promise" | "score_or_grade" | "spend_less_on_structural" | "internal_reference"
-  | "provider_mentioned" | "voice";
+  | "provider_mentioned" | "wrong_voice" | "inference" | "voice";
 
 export interface MapaGuardResult { ok: boolean; violations: MapaGuardViolation[]; detail: string[] }
 
@@ -23,6 +23,10 @@ const PROMISE = [/\bvocê vai (conseguir|ficar|juntar|sair|chegar)\b/i, /\bgaran
 const SCORE = [/\bnotas?\b/i, /\bscores?\b/i, /\bpontua[çc][aã]o\b/i, /\b\d+(?:[.,]\d+)?\s*\/\s*10\b/, /\bde 0 a 10\b/i];
 const SPEND_LESS = [/\b(gaste|gastar|corte|cortar|reduza|reduzir|diminua|diminuir) (menos|gastos|despesas|o lazer|com lazer|o supérfluo|supérfluos)/i, /\bapert(e|ar) o cinto\b/i];
 const INTERNAL = [/\b(seguranca|equilibrio|dividas|futuro|execucao|planejamento|acompanhamento)\.[a-z_]+/i, /\bformula\b/i, /\bmapa_[a-z]+/i, /\bconfian[çc]a (alta|moderada|insuficiente)\b/i, /\bindicador\b/i];
+// O Nino fala COM a pessoa: nunca "como a pessoa" nem sobre si mesmo.
+const WRONG_VOICE = [/\b(meu|minha|meus|minhas)\b/i, /\b(eu|tive|tenho|consigo|aproveitei|quero|preciso)\b/i, /\b(vou|continuarei|conferirei|verei)\b/i];
+// Inferência que os fatos não dizem ("indicando tranquilidade", "mostra que você...").
+const INFERENCE = [/\bindicand[oa]\b/i, /\b(isso )?(indica|significa|mostra|revela|sugere|demonstra) que\b/i, /\b(tranquilidade|seguran[çc]a) financeira\b/i, /\btudo (foi pago|est[aá] (bem|ok|certo))\b/i, /\bboa (sa[úu]de|situa[çc][aã]o) financeira\b/i];
 const PROVIDER = [/\bgpt\b/i, /\bgemini\b/i, /\bopenai\b/i, /\bllm\b/i, /modelo de linguagem/i, /\bprompt\b/i, /\bintelig[êe]ncia artificial\b/i];
 
 /** "2 meses", "30 dias", "3 vezes": números com unidade escrita que o citedNumbers (R$ e %) não pega. */
@@ -44,7 +48,11 @@ export function guardMapaText(args: { title?: string; body: string; question?: s
   for (const c of citedNumbers(text)) if (!matchesEvidence(c.value, args.pack.allowed_numbers)) push("number_not_in_evidence", c.raw);
   for (const u of unitNumbers(text)) {
     // "3 meses" no texto fixo ("com 3 meses fechados") faz parte do modelo; o resto precisa estar na evidência.
-    if (!matchesEvidence(u.value, args.pack.allowed_numbers) && !args.pack.deterministic.body.includes(u.raw) && !args.pack.deterministic.title.includes(u.raw)) push("unit_number_not_in_evidence", u.raw);
+    const inTemplate = args.pack.deterministic.body.includes(u.raw) || args.pack.deterministic.title.includes(u.raw);
+    const isMonths = /^m[eê]s/i.test(u.raw.replace(/^[\d.,]+\s*/, ""));
+    // meses só valem se vierem de um indicador em meses (nunca de qualquer outro número do pacote)
+    const ok = isMonths ? args.pack.allowed_months.some((m) => Math.abs(m - u.value) < 0.011) : matchesEvidence(u.value, args.pack.allowed_numbers);
+    if (!ok && !inTemplate) push("unit_number_not_in_evidence", u.raw);
   }
   const lower = text.toLowerCase();
   for (const w of BANNED_WORDS) if (lower.includes(w.toLowerCase())) push("banned_word", w);
@@ -56,6 +64,8 @@ export function guardMapaText(args: { title?: string; body: string; question?: s
   test(SCORE, "score_or_grade");
   test(INTERNAL, "internal_reference");
   test(PROVIDER, "provider_mentioned");
+  test(WRONG_VOICE, "wrong_voice");
+  test(INFERENCE, "inference");
   if (args.pack.mode === "recomendacao_estrutural") test(SPEND_LESS, "spend_less_on_structural");
 
   const voice = checkNotificationVoice({ body: [body, args.question].filter(Boolean).join(" ") });

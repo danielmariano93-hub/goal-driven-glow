@@ -4,7 +4,7 @@
 import { recordGatewayCall } from "../aiUsageLedger.ts";
 import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../ai-runtime.ts";
 import { MODEL_TIERS } from "../intelligence/modelGateway.ts";
-import { MAPA_PROMPT_VERSION, type MapaEvidencePack } from "../finance-core/mapaEvidencePack.ts";
+import { LLM_MODES, MAPA_PROMPT_VERSION, type MapaEvidencePack } from "../finance-core/mapaEvidencePack.ts";
 import { guardMapaText, type MapaGuardResult } from "./narrativeGuard.ts";
 
 const MODEL = MODEL_TIERS.tier2_analysis.primary;
@@ -23,15 +23,16 @@ export interface CompleteFn { (prompt: { system: string; user: string }): Promis
 export function buildMapaPrompt(pack: MapaEvidencePack): { system: string; user: string } {
   const system = [
     "Você é o Nino, assessor financeiro pessoal brasileiro. Escreve em português do Brasil, com calma e simplicidade.",
-    "Sua função: REESCREVER a leitura do Mapa Financeiro de uma pessoa, com as palavras de um amigo que ajuda a entender. Você não decide nada.",
+    "QUEM FALA: o Nino fala COM a pessoa. Trate-a por 'você'. NUNCA escreva como se fosse a pessoa ('meu resultado', 'tive', 'consigo', 'minha reserva'). NUNCA fale de si mesmo ('eu vejo', 'vou conferir', 'continuarei'). Convites usam 'você' ou 'vamos'.",
+    "SUA TAREFA: reescrever a LEITURA DETERMINÍSTICA com outras palavras, MANTENDO exatamente os mesmos fatos e a mesma ação. Não acrescente nenhuma interpretação.",
     "REGRAS INVIOLÁVEIS:",
-    "- Não calcule, não estime e não projete. Só cite números que estejam em NÚMEROS PERMITIDOS, no mesmo formato dos FATOS.",
-    "- Não explique causas, não fale de emoções, não faça diagnóstico, não julgue o gasto e não prometa resultado.",
-    "- Nunca fale de nota, pontuação, score, indicador, fórmula, confiança ou modelo de IA.",
+    "- Só cite números que estejam em NÚMEROS PERMITIDOS, escritos como nos FATOS (sem arredondar meses, sem converter).",
+    "- Não conclua nada que não esteja escrito: nada de 'indica', 'significa', 'mostra que', 'tranquilidade', 'segurança financeira', 'está tudo bem/mal'. Não explique causas e não fale de emoções.",
+    "- Sem diagnóstico, sem julgamento, sem promessa, sem nota ou pontuação, sem 'indicador', 'fórmula', 'modelo' ou 'IA'.",
     "- Se o MODO for recomendacao_estrutural, a dificuldade está na renda e nas contas grandes: NÃO diga para gastar ou cortar menos.",
-    "- No máximo 3 frases, cada uma com até 18 palavras. No máximo 2 números. Primeira pessoa, tom calmo, decisão sempre da pessoa.",
-    "- Termine com UMA pergunta curta que convide para a ação recomendada (campo question), se houver ação; senão question vazio.",
-    'Responda SOMENTE com JSON: {"title": "...", "body": "...", "question": "..."} (question pode ser "").',
+    "- No máximo 3 frases; cada frase com até 15 palavras. No máximo 2 números no texto todo.",
+    "- Termine com UMA pergunta curta que convide para a ação recomendada (campo question).",
+    'Responda SOMENTE com um objeto JSON, sem markdown: {"title": "...", "body": "...", "question": "..."}',
   ].join("\n");
   const facts = pack.facts.map((f) => `- ${f.label} (${f.window_label}): ${f.text}`);
   const user = [
@@ -55,7 +56,10 @@ export function buildMapaPrompt(pack: MapaEvidencePack): { system: string; user:
 export function parseMapaNarrativeJson(raw: string): { title: string; body: string; question: string | null } | null {
   const cleaned = String(raw ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   let obj: any;
-  try { obj = JSON.parse(cleaned); } catch { return null; }
+  try { obj = JSON.parse(cleaned); } catch {
+    const m = cleaned.match(/\{[\s\S]*\}/); // modelo que fala antes/depois do JSON
+    try { obj = m ? JSON.parse(m[0]) : null; } catch { return null; }
+  }
   if (!obj || typeof obj !== "object") return null;
   const title = typeof obj.title === "string" ? obj.title.trim() : "";
   const body = typeof obj.body === "string" ? obj.body.trim() : "";
@@ -70,6 +74,7 @@ export function templateNarrative(pack: MapaEvidencePack, reason: string): MapaN
 
 /** Compõe o texto com a IA e valida. `complete` é injetável (testes, avaliação offline). */
 export async function composeMapaNarrative(pack: MapaEvidencePack, complete: CompleteFn): Promise<{ narrative: MapaNarrative; guard: MapaGuardResult | null; model: string | null; latency_ms: number | null }> {
+  if (!LLM_MODES.has(pack.mode)) return { narrative: templateNarrative(pack, "template_only_mode"), guard: null, model: null, latency_ms: null };
   let out: { text: string; model?: string; latency_ms?: number };
   try { out = await complete(buildMapaPrompt(pack)); } catch (error) {
     return { narrative: templateNarrative(pack, `gateway_error:${String(error).slice(0, 60)}`), guard: null, model: null, latency_ms: null };
@@ -96,7 +101,6 @@ export function providerComplete(sb: any, userId: string | null, opts: { operati
       headers: aiJsonHeaders(provider),
       body: JSON.stringify({
         model: normalizeAiModel(MODEL, provider), temperature: 0.3, max_tokens: opts.maxTokens ?? 700,
-        response_format: { type: "json_object" },
         messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
       }),
     });
@@ -144,7 +148,8 @@ export function buildJudgePrompt(pack: MapaEvidencePack, text: { title: string; 
 
 export function parseJudge(raw: string): JudgeVerdict | null {
   try {
-    const o = JSON.parse(String(raw ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+    const t = String(raw ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const o = JSON.parse(t.startsWith("{") ? t : (t.match(/\{[\s\S]*\}/)?.[0] ?? "null"));
     if (typeof o?.faithful !== "boolean" || typeof o?.clear !== "boolean" || typeof o?.calm !== "boolean") return null;
     return { faithful: o.faithful, invented: Array.isArray(o.invented) ? o.invented.map(String).slice(0, 5) : [], clear: o.clear, calm: o.calm, actionable: o.actionable !== false, note: String(o.note ?? "").slice(0, 200) };
   } catch { return null; }

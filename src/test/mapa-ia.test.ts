@@ -70,6 +70,11 @@ describe("guarda: rejeita 100% das saídas ruins, em todos os cenários", () => 
     ["código interno", (p) => `${p.deterministic.body} Veja seguranca.meses_cobertos.`, "internal_reference"],
     ["provedor", (p) => `${p.deterministic.body} Segundo o modelo GPT.`, "provider_mentioned"],
     ["palavra proibida", (p) => `${p.deterministic.body} Seu mês fechou negativo.`, "banned_word"],
+    // achados da avaliação com o modelo real (16/10): o modelo falava COMO a pessoa e interpretava além dos fatos
+    ["fala como a pessoa", (p) => `${p.deterministic.body} Nos últimos meses meu resultado foi pior.`, "wrong_voice"],
+    ["fala de si mesmo", (p) => `${p.deterministic.body} Continuarei registrando para você.`, "wrong_voice"],
+    ["inferência sem base", (p) => `${p.deterministic.body} Isso indica tranquilidade financeira.`, "inference"],
+    ["conclusão sem base", (p) => `${p.deterministic.body} Isso mostra que você está no caminho certo.`, "inference"],
   ];
   for (const [label, mutate, violation] of bad) {
     it(`${label} → ${violation}`, () => {
@@ -135,7 +140,8 @@ describe("composição: saída fora do esquema ou reprovada cai no texto determi
     expect(system).toContain("NÃO diga para gastar ou cortar menos");
     expect(user).toContain("MODO: recomendacao_estrutural");
     expect(user).toContain("NÚMEROS PERMITIDOS");
-    expect(MAPA_PROMPT_VERSION).toBe("mapa_prompt.v1");
+    expect(MAPA_PROMPT_VERSION).toBe("mapa_prompt.v2");
+    expect(system).toMatch(/NUNCA escreva como se fosse a pessoa/);
   });
 
   it("o harness de avaliação mede fallback e violações (rodado aqui com um modelo SIMULADO, não com o real)", async () => {
@@ -185,5 +191,34 @@ describe("avaliação com modelo real (mapa-eval): peças testáveis sem rede", 
     const sql = readFileSync("supabase/migrations/20261016190000_mapa_eval_tick.sql", "utf8");
     expect(sql).toContain("revoke all on function public.mapa_eval_tick");
     expect(sql).toContain("vault.decrypted_secrets");
+  });
+});
+
+describe("escopo da IA (achado da avaliação real)", () => {
+  it("só recomendações usam a IA: 'nada pede ação' e 'poucos dados' ficam com o texto fixo, sem chamar o modelo", async () => {
+    let calls = 0;
+    const spy: CompleteFn = async () => { calls += 1; return { text: "{}" }; };
+    for (const mode of ["em_dia", "pouco_dado"] as const) {
+      const hit = packs.find((p) => p.pack.mode === mode)!;
+      const r = await composeMapaNarrative(hit.pack, spy);
+      expect(r.narrative).toMatchObject({ source: "template", fallback_reason: "template_only_mode", body: hit.pack.deterministic.body });
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("aceita JSON cercado de conversa (o modelo às vezes fala antes ou depois)", () => {
+    expect(parseMapaNarrativeJson('Claro! {"title":"T","body":"Corpo.","question":""} Espero ter ajudado.')).toMatchObject({ title: "T", body: "Corpo." });
+  });
+
+  it("'meses' não vira inteiro por arredondamento: 0,7 mês não autoriza escrever '1 mês'", () => {
+    const hit = packs.find((p) => p.pack.facts.some((f) => f.key === "seguranca.meses_cobertos" && f.value !== null && f.value > 0.4 && f.value < 0.9));
+    expect(hit, "cenário com reserva entre 0,4 e 0,9 mês").toBeDefined();
+    const { pack } = hit!;
+    expect(guardMapaText({ body: "Seu dinheiro cobre 1 mês de gastos.", pack }).violations).toContain("unit_number_not_in_evidence");
+  });
+
+  it("razão muito alta não vira número absurdo ('1000%'): vira 'sobra bastante'", () => {
+    const hit = packs.find((p) => p.pack.facts.some((f) => f.text === "sobra bastante"));
+    if (hit) expect(hit.pack.allowed_numbers).not.toContain(1000);
   });
 });
