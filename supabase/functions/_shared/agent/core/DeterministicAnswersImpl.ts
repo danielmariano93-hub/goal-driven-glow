@@ -925,6 +925,6 @@ export function formatBehaviorEvolution(result: any): string {
   if (result?.baseline_reconstructed) {
     lines.push("A base de comparação é um histórico reconstruído (parcial): só as evidências que existiam na época entraram.");
   }
-  lines.push("Os detalhes estão em Emocional, no app.");
+  lines.push("Os detalhes estão em Mapa Financeiro, no app.");
   return lines.join("\n");
 }

@@ -47,7 +47,7 @@ export function diagnosisRouteForSituation(
     return debtId ? `/app/dividas?debt=${encodeURIComponent(debtId)}&action=pagar` : "/app/dividas";
   }
   if (situation.situation_type === "behavioral_pattern") {
-    if (evaluation.days_without_checkin != null) return "/app/emocoes?action=checkin";
+    if (evaluation.days_without_checkin != null) return "/app/mapa?action=checkin";
     return situation.status === "observed" ? "/app/nino?section=aprendizados" : "/app/lancamentos";
   }
 

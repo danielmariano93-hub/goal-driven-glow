@@ -78,7 +78,7 @@ export function familyForTip(candidate: Pick<TipCandidate, "type" | "cta_route">
   if (route.startsWith("/app/metas")) return "metas";
   if (route.startsWith("/app/recorrencias")) return "recorrencias";
   if (route.startsWith("/app/relatorios")) return "evolucao";
-  if (route.startsWith("/app/emocoes")) return "emocoes";
+  if (route.startsWith("/app/mapa")) return "emocoes";
   if (route.startsWith("/app/cartoes")) return "gastos";
   if (route.startsWith("/app/lancamentos")) return candidate.type === "habit" ? "habitos" : "gastos";
   return "geral";

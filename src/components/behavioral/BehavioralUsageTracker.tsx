@@ -12,7 +12,7 @@ function surfaceForPath(pathname: string): string {
   if (pathname.startsWith("/app/investimentos")) return "investments";
   if (pathname.startsWith("/app/dividas")) return "debts";
   if (pathname.startsWith("/app/nino") || pathname.startsWith("/app/assessor")) return "nino";
-  if (pathname.startsWith("/app/emocoes")) return "emotions";
+  if (pathname.startsWith("/app/mapa")) return "emotions";
   return "other";
 }
 

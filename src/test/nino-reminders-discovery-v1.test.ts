@@ -174,7 +174,7 @@ describe("engajamento: descoberta de funcionalidades", () => {
   });
 
   it("só anuncia rotas que existem no app", () => {
-    const routes = new Set(["/app/compromissos", "/app/cartoes", "/app/metas", "/app/nino", "/app/divisao-do-role", "/app/emocoes"]);
+    const routes = new Set(["/app/compromissos", "/app/cartoes", "/app/metas", "/app/nino", "/app/divisao-do-role", "/app/mapa"]);
     for (const tip of DISCOVERY_TIPS) expect(routes.has(tip.route)).toBe(true);
   });
 });

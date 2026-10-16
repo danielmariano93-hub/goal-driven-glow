@@ -12,6 +12,8 @@ export const ROUTE_ALIASES: Record<string, string> = {
   "/app/debts": "/app/dividas",
   "/app/goals": "/app/metas",
   "/app/reports": "/app/relatorios",
+  // A aba Emocional virou Mapa Financeiro: links guardados em notificações e no WhatsApp continuam funcionando.
+  "/app/emocoes": "/app/mapa",
 };
 
 const patternToRegex = (pattern: string) => new RegExp("^" + pattern.replace(/:[A-Za-z]+/g, "[^/]+") + "/?$");

@@ -185,7 +185,7 @@ function EmocoesLegacy() {
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 pb-24 pt-1">
       <header>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Evolução</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Mapa Financeiro</p>
         <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">Seus hábitos com dinheiro</h1>
         <p className="mt-1 max-w-[620px] text-sm leading-relaxed text-muted-foreground">
           O que seus comportamentos revelam, por que importa e onde você pode evoluir.
