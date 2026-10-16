@@ -20,13 +20,13 @@ where s.user_id = :user_id and s.week_start = :segunda
 order by 2, 5;
 ```
 
-## Primeira comparação (conta do dono, semana de 12/10, dados reais do legado; Mapa com a leitura calculada no smoke da fase 4)
+## Primeira comparação (conta do dono, semana de 12/10: legado = snapshot real; Mapa = primeira leitura REAL do servidor, gravada pelo `mapa-weekly` em 16/10)
 
 | Legado (nota 0–10) | Mapa | Divergência | Explicação |
 |---|---|---|---|
-| Segurança 1,3 (meses cobertos 0,5) | `seguranca.meses_cobertos` ≈ 0,1 mês, "precisa de cuidado" (base: gastos totais) | mesmo sentido, magnitude diferente | o legado divide pelo gasto **projetado do mês**; o Mapa pelo gasto **típico de meses fechados** (P-01). Esperado. |
-| Dívidas 3,3 (carga 1,4; trajetória 6,3) | `dividas.comprometimento_renda` ≈ 15% "tudo certo"; `dividas.trajetoria` favorável; custo e perfil **sem dados** | **construto diferente** | o legado mede dívida ÷ patrimônio; o Mapa mede parcela ÷ renda. As duas leituras podem divergir sem que nenhuma esteja errada. Custo/perfil dependem da captura de taxa e tipo. |
-| Controle 1,8 (0 metas mensais cumpridas) | `execucao.aderencia` baixa ("atenção") | sem divergência | mesma fonte (`goalHistory`). |
+| Segurança 1,3 (meses cobertos 0,5) | `seguranca.meses_cobertos` = 0,07 mês, "precisa de cuidado" (base: gastos totais; gasto típico R$ 19.085) | mesmo sentido, magnitude diferente | o legado divide pelo gasto **projetado do mês**; o Mapa pelo gasto **típico de meses fechados** (P-01). Esperado. |
+| Dívidas 3,3 (carga 1,4; trajetória 6,3) | `dividas.comprometimento_renda` = 15% (parcelas R$ 2.167 ÷ renda típica R$ 14.464) "tudo certo"; `dividas.trajetoria` −8,4% (saldo caiu); custo e perfil **sem dados** | **construto diferente** | o legado mede dívida ÷ patrimônio; o Mapa mede parcela ÷ renda. As duas leituras podem divergir sem que nenhuma esteja errada. Custo/perfil dependem da captura de taxa e tipo. |
+| Controle 1,8 (0 metas mensais cumpridas) | `execucao.aderencia` = 12,5% (1 de 8 períodos), "atenção" | sem divergência | mesma fonte (`goalHistory`). |
 | Planejamento 5,0 | `planejamento.viabilidade` **sem dados** (essenciais não confirmados) | indicador sem dado | o Mapa não chuta: pede a marcação de essenciais. |
 | Patrimônio (Wealth) sem nota | `futuro.patrimonio_liquido` e `futuro.variacao_mes` com valor | Mapa tem mais informação | usa a ponte patrimonial. |
 | Consciência 7,0 · Consistência 8,4 · Calma 3,8 | sem equivalente | **removidos de propósito** | frequência de uso/check-in não é hábito financeiro (P-03). Calma vira o CFPB, em "Bem-estar percebido". |
