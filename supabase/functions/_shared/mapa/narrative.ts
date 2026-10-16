@@ -81,17 +81,21 @@ export async function composeMapaNarrative(pack: MapaEvidencePack, complete: Com
   return { narrative: { ...parsed, source: "llm", fallback_reason: null }, guard, model: out.model ?? null, latency_ms: out.latency_ms ?? null };
 }
 
-/** Chamada real ao provedor configurado (com telemetria em llm_calls). null = IA não configurada. */
-export function providerComplete(sb: any, userId: string): CompleteFn | null {
+/**
+ * Chamada real ao provedor configurado. `record` liga a telemetria em llm_calls (padrão). null = IA não configurada.
+ * A avaliação offline usa `record: false` (não polui o uso de produção) e o mesmo caminho do app, para medir o que o usuário recebe.
+ */
+export function providerComplete(sb: any, userId: string | null, opts: { operation?: string; record?: boolean; maxTokens?: number } = {}): CompleteFn | null {
   const provider = resolveAiProvider();
   if (!provider) return null;
+  const operation = opts.operation ?? "mapa_narrative";
   return async (prompt) => {
     const started = Date.now();
     const resp = await fetch(aiEndpoint(provider, "chat/completions"), {
       method: "POST",
       headers: aiJsonHeaders(provider),
       body: JSON.stringify({
-        model: normalizeAiModel(MODEL, provider), temperature: 0.3, max_tokens: 700,
+        model: normalizeAiModel(MODEL, provider), temperature: 0.3, max_tokens: opts.maxTokens ?? 700,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
       }),
@@ -100,15 +104,50 @@ export function providerComplete(sb: any, userId: string): CompleteFn | null {
     const latency = Date.now() - started;
     let json: any = null;
     try { json = JSON.parse(text); } catch { /* corpo não JSON */ }
-    await recordGatewayCall(sb, {
-      workload: "INSIGHTS", function_name: "nino-insights", operation: "mapa_narrative", user_id: userId,
-      model: normalizeAiModel(MODEL, provider), provider: provider.provider, operation_type: "chat", success: resp.ok,
-      http_status: resp.status, ...(resp.ok ? {} : { error_code: `gateway_${resp.status}` }), latency_ms: latency,
-      reason_for_ai_call: "mapa_narrative", metadata: { prompt_version: MAPA_PROMPT_VERSION },
-    }, json);
-    if (!resp.ok) throw new Error(`gateway_${resp.status}`);
+    if (opts.record !== false) {
+      await recordGatewayCall(sb, {
+        workload: "INSIGHTS", function_name: "nino-insights", operation, user_id: userId,
+        model: normalizeAiModel(MODEL, provider), provider: provider.provider, operation_type: "chat", success: resp.ok,
+        http_status: resp.status, ...(resp.ok ? {} : { error_code: `gateway_${resp.status}` }), latency_ms: latency,
+        reason_for_ai_call: operation, metadata: { prompt_version: MAPA_PROMPT_VERSION },
+      }, json);
+    }
+    if (!resp.ok) throw new Error(`gateway_${resp.status}:${text.slice(0, 120)}`);
     return { text: String(json?.choices?.[0]?.message?.content ?? ""), model: MODEL, latency_ms: latency };
   };
+}
+
+export interface JudgeVerdict { faithful: boolean; invented: string[]; clear: boolean; calm: boolean; actionable: boolean; note: string }
+
+/** Juiz (mesmo provedor, outro papel): confere se o texto diz SÓ o que os fatos sustentam. Complementa a guarda determinística. */
+export function buildJudgePrompt(pack: MapaEvidencePack, text: { title: string; body: string; question: string | null }): { system: string; user: string } {
+  const system = [
+    "Você é um revisor rigoroso de textos de um app de finanças pessoais em português do Brasil.",
+    "Receberá FATOS (a única verdade permitida) e um TEXTO. Avalie o TEXTO com estes critérios:",
+    "- faithful: true só se TUDO que o texto afirma está nos FATOS ou na leitura determinística; qualquer afirmação nova sobre causa, intenção, emoção, futuro, o que a pessoa 'deve' fazer fora da ação recomendada, ou comparação não sustentada = false.",
+    "- invented: lista curta de trechos que não têm base nos fatos (vazia se faithful).",
+    "- clear: true se uma pessoa sem conhecimento financeiro entende o texto de primeira, sem jargão.",
+    "- calm: true se o tom é calmo, sem alarmismo, sem julgamento moral e sem cobrança.",
+    "- actionable: true se, havendo ação recomendada, o texto deixa claro qual é o próximo passo (se não há ação, true).",
+    "- note: uma frase com o principal problema, ou 'ok'.",
+    'Responda SOMENTE com JSON: {"faithful":bool,"invented":[...],"clear":bool,"calm":bool,"actionable":bool,"note":"..."}',
+  ].join("\n");
+  const user = [
+    `MODO: ${pack.mode}`,
+    pack.recommendation ? `AÇÃO RECOMENDADA: ${pack.recommendation.action_label} (${pack.recommendation.kind})` : "AÇÃO RECOMENDADA: nenhuma",
+    "FATOS:", ...(pack.facts.length ? pack.facts.map((f) => `- ${f.label} (${f.window_label}): ${f.text}`) : ["- sem fatos"]),
+    `LEITURA DETERMINÍSTICA: ${pack.deterministic.title}. ${pack.deterministic.body}${pack.deterministic.question ? ` ${pack.deterministic.question}` : ""}`,
+    "", `TEXTO A AVALIAR: ${text.title}. ${text.body}${text.question ? ` ${text.question}` : ""}`,
+  ].join("\n");
+  return { system, user };
+}
+
+export function parseJudge(raw: string): JudgeVerdict | null {
+  try {
+    const o = JSON.parse(String(raw ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+    if (typeof o?.faithful !== "boolean" || typeof o?.clear !== "boolean" || typeof o?.calm !== "boolean") return null;
+    return { faithful: o.faithful, invented: Array.isArray(o.invented) ? o.invented.map(String).slice(0, 5) : [], clear: o.clear, calm: o.calm, actionable: o.actionable !== false, note: String(o.note ?? "").slice(0, 200) };
+  } catch { return null; }
 }
 
 /** Narrativa com cache por hash da evidência (llm vale até a evidência mudar; template vale por algumas horas). */
