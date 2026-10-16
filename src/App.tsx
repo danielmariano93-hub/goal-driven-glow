@@ -173,7 +173,7 @@ const App = () => (
                 <Route path="relatorios/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios" replace />} />
                 <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
-                <Route path="emocoes" element={<Emocoes />} />
+                <Route path="mapa" element={<Emocoes />} />
                 <Route path="investimentos" element={<Investimentos />} />
                 <Route path="perfil" element={<Perfil />} />
                 <Route path="plano" element={<Plano />} />

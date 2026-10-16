@@ -210,7 +210,7 @@ export function EmotionalCheckinCard() {
               )}
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="w-full resize-none rounded-xl border border-border bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" placeholder="Quer contar o que aconteceu? (opcional)" />
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Link to="/app/emocoes" className="text-[12px] font-semibold text-primary hover:underline">Ver minha evolução</Link>
+                <Link to="/app/mapa" className="text-[12px] font-semibold text-primary hover:underline">Ver minha evolução</Link>
                 <Button type="button" onClick={save} disabled={saving || !selected} size="sm" className="min-h-11 rounded-full px-5 text-[12px] font-semibold">
                   {saving ? <SpinnerGap size={12} className="animate-spin" /> : null}{today ? "Atualizar" : "Registrar"}
                 </Button>

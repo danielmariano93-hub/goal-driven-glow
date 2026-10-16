@@ -252,6 +252,7 @@ export default function HabitsV2() {
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-5 pb-24 pt-1" data-habits-v2>
       <header>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Mapa Financeiro</p>
         <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">Seus hábitos com dinheiro</h1>
       </header>
 

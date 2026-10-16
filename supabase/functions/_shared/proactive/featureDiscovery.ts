@@ -117,7 +117,7 @@ export const DISCOVERY_TIPS: Tip[] = [
     applies: () => true,
     title: "Como estão seus hábitos?",
     body: "Pergunte “como estão meus hábitos?” e eu mostro como seu comportamento com o dinheiro evoluiu semana a semana, com base no que você realmente fez. Os detalhes ficam na aba Emocional do app.",
-    route: "/app/emocoes",
+    route: "/app/mapa",
   },
   {
     id: "spending_goals_plan",

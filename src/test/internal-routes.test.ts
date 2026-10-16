@@ -38,3 +38,11 @@ describe("resolveAppRoute: links antigos levam ao lugar certo", () => {
     expect(safeRoute({ route: "/app/metas" } as never)).toBe("/app/metas");
   });
 });
+
+describe("aba Emocional virou Mapa Financeiro", () => {
+  it("link antigo /app/emocoes leva ao Mapa e mantém a query", () => {
+    expect(resolveAppRoute("/app/emocoes")).toBe("/app/mapa");
+    expect(resolveAppRoute("/app/emocoes?action=checkin")).toBe("/app/mapa?action=checkin");
+    expect(resolveAppRoute("/app/mapa")).toBe("/app/mapa");
+  });
+});

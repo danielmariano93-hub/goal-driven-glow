@@ -73,7 +73,7 @@ export const APP_NAVIGATION: NavEntry[] = [
 
   // ---------- entender ----------
   e({ id: "relatorios", path: "/app/relatorios", label: "Relatórios", desc: "Período atual e fechamentos", icon: BarChart3, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", activePaths: ["/app/relatorios", "/app/relatorios-inteligentes"], featureStatus: "active" }),
-  e({ id: "emocoes", path: "/app/emocoes", label: "Emocional", desc: "Como você se sente ao gastar", icon: Heart, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
+  e({ id: "mapa", path: "/app/mapa", label: "Mapa Financeiro", desc: "Sua situação, seus hábitos e seu bem-estar com o dinheiro", icon: Heart, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "desafios", path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy, navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "divisao-do-role", path: "/app/divisao-do-role", label: "Divisão do Rolê", desc: "Divida contas com quem foi junto", icon: Users, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "cobrancas", path: "/app/cobrancas", label: "Cobranças recebidas", desc: "O que pediram para você pagar", icon: ListChecks, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),

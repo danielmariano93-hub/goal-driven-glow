@@ -235,7 +235,7 @@ export async function scanUser(
       severity: "info",
       title: "Como foi o seu dia?",
       body: "Se quiser, me conta em uma palavra como você se sentiu hoje — tranquilo, ansioso, cansado, animado. Pode responder aqui mesmo que eu registro pra você, sem julgamento.",
-      action: { type: "emotional_checkin", route: "/app/emocoes" },
+      action: { type: "emotional_checkin", route: "/app/mapa" },
       evidence: { local_date: reminder.localDate, reason: reminder.reason },
       channel_ready: "both",
       dedup_key: `emotional-checkin:${reminder.localDate}`,

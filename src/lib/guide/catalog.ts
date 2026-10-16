@@ -206,8 +206,8 @@ export const FEATURE_GUIDES: FeatureGuide[] = [
     ],
   },
   {
-    id: "emocoes", title: "Emocional", path: "/app/emocoes", cta: "Fazer um check-in",
-    summary: "Entenda como você se sente ao gastar.",
+    id: "mapa", title: "Mapa Financeiro", path: "/app/mapa", cta: "Abrir o Mapa",
+    summary: "Veja sua situação, seus hábitos e como você se sente com o dinheiro.",
     steps: [
       { title: "Faça um check-in", body: "Registre como está se sentindo; leva segundos." },
       { title: "Descubra padrões", body: "O Nino mostra em quais emoções ou dias você gasta mais." },
