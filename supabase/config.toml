@@ -92,6 +92,10 @@ verify_jwt = false
 # Valida o JWT do usuário no próprio handler (e aceita o segredo interno de cron).
 verify_jwt = false
 
+[functions.mapa-eval]
+# Somente cron/segredo (x-cron-secret validado no handler).
+verify_jwt = false
+
 [functions.mapa-weekly]
 # Somente cron (x-cron-secret validado no handler).
 verify_jwt = false

@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { validateMapaReading } from "@/lib/engine/mapaContracts";
 import { buildMapaEvidencePack, MAPA_PROMPT_VERSION, type MapaEvidencePack } from "@/lib/engine/mapaEvidencePack";
 import { guardMapaText } from "../../supabase/functions/_shared/mapa/narrativeGuard";
-import { buildMapaPrompt, composeMapaNarrative, parseMapaNarrativeJson, runMapaNarrativeEval, type CompleteFn } from "../../supabase/functions/_shared/mapa/narrative";
+import { buildJudgePrompt, buildMapaPrompt, composeMapaNarrative, parseJudge, parseMapaNarrativeJson, runMapaNarrativeEval, type CompleteFn } from "../../supabase/functions/_shared/mapa/narrative";
 import { evalScenarios } from "./fixtures/mapaEvalScenarios";
+import { readFileSync } from "node:fs";
 
 const scenarios = evalScenarios();
 const packs = scenarios.map((s) => ({ name: s.name, reading: s.reading, pack: buildMapaEvidencePack(s.reading) }));
@@ -158,5 +159,31 @@ describe("texto da recomendação 'fechar a conta' (comportamento)", () => {
     expect(pack.deterministic.title).toBe("Está saindo mais do que entra");
     expect(pack.deterministic.body).toMatch(/a mais do que entraram/);
     expect(guardMapaText({ title: pack.deterministic.title, body: pack.deterministic.body, question: pack.deterministic.question, pack }).violations).toEqual([]);
+  });
+});
+
+describe("avaliação com modelo real (mapa-eval): peças testáveis sem rede", () => {
+  const pack = packs.find((p) => p.name === "G8 estrutural essenciais")!.pack;
+  it("o juiz recebe os fatos e o texto, e é instruído a reprovar afirmação sem base", () => {
+    const { system, user } = buildJudgePrompt(pack, { title: "T", body: "Corpo de teste.", question: null });
+    expect(system).toMatch(/faithful/);
+    expect(system).toMatch(/causa, intenção, emoção/);
+    expect(user).toContain("FATOS:");
+    expect(user).toContain("TEXTO A AVALIAR: T. Corpo de teste.");
+  });
+  it("parseJudge aceita o formato certo e rejeita lixo", () => {
+    expect(parseJudge('{"faithful":true,"invented":[],"clear":true,"calm":true,"actionable":true,"note":"ok"}')).toMatchObject({ faithful: true, note: "ok" });
+    expect(parseJudge("```json\n{\"faithful\":false,\"invented\":[\"x\"],\"clear\":true,\"calm\":false}\n```")).toMatchObject({ faithful: false, invented: ["x"], calm: false, actionable: true });
+    expect(parseJudge("nada")).toBeNull();
+    expect(parseJudge('{"faithful":"sim"}')).toBeNull();
+  });
+  it("a função exige o segredo, não grava nada e não entra na telemetria de produção", () => {
+    const src = readFileSync("supabase/functions/mapa-eval/index.ts", "utf8");
+    expect(src).toContain("matchesAnySecret(secret, CRON_SECRETS)");
+    expect(src).toContain("record: false");
+    expect(src).not.toMatch(/createClient|\.upsert\(|\.insert\(|\.rpc\(/);
+    const sql = readFileSync("supabase/migrations/20261016190000_mapa_eval_tick.sql", "utf8");
+    expect(sql).toContain("revoke all on function public.mapa_eval_tick");
+    expect(sql).toContain("vault.decrypted_secrets");
   });
 });
