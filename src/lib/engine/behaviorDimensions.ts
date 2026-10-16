@@ -19,9 +19,9 @@ export const BEHAVIOR_DIMENSIONS: Array<{
   short: string;
   question: string;
 }> = [
-  { key: "awareness", label: "Consciência", short: "Consciência", question: "Quanto você entende hoje para onde seu dinheiro vai e por que você decide gastar?" },
+  { key: "awareness", label: "Acompanhamento", short: "Acompanhamento", question: "Quanto você acompanha para onde seu dinheiro vai e por que você decide gastar?" },
   { key: "planning", label: "Planejamento", short: "Planejamento", question: "Quanto suas decisões financeiras costumam acontecer antes, e não depois do gasto?" },
-  { key: "control", label: "Controle de impulso", short: "Controle", question: "Quanto você sente que consegue escolher antes de agir quando surge vontade de gastar?" },
+  { key: "control", label: "Cumprimento dos limites", short: "Limites", question: "Quanto você consegue gastar dentro dos limites que escolheu?" },
   { key: "consistency", label: "Consistência", short: "Consistência", question: "Quanto seus bons hábitos financeiros sobrevivem às semanas mais corridas?" },
   { key: "security", label: "Segurança", short: "Segurança", question: "Quanto você sente que consegue absorver imprevistos sem perder o controle do mês?" },
   { key: "wealth", label: "Construção de patrimônio", short: "Patrimônio", question: "Quanto você está transformando renda em patrimônio de forma recorrente?" },

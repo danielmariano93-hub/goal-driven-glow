@@ -34,6 +34,15 @@ export function EmotionAssociationCard({ impact, onAskContext }: { impact: Money
           {impact.pairedDays === 1 ? "Tenho 1 check-in com gasto por perto" : `Tenho ${impact.pairedDays} check-ins com gasto por perto`}. Com {MONEY_IMPACT_MIN_DAYS}, consigo comparar os momentos mais e menos tranquilos. Isso mostra uma coincidência, nunca uma causa.
         </p>
       )}
+      <details className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+        <summary className="cursor-pointer font-semibold text-foreground">O que a pesquisa diz sobre emoção e gasto</summary>
+        <p className="mt-1">
+          Muita compra é decidida na hora: em supermercados, de 54% a 68% dos itens não estavam planejados (Inman e Winer, 1999). Nem toda compra não planejada é emocional, mas em experimentos quem está triste e voltado para si mesmo aceita pagar mais pelo mesmo produto (Cryder e colegas, 2008).
+        </p>
+        <p className="mt-1">
+          Não encontrei nenhum estudo confiável que diga qual fatia do gasto das pessoas é emocional, e desconfie de quem dá uma porcentagem exata. Por isso mostro só o que aparece no seu próprio histórico.
+        </p>
+      </details>
       <p className="mt-2 text-[13px] leading-relaxed">Você percebe algum contexto em comum nesses momentos?</p>
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" onClick={onAskContext} className="min-h-11 rounded-full border border-border px-4 text-sm font-semibold">Contar contexto</button>
