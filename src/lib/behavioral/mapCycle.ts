@@ -64,9 +64,9 @@ type TxRow = {
 
 const QUESTION_SETS: Record<BehaviorDimensionKey, [string, string, string]> = {
   awareness: [
-    "Quanto você entende hoje para onde seu dinheiro vai e por que você decide gastar?",
+    "Quanto você acompanha para onde seu dinheiro vai e por que você decide gastar?",
     "Se alguém te perguntasse hoje o que mais pressiona seu mês, quão claramente você conseguiria responder?",
-    "Quanto você percebe os gatilhos e padrões por trás das suas decisões financeiras antes de olhar o extrato?",
+    "Quanto você olha seus números com regularidade, sem esperar o extrato chegar?",
   ],
   planning: [
     "Quanto suas decisões financeiras costumam acontecer antes, e não depois do gasto?",
@@ -74,9 +74,9 @@ const QUESTION_SETS: Record<BehaviorDimensionKey, [string, string, string]> = {
     "Quanto do seu mês financeiro parece intencional em vez de simplesmente acontecer?",
   ],
   control: [
-    "Quanto você sente que consegue escolher antes de agir quando surge vontade de gastar?",
-    "Quando aparece uma compra não planejada, quanto você consegue criar espaço entre vontade e decisão?",
-    "Quanto suas compras refletem escolhas conscientes, mesmo quando algo desperta desejo imediato?",
+    "Quanto você consegue gastar dentro dos limites que escolheu?",
+    "Quando aparece uma compra não planejada, quanto você consegue respeitar o limite que tinha definido?",
+    "Quanto os seus gastos do mês ficam dentro do que você decidiu gastar?",
   ],
   consistency: [
     "Quanto seus bons hábitos financeiros sobrevivem às semanas mais corridas?",
