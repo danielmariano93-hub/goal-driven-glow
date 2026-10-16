@@ -22,7 +22,7 @@ function financialRow(overrides: Record<string, unknown> = {}) {
           { status: "on_track" },
           { status: "on_track" },
         ],
-        projection: { freeAfterKnownCommitments: 3000, projectedEndBalance: 2500 },
+        projection: { freeAfterKnownCommitments: 3000, projectedEndBalance: 2500, projectedTotalSpending: 4000, confidence: "high", daysRemaining: 2 },
         netWorth: { assets: 25000, owed: 10000, net: 15000 },
         netWorthBridge: { openingDebts: 12000, closingDebts: 10000 },
         periodPerformance: { savingsRate: 0.3 },

@@ -12,7 +12,7 @@ const NOW = new Date("2026-10-09T12:00:00Z").getTime();
 const iso = (d: number) => new Date(NOW - d * 86_400_000).toISOString();
 const profile = buildObservedProfileV3({
   financialRow: { payload: { snapshot: {
-    monthlyTotals: { expense: 9000 }, availableToday: 800, projection: { freeAfterKnownCommitments: 3200 },
+    monthlyTotals: { expense: 9000 }, availableToday: 800, projection: { freeAfterKnownCommitments: 3200, projectedTotalSpending: 9000, confidence: "high" },
     netWorth: { assets: 5137, owed: 65472 }, netWorthBridge: { openingDebts: 71000, closingDebts: 65472 },
   } } },
   checkins: Array.from({ length: 9 }, (_, i) => ({ id: `c${i}`, occurred_at: iso(i * 3), mood: 3, financial_calm_score: 4 })),

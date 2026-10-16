@@ -100,6 +100,26 @@ function emptyDimension(evidence = "Ainda não tenho dados suficientes."): Obser
   return { score: null, confidence: "low", evidence, source: "insufficient_data" };
 }
 
+/**
+ * Base mensal de gasto para razões do tipo "quantos meses o dinheiro cobre".
+ * Usa o gasto PREVISTO PARA O MÊS INTEIRO (realizado + variável previsto + compromissos + fatura), nunca o gasto
+ * acumulado do mês em andamento: no dia 16, o acumulado é ~metade do mês e inflava a cobertura (0,9 mês onde eram ~0,1).
+ * Sem projeção confiável, devolve null: melhor "sem dado" do que um número errado.
+ */
+export function monthlySpendingBase(snapshot: any): { value: number | null; basis: "projetado" | "indisponivel" } {
+  const p = snapshot?.projection;
+  const total = Number(p?.projectedTotalSpending);
+  const confidence = String(p?.confidence ?? "");
+  if (Number.isFinite(total) && total > 0 && (confidence === "medium" || confidence === "high")) return { value: total, basis: "projetado" };
+  return { value: null, basis: "indisponivel" };
+}
+
+/** Mês quase fechado: só então renda e poupança do mês em andamento são comparáveis. Antes, a renda recebida é parcial. */
+export function monthNearlyClosed(snapshot: any): boolean {
+  const left = Number(snapshot?.projection?.daysRemaining ?? snapshot?.daysRemainingInMonth);
+  return Number.isFinite(left) && left <= 3;
+}
+
 function scoreFromReserveMonths(months: number): number {
   if (months <= 0) return 0;
   if (months <= 0.5) return months * 4;
@@ -274,7 +294,7 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
       };
 
   // 5) Segurança: reserva líquida / despesas + caixa futuro + peso das dívidas.
-  const expense = Number(snapshot?.monthlyTotals?.expense ?? 0);
+  const expense = monthlySpendingBase(snapshot).value ?? 0;
   const free = Number(projection?.freeAfterKnownCommitments ?? 0);
   const projectedEnd = Number(projection?.projectedEndBalance ?? 0);
   const available = Math.max(0, Number(snapshot?.availableToday ?? financialRow?.available_balance ?? 0));
@@ -312,8 +332,9 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
   const contributions90 = Math.max(0, Number(investmentStats?.contributions_90d ?? 0));
   const contributionDays90 = Math.max(0, Number(investmentStats?.contribution_days_90d ?? 0));
   const currentInvestmentValue = Math.max(0, Number(investmentStats?.current_value ?? 0));
-  const income = Math.max(0, Number(snapshot?.monthlyTotals?.income ?? 0));
-  const savingsRate = Number(performance?.savingsRate);
+  const incomeComparable = monthNearlyClosed(snapshot);
+  const income = incomeComparable ? Math.max(0, Number(snapshot?.monthlyTotals?.income ?? 0)) : 0;
+  const savingsRate = incomeComparable ? Number(performance?.savingsRate) : Number.NaN;
   const contributionRegularity = contributionDays90 > 0 ? clamp((contributionDays90 / 6) * 10) : null;
   const contributionRate = contributions90 > 0 && income > 0 ? clamp((contributions90 / (income * 3)) * 50) : null;
   const currentSavings = Number.isFinite(savingsRate) ? clamp(5 + savingsRate * 12.5) : null;

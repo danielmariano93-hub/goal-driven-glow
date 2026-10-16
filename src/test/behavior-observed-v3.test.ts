@@ -93,7 +93,7 @@ describe("behavior_observed.v3 — evidência antes de nota", () => {
   it("segurança sem projeção de compromissos não inventa folga", () => {
     const p = buildObservedProfileV3({
       ...empty, txStats: { count: 100, first_at: iso(90) },
-      financialRow: { payload: { snapshot: { monthlyTotals: { expense: 4000 }, availableToday: 1000 } } },
+      financialRow: { payload: { snapshot: { monthlyTotals: { expense: 4000 }, availableToday: 1000, projection: { projectedTotalSpending: 4000, confidence: "high" } } } },
     }, NOW);
     expect(p.dimensions.security.score).toBeNull();
     expect(p.dimensions.security.state).toBe("partial");

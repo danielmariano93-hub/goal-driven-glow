@@ -20,7 +20,7 @@ import {
   type ObservedEvidenceRecord,
   type ObservedFactor,
 } from "./behaviorDimensions";
-import { cycleSentence, type ObservedProfileV2Input } from "./behaviorObserved";
+import { cycleSentence, monthlySpendingBase, monthNearlyClosed, type ObservedProfileV2Input } from "./behaviorObserved";
 
 export const OBSERVED_V3_METHODOLOGY_VERSION = "behavior_observed.v3";
 const DAY_MS = 86_400_000;
@@ -75,10 +75,10 @@ function scoreFromReserveMonths(months: number): number {
 
 /** O que cada dimensão NÃO prova (limite editorial fixo, nunca frase positiva universal). */
 export const DIMENSION_LIMITS: Record<BehaviorDimensionKey, string> = {
-  awareness: "Fazer check-ins mostra que você presta atenção ao tema. Não prova que você entende para onde o dinheiro vai, nem que gastar menos é estar consciente.",
+  awareness: "Esta nota mede com que frequência você faz check-ins e responde perguntas, não o quanto você entende do seu dinheiro. Gastar menos também não prova que você acompanha bem.",
   planning: "Metas e compromissos cadastrados mostram vontade de se organizar. Só cumprir o plano, mês após mês, mostra se ele funciona. Abrir as telas de planejamento não conta.",
   control: "Cumprir limites que você mesmo escolheu é um bom sinal de controle. Gastar muito, sozinho, não prova impulsividade, e gastar pouco não prova autocontrole.",
-  consistency: "Repetir algo por várias semanas indica hábito. Vários registros no mesmo dia não formam um hábito.",
+  consistency: "Esta nota mede a regularidade dos seus registros e do seu gasto diário, não se os hábitos são bons. Quem gasta demais mas registra tudo também pode ter nota alta.",
   security: "Mede o dinheiro disponível e a folga depois dos compromissos já conhecidos. Não prova que você está protegido de um imprevisto específico, e não ter dívida não é o mesmo que estar seguro.",
   wealth: "Aportes regulares mostram que você está construindo patrimônio. Não dizem se o investimento é bom.",
   calm: "Esta nota é só o que você respondeu nos check-ins. Eu não adivinho como você se sente pelos seus gastos.",
@@ -318,7 +318,8 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
 
   // 5) Segurança — liquidez e folga depois dos compromissos já conhecidos.
   const security = (() => {
-    const expense = num(snapshot?.monthlyTotals?.expense);
+    // Gasto previsto para o mês inteiro (não o acumulado até hoje): ver monthlySpendingBase.
+    const expense = monthlySpendingBase(snapshot).value;
     const hasExpense = expense != null && expense > 0;
     const available = Math.max(0, num(snapshot?.availableToday) ?? num(financialRow?.available_balance) ?? 0);
     const reserveValue = Math.max(0, num(investmentStats?.emergency_reserve_value) ?? 0);
@@ -332,7 +333,7 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const freeScore = freeKnown != null && hasExpense ? clamp(5 + (freeKnown / (expense as number)) * 5) : null;
     const sufficient = reserveScore != null && freeScore != null && txHistory >= 30;
     const observed: string[] = [];
-    if (months != null) observed.push(`${reserveValue > 0 ? "Seu dinheiro e a reserva marcada cobrem" : "Seu dinheiro cobre"} cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} dos seus gastos atuais.`);
+    if (months != null) observed.push(`${reserveValue > 0 ? "Seu dinheiro e a reserva marcada cobrem" : "Seu dinheiro cobre"} cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} do que você deve gastar neste mês.`);
     if (freeKnown != null) {
       observed.push(freeKnown >= 0 ? `Depois dos compromissos que já conheço, sobram ${brl(freeKnown)} no mês.` : `Os compromissos que já conheço passam do seu saldo em ${brl(-freeKnown)}.`);
       if (estimatedIn > 0 && freeWithEstimate != null) observed.push(`Se entrar a renda que eu estimo (${brl(estimatedIn)}), o resultado do mês seria ${freeWithEstimate >= 0 ? `uma sobra de ${brl(freeWithEstimate)}` : `um buraco de ${brl(-freeWithEstimate)}`}.`);
@@ -342,7 +343,7 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
       // Liquidez é a evidência principal: folga futura não compensa caixa quase zero (teto = reserva + 3).
       score: sufficient ? Math.min(weighted([{ value: reserveScore, weight: 0.7 }, { value: freeScore, weight: 0.3 }]) as number, (reserveScore as number) + 3) : null,
       confidence: reserveValue > 0 && txHistory >= 30 ? "high" : "medium",
-      summary: months != null ? `Seu dinheiro cobre cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} dos seus gastos atuais.` : "Ainda não há gastos suficientes para estimar a sua margem de segurança.",
+      summary: months != null ? `Seu dinheiro cobre cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} do que você deve gastar neste mês.` : "Ainda não tenho uma previsão confiável do seu gasto do mês para estimar a sua margem de segurança.",
       source: "liquid_reserve+free_after_commitments",
       factors: [f("reserve", "Meses de gastos cobertos", reserveScore, 0.7), f("free_after_commitments", "Folga depois dos compromissos", freeScore, 0.3)],
       origin: [
@@ -354,7 +355,7 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
       coverage: `${txHistory} dias de histórico (mínimo: 30)`,
       observed,
       unknown: reserveValue > 0 ? ["Quais imprevistos podem acontecer."] : ["Nenhum investimento foi marcado como reserva de emergência, então considerei só o dinheiro em conta."],
-      reason: !hasExpense ? "Sem gastos no mês para estimar a cobertura." : txHistory < 30 ? "Menos de 30 dias de histórico." : "Sem compromissos conhecidos para projetar.",
+      reason: !hasExpense ? "Sem previsão confiável de gasto do mês para estimar a cobertura." : txHistory < 30 ? "Menos de 30 dias de histórico." : "Sem compromissos conhecidos para projetar.",
     });
   })();
 
@@ -364,8 +365,11 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const days = Math.max(0, num(investmentStats?.contribution_days_90d) ?? 0);
     const redemptions = Math.max(0, num(investmentStats?.redemptions_90d) ?? 0);
     const net = contributions - redemptions;
-    const income = Math.max(0, num(snapshot?.monthlyTotals?.income) ?? 0);
-    const savingsRate = num(performance?.savingsRate);
+    // Renda e poupança do mês em andamento só valem com o mês quase fechado: antes disso a renda recebida é parcial
+    // (ex.: R$ 208 de renda no dia 16 virava "guardou -643%").
+    const comparable = monthNearlyClosed(snapshot);
+    const income = comparable ? Math.max(0, num(snapshot?.monthlyTotals?.income) ?? 0) : 0;
+    const savingsRate = comparable ? num(performance?.savingsRate) : null;
     const regularity = days > 0 ? clamp((days / 6) * 10) : null;
     const rate = contributions > 0 && income > 0 ? clamp((Math.max(0, net) / (income * 3)) * 50) : null;
     const savings = savingsRate != null ? clamp(5 + savingsRate * 12.5) : null;

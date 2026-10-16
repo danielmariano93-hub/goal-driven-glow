@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import {
-  FWB_CADENCE_DAYS, FWB_ITEMS, FWB_OPTIONS, FWB_VERSION, fwbChange, fwbDaysUntilDue, scoreFinancialWellBeing,
+  FWB_CADENCE_DAYS, FWB_ITEMS, FWB_OPTIONS, FWB_RELIABLE_CHANGE, FWB_VERSION, fwbChange, fwbDaysUntilDue, fwbTrend, scoreFinancialWellBeing,
   type FwbAgeBand,
 } from "@/lib/engine/financialWellBeing";
 
@@ -45,6 +45,7 @@ export function FinancialWellBeingCard() {
   const due = daysLeft === 0;
   const result = scoreFinancialWellBeing(answers, age);
   const change = last ? fwbChange(last.score, previous?.score) : null;
+  const trend = fwbTrend((data ?? []).map((r) => r.score));
 
   async function submit() {
     if (!result || !user) return;
@@ -76,10 +77,11 @@ export function FinancialWellBeingCard() {
           <p className="font-display text-2xl font-bold tabular-nums">{last.score}<span className="text-sm font-medium text-muted-foreground"> de 100</span></p>
           <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
             {change == null ? "Esta é a sua primeira medição."
-              : change.direction === "same" ? "Parecido com a medição anterior."
-              : change.direction === "up" ? `Subiu ${change.delta} pontos desde a medição anterior.`
-              : `Caiu ${Math.abs(change.delta)} pontos desde a medição anterior.`}
+              : change.direction === "same" ? "Parecido com a medição anterior. Esta nota oscila alguns pontos sem que nada tenha mudado de verdade."
+              : change.direction === "up" ? `Subiu ${change.delta} pontos desde a medição anterior, mais do que a medida costuma oscilar.`
+              : `Caiu ${Math.abs(change.delta)} pontos desde a medição anterior, mais do que a medida costuma oscilar.`}
             {" "}Quanto maior, melhor.
+            {trend && trend.direction !== "same" ? ` Olhando as últimas medições, a tendência é de ${trend.direction === "up" ? "alta" : "queda"}.` : ""}
           </p>
         </div>
       ) : (
@@ -137,7 +139,7 @@ export function FinancialWellBeingCard() {
       <details className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
         <summary className="cursor-pointer font-semibold text-foreground">De onde vem esta nota</summary>
         <p className="mt-1">
-          É a Escala de Bem-Estar Financeiro do CFPB, órgão de proteção ao consumidor dos EUA, com 10 perguntas e pontuação oficial (de 14 a 95). Existe uma adaptação brasileira validada com 834 pessoas (Howat-Rodrigues e colegas, 2021). Três das dez frases usam a redação da versão brasileira validada; as outras sete são tradução minha. A escala não define o que é uma nota boa ou ruim: o mais útil é acompanhar se ela sobe ou desce com o tempo. Não é diagnóstico.
+          É a Escala de Bem-Estar Financeiro do CFPB, órgão de proteção ao consumidor dos EUA, com 10 perguntas e pontuação oficial (de 14 a 95). Existe uma adaptação brasileira validada com 834 pessoas (Howat-Rodrigues e colegas, 2021). Três das dez frases usam a redação da versão brasileira validada; as outras sete são tradução minha. A escala não define o que é uma nota boa ou ruim. Variações menores que cerca de {FWB_RELIABLE_CHANGE} pontos entre duas medições ficam dentro do erro da própria escala, por isso só falo em mudança acima disso. Não é diagnóstico.
         </p>
       </details>
     </section>
