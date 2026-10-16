@@ -81,9 +81,43 @@ export function fwbDaysUntilDue(lastAnsweredAt: string | null | undefined, now: 
   return Math.max(0, Math.ceil(FWB_CADENCE_DAYS - elapsedDays));
 }
 
-/** Mudança relevante entre duas aplicações. O CFPB não define corte oficial; usamos o erro típico de ~3 pontos como piso para não narrar ruído. */
-export function fwbChange(current: number, previous: number | null | undefined): { delta: number; direction: "up" | "down" | "same" } | null {
+// ---------------------------------------------------------------------------------------------------------------
+// Quanto a nota pode oscilar sem que nada tenha mudado (erro de medida).
+// Base: relatório técnico do CFPB (2017), tabela 6: confiabilidade marginal 0,89 (18-61, autoaplicado online) e escala
+// com desvio-padrão ~15. SEM = 15·√(1−0,89) ≈ 5,0. Mudança individual confiável entre DUAS medições (RCI):
+// 1,96·√2·SEM ≈ 13,8. É aproximação de teoria clássica (em IRT o erro varia ao longo da escala); revisar com dados próprios.
+export const FWB_MARGINAL_RELIABILITY = 0.89;
+export const FWB_SCORE_SD = 15;
+export const FWB_SEM = FWB_SCORE_SD * Math.sqrt(1 - FWB_MARGINAL_RELIABILITY);
+/** Diferença mínima (em pontos) entre duas medições para falar em mudança real. */
+export const FWB_RELIABLE_CHANGE = Math.round(1.96 * Math.SQRT2 * FWB_SEM);
+
+export interface FwbChange {
+  delta: number;
+  direction: "up" | "down" | "same";
+  /** true quando a diferença passa do que a medida costuma oscilar sozinha. */
+  reliable: boolean;
+}
+
+/** Compara duas medições. Abaixo do erro de medida a direção é sempre "same": não se narra ruído como mudança. */
+export function fwbChange(current: number, previous: number | null | undefined): FwbChange | null {
   if (previous == null) return null;
   const delta = current - previous;
-  return { delta, direction: Math.abs(delta) < 3 ? "same" : delta > 0 ? "up" : "down" };
+  const reliable = Math.abs(delta) >= FWB_RELIABLE_CHANGE;
+  return { delta, direction: !reliable ? "same" : delta > 0 ? "up" : "down", reliable };
+}
+
+/**
+ * Tendência com pelo menos 4 medições (mais recente primeiro): média das 2 últimas contra as 2 anteriores.
+ * Médias de 2 reduzem o erro por √2, então o limiar cai: 1,96·SEM·√(1/2+1/2) ≈ 9,7 pontos.
+ */
+export function fwbTrend(scoresNewestFirst: number[]): FwbChange | null {
+  if (scoresNewestFirst.length < 4) return null;
+  const mean = (a: number, b: number) => (a + b) / 2;
+  const recent = mean(scoresNewestFirst[0], scoresNewestFirst[1]);
+  const before = mean(scoresNewestFirst[2], scoresNewestFirst[3]);
+  const delta = Math.round((recent - before) * 10) / 10;
+  const threshold = 1.96 * FWB_SEM * Math.sqrt(1 / 2 + 1 / 2);
+  const reliable = Math.abs(delta) >= threshold;
+  return { delta, direction: !reliable ? "same" : delta > 0 ? "up" : "down", reliable };
 }

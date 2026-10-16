@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  FWB_ITEMS, FWB_TABLE_18_61, FWB_TABLE_62_PLUS, fwbChange, fwbDaysUntilDue, fwbResponseValue, scoreFinancialWellBeing,
+  FWB_ITEMS, FWB_RELIABLE_CHANGE, FWB_TABLE_18_61, FWB_TABLE_62_PLUS, fwbChange, fwbDaysUntilDue, fwbResponseValue, fwbTrend, scoreFinancialWellBeing,
 } from "@/lib/engine/financialWellBeing";
 
 describe("escala CFPB de bem-estar financeiro", () => {
@@ -45,11 +45,20 @@ describe("escala CFPB de bem-estar financeiro", () => {
     expect(fwbDaysUntilDue("2026-10-01T12:00:00Z", now)).toBe(0);
   });
 
-  it("não narra variação menor que 3 pontos", () => {
+  it("só fala em mudança a partir do erro de medida (~14 pontos entre duas medições)", () => {
+    expect(FWB_RELIABLE_CHANGE).toBe(14);
+    expect(fwbChange(56, 50)).toMatchObject({ delta: 6, direction: "same", reliable: false }); // ruído
     expect(fwbChange(52, 50)?.direction).toBe("same");
-    expect(fwbChange(56, 50)).toEqual({ delta: 6, direction: "up" });
-    expect(fwbChange(44, 50)?.direction).toBe("down");
+    expect(fwbChange(64, 50)).toMatchObject({ delta: 14, direction: "up", reliable: true });
+    expect(fwbChange(36, 50)).toMatchObject({ delta: -14, direction: "down", reliable: true });
     expect(fwbChange(50, null)).toBeNull();
+  });
+
+  it("tendência exige 4 medições e usa limiar menor (médias de 2)", () => {
+    expect(fwbTrend([60, 58, 50])).toBeNull();
+    expect(fwbTrend([60, 62, 50, 50])).toMatchObject({ delta: 11, direction: "up", reliable: true });
+    expect(fwbTrend([55, 55, 50, 50])).toMatchObject({ direction: "same", reliable: false });
+    expect(fwbTrend([40, 42, 52, 52])).toMatchObject({ direction: "down", reliable: true });
   });
 });
 
