@@ -53,7 +53,7 @@ function recommendationCopy(experiment: BehaviorExperiment) {
     return { icon: CheckCircle2, title: "Vale manter por mais um ciclo", body: "O teste chegou ao objetivo. Repetir ajuda a descobrir se o comportamento se sustenta fora desta janela." };
   }
   if (outcome.recommendation === "switch") {
-    return { icon: RotateCcw, title: "Melhor trocar a estratégia", body: "Este formato não entregou evidência suficiente de melhora. O aprendizado vale mais do que insistir no mesmo teste." };
+    return { icon: RotateCcw, title: "Melhor trocar a estratégia", body: "Este formato não mostrou melhora clara. O aprendizado vale mais do que insistir no mesmo teste." };
   }
   return { icon: FlaskConical, title: "Ainda precisa de mais evidência", body: "O Nino ainda não tem uma comparação estável para sugerir manter ou trocar." };
 }
@@ -225,7 +225,7 @@ export function ExperimentsBoard({
         <div className="rounded-[22px] border border-dashed border-border bg-card p-6 text-center">
           <FlaskConical className="mx-auto h-6 w-6 text-muted-foreground" />
           <p className="mt-2 text-sm font-semibold">Seu próximo experimento aparece depois do mapa comportamental</p>
-          <p className="mt-1 text-xs text-muted-foreground">O Nino usa a dimensão que você quer fortalecer para evitar recomendações genéricas.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Uso o hábito que você quer fortalecer para sugerir algo que sirva para você.</p>
         </div>
       ) : null}
 

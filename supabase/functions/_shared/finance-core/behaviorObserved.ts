@@ -59,6 +59,7 @@ export type BehavioralInvestmentStats = {
   current_value?: number | string;
   emergency_reserve_value?: number | string;
   contributions_90d?: number | string;
+  redemptions_90d?: number | string;
   contribution_days_90d?: number;
 };
 
@@ -97,7 +98,7 @@ function weighted(components: Component[]): number | null {
   return available.reduce((sum, item) => sum + item.value * item.weight, 0) / totalWeight;
 }
 
-function emptyDimension(evidence = "Ainda não há evidência suficiente."): ObservedDimension {
+function emptyDimension(evidence = "Ainda não tenho dados suficientes."): ObservedDimension {
   return { score: null, confidence: "low", evidence, source: "insufficient_data" };
 }
 
@@ -372,7 +373,7 @@ export function buildObservedProfileV2(input: ObservedProfileV2Input): ObservedB
       : null;
   const pctText = (value: number) => `${Math.round(Math.abs(value) * 100)}%`;
   const debt: ObservedDimension = debtScore == null
-    ? emptyDimension("Ainda faltam dados comparáveis de dívida para observar esta dimensão.")
+    ? emptyDimension("Ainda faltam dados de dívida para avaliar este hábito.")
     : {
         score: round(debtScore),
         confidence: openingDebts > 0 && txHistoryDays >= 20 ? "high" : "medium",

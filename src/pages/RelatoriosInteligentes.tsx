@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { BookmarkPlus, ChevronRight, Download, FileText, Loader2, Printer, RefreshCw, Trash2 } from "lucide-react";
-import { listReports, generateReportNow, deleteReport, periodLabel, type ReportListItem } from "@/lib/reports/intelligent/client";
+import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
 import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
-import { ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
 import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -31,25 +26,8 @@ function csvLoadFloor(from: string): string {
 }
 
 
-function scoreTone(score: number | null) {
-  if (score === null) return "bg-muted text-muted-foreground";
-  if (score >= 7.5) return "bg-emerald-500/10 text-emerald-600";
-  if (score >= 5) return "bg-amber-500/10 text-amber-600";
-  return "bg-rose-500/10 text-rose-600";
-}
-
-function typeLabel(type: ReportListItem["report_type"]): string {
-  if (type === "weekly") return "Semana";
-  if (type === "custom") return "Período";
-  return "Mês";
-}
-
 export default function RelatoriosInteligentes() {
   const navigate = useNavigate();
-  const [items, setItems] = useState<ReportListItem[] | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<ReportListItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   // O painel já abre calculado: período, comparação e filtros vivem na URL.
@@ -58,47 +36,6 @@ export default function RelatoriosInteligentes() {
   const from = query.start;
   const to = query.end;
   const rangeValid = Boolean(from && to && from <= to && to <= today);
-
-  async function load() {
-    try {
-      setItems(await listReports());
-    } catch {
-      notifyError("Não consegui carregar seus relatórios.");
-      setItems([]);
-    }
-  }
-
-  useEffect(() => { void load(); }, []);
-
-  /** Guarda o período que está na tela como relatório salvo (com a leitura do Nino). */
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const res = await generateReportNow("custom", { start: from, end: to });
-      notifySuccess("Relatório salvo.");
-      await load();
-      if (res?.report_id) navigate(`/app/relatorios/${res.report_id}`);
-    } catch {
-      notifyError("Não consegui salvar o relatório agora. Tente novamente em instantes.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    try {
-      await deleteReport(pendingDelete.id);
-      setItems((prev) => (prev ?? []).filter((r) => r.id !== pendingDelete.id));
-      notifySuccess("Relatório excluído.");
-      setPendingDelete(null);
-    } catch {
-      notifyError("Não consegui excluir esse relatório agora.");
-    } finally {
-      setDeleting(false);
-    }
-  }
 
   /** CSV do período selecionado — os mesmos lançamentos que o relatório enxerga. */
   async function handleExportCsv() {
@@ -206,105 +143,18 @@ export default function RelatoriosInteligentes() {
         <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
           <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
           <KpiStrip d={dash} />
+          <OtherInflowsCard d={dash} />
           <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
           <EvolutionChart d={dash} />
           <CategoryBreakdown d={dash} />
           {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
           <HabitScoreboard habits={dash.habits} trend={dash.trend} />
-          <div className="flex justify-center print:hidden">
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-full border border-primary px-4 py-2 text-xs font-semibold text-primary disabled:opacity-60"
-            >
-              {saving ? <Loader2 size={12} className="animate-spin" /> : <BookmarkPlus size={12} />} Salvar este relatório com a leitura do Nino
-            </button>
-          </div>
         </div>
       ) : null}
 
-      <details className="group rounded-2xl border border-border bg-card print:hidden">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold">
-          Relatórios salvos{items ? ` (${items.length})` : ""}
-          <ChevronRight size={16} className="text-muted-foreground transition-transform group-open:rotate-90" aria-hidden />
-        </summary>
-        <div className="border-t border-border p-3">
-      {items === null ? (
-        <div className="grid place-items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>
-      ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center">
-          <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary">
-            <FileText size={20} />
-          </span>
-          <p className="mt-3 text-sm font-semibold">Nenhum relatório ainda</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Todo domingo à noite e no fim de cada mês o Nino fecha o período e publica o relatório aqui.
-            Você também pode gerar agora, inclusive de um período escolhido por você.
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {items.map((r) => (
-            <li key={r.id} className="relative">
-              <button
-                onClick={() => navigate(`/app/relatorios/${r.id}`)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-card transition-colors hover:border-primary/40"
-              >
-                <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-xl font-display text-sm font-bold", scoreTone(r.health_score))}>
-                  {r.health_score === null ? "—" : r.health_score.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">
-                      {typeLabel(r.report_type)} · {periodLabel(r)}
-                    </span>
-                    {!r.viewed_at && <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">novo</span>}
-                  </span>
-                  <span className="mt-0.5 block line-clamp-2 text-[11px] text-muted-foreground">
-                    {r.executive_summary ?? "Relatório disponível."}
-                  </span>
-                </span>
-                <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingDelete(r)}
-                aria-label={`Excluir relatório de ${periodLabel(r)}`}
-                className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 size={14} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
 
-        </div>
-      </details>
 
-      <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir este relatório?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete
-                ? `O relatório de ${periodLabel(pendingDelete)} e sua leitura do Nino serão apagados. Seus lançamentos não são afetados e você pode gerar o período novamente depois.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Manter</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={deleting}
-              onClick={(e) => { e.preventDefault(); void handleDelete(); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleting ? "Excluindo…" : "Excluir"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
     </div>
   );
 }

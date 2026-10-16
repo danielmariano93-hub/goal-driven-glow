@@ -24,11 +24,9 @@ describe("financial concepts shown to the user", () => {
 
   it("keeps a single reports screen with a free period option", () => {
     const reports = read("src/pages/RelatoriosInteligentes.tsx");
-    // Painel único: já abre calculado, com período livre (Personalizado) e
-    // relatório salvo gerado a partir do período que está na tela.
+    // Painel único: já abre calculado, com período livre (Personalizado).
     expect(reports).toContain("<PeriodBar");
     expect(read("src/lib/reports/dashboard/client.ts")).toContain('"Personalizado"');
-    expect(reports).toContain('generateReportNow("custom"');
     expect(reports).not.toContain(">Saldo</p>");
   });
 

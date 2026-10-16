@@ -47,3 +47,15 @@ describe("frase das metas mensais (plural correto)", () => {
     [1, 1, "Você cumpriu a única meta mensal que já terminou."],
   ])("%i de %i", (hit, total, expected) => expect(cycleSentence(hit, total)).toBe(expected));
 });
+
+describe("Patrimônio considera resgates (caso real: aplicou 8.000, resgatou 10.601)", () => {
+  it("fala em valor investido que caiu e não pontua a taxa de aporte", () => {
+    const p = buildObservedProfileV3({
+      financialRow: { payload: { snapshot: { monthlyTotals: { income: 3000, expense: 2000 } } } }, checkins: [], txStats: { count: 300, first_at: "2026-05-01T00:00:00Z" },
+      appActivity: {}, goalCycles: [], planningStats: {}, investmentStats: { contributions_90d: 8000, redemptions_90d: 10601.81, contribution_days_90d: 1 },
+    } as never, new Date("2026-10-16T12:00:00Z").getTime());
+    const w = p.dimensions.wealth.record!;
+    expect(w.observed.join(" ")).toMatch(/resgatou .*mais do que investiu.*caiu/);
+    expect((p.dimensions.wealth as { evidence?: string }).evidence).toMatch(/o valor investido caiu/);
+  });
+});

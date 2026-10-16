@@ -63,7 +63,39 @@ const MONEY_KEYS = [
   "amount", "value", "total", "impact_amount", "delta", "difference", "monthly_amount",
   "average", "typical", "previous_total", "current_total", "balance", "available",
   "projected_total", "remaining", "installment_amount", "target_amount", "saved_amount",
+  "limit", "spent", "projected", "overage", "earned_income", "consumption_expense", "gap", "redemptions", "typical_month",
 ];
+/** Papel de cada número em português: o modelo não pode adivinhar o que `value` ou `limit` significam. */
+export const FACT_LABELS: Record<string, string> = {
+  limit: "limite da meta",
+  target_amount: "limite da meta",
+  spent: "gasto até agora",
+  actual_spend: "gasto até agora",
+  projected: "gasto projetado até o fim do mês",
+  projected_final_spend: "gasto projetado até o fim do mês",
+  projected_overage: "quanto deve passar do limite até o fim do mês",
+  overage: "quanto já passou do limite",
+  current_overage: "quanto já passou do limite",
+  earned_income: "renda recebida no mês até agora",
+  consumption_expense: "gasto de consumo no mês até agora",
+  gap: "quanto o gasto passa da renda recebida",
+  investment_redemptions: "entrou por resgates de investimentos",
+  redemptions: "entrou por resgates de investimentos",
+  value: "valor do compromisso",
+  days_until_event: "dias até a data",
+  days_until: "dias até a data",
+  event_date: "data do compromisso",
+  opportunity_date: "data",
+  typical_month: "gasto de um mês típico",
+  spent_so_far: "gasto até agora",
+};
+/** Rótulo do número principal por tipo de mensagem. */
+function primaryLabel(kind: string): string {
+  if (/goal/.test(kind)) return "quanto passa do limite da meta";
+  if (/recurring|commitment/.test(kind)) return "valor do compromisso";
+  if (/cash_flow/.test(kind)) return "quanto o gasto passa da renda recebida";
+  return "valor principal";
+}
 const PERCENT_KEYS = ["percent", "percentage", "share", "variation", "progress", "pace", "ratio"];
 const COUNT_KEYS = ["count", "transactions_count", "occurrences", "installments", "days"];
 // Métricas internas do motor (pontuação, confiança, prioridade...) nunca viram
@@ -171,7 +203,7 @@ export function buildNarrativeEvidencePack(
       ? "money"
       : "count";
     if (kind !== "count" || COUNT_KEYS.some((k) => lower.includes(k))) {
-      facts.push({ key, label: key, kind, value, text: null });
+      facts.push({ key, label: FACT_LABELS[key] ?? key, kind, value, text: null });
       allowedNumbers.add(value);
     }
   }
@@ -194,7 +226,7 @@ export function buildNarrativeEvidencePack(
 
   const primaryValue = num(evidence.impact_amount ?? evidence.amount ?? evidence.total);
   const primary_fact: NarrativeFact | null = primaryValue != null
-    ? { key: "impact", label: "peso no mês", kind: "money", value: primaryValue, text: null }
+    ? { key: "impact", label: primaryLabel(String(candidate.kind ?? "")), kind: "money", value: primaryValue, text: null }
     : facts[0] ?? null;
   if (primaryValue != null) allowedNumbers.add(primaryValue);
 

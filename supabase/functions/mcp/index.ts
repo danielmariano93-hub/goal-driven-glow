@@ -1484,7 +1484,7 @@ var settle_card_statement_default = defineTool7({
 });
 
 // src/lib/mcp/index.ts
-var projectRef = "wesjjdjmlnfjihkkgzfp";
+var projectRef = "amjanjlvsatubxdreyep";
 var mcp_default = defineMcp({
   name: "meu-nino",
   title: "Meu Nino",

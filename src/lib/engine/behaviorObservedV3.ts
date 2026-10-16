@@ -325,12 +325,18 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
     const buffer = available + reserveValue;
     const months = hasExpense ? buffer / (expense as number) : null;
     const reserveScore = months == null ? null : scoreFromReserveMonths(months);
-    const freeKnown = num(projection?.freeAfterKnownCommitments);
+    const freeWithEstimate = num(projection?.freeAfterKnownCommitments);
+    // A folga oficial inclui renda ESTIMADA que ainda não entrou; para a nota usamos só o que já é certo.
+    const estimatedIn = Math.max(0, num(projection?.estimatedFixedInflows) ?? 0);
+    const freeKnown = freeWithEstimate != null ? freeWithEstimate - estimatedIn : null;
     const freeScore = freeKnown != null && hasExpense ? clamp(5 + (freeKnown / (expense as number)) * 5) : null;
     const sufficient = reserveScore != null && freeScore != null && txHistory >= 30;
     const observed: string[] = [];
     if (months != null) observed.push(`${reserveValue > 0 ? "Seu dinheiro e a reserva marcada cobrem" : "Seu dinheiro cobre"} cerca de ${months.toFixed(1).replace(".", ",")} ${months < 1.95 ? "mês" : "meses"} dos seus gastos atuais.`);
-    if (freeKnown != null) observed.push(freeKnown >= 0 ? `Depois dos compromissos que já conheço, sobram ${brl(freeKnown)} no mês.` : `Os compromissos que já conheço passam do seu saldo em ${brl(-freeKnown)}.`);
+    if (freeKnown != null) {
+      observed.push(freeKnown >= 0 ? `Depois dos compromissos que já conheço, sobram ${brl(freeKnown)} no mês.` : `Os compromissos que já conheço passam do seu saldo em ${brl(-freeKnown)}.`);
+      if (estimatedIn > 0 && freeWithEstimate != null) observed.push(`Se entrar a renda que eu estimo (${brl(estimatedIn)}), o resultado do mês seria ${freeWithEstimate >= 0 ? `uma sobra de ${brl(freeWithEstimate)}` : `um buraco de ${brl(-freeWithEstimate)}`}.`);
+    }
     return finalize("security", {
       state: sufficient ? "sufficient" : hasExpense ? "partial" : "none",
       // Liquidez é a evidência principal: folga futura não compensa caixa quase zero (teto = reserva + 3).
@@ -356,23 +362,30 @@ export function buildObservedProfileV3(input: ObservedProfileV2Input, now: numbe
   const wealth = (() => {
     const contributions = Math.max(0, num(investmentStats?.contributions_90d) ?? 0);
     const days = Math.max(0, num(investmentStats?.contribution_days_90d) ?? 0);
+    const redemptions = Math.max(0, num(investmentStats?.redemptions_90d) ?? 0);
+    const net = contributions - redemptions;
     const income = Math.max(0, num(snapshot?.monthlyTotals?.income) ?? 0);
     const savingsRate = num(performance?.savingsRate);
     const regularity = days > 0 ? clamp((days / 6) * 10) : null;
-    const rate = contributions > 0 && income > 0 ? clamp((contributions / (income * 3)) * 50) : null;
+    const rate = contributions > 0 && income > 0 ? clamp((Math.max(0, net) / (income * 3)) * 50) : null;
     const savings = savingsRate != null ? clamp(5 + savingsRate * 12.5) : null;
     const sufficient = days >= 2;
     const observed: string[] = [];
     if (days > 0) observed.push(`Você investiu em ${days} dia${days === 1 ? "" : "s"} nos últimos 90 dias, somando ${brl(contributions)}.`);
     else observed.push("Nenhum aporte registrado nos últimos 90 dias.");
+    if (redemptions > 0) {
+      observed.push(net >= 0
+        ? `No mesmo período você resgatou ${brl(redemptions)}. No saldo, o valor investido cresceu ${brl(net)}.`
+        : `No mesmo período você resgatou ${brl(redemptions)}, mais do que investiu. No saldo, o valor investido caiu ${brl(-net)}.`);
+    }
     if (savingsRate != null) observed.push(`Neste mês, você guardou ${Math.round(savingsRate * 100)}% da renda.`);
     return finalize("wealth", {
       state: sufficient ? "sufficient" : days > 0 || savingsRate != null ? "partial" : "none",
       score: sufficient ? weighted([{ value: regularity, weight: 0.5 }, { value: rate, weight: 0.3 }, { value: savings, weight: 0.2 }]) : null,
       confidence: days >= 4 ? "high" : "medium",
-      summary: days > 0 ? `Você investiu em ${days} dias nos últimos 90 (${brl(contributions)}).` : "Ainda não há aportes regulares para medir a construção de patrimônio.",
+      summary: days > 0 ? (redemptions > 0 && net < 0 ? `Você investiu ${brl(contributions)} nos últimos 90 dias, mas resgatou ${brl(redemptions)}: o valor investido caiu.` : `Você investiu em ${days} dias nos últimos 90 (${brl(contributions)}).`) : "Ainda não há aportes regulares para medir a construção de patrimônio.",
       source: "investment_contributions+savings",
-      factors: [f("contribution_days", "Regularidade dos aportes (90 dias)", regularity, 0.5), f("contribution_rate", "Aportes em relação à renda", rate, 0.3), f("savings", "Quanto você guardou no mês", savings, 0.2)],
+      factors: [f("contribution_days", "Regularidade dos aportes (90 dias)", regularity, 0.5), f("contribution_rate", "Aportes (menos resgates) em relação à renda", rate, 0.3), f("savings", "Quanto você guardou no mês", savings, 0.2)],
       origin: [{ key: "investments", label: "Aportes registrados", kind: "direct" }, { key: "income", label: "Renda do mês", kind: "derived" }],
       window: "últimos 90 dias",
       coverage: `${days} dia${days === 1 ? "" : "s"} com aporte (mínimo: 2)`,

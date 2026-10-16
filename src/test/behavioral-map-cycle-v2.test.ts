@@ -60,7 +60,7 @@ describe("behavioral map cycle v2", () => {
   });
 
   it("does not pretend every behavioral dimension has enough evidence", () => {
-    expect(observedV2).toContain("Ainda não há evidência suficiente");
+    expect(observedV2).toContain("Ainda não tenho dados suficientes");
     expect(observedV2).toContain("score: null");
     expect(observedV2).toContain("insufficient_data");
   });
