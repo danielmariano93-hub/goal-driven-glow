@@ -53,6 +53,8 @@ Deno.serve(async (req) => {
         i: offset + idx, name: sc.name, mode: pack.mode, action: pack.recommendation?.action ?? null, source: r.narrative.source,
         fallback_reason: r.narrative.fallback_reason, violations: r.guard?.violations ?? [], latency_ms: r.latency_ms ?? Date.now() - t0,
         judge: verdict,
+        // diagnóstico: o que o modelo respondeu quando foi reprovado e por quê (só nas reprovações)
+        ...(r.raw ? { rejected_raw: r.raw, guard_detail: r.guard?.detail ?? null } : {}),
         ...(body.texts !== false ? { text: { title: r.narrative.title, body: r.narrative.body, question: r.narrative.question }, deterministic: pack.deterministic } : {}),
       });
     }
