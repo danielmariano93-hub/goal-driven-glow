@@ -130,6 +130,9 @@ describe("composição: saída fora do esquema ou reprovada cai no texto determi
   });
 
   it("parse rejeita título/corpo vazios ou longos demais", () => {
+    const rep = parseMapaNarrativeJson(JSON.stringify({ title: "Dívida", body: "Você tem 1 dívida em atraso. Vamos conferir agora?", question: "Quer ver?" }));
+    expect(rep?.body).toBe("Você tem 1 dívida em atraso.");
+    expect(rep?.question).toBe("Quer ver?");
     expect(parseMapaNarrativeJson(JSON.stringify({ title: "", body: "x", question: "" }))).toBeNull();
     expect(parseMapaNarrativeJson(JSON.stringify({ title: "ok", body: "x".repeat(501), question: "" }))).toBeNull();
     expect(parseMapaNarrativeJson("[]")).toBeNull();
