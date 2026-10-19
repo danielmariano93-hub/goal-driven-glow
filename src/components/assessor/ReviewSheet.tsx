@@ -734,7 +734,7 @@ export function ReviewSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full flex-col bg-card md:h-[90vh] md:max-h-[800px] md:w-[720px] md:rounded-2xl md:shadow-brand"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <header className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
@@ -744,8 +744,8 @@ export function ReviewSheet({
               {items.length} item(ns) encontrados
             </p>
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full hover:bg-secondary" aria-label="Fechar">
-            <X size={16} />
+          <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-secondary/60 hover:bg-secondary" aria-label="Fechar">
+            <X size={18} />
           </button>
         </header>
 
