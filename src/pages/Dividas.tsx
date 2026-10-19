@@ -457,6 +457,20 @@ function DebtModal({
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [error, setError] = useState<string | null>(null);
 
+  // Total, parcela e nº de parcelas se calculam entre si: o campo que a pessoa
+  // mexeu por último vale; o outro é derivado.
+  const [anchor, setAnchor] = useState<"original" | "installment">(initial?.installment_amount && !initial?.original_amount ? "installment" : "original");
+  const num = (v: string) => Number(v.replace(",", "."));
+  const fmt = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
+  function recalc(next: { original?: string; installment?: string; total?: string }, by: "original" | "installment" | "total") {
+    const o = next.original ?? original, i = next.installment ?? installment, t = next.total ?? installmentsTotal;
+    const n = Math.floor(num(t || "0"));
+    const src = by === "total" ? anchor : by;
+    if (!isInstallment || !(n >= 1)) return;
+    if (src === "original" && num(o || "0") > 0) setInstallment(fmt(num(o) / n));
+    else if (src === "installment" && num(i || "0") > 0) setOriginal(fmt(num(i) * n));
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const plan = resolveDebtPlan({
@@ -470,7 +484,7 @@ function DebtModal({
       creditor,
       original_amount: plan.originalAmount,
       outstanding_balance: initial ? Number(outstanding.replace(",", ".")) : plan.outstandingAmount,
-      installment_amount: installment ? Number(installment.replace(",", ".")) : null,
+      installment_amount: isInstallment ? plan.installmentAmount : (installment ? Number(installment.replace(",", ".")) : null),
       installments_total: isInstallment ? Number(installmentsTotal) : null,
       installments_paid: isInstallment ? Number(installmentsPaid) : 0,
       contract_total_amount: plan.originalAmount,
@@ -509,7 +523,7 @@ function DebtModal({
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="mb-1 block text-xs font-medium">Valor total da dívida</label>
-              <input inputMode="decimal" value={original} onChange={(e) => setOriginal(e.target.value)} className="input-base" placeholder={isInstallment ? "Pode deixar vazio para calcular" : ""} />
+              <input inputMode="decimal" value={original} onChange={(e) => { setOriginal(e.target.value); setAnchor("original"); recalc({ original: e.target.value }, "original"); }} className="input-base" placeholder={isInstallment ? "Ou informe a parcela" : ""} />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium">Saldo pendente</label>
@@ -525,11 +539,11 @@ function DebtModal({
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium">Valor da parcela</label>
-                  <input inputMode="decimal" value={installment} onChange={(e) => setInstallment(e.target.value)} className="input-base" />
+                  <input inputMode="decimal" value={installment} onChange={(e) => { setInstallment(e.target.value); setAnchor("installment"); recalc({ installment: e.target.value }, "installment"); }} className="input-base" />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium">Total</label>
-                  <input type="number" min={1} max={600} value={installmentsTotal} onChange={(e) => setInstallmentsTotal(e.target.value)} className="input-base" />
+                  <input type="number" min={1} max={600} value={installmentsTotal} onChange={(e) => { setInstallmentsTotal(e.target.value); recalc({ total: e.target.value }, "total"); }} className="input-base" />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium">Já pagas</label>
@@ -538,8 +552,7 @@ function DebtModal({
               </div>
               {installment && installmentsTotal && (
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Total calculado: <strong className="text-foreground">{formatBRL(Number(installment.replace(",", ".")) * Number(installmentsTotal))}</strong>.
-                  O Nino indicará que esse valor foi inferido se você não preencher o total.
+                  {Number(installmentsTotal)}× {formatBRL(num(installment))} = <strong className="text-foreground">{formatBRL(num(installment) * Number(installmentsTotal))}</strong>. Os valores se calculam sozinhos: mexa em total ou parcela e o outro acompanha.
                 </p>
               )}
             </div>

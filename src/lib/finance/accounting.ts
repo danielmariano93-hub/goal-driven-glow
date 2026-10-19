@@ -29,8 +29,13 @@ export type DebtPlan = {
  * - progresso usa valor efetivamente amortizado.
  */
 export function resolveDebtPlan(input: DebtPlanInput): DebtPlan {
-  const installment = positive(input.installmentAmount);
   const totalInstallments = positiveInt(input.installmentsTotal);
+  const explicitInstallment = positive(input.installmentAmount);
+  // Total + nº de parcelas sem valor da parcela: a parcela é o total dividido.
+  const installment = explicitInstallment
+    ?? (positive(input.originalAmount) != null && totalInstallments != null
+      ? round2(positive(input.originalAmount)! / totalInstallments)
+      : null);
   const paidInstallments = Math.min(
     positiveInt(input.installmentsPaid) ?? 0,
     totalInstallments ?? Number.MAX_SAFE_INTEGER,
