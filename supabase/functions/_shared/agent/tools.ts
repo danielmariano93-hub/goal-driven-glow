@@ -8,7 +8,7 @@
 // deno-lint-ignore-file no-explicit-any
 // Local alias to avoid resolving the Deno remote URL from tsgo/vitest.
 type SupabaseClient = any;
-import { goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
+import { adjustmentReviewsOf, goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
 import { readPriorityFeed } from "../proactive/priorityFeed.ts";
 import {
   behavioralMetricAmount,
@@ -1312,9 +1312,18 @@ export async function list_category_spending_goals(ctx: ToolContext): Promise<To
     const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
     // goal_history.v1 — a mesma leitura mês a mês da tela de Metas: o Nino
     // responde "como fui nas metas?" com placar, tendência e highlights.
+    let adjustments: unknown = null;
     const history = snap.active_category_goals.length
       ? await loadSpendingGoalContext(ctx.sb, ctx.user_id, snap.today)
-        .then((sg) => goalHistoryOf(sg))
+        .then((sg) => {
+          // goal_adjustment.v1 — o ajuste que a pessoa fez no limite foi necessário, desnecessário ou insuficiente?
+          adjustments = adjustmentReviewsOf(sg).slice(0, 8).map((r) => ({
+            category: r.category_name, adjusted_on: r.adjusted_on, direction: r.direction,
+            old_limit: r.old_limit, new_limit: r.new_limit, period_closed: r.closed, spent: r.spent,
+            projected: r.projected, verdict: r.verdict, leaning: r.leaning, headline: r.headline, explanation: r.explanation, reason: r.reason,
+          }));
+          return goalHistoryOf(sg);
+        })
         .then((h) => ({
           highlights: h.highlights.map((x) => ({ tone: x.tone, title: x.title, body: x.body })),
           series: h.series.map((s) => ({
@@ -1330,7 +1339,7 @@ export async function list_category_spending_goals(ctx: ToolContext): Promise<To
         }))
         .catch(() => null)
       : null;
-    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length, history } };
+    return { ok: true, result: { items: snap.active_category_goals, top: snap.top_category_goal, count: snap.active_category_goals.length, history, adjustments } };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -3283,7 +3292,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "list_category_spending_goals",
-    description: "Lista as metas de controle de gasto por categoria, com limite, gasto atual, ritmo diário permitido, projeção de estouro e status (no_ritmo, atencao, em_risco, estourou). Use quando o usuário perguntar por uma meta de gasto específica ou 'minhas metas de categoria'.",
+    description: "Lista as metas de controle de gasto por categoria, com limite, gasto atual, ritmo diário permitido, projeção de estouro e status (no_ritmo, atencao, em_risco, estourou). Use quando o usuário perguntar por uma meta de gasto específica ou 'minhas metas de categoria'. Também devolve `adjustments`: os ajustes de limite que a pessoa fez, com a avaliação pronta (verdict/leaning, headline, explanation) de se o ajuste foi necessário, desnecessário ou insuficiente; use esse texto para responder 'o ajuste que fiz na meta valeu a pena?' sem recalcular.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: list_category_spending_goals,
   },

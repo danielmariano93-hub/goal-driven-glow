@@ -7,6 +7,7 @@ import { fetchAllPages } from "../derived/pagedSelect.ts";
 import { buildGoalHistory, type GoalHistory, type HistoryGoalRow } from "../finance-core/goalHistory.ts";
 import type { TransactionRow } from "../finance-core/facts.ts";
 import { buildMerchantResolver, type MerchantAliasRow, type MerchantResolver } from "../finance-core/merchant.ts";
+import { reviewGoalAdjustments, type AdjustmentReview, type GoalAdjustmentRow } from "../finance-core/goalAdjustment.ts";
 import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "../finance-core/metrics.ts";
 import {
   analyzeSpendingHistory,
@@ -38,6 +39,8 @@ export type SpendingGoalContext = {
   cycles: HistoryGoalRow[];
   /** Avisos de meta de gasto já entregues pelo Nino. */
   alerts_delivered: number;
+  /** Ajustes de limite feitos pela pessoa (antes/depois), para o Nino avaliar se fizeram sentido. */
+  adjustments: GoalAdjustmentRow[];
 };
 
 export type GoalReading = {
@@ -78,7 +81,7 @@ export async function loadSpendingGoalContext(
     d.setUTCMonth(d.getUTCMonth() - monthsBack);
     return d.toISOString().slice(0, 10);
   })();
-  const [rows, catsRes, aliasRes, goalsRes, targetsRes, cyclesRes, alertsRes] = await Promise.all([
+  const [rows, catsRes, aliasRes, goalsRes, targetsRes, cyclesRes, alertsRes, adjRes] = await Promise.all([
     fetchAllPages<any>((a, b) =>
       sb.from("transactions").select(TX_COLUMNS)
         .eq("user_id", userId)
@@ -99,6 +102,9 @@ export async function loadSpendingGoalContext(
     sb.from("communication_deliveries").select("id", { count: "exact", head: true })
       .eq("user_id", userId).eq("status", "delivered")
       .in("kind", ["goal_feasibility", "spending_goal_pressure", "spending_goal_zero_charge", "spending_goal_threshold", "spending_goal_weekend", "spending_goal_weekly", "spending_goal_monthly"]),
+    sb.from("spending_goal_adjustments")
+      .select("id,goal_id,category_id,adjusted_on,period_start,period_end,old_limit,new_limit,old_mode,new_mode,old_baseline_kind,new_baseline_kind,reason")
+      .eq("user_id", userId).gte("adjusted_on", shiftDays(asOf, -200)).order("adjusted_on", { ascending: false }).limit(60),
   ]);
   for (const [name, res] of [["categories", catsRes], ["goals", goalsRes], ["targets", targetsRes]] as const) {
     if ((res as any).error) throw new Error(`spending_goals_${name}:${(res as any).error.message}`);
@@ -145,7 +151,22 @@ export async function loadSpendingGoalContext(
       source: "cycle" as const,
     })),
     alerts_delivered: Number((alertsRes as any).count ?? 0),
+    adjustments: (((adjRes as any).data ?? []) as any[]).map((a) => ({
+      ...a,
+      old_limit: Number(a.old_limit),
+      new_limit: Number(a.new_limit),
+    })) as GoalAdjustmentRow[],
   };
+}
+
+/** Cada ajuste de meta avaliado: foi necessário, desnecessário ou insuficiente? */
+export function adjustmentReviewsOf(ctx: SpendingGoalContext): AdjustmentReview[] {
+  return reviewGoalAdjustments({
+    adjustments: ctx.adjustments,
+    entries: ctx.entries,
+    today: ctx.as_of,
+    categoryNames: new Map(ctx.categories.map((c) => [c.id, c.name])),
+  });
 }
 
 /** Leitura de cada meta ativa: a mesma avaliação do teto + o detalhamento. */

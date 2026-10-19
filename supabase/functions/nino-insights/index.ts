@@ -18,7 +18,7 @@ import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
 import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDashboard/runtime.ts";
-import { adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
+import { adjustmentReviewsOf, adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 import { buildHabitPatterns } from "../_shared/proactive/habitPatterns.ts";
 import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
 import { loadContextAnswers, loadNudgeGoals, loadNudgeTransactions } from "../_shared/proactive/profileLoaders.ts";
@@ -157,6 +157,7 @@ Deno.serve(async (req) => {
         as_of: ctx.as_of,
         goals: readings,
         history: goalHistoryOf(ctx, readings),
+        adjustments: adjustmentReviewsOf(ctx),
         advice: body.advice === true ? adviseGoals(ctx, { onlyCategoryIds }) : null,
       });
     }
