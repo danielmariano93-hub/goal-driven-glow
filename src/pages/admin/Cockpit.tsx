@@ -3,6 +3,10 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { MetricTile } from "@/components/admin/kit/MetricTile";
 import { TrendChart } from "@/components/admin/kit/TrendChart";
 import { AiOpsCharts, type AiOpsPoint } from "@/components/admin/AiOpsCharts";
+import { Link } from "react-router-dom";
+import { useScreenPerf } from "@/components/admin/ScreenPerformanceBoard";
+import { perfTone, TONE_TEXT } from "@/lib/admin/screenPerf";
+import { formatMs as perfMs } from "@/lib/admin/commandCenter";
 import { callAdminRpc, withPeriod, withDateRange, adminErrorMessage, type Envelope } from "@/lib/admin/adminRpc";
 import { SkeletonTable as AdminSkeleton } from "@/components/admin/AdminSkeleton";
 import { EmptyState } from "@/components/admin/EmptyState";
@@ -309,6 +313,8 @@ export default function Cockpit() {
         <AiOpsCharts series={aiOps?.series ?? []} coverage={aiOps?.coverage} className="mt-4" />
       </section>
 
+      <ScreenSpeedStrip />
+
       <section aria-labelledby="cockpit-tendencia" className="space-y-4">
         <h2 id="cockpit-tendencia" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tendência
@@ -368,5 +374,29 @@ export default function Cockpit() {
         </ul>
       </TechnicalDetails>
     </div>
+  );
+}
+
+/** Faixa do Cockpit com o indicador "Tela pronta" (detalhe em Nino IA → Desempenho). */
+function ScreenSpeedStrip() {
+  const q = useScreenPerf(7);
+  const r = q.data;
+  const tone = perfTone(r?.soft.p75);
+  return (
+    <section aria-labelledby="cockpit-telas">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 id="cockpit-telas" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Velocidade das telas</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Quanto as pessoas esperam, no celular, até uma tela ficar pronta (últimos 7 dias).</p>
+        </div>
+        <Link to="/admin/nino-ia?aba=custo" className="text-xs font-semibold text-primary">Ver por tela →</Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <MetricTile label="Tela pronta (p75)" value={r && r.overall.n > 0 ? perfMs(r.soft.p75) : "—"} polarity="lower_is_better" hint={r && r.overall.n > 0 ? `Situação: ${TONE_TEXT[tone]} (boa até 2 s)` : "Sem medições ainda."} emphasis />
+        <MetricTile label="Aberturas rápidas" value={r?.overall.fast_pct == null ? "—" : `${String(r.overall.fast_pct).replace(".", ",")}%`} polarity="higher_is_better" hint="Prontas em até 2 s (3 s na 1ª abertura)." />
+        <MetricTile label="Abrir o app (p75)" value={r && r.cold.n > 0 ? perfMs(r.cold.p75) : "—"} polarity="lower_is_better" hint="Da abertura até a tela inicial pronta." />
+        <MetricTile label="Medições" value={r ? new Intl.NumberFormat("pt-BR").format(r.overall.n) : "—"} hint="Aberturas de tela medidas no período." />
+      </div>
+    </section>
   );
 }

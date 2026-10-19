@@ -26,6 +26,7 @@ import { PrivacyScreen } from "@/components/native/PrivacyScreen";
 import { OfflineNotice } from "@/components/OfflineNotice";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { FinancialRealtimeSync } from "@/components/finance/FinancialRealtimeSync";
+import { ScreenPerfTracker } from "@/components/perf/ScreenPerfTracker";
 
 const Privacidade = lazyRoute(() => import("./pages/legal/Privacidade"));
 const Termos = lazyRoute(() => import("./pages/legal/Termos"));
@@ -111,7 +112,7 @@ const queryClient = new QueryClient({
 
 
 const Fallback = () => (
-  <div className="min-h-[40vh] grid place-items-center">
+  <div className="min-h-[40vh] grid place-items-center" data-screen-loading>
     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
   </div>
 );
@@ -127,6 +128,7 @@ const App = () => (
         <NativeRuntime />
         <AuthProvider>
           <FinancialRealtimeSync />
+          <ScreenPerfTracker />
           <PrivacyModeProvider>
           <Toaster />
           <Sonner />

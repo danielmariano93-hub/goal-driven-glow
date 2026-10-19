@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { SkeletonTable } from "@/components/admin/AdminSkeleton";
 import { AiPerformance, usePeriodParams } from "./CentralDeComando";
+import { ScreenPerformanceBoard } from "@/components/admin/ScreenPerformanceBoard";
 import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { useCommandCenter } from "@/lib/admin/useCommandCenter";
 import { useQuery } from "@tanstack/react-query";
@@ -78,6 +79,7 @@ export default function CustoLatencia() {
         status={<Badge variant="secondary" className="gap-1"><Activity size={12} /> Operação global</Badge>}
         actions={<AdminDateFilter value={range} preset={preset} onChange={setPeriod} />}
       />
+      <ScreenPerformanceBoard days={Math.min(60, Math.max(1, Math.round(q.data?.window_days ?? 7)))} />
       {q.isLoading && <SkeletonTable />}
       {q.data && <AiPerformance data={q.data} />}
       {q.data && <ToolReliability days={Math.min(90, Math.max(1, Math.round(q.data.window_days)))} />}
