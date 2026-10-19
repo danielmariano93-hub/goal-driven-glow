@@ -15,7 +15,8 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { ContactPickerButton } from "@/components/contacts/ContactPickerButton";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 
-type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number };
+/** `due_date` vazio = herda o vencimento geral da divisão. */
+type Person = { id?: string; name: string; phone_e164: string; amount_due: string; amount_paid?: number; due_date?: string };
 type Source = "account" | "credit_card";
 const money = (value: string) => Number(value.replace(/\./g, "").replace(",", "."));
 
@@ -74,7 +75,7 @@ export default function DivisaoDoRoleNova() {
       setSourceId(s.source_credit_card_id ?? s.source_account_id ?? "");
       const owner = rows.find((p) => !p.phone_e164 && Number(p.amount_paid) === Number(p.amount_due));
       setIncludeOwner(Boolean(owner)); setOwnerAmount(owner ? String(owner.amount_due).replace(".", ",") : "");
-      setPeople(rows.filter((p) => p !== owner).map((p) => ({ id:p.id,name:p.name,phone_e164:p.phone_e164??"",amount_due:String(p.amount_due).replace(".",","),amount_paid:Number(p.amount_paid) })));
+      setPeople(rows.filter((p) => p !== owner).map((p) => ({ id:p.id,name:p.name,phone_e164:p.phone_e164??"",amount_due:String(p.amount_due).replace(".",","),amount_paid:Number(p.amount_paid),due_date:p.due_date??"" })));
       const { data: existingInstallments } = await supabase
         .from("shared_expense_installments" as never)
         .select("total_installments").eq("shared_expense_id" as never, id as never)
@@ -110,7 +111,7 @@ export default function DivisaoDoRoleNova() {
     if (!valid) { toast.error("Revise os valores e a origem do pagamento"); return; }
     setSaving(true);
     try {
-      const participantPayload: Array<{ id: string | null; name: string; phone_e164: string | null; amount_due: number }> = [];
+      const participantPayload: Array<{ id: string | null; name: string; phone_e164: string | null; amount_due: number; due_date: string | null }> = [];
       const invalidPhones: string[] = [];
       const seenPhones = new Set<string>();
       const duplicated: string[] = [];
@@ -124,7 +125,7 @@ export default function DivisaoDoRoleNova() {
           else if (seenPhones.has(phone)) duplicated.push(p.name.trim());
           else seenPhones.add(phone);
         }
-        participantPayload.push({ id:p.id??null, name:p.name.trim(), phone_e164:phone, amount_due:share });
+        participantPayload.push({ id:p.id??null, name:p.name.trim(), phone_e164:phone, amount_due:share, due_date:p.due_date||null });
       }
       if (duplicated.length) {
         setSaving(false);
@@ -137,9 +138,10 @@ export default function DivisaoDoRoleNova() {
         return;
       }
       const firstDue = dueDate || todayCivilSaoPaulo();
-      const parcelsFor = (amount: number) =>
+      // Cada pessoa começa na própria data (se tiver); senão, na data geral da divisão.
+      const parcelsFor = (amount: number, personDue?: string | null) =>
         payMode === "installments" && installmentCount > 1
-          ? buildEqualInstallments(amount, installmentCount, firstDue)
+          ? buildEqualInstallments(amount, installmentCount, personDue || firstDue)
           : null;
 
       if (editing) {
@@ -160,11 +162,11 @@ export default function DivisaoDoRoleNova() {
         // Parcelas são aplicadas depois do update: só aqui todos os
         // participantes (inclusive os criados agora) já têm id canônico.
         const { data: afterRows } = await supabase.from("shared_expense_participants" as never)
-          .select("id,phone_e164,amount_due").eq("shared_expense_id" as never, id as never);
+          .select("id,phone_e164,amount_due,due_date").eq("shared_expense_id" as never, id as never);
         const map: Record<string, unknown> = {};
         for (const row of ((afterRows ?? []) as any[])) {
           if (!row.phone_e164) continue;
-          const parcels = parcelsFor(Number(row.amount_due ?? 0));
+          const parcels = parcelsFor(Number(row.amount_due ?? 0), row.due_date as string | null);
           if (parcels) map[String(row.id)] = parcels;
         }
         const { error: installmentError } = await supabase.rpc("split_apply_installments" as never, {
@@ -177,7 +179,7 @@ export default function DivisaoDoRoleNova() {
         const installmentsPayload = payMode === "installments" && installmentCount > 1
           ? participantPayload.map((p, index) => ({
               participant_index: index,
-              rows: buildEqualInstallments(Number(p.amount_due ?? 0), installmentCount, firstDue),
+              rows: buildEqualInstallments(Number(p.amount_due ?? 0), installmentCount, p.due_date || firstDue),
             }))
           : null;
         const { data, error } = await supabase.rpc("split_create_v3" as never, {
@@ -231,7 +233,7 @@ export default function DivisaoDoRoleNova() {
     {(editing||step===1)&&<section className="surface-card space-y-3 p-4">
       <Field label="Nome do rolê"><input value={title} onChange={(e)=>setTitle(e.target.value)} placeholder="Jantar com a turma" className="input"/></Field>
       <div className="grid grid-cols-2 gap-3"><Field label="Valor total"><input value={total} onChange={(e)=>setTotal(e.target.value)} inputMode="decimal" className="input"/></Field><Field label="Data"><input type="date" value={occurredAt} onChange={(e)=>setOccurredAt(e.target.value)} className="input"/></Field></div>
-      <Field label={payMode==="installments"?"Vencimento da 1ª parcela":"Vencimento"}><input type="date" value={dueDate} onChange={(e)=>setDueDate(e.target.value)} className="input"/></Field>
+      <Field label={payMode==="installments"?"Vencimento da 1ª parcela (padrão)":"Vencimento (padrão)"}><input type="date" value={dueDate} onChange={(e)=>setDueDate(e.target.value)} className="input"/><span className="block text-[11px] font-normal text-muted-foreground">É a data de todo mundo, a menos que você escolha uma data diferente para alguém no passo das pessoas. Cada um é lembrado no próprio vencimento.</span></Field>
       <div className="space-y-2 border-t pt-3">
         <div className="flex gap-2">
           <Choice active={payMode==="cash"} onClick={()=>setPayMode("cash")}>À vista</Choice>
@@ -254,7 +256,7 @@ export default function DivisaoDoRoleNova() {
     </section>}
     {(editing||step===2)&&<section className="space-y-3">
       <div className="surface-card space-y-3 p-4"><div className="flex gap-2"><Choice active={mode==="equal"} onClick={()=>setMode("equal")}>Dividir igual</Choice><Choice active={mode==="custom"} onClick={()=>setMode("custom")}>Personalizar</Choice></div><label className="flex gap-2 text-xs"><input type="checkbox" checked={includeOwner} onChange={(e)=>setIncludeOwner(e.target.checked)}/> Incluir você</label>{includeOwner&&mode==="custom"&&<Field label="Sua parte"><input value={ownerAmount} onChange={(e)=>setOwnerAmount(e.target.value)} className="input" inputMode="decimal"/></Field>}</div>
-      <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}</div>)}<div className="flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button><ContactPickerButton onPicked={({name,phone_e164})=>{const dup=people.some((p)=>p.phone_e164&&normalizeBrPhone(p.phone_e164)===phone_e164);if(dup){toast.error("Esta pessoa já está no rolê.");return;}const empty=people.findIndex((p)=>!p.name&&!p.phone_e164);const row={name,phone_e164,amount_due:""};if(empty>=0)setPeople(people.map((x,i)=>i===empty?{...x,...row}:x));else setPeople([...people,row]);}}/><QuickAddPeople existingPhones={people.map((p)=>p.phone_e164)} onAdd={(rows)=>{const base=people.filter((p)=>p.name||p.phone_e164);setPeople([...base,...rows.map((r)=>({name:r.name,phone_e164:r.phone_e164,amount_due:""}))]);}}/></div><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
+      <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}<label className="col-span-3 flex items-center gap-2 text-[11px] text-muted-foreground"><span className="shrink-0">{payMode==="installments"?"1ª parcela em":"Paga até"}</span><input type="date" aria-label={`Vencimento de ${p.name||"esta pessoa"}`} value={p.due_date??""} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,due_date:e.target.value}:x))} className="input min-w-0 flex-1 py-1 text-xs"/>{p.due_date?<button type="button" onClick={()=>setPeople(people.map((x,j)=>j===i?{...x,due_date:""}:x))} className="shrink-0 text-primary">limpar</button>:<span className="shrink-0">{dueDate?`(geral: ${formatCivil(dueDate)})`:"(igual ao geral)"}</span>}</label></div>)}<div className="flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button><ContactPickerButton onPicked={({name,phone_e164})=>{const dup=people.some((p)=>p.phone_e164&&normalizeBrPhone(p.phone_e164)===phone_e164);if(dup){toast.error("Esta pessoa já está no rolê.");return;}const empty=people.findIndex((p)=>!p.name&&!p.phone_e164);const row={name,phone_e164,amount_due:""};if(empty>=0)setPeople(people.map((x,i)=>i===empty?{...x,...row}:x));else setPeople([...people,row]);}}/><QuickAddPeople existingPhones={people.map((p)=>p.phone_e164)} onAdd={(rows)=>{const base=people.filter((p)=>p.name||p.phone_e164);setPeople([...base,...rows.map((r)=>({name:r.name,phone_e164:r.phone_e164,amount_due:""}))]);}}/></div><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
     </section>}
     {(editing||step===3)&&<section className="surface-card space-y-3 p-4">
       <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Para manter seu saldo correto, toda divisão registra o gasto na conta ou no cartão usado no pagamento.</div>

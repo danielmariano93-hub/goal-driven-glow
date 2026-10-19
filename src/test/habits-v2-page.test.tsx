@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -110,6 +110,9 @@ async function mount() {
 }
 const called = (name: string) => rpcCalls.filter(([n]) => n === name);
 
+// Os dados são de 09/10: sem fixar a data, a janela "últimos 30 dias" do histórico envelhecia e o teste passava a falhar sozinho.
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(NOW); });
+afterEach(() => { vi.useRealTimers(); });
 beforeEach(() => { rpcCalls.length = 0; feedbackCalls.length = 0; answersState.length = 0; commitmentsState = {}; });
 
 describe("hábitos v2 — página montada de verdade", () => {
