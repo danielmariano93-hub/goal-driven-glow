@@ -58,3 +58,17 @@ describe("accounting core", () => {
     expect(series[2].rollingTypical).toBe(30);
   });
 });
+
+describe("resolveDebtPlan: total e nº de parcelas sem valor da parcela", () => {
+  it("divide o total pelas parcelas", () => {
+    const plan = resolveDebtPlan({ originalAmount: 6264, installmentAmount: null, installmentsTotal: 12, installmentsPaid: 0 });
+    expect(plan.installmentAmount).toBe(522);
+    expect(plan.originalAmount).toBe(6264);
+    expect(plan.outstandingAmount).toBe(6264);
+    expect(plan.inferredOriginal).toBe(false);
+  });
+  it("abate as parcelas já pagas do saldo", () => {
+    const plan = resolveDebtPlan({ originalAmount: 6264, installmentAmount: null, installmentsTotal: 12, installmentsPaid: 2 });
+    expect(plan.outstandingAmount).toBe(5220);
+  });
+});
