@@ -135,7 +135,7 @@ export default function DivisaoDoRoleDetalhe() {
       <header>
         <h1 className="font-display text-2xl font-bold">{split.title}</h1>
         <p className="text-xs text-muted-foreground">Criado por {ownerName ?? "outro usuário"} · {new Date(`${split.occurred_at}T12:00:00`).toLocaleDateString("pt-BR")}</p>
-        <p className={`mt-1 text-xs ${overdue?"font-semibold text-destructive":"text-muted-foreground"}`}>{overdue?`Vencido em ${new Date(`${split.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`:split.due_date?`Vence em ${new Date(`${split.due_date}T12:00:00`).toLocaleDateString("pt-BR")}`:labels[split.status]??split.status}</p>
+        {(()=>{const mine=(myParticipant as any)?.due_date??split.due_date;const when=mine?new Date(`${mine}T12:00:00`).toLocaleDateString("pt-BR"):null;return <p className={`mt-1 text-xs ${overdue?"font-semibold text-destructive":"text-muted-foreground"}`}>{overdue?`Vencido${when?` em ${when}`:""}`:when?`Vence em ${when}`:labels[split.status]??split.status}</p>;})()}
       </header>
       <section className="surface-card p-4">
         <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Minha parte</p>
