@@ -36,6 +36,7 @@ export * from "./recurringSchedule.ts";
 export * from "./categoryWeekdayHeatmap.ts";
 export * from "./spendingGoals.ts";
 export * from "./goalHistory.ts";
+export * from "./goalAdjustment.ts";
 export * from "./reportDashboard.ts";
 export * from "./behaviorDimensions.ts";
 export * from "./behaviorObserved.ts";

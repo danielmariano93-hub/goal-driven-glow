@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { qk } from "@/lib/db/queryKeys";
+import { useSaveCategorySpendingGoal, type CategorySpendingGoalInput } from "@/lib/db/finance";
 import type { GoalBreakdown, MerchantTargetKind, SpendingHistoryAdvice } from "@/lib/engine/spendingGoals";
 import type { GoalHistory } from "@/lib/engine/goalHistory";
+import type { AdjustmentReview } from "@/lib/engine/goalAdjustment";
 
 // Metas hierárquicas de gasto (`spending_goals.v1`): a leitura vem do servidor,
 // a mesma que alimenta o Nino e a comunicação ativa.
@@ -37,8 +39,8 @@ export type MerchantOption = {
   last_date: string;
 };
 
-type GoalsResponse = { ok: boolean; as_of: string; goals: GoalReading[]; history: GoalHistory | null; advice: SpendingHistoryAdvice | null };
-type GoalsOverview = { goals: GoalReading[]; history: GoalHistory | null };
+type GoalsResponse = { ok: boolean; as_of: string; goals: GoalReading[]; history: GoalHistory | null; advice: SpendingHistoryAdvice | null; adjustments?: AdjustmentReview[] };
+type GoalsOverview = { goals: GoalReading[]; history: GoalHistory | null; adjustments: AdjustmentReview[] };
 
 const KEY = qk.spendingGoalReadings[0];
 
@@ -59,7 +61,7 @@ function useGoalsOverview<T>(select: (data: GoalsOverview) => T) {
     retry: 1,
     queryFn: async () => {
       const res = await invoke<GoalsResponse>({ action: "goals" });
-      return { goals: res.goals ?? [], history: res.history ?? null };
+      return { goals: res.goals ?? [], history: res.history ?? null, adjustments: res.adjustments ?? [] };
     },
     select,
   });
@@ -73,6 +75,11 @@ export function useSpendingGoalReadings() {
 /** Histórico mês a mês das metas (série por categoria, placar e highlights). */
 export function useGoalHistory() {
   return useGoalsOverview((data) => data.history);
+}
+
+/** Ajustes de limite já feitos e a avaliação de cada um (necessário, desnecessário, insuficiente…). */
+export function useGoalAdjustments() {
+  return useGoalsOverview((data) => data.adjustments);
 }
 
 /** Análise do histórico: referência, tendência, atípicos, recomendado e impacto. */
@@ -173,4 +180,29 @@ export function useSetSavingsDestination() {
 export function useInvalidateSpendingGoals() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries({ queryKey: [KEY] });
+}
+
+/**
+ * Salva o ajuste da meta (o gatilho do banco registra o antes e o depois) e
+ * anexa o motivo, se a pessoa escolheu um. O motivo é opcional e não bloqueia.
+ */
+export function useAdjustCategoryGoal() {
+  const save = useSaveCategorySpendingGoal();
+  const invalidate = useInvalidateSpendingGoals();
+  return {
+    isPending: save.isPending,
+    adjust: async (input: CategorySpendingGoalInput, reason: string | null) => {
+      await save.mutateAsync(input);
+      if (reason && input.id) {
+        // Tabela nova ainda fora dos tipos gerados.
+        const table = (supabase as unknown as { from: (t: string) => any }).from("spending_goal_adjustments");
+        const { data } = await table.select("id").eq("goal_id", input.id)
+          .order("adjusted_at", { ascending: false }).limit(1).maybeSingle();
+        if (data?.id) {
+          await (supabase as unknown as { from: (t: string) => any }).from("spending_goal_adjustments").update({ reason }).eq("id", data.id);
+        }
+      }
+      invalidate();
+    },
+  };
 }

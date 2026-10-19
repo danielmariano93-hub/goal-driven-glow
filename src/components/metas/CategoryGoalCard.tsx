@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
-import { Pencil, Trash2, Pause, Play, ChevronRight } from "lucide-react";
+import { Pencil, Trash2, Pause, Play, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
 import { formatBRL } from "@/lib/engine/facts";
+import type { AdjustmentReview } from "@/lib/engine/goalAdjustment";
+import { AdjustedBadge } from "./GoalAdjustmentViews";
 import { resolveRequiredLabel } from "@/lib/observability/dataContract";
 
 type Props = {
@@ -10,6 +12,10 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
   onToggleStatus: () => void;
+  /** Ajuste rápido do limite/forma de medir (registra o antes e o depois). */
+  onAdjust?: () => void;
+  /** Último ajuste desta meta, para o selo "Ajustada". */
+  adjustment?: AdjustmentReview | null;
   /** Conteúdo extra (ex.: Plano do Nino) renderizado dentro do card. */
   children?: ReactNode;
   /** Quando falso, o card não navega (usado na própria tela de detalhe). */
@@ -44,7 +50,7 @@ function fmtRule(ev: CategoryGoalEvaluation): string {
   return `Redução de ${Number(ev.goal.reduction_pct ?? 0)}%`;
 }
 
-export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, children, clickable = true }: Props) {
+export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true }: Props) {
   const navigate = useNavigate();
   const s = STATUS_STYLES[evaluation.status];
   const paused = evaluation.status === "paused";
@@ -139,9 +145,16 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
         </p>
       )}
 
+      {adjustment ? <AdjustedBadge review={adjustment} /> : null}
+
       {children ? <div onClick={(e) => e.stopPropagation()}>{children}</div> : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
+        {onAdjust ? (
+          <button onClick={stop(onAdjust)} className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+            <SlidersHorizontal size={12} /> Ajustar meta
+          </button>
+        ) : null}
         <button onClick={stop(onEdit)} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium">
           <Pencil size={12} /> Editar
         </button>

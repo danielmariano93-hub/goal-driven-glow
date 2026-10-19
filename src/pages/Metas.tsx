@@ -37,7 +37,9 @@ import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
 import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
-import { useGoalHistory, useSpendingGoalAdvice, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
+import { useAdjustCategoryGoal, useGoalAdjustments, useGoalHistory, useSpendingGoalAdvice, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
+import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
+import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 import { ClosedGoalMonths, GoalHighlights, GoalImpactCard, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 
 type GoalTab = "all" | "individual" | "shared";
@@ -148,6 +150,9 @@ export default function Metas() {
   }), [goals, contribs, investments, catGoalEvals, numericTxs]);
 
   const { data: goalHistory } = useGoalHistory();
+  const { data: adjustments } = useGoalAdjustments();
+  const adjuster = useAdjustCategoryGoal();
+  const [adjusting, setAdjusting] = useState<CategoryGoalEvaluation | null>(null);
   // Meta encerrada sai de "Este mês" e vai para o histórico: o período ativo
   // não disputa espaço com setembro quando já é outubro.
   const isClosed = (status: string) => status === "completed_ok" || status === "completed_over";
@@ -274,6 +279,8 @@ export default function Metas() {
                   onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
                   onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}
                   onToggleStatus={() => toggleCatGoal.mutate({ id: ev.goal.id, status: ev.goal.status === "active" ? "paused" : "active" })}
+                  onAdjust={() => setAdjusting(ev)}
+                  adjustment={(adjustments ?? []).find((r) => r.goal_id === ev.goal.id && r.period_end >= ev.period.start) ?? null}
                 >
                   <GoalPaceLine reading={readingByGoal.get(ev.goal.id)} />
                   <CategoryGoalStrategyCard strategy={buildStrategyForCategoryGoal(ev, numericTxs as never)} />
@@ -522,6 +529,19 @@ export default function Metas() {
           }
         />
       )}
+
+      {adjusting ? (
+        <GoalAdjustSheet
+          evaluation={adjusting}
+          txs={numericTxs as never}
+          saving={adjuster.isPending}
+          onClose={() => setAdjusting(null)}
+          onSubmit={(input, reason) => adjuster.adjust(input, reason).then(
+            () => { setAdjusting(null); toast.success("Meta ajustada. O Nino vai acompanhar se fez sentido."); },
+            (e: unknown) => toast.error("Erro", { description: String((e as Error).message) }),
+          )}
+        />
+      ) : null}
 
       {openCatGoal && (
         <CategoryGoalForm

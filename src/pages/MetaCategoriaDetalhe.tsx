@@ -18,7 +18,11 @@ import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
 import { useGoals } from "@/lib/db/finance";
 import type { MerchantTargetEvaluation } from "@/lib/engine/spendingGoals";
+import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
+import { GoalAdjustmentsPanel } from "@/components/metas/GoalAdjustmentViews";
 import {
+  useAdjustCategoryGoal,
+  useGoalAdjustments,
   useSaveMerchantTarget,
   useSetSavingsDestination,
   useGoalHistory,
@@ -46,6 +50,9 @@ export default function MetaCategoriaDetalhe() {
   const delCatGoal = useDeleteCategorySpendingGoal();
   const toggleCatGoal = useUpdateCategorySpendingGoalStatus();
   const [openForm, setOpenForm] = useState(false);
+  const [openAdjust, setOpenAdjust] = useState(false);
+  const adjuster = useAdjustCategoryGoal();
+  const { data: allAdjustments } = useGoalAdjustments();
   const { data: readings, isLoading: readingsLoading, isError: readingsError } = useSpendingGoalReadings();
   const { data: advice } = useSpendingGoalAdvice();
   const { data: goalHistory } = useGoalHistory();
@@ -67,6 +74,10 @@ export default function MetaCategoriaDetalhe() {
     [financialSnapshot, goal?.id],
   );
 
+  const goalAdjustments = useMemo(
+    () => (allAdjustments ?? []).filter((r) => r.category_id === goal?.category_id).slice(0, 4),
+    [allAdjustments, goal?.category_id],
+  );
   const reading = useMemo(() => (readings ?? []).find((r) => r.goal_id === id) ?? null, [readings, id]);
   // A meta é uma série por categoria: setembro e outubro contam a mesma história.
   const historySeries = useMemo(
@@ -131,6 +142,8 @@ export default function MetaCategoriaDetalhe() {
           evaluation={evaluation}
           clickable={false}
           onEdit={() => setOpenForm(true)}
+          onAdjust={() => setOpenAdjust(true)}
+          adjustment={goalAdjustments.find((r) => r.period_end >= evaluation.period.start) ?? null}
           onDelete={() => {
             if (confirm("Excluir esta meta?")) {
               delCatGoal.mutate(goal.id, { onSuccess: () => { toast.success("Excluída"); navigate("/app/metas"); } });
@@ -165,6 +178,8 @@ export default function MetaCategoriaDetalhe() {
       ) : readingsError ? (
         <p className="mt-5 text-xs text-muted-foreground">Não consegui carregar o detalhamento por estabelecimento agora.</p>
       ) : null}
+
+      <GoalAdjustmentsPanel reviews={goalAdjustments} />
 
       {historySeries ? <GoalHistoryPanel series={historySeries} /> : null}
 
@@ -236,6 +251,19 @@ export default function MetaCategoriaDetalhe() {
             onSuccess: () => { setTargetForm({ open: false, initial: null }); toast.success(input.id ? "Submeta atualizada" : "Submeta criada"); },
             onError: (e: unknown) => toast.error((e as Error).message),
           })}
+        />
+      ) : null}
+
+      {openAdjust ? (
+        <GoalAdjustSheet
+          evaluation={evaluation}
+          txs={numericTxs as never}
+          saving={adjuster.isPending}
+          onClose={() => setOpenAdjust(false)}
+          onSubmit={(input, reason) => adjuster.adjust(input, reason).then(
+            () => { setOpenAdjust(false); toast.success("Meta ajustada. O Nino vai acompanhar se fez sentido."); },
+            (e: unknown) => toast.error((e as Error).message),
+          )}
         />
       ) : null}
 

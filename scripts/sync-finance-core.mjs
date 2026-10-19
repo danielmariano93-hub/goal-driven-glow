@@ -54,6 +54,7 @@ export const FINANCE_CORE_MODULES = [
   "categoryWeekdayHeatmap",
   "spendingGoals",
   "goalHistory",
+  "goalAdjustment",
   "reportDashboard",
   "behaviorDimensions",
   "behaviorObserved",
