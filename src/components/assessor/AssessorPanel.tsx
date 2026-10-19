@@ -361,15 +361,17 @@ export function AssessorPanel({ onClose }: { onClose: () => void }) {
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-card md:relative md:m-4 md:h-[85vh] md:max-h-[720px] md:w-[420px] md:rounded-2xl md:shadow-brand"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        // O painel é um portal em tela cheia (fora do #root): sem a área segura do topo, o cabeçalho com o botão de fechar fica
+        // embaixo da barra de status do iPhone (PWA/tela cheia) e some. No desktop o valor é 0.
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <header className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
           <div>
             <p className="font-display text-base font-bold">Seu assessor</p>
             <p className="text-[11px] text-muted-foreground">Converse como no WhatsApp</p>
           </div>
-          <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full hover:bg-secondary" aria-label="Fechar">
-            <X size={16} />
+          <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-secondary/60 hover:bg-secondary" aria-label="Fechar">
+            <X size={18} />
           </button>
         </header>
 
