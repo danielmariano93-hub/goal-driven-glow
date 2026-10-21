@@ -10,6 +10,7 @@ import { AdminDateFilter } from "@/components/admin/AdminDateFilter";
 import { PRESET_LABELS, resolvePreset, type PeriodPresetKey, type PeriodRange } from "@/lib/admin/periodPresets";
 import { useCommandCenter, useOpsHealth } from "@/lib/admin/useCommandCenter";
 import { dict } from "@/lib/admin/displayDictionary";
+import { useAiConsumption, workloadLabel } from "@/lib/admin/aiConsumption";
 import {
   buildAttention, errorLabel, modelName, serviceState, servicesAttention, type OpsService, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
@@ -113,7 +114,7 @@ function RankedBars({
 /** Comparativo de modelos: acerto de primeira, tempo, falha final e custo por 1.000 conversas. */
 export function ModelComparison({ models }: { models: CommandCenterData["by_model"] }) {
   const rows = models.filter((m) => m.turns > 0 || m.attempts > 0);
-  if (!rows.length) return <p className="rounded-2xl bg-secondary/40 px-3 py-6 text-center text-xs text-muted-foreground">Sem chamadas de IA no período.</p>;
+  if (!rows.length) return <p className="rounded-2xl bg-secondary/40 px-3 py-6 text-center text-xs text-muted-foreground">Nenhuma conversa precisou de IA neste período: o registro rápido resolveu. O consumo de IA das demais funções está em "Consumo de IA em todas as funções".</p>;
   return (
     <ul className="space-y-4">
       {rows.map((m) => {
@@ -144,6 +145,46 @@ export function ModelComparison({ models }: { models: CommandCenterData["by_mode
   );
 }
 
+/** Consumo de IA de todas as funções (proativo, relatórios, categorização, insights…), do ledger. */
+function AiConsumptionPanels({ days }: { days: number }) {
+  const q = useAiConsumption(days || 7);
+  const series: SmoothSeries[] = [
+    { key: "tokens", label: "Tokens", kind: "area", color: "hsl(var(--primary))", format: formatInt },
+    { key: "cost_usd", label: "Custo", kind: "line", axis: "right", color: "hsl(var(--success))", format: formatUsd },
+  ];
+  if (q.isLoading || !q.data) return null;
+  const c = q.data;
+  const data = c.daily.map((d) => ({ day: d.day, tokens: d.tokens_in + d.tokens_out, cost_usd: d.cost_usd }));
+  return (
+    <div className="grid gap-4 lg:grid-cols-2" data-testid="ai-consumption">
+      <Panel
+        title="Consumo de IA em todas as funções"
+        subtitle={`${formatInt(c.totals.calls)} chamadas · ${formatCompact(c.totals.tokens_in + c.totals.tokens_out)} tokens · ${formatUsd(c.totals.cost_usd)} no período${c.totals.failures ? ` · ${c.totals.failures} falhas` : ""}`}
+        legend={series}
+      >
+        {data.length ? (
+          <SmoothChart data={data} xKey="day" series={series} formatX={dayLabel} formatY={formatCompact} formatYRight={(v) => `$${v.toFixed(3).replace(".", ",")}`} />
+        ) : (
+          <p className="rounded-2xl bg-secondary/40 px-3 py-6 text-center text-xs text-muted-foreground">Nenhuma chamada de IA registrada no período.</p>
+        )}
+      </Panel>
+      <Panel title="Onde a IA é usada" subtitle="Por função: chamadas, custo e tempo">
+        <RankedBars
+          empty="Nenhuma chamada de IA registrada no período."
+          rows={c.by_workload.map((w) => ({
+            key: w.workload,
+            label: workloadLabel(w.workload),
+            value: w.calls,
+            valueLabel: formatInt(w.calls),
+            danger: w.failures > 0,
+            meta: `${formatUsd(w.cost_usd)} · ${formatCompact(w.tokens)} tokens${w.avg_ms ? ` · ${formatMs(w.avg_ms)} em média` : ""}${w.failures ? ` · ${w.failures} falhas` : ""}`,
+          }))}
+        />
+      </Panel>
+    </div>
+  );
+}
+
 /** Gráficos e rankings de desempenho da IA (latência, tokens, custo, modelos). */
 export function AiPerformance({ data }: { data: CommandCenterData }) {
   const daily = data.daily;
@@ -164,10 +205,11 @@ export function AiPerformance({ data }: { data: CommandCenterData }) {
         <Panel title="Tempo de resposta" subtitle="Da pergunta até a resposta, por dia" legend={latency}>
           <SmoothChart data={daily} xKey="day" series={latency} formatX={dayLabel} formatY={formatMs} />
         </Panel>
-        <Panel title="Tokens e custo estimado" subtitle={`≈ ${formatUsd(perTurn)} por conversa · ${data.cost_note}`} legend={tokens}>
+        <Panel title="Tokens e custo das conversas" subtitle={tokenData.some((d) => d.tokens > 0) ? `≈ ${formatUsd(perTurn)} por conversa · ${data.cost_note}` : "Nenhuma conversa usou IA neste período (o registro rápido resolveu). Veja abaixo o consumo de IA de todas as funções."} legend={tokens}>
           <SmoothChart data={tokenData} xKey="day" series={tokens} formatX={dayLabel} formatY={formatCompact} formatYRight={(v) => `$${v.toFixed(3).replace(".", ",")}`} />
         </Panel>
       </div>
+      <AiConsumptionPanels days={data.window_days} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Eficiência por modelo" subtitle="Quem acerta de primeira, quão rápido responde e quanto custa">
           <ModelComparison models={data.by_model} />
@@ -241,6 +283,24 @@ function Overview({ data }: { data: CommandCenterData }) {
   const spark = (k: keyof CommandCenterData["daily"][number]) => daily.map((d) => Number(d[k] ?? 0));
   const perTurn = t.turns > 0 ? t.cost / t.turns : 0;
 
+  const ai = useAiConsumption(data.window_days || 7);
+  // Falhas de IA em qualquer função entram junto das conversas com falha.
+  const errorRows = [
+    ...data.top_errors.map((e) => ({
+      key: e.reason, label: errorLabel(e.reason), value: e.n, valueLabel: `${e.n}×`, danger: true,
+      meta: `última em ${new Date(e.last_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    })),
+    ...(ai.data?.failures ?? []).map((f) => ({
+      key: `ai:${f.workload}:${f.error_code}`, label: `IA · ${workloadLabel(f.workload)} · ${f.error_code.replace(/_/g, " ")}`, value: f.n, valueLabel: `${f.n}×`, danger: true,
+      meta: `última em ${new Date(f.last_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    })),
+  ].sort((a, b) => b.value - a.value);
+
+  // As conversas já vêm de agent_runs; tira-se delas o que o ledger também registra como conversa para não contar duas vezes.
+  const chatInLedger = ai.data?.by_workload.find((w) => w.workload === "AGENT_CONVERSATION");
+  const allTokens = ai.data ? ai.data.totals.tokens_in + ai.data.totals.tokens_out - (chatInLedger?.tokens ?? 0) + (t.tin + t.tout) : t.tin + t.tout;
+  const allCost = ai.data ? ai.data.totals.cost_usd - (chatInLedger?.cost_usd ?? 0) + t.cost : t.cost;
+
   return (
     <div className="space-y-6">
       <AttentionBoard items={attention} />
@@ -250,8 +310,8 @@ function Overview({ data }: { data: CommandCenterData }) {
         <MetricTile label="Pessoas atendidas" value={formatInt(t.users)} deltaPct={pctDelta(t.users, t.users_prev)} polarity="higher_is_better" spark={spark("users")} />
         <MetricTile label="Respostas sem falha" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} falharam`} />
         <MetricTile label="Tempo típico" value={formatMs(t.p50)} deltaPct={pctDelta(t.p50, t.p50_prev)} polarity="lower_is_better" spark={spark("p50")} hint={`as mais lentas: ${formatMs(t.p95)}`} />
-        <MetricTile label="Tokens" value={formatCompact(t.tin + t.tout)} deltaPct={pctDelta(t.tin + t.tout, t.tok_prev)} polarity="neutral" spark={daily.map((d) => d.tokens_in + d.tokens_out)} hint={`${formatCompact(t.tin)} entrada · ${formatCompact(t.tout)} saída`} />
-        <MetricTile label="Custo estimado" value={formatUsd(t.cost)} deltaPct={pctDelta(t.cost, t.cost_prev)} polarity="lower_is_better" spark={spark("cost_usd")} hint={`≈ ${formatUsd(perTurn)} por conversa`} />
+        <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
+        <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -268,18 +328,8 @@ function Overview({ data }: { data: CommandCenterData }) {
       <SystemRoutines services={ops.data?.services ?? []} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="O que mais dá errado" subtitle="Causas das conversas com falha, da mais frequente para a menos">
-          <RankedBars
-            empty="Nenhuma falha no período."
-            rows={data.top_errors.map((e) => ({
-              key: e.reason,
-              label: errorLabel(e.reason),
-              value: e.n,
-              valueLabel: `${e.n}×`,
-              danger: true,
-              meta: `última em ${new Date(e.last_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
-            }))}
-          />
+        <Panel title="O que mais dá errado" subtitle="Conversas e chamadas de IA que falharam, da causa mais frequente para a menos">
+          <RankedBars empty="Nenhuma falha no período, nas conversas nem nas chamadas de IA." rows={errorRows} />
         </Panel>
         <Panel title="Por canal" subtitle="Onde as pessoas conversam com o Nino">
           <RankedBars
