@@ -14,6 +14,7 @@ import { logInsightEvent, useContextAnswerMutations, useContextAnswers, useHabit
 import { dimensionSubject, patternSubject, type PatternAnswerKey } from "../../supabase/functions/_shared/proactive/habitContext";
 import type { FeedbackAnswer } from "@/components/habits/DimensionPanel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
+import { EmotionEvolution } from "@/components/emotions/EmotionEvolution";
 import { HabitTrend } from "@/components/behavioral/EvolutionParts";
 import { useContestDimension, useObservedFeedback, useRemoveFeedback } from "@/lib/behavioral/observedFeedback";
 import { behaviorHabitsReading, buildHabitDiscovery, moneyImpactOf, weekStartOf, type HabitDiscovery } from "@/lib/behavioral/behaviorEvolution";
@@ -339,7 +340,7 @@ export default function HabitsV2() {
             <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
               Nos últimos 30 dias: {directCount === 1 ? "1 resposta sua" : `${directCount} respostas suas`} e {estimatedCount === 1 ? "1 registro antigo estimado" : `${estimatedCount} registros antigos estimados`}. Os registros estimados não entram na nota.
             </p>
-            <div className="mt-3"><MoneyMoodTimeline snapshot={dashboard} /></div>
+            <div className="mt-3 space-y-3"><EmotionEvolution /><MoneyMoodTimeline snapshot={dashboard} /></div>
           </details>
           <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
           <div className="rounded-2xl bg-secondary/25 p-3 text-[11px] leading-relaxed text-muted-foreground">

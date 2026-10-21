@@ -8,9 +8,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
 import { EXTRA_EMOTIONS, PRIMARY_EMOTIONS, resolveEmotion } from "@/lib/emotions/catalog";
+import { EmotionWeekStrip } from "@/components/emotions/EmotionWeekStrip";
 
-const PRIMARY_MOODS = PRIMARY_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label }));
-const EXTRA_MOODS = EXTRA_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label }));
+const PRIMARY_MOODS = PRIMARY_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label, emoji: e.emoji }));
+const EXTRA_MOODS = EXTRA_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label, emoji: e.emoji }));
 const ALL_MOODS = [...PRIMARY_MOODS, ...EXTRA_MOODS];
 
 const CONTEXTS = [
@@ -159,10 +160,12 @@ export function EmotionalCheckinCard() {
         </div>
       </div>
 
+      <EmotionWeekStrip />
+
       {saved && selected ? (
         <div className="mt-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-semibold text-success"><Check size={12} weight="bold" /> {selected.label} · hoje</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1.5 text-[12px] font-semibold text-success"><span aria-hidden>{selected.emoji}</span> {selected.label} · hoje</span>
             <Button type="button" onClick={() => setCollapsedAfterSave(false)} variant="ghost" size="sm" className="rounded-full text-[12px] font-bold">Editar</Button>
           </div>
           <div className="mt-3 grid grid-cols-3 divide-x divide-border overflow-hidden rounded-2xl border border-border bg-secondary/20">
@@ -176,7 +179,7 @@ export function EmotionalCheckinCard() {
           <div className="mt-3 flex gap-1.5 overflow-x-auto no-scrollbar">
             {visibleMoods.map((m) => {
               const active = selectedKey === m.key;
-              return <Button key={m.key} type="button" variant={active ? "default" : "outline"} size="sm" onClick={() => { setSelectedKey(m.key); if (!today) setCalm(Math.max(0, Math.min(10, m.v * 2))); }} className="h-10 shrink-0 rounded-full px-3 text-[11px] font-semibold" aria-pressed={active}>{m.label}</Button>;
+              return <Button key={m.key} type="button" variant={active ? "default" : "outline"} size="sm" onClick={() => { setSelectedKey(m.key); if (!today) setCalm(Math.max(0, Math.min(10, m.v * 2))); }} className="h-14 shrink-0 flex-col gap-0 rounded-2xl px-3.5 text-[11px] font-semibold" aria-pressed={active}><span className="text-[20px] leading-none" aria-hidden>{m.emoji}</span>{m.label}</Button>;
             })}
             {!showMore && !visibleMoods.some((m) => EXTRA_MOODS.some((e) => e.key === m.key)) && (
               <Button type="button" onClick={() => setShowMore(true)} variant="outline" size="sm" className="h-10 shrink-0 rounded-full px-3 text-[11px] font-semibold">Outro</Button>
