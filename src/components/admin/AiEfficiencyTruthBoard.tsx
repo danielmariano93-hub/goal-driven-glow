@@ -84,6 +84,12 @@ export function AiEfficiencyTruthBoard() {
         <AdminMetricCard label="Tempo total do run (P95)" value={sec(t.run_p95_latency_ms)} detail="Backend completo; não é latência percebida de rede" />
       </div>
 
+      {Number(t.tokens_total ?? 0) === 0 && Number(t.interactions ?? 0) > 0 ? (
+        <p className="rounded-2xl border border-border bg-secondary/40 px-4 py-3 text-xs text-muted-foreground">
+          Nenhuma conversa usou IA neste período: o registro rápido resolveu. Isto mede só as conversas; o consumo de IA das demais funções (avisos, relatórios, categorização) está na Visão geral.
+        </p>
+      ) : null}
+
       <AiOpsCharts series={s.series ?? []} coverage={s.coverage} />
 
       <div className="rounded-2xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground">

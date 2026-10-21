@@ -6,7 +6,7 @@ import { useEmotionHistory } from "@/lib/emotions/useEmotionHistory";
 
 const W = 320;
 const H = 150;
-const PAD = { l: 8, r: 8, t: 14, b: 22 };
+const PAD = { l: 26, r: 8, t: 14, b: 22 };
 
 /** Evolução do humor que a pessoa marcou. Degradê neutro (lilás): humor baixo não é "errado". */
 export function EmotionEvolution() {
@@ -34,13 +34,13 @@ export function EmotionEvolution() {
 
   return (
     <section className="rounded-[26px] border border-border bg-card p-4 shadow-card sm:p-5" aria-label="Evolução do humor" data-testid="emotion-evolution">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Humor com o dinheiro</p>
           <h2 className="mt-1 font-display text-xl font-bold tracking-tight">Como você tem se sentido</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">O que você marcou nos check-ins, ao longo do tempo. É a sua percepção, não uma nota.</p>
         </div>
-        <div className="flex shrink-0 gap-1 rounded-full bg-secondary/70 p-1" role="group" aria-label="Período">
+        <div className="flex w-fit shrink-0 gap-1 rounded-full bg-secondary/70 p-1" role="group" aria-label="Período">
           {([30, 90] as const).map((d) => (
             <button key={d} type="button" onClick={() => setWindowDays(d)} aria-pressed={windowDays === d}
               className={`rounded-full px-3 py-1.5 text-[11px] font-semibold ${windowDays === d ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`}>{d} dias</button>
@@ -71,14 +71,12 @@ export function EmotionEvolution() {
             <path d={path} fill="none" stroke="url(#mood-line)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             {points.map((p, i) => <circle key={p.date} cx={x(i)} cy={y(p.mood)} r={i === points.length - 1 ? 4.5 : 3} fill="hsl(var(--card))" stroke="hsl(var(--primary))" strokeWidth="2" />)}
             {markIdx.map((i) => <circle key={`s${i}`} cx={x(i)} cy={H - PAD.b + 10} r="2.6" fill="hsl(var(--muted-foreground))" opacity="0.7" />)}
+            <text x={PAD.l - 4} y={y(5) + 5} fontSize="14" textAnchor="end">{emojiForMood(5)}</text>
+            <text x={PAD.l - 4} y={y(1) + 5} fontSize="14" textAnchor="end">{emojiForMood(1)}</text>
             <text x={x(0)} y={H - 4} fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="start">{points[0].label}</text>
             <text x={x(points.length - 1)} y={H - 4} fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="end">{points[points.length - 1].label}</text>
           </svg>
-          <div className="-mt-1 flex items-center justify-between px-1 text-[15px]" aria-hidden>
-            <span title="Mais leve">{emojiForMood(5)}</span>
-            <span className="text-[10px] text-muted-foreground">mais leve ↑ · mais pesado ↓</span>
-            <span title="Mais pesado">{emojiForMood(1)}</span>
-          </div>
+          <p className="mt-1 text-center text-[10px] text-muted-foreground">mais leve ↑ · mais pesado ↓</p>
           {markIdx.length > 0 ? (
             <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><i className="h-2 w-2 rounded-full bg-muted-foreground/70" aria-hidden /> Pontos cinza marcam dias com gasto bem acima do usual. É só um lado a lado, não uma conclusão.</p>
           ) : null}
