@@ -9,12 +9,12 @@ import {
 const RANK = { no: 0, limited: 1, yes: 2 } as const;
 
 /** O que o plano acrescenta ao anterior: evita repetir a lista inteira em cada cartão. */
-function incrementalFeatures(plan: LandingPlan, prev: LandingPlan | null): Array<{ key: string; label: string; sub: string | null }> {
+function incrementalFeatures(plan: LandingPlan, prev: LandingPlan | null): Array<{ key: string; label: string; description: string | null; sub: string | null }> {
   return plan.features.flatMap((f) => {
     const before = prev?.features.find((x) => x.key === f.key)?.value ?? "no";
     if (RANK[f.value] <= RANK[before]) return [];
-    if (f.value === "limited") return [{ key: f.key, label: f.label, sub: f.note }];
-    return [{ key: f.key, label: f.label, sub: before === "limited" ? "sem limite" : null }];
+    if (f.value === "limited") return [{ key: f.key, label: f.label, description: f.description, sub: f.note }];
+    return [{ key: f.key, label: f.label, description: f.description, sub: before === "limited" ? "sem limite" : null }];
   });
 }
 
@@ -93,7 +93,11 @@ export function PlansSection() {
                       {items.map((f) => (
                         <li key={f.key}>
                           <Check size={16} weight="bold" aria-hidden="true" />
-                          <span>{f.label}{f.sub ? <em>{f.sub}</em> : null}</span>
+                          <span>
+                            <b>{f.label}</b>
+                            {f.description ? <small>{f.description}</small> : null}
+                            {f.sub ? <em className={f.sub === "sem limite" ? "is-up" : ""}>{f.sub === "sem limite" ? "Sem limite" : `Limite: ${f.sub}`}</em> : null}
+                          </span>
                         </li>
                       ))}
                     </ul>

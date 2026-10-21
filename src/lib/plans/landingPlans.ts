@@ -30,18 +30,18 @@ export interface LandingPlan {
 
 const F = (key: string, label: string, description: string, values: [FeatureValue, string?][]): [string, string, string, [FeatureValue, string?][]] => [key, label, description, values];
 const CATALOG = [
-  F("lancamentos", "Lançamentos, contas e cartões", "Registre e organize tudo à mão", [["yes"], ["yes"], ["yes"]]),
-  F("categorias", "Categorias e relatórios", "Veja para onde o dinheiro vai", [["yes"], ["yes"], ["yes"]]),
-  F("metas", "Metas de gasto por categoria", "Teto por categoria com ritmo do mês", [["limited", "até 3 metas"], ["yes"], ["yes"]]),
-  F("nino_app", "Nino no app", "Converse e tire dúvidas sobre o seu mês", [["limited", "limite diário"], ["yes"], ["yes"]]),
-  F("whatsapp", "Nino no WhatsApp", "Registre por texto, áudio ou foto", [["no"], ["yes"], ["yes"]]),
-  F("assessor", "Importar extrato e fatura", "PDF, OFX e foto, com revisão antes de lançar", [["no"], ["yes"], ["yes"]]),
-  F("proativo", "Alertas e insights do Nino", "Avisos antes de o mês apertar", [["limited", "resumo básico"], ["yes"], ["yes"]]),
-  F("mapa", "Mapa Financeiro", "Leitura completa da sua saúde financeira", [["limited", "resumo"], ["yes"], ["yes"]]),
-  F("habitos", "Hábitos e ajuste de metas avaliado", "O Nino diz se o ajuste valeu a pena", [["no"], ["yes"], ["yes"]]),
-  F("role", "Divisão do rolê", "Divida contas e cobre com lembretes", [["limited", "1 rolê por mês"], ["yes"], ["yes"]]),
-  F("open_finance", "Bancos conectados (Open Finance)", "Conecte seus bancos direto", [["no"], ["no"], ["yes"]]),
-  F("sync_auto", "Sincronização automática", "Atualiza sozinho, todo dia", [["no"], ["no"], ["yes"]]),
+  F("lancamentos", "Registre seus gastos e ganhos", "Anote entradas e saídas e organize contas e cartões.", [["yes"], ["yes"], ["yes"]]),
+  F("categorias", "Saiba para onde o dinheiro vai", "Categorias e relatórios do seu mês, sem planilha.", [["yes"], ["yes"], ["yes"]]),
+  F("metas", "Metas de gasto", "Defina um teto por categoria, como Lazer, e veja se está no ritmo.", [["limited", "até 3 metas"], ["yes"], ["yes"]]),
+  F("nino_app", "Converse com o Nino no app", "Pergunte “quanto gastei com mercado?” e receba a resposta na hora.", [["limited", "algumas perguntas por dia"], ["yes"], ["yes"]]),
+  F("whatsapp", "Registre pelo WhatsApp", "Mande texto, áudio ou foto da nota e o Nino lança para você.", [["no"], ["yes"], ["yes"]]),
+  F("assessor", "Importe extrato e fatura", "Envie PDF, OFX ou foto: o Nino lê, categoriza e você só confere.", [["no"], ["yes"], ["yes"]]),
+  F("proativo", "Avisos antes de o mês apertar", "O Nino percebe gasto fora do ritmo e avisa a tempo de agir.", [["limited", "avisos básicos"], ["yes"], ["yes"]]),
+  F("mapa", "Mapa Financeiro", "Um retrato da sua saúde financeira: equilíbrio, segurança e futuro.", [["limited", "versão resumida"], ["yes"], ["yes"]]),
+  F("habitos", "Hábitos e metas que aprendem", "Entende seus padrões e diz se um ajuste de meta valeu a pena.", [["no"], ["yes"], ["yes"]]),
+  F("role", "Divisão de contas com amigos", "Rachou o jantar? O Nino divide, acompanha quem pagou e cobra por você.", [["limited", "1 divisão por mês"], ["yes"], ["yes"]]),
+  F("open_finance", "Conecte seus bancos", "Suas transações entram sozinhas, direto do banco (Open Finance).", [["no"], ["no"], ["yes"]]),
+  F("sync_auto", "Atualização automática", "Tudo atualizado todo dia, sem você precisar lançar nada.", [["no"], ["no"], ["yes"]]),
 ];
 const features = (i: number): PlanFeature[] => CATALOG.map(([key, label, description, v]) => ({ key, label, description, value: v[i][0], note: v[i][1] ?? null }));
 
