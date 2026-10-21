@@ -11,6 +11,7 @@ import { useHabitsV2Enabled } from "@/lib/behavioral/habitsV2Flag";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
+import { EmotionEvolution } from "@/components/emotions/EmotionEvolution";
 import { ExperimentsBoard } from "@/components/behavioral/ExperimentsBoard";
 import { BehavioralInsightsCard } from "@/components/emotions/BehavioralInsightsCard";
 import { HabitDiscoveryCard, HabitTrend, MoneyImpactCard, VerdictStrip, WhatChanged } from "@/components/behavioral/EvolutionParts";
@@ -271,6 +272,7 @@ function EmocoesLegacy() {
       ) : null}
 
       <div id="checkin" className="scroll-mt-24"><EmotionalCheckinCard /></div>
+      <EmotionEvolution />
       <MoneyMoodTimeline snapshot={dashboard} />
 
       <details className="space-y-3">
