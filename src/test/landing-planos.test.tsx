@@ -61,6 +61,21 @@ describe("vitrine de planos", () => {
     // o servidor recusa sem consentimento; aqui o mock aceita, então confirmamos que o aviso de gratuidade está visível
     expect(screen.getByText(/nada será cobrado|Nenhuma cobrança/i)).toBeTruthy();
   });
+  it("cada cartão lista só o que acrescenta ao plano anterior", async () => {
+    const { container } = wrap();
+    await screen.findByRole("button", { name: /Entrar na lista de espera/ });
+    const items = (slug: string) => Array.from(container.querySelectorAll(`[data-plan="${slug}"] .lp-plan-features li`)).map((l) => l.textContent ?? "");
+    expect(container.querySelector('[data-plan="nino"] .lp-plan-more')?.textContent).toMatch(/Tudo do Grátis, mais/);
+    expect(items("nino").join("|")).toMatch(/WhatsApp/);
+    expect(items("nino").join("|")).not.toMatch(/Lançamentos/);
+    expect(items("conecta")).toHaveLength(2);
+  });
+  it("se a leitura falhar, a vitrine continua com o conteúdo padrão", async () => {
+    rpc.mockImplementation(async () => ({ data: null, error: { message: "boom" } }));
+    const { container } = wrap();
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
+    await waitFor(() => expect(container.querySelectorAll("[data-plan]").length).toBe(3));
+  });
   it("cálculos de preço", () => {
     expect(yearlySavingPct({ price_monthly: 19.9, price_yearly: 179.9 })).toBe(25);
     expect(yearlySavingPct({ price_monthly: null, price_yearly: null })).toBeNull();

@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, Minus, X } from "@phosphor-icons/react";
+import { Check, Minus, Plus } from "@phosphor-icons/react";
 import {
   formatPlanPrice, joinPlanWaitlist, PRICE_INTENT_LABEL, trackPlanEvent, useLandingPlans, yearlySavingPct,
   type LandingPlan, type PriceIntent,
 } from "@/lib/plans/landingPlans";
+
+const RANK = { no: 0, limited: 1, yes: 2 } as const;
+
+/** O que o plano acrescenta ao anterior: evita repetir a lista inteira em cada cartão. */
+function incrementalFeatures(plan: LandingPlan, prev: LandingPlan | null): Array<{ key: string; label: string; sub: string | null }> {
+  return plan.features.flatMap((f) => {
+    const before = prev?.features.find((x) => x.key === f.key)?.value ?? "no";
+    if (RANK[f.value] <= RANK[before]) return [];
+    if (f.value === "limited") return [{ key: f.key, label: f.label, sub: f.note }];
+    return [{ key: f.key, label: f.label, sub: before === "limited" ? "sem limite" : null }];
+  });
+}
 
 /** Planos da landing (#planos). Conteúdo editável no admin; "Em breve" abre a lista de espera (fake door). */
 export function PlansSection() {
@@ -38,13 +50,17 @@ export function PlansSection() {
         </div>
 
         <div className="lp-plan-grid">
-          {plans.map((plan) => {
+          {plans.map((plan, idx) => {
             const soon = plan.availability === "coming_soon";
             const saving = yearlySavingPct(plan);
+            const prev = idx > 0 ? plans[idx - 1] : null;
+            const items = incrementalFeatures(plan, prev);
             return (
               <article key={plan.slug} className={`lp-plan${plan.highlighted ? " is-highlighted" : ""}${soon ? " is-soon" : ""}`} data-plan={plan.slug}>
-                {plan.badge ? <span className="lp-plan-badge">{plan.badge}</span> : null}
-                <h3>{plan.name}</h3>
+                <div className="lp-plan-top">
+                  <h3 className="lp-plan-name">{plan.name}</h3>
+                  {plan.badge ? <span className="lp-plan-badge">{plan.badge}</span> : null}
+                </div>
                 {plan.tagline ? <p className="lp-plan-tagline">{plan.tagline}</p> : null}
                 <div className="lp-plan-price">
                   {soon || plan.price_monthly == null ? (
@@ -52,13 +68,13 @@ export function PlansSection() {
                   ) : (
                     <>
                       <strong>{formatPlanPrice(plan.price_monthly)}</strong>
-                      {plan.price_monthly > 0 ? <span> /mês</span> : null}
+                      {plan.price_monthly > 0 ? <span>/mês</span> : null}
                     </>
                   )}
                 </div>
                 {!soon && plan.price_yearly ? (
-                  <p className="lp-plan-yearly">ou {formatPlanPrice(plan.price_yearly)}/ano{saving ? ` · economize ${saving}%` : ""}</p>
-                ) : <p className="lp-plan-yearly">&nbsp;</p>}
+                  <p className="lp-plan-yearly">ou {formatPlanPrice(plan.price_yearly)}/ano{saving ? <> · <b>economize {saving}%</b></> : null}</p>
+                ) : null}
 
                 {soon ? (
                   <button type="button" className="lp-btn ghost lp-plan-cta" onClick={() => { trackPlanEvent(plan.slug, "click_cta"); trackPlanEvent(plan.slug, "waitlist_open"); setWaitlistFor(plan); }}>
@@ -70,26 +86,34 @@ export function PlansSection() {
                   </Link>
                 )}
 
-                <ul className="lp-plan-features">
-                  {plan.features.filter((f) => f.value !== "no").map((f) => (
-                    <li key={f.key}>
-                      <Check size={16} weight="bold" aria-hidden="true" />
-                      <span>{f.label}{f.value === "limited" && f.note ? <em> · {f.note}</em> : null}</span>
-                    </li>
-                  ))}
-                </ul>
+                {items.length > 0 ? (
+                  <>
+                    <p className="lp-plan-more">{prev ? `Tudo do ${prev.name}, mais` : "O que está incluído"}</p>
+                    <ul className="lp-plan-features">
+                      {items.map((f) => (
+                        <li key={f.key}>
+                          <Check size={16} weight="bold" aria-hidden="true" />
+                          <span>{f.label}{f.sub ? <em>{f.sub}</em> : null}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
               </article>
             );
           })}
         </div>
         <p className="lp-micro lp-plans-foot">Ainda não cobramos nada. Quem já usa o Nino continua com tudo liberado.</p>
 
-        <h3 className="lp-compare-title">Compare todos os recursos</h3>
-        <div className="lp-compare-wrap">
+        <details className="lp-compare-details">
+          <summary>
+            Comparar todos os recursos
+            <Plus size={20} weight="regular" className="lp-faq-icon" />
+          </summary>
           <table className="lp-compare">
             <thead>
               <tr>
-                <th scope="col">Recurso</th>
+                <th scope="col" />
                 {plans.map((p) => <th key={p.slug} scope="col" className={p.highlighted ? "is-highlighted" : ""}>{p.name}</th>)}
               </tr>
             </thead>
@@ -104,8 +128,8 @@ export function PlansSection() {
                     const cell = p.features.find((f) => f.key === row.key) ?? p.features[i];
                     return (
                       <td key={p.slug} className={p.highlighted ? "is-highlighted" : ""}>
-                        {!cell || cell.value === "no" ? <X size={16} aria-label="Não incluso" />
-                          : cell.value === "limited" ? <span className="lp-cell-limited"><Minus size={14} aria-hidden="true" />{cell.note ?? "limitado"}</span>
+                        {!cell || cell.value === "no" ? <Minus size={16} className="lp-no" aria-label="Não incluso" />
+                          : cell.value === "limited" ? <span className="lp-cell-limited"><i aria-hidden="true" />{cell.note ?? "limitado"}</span>
                           : <Check size={18} weight="bold" aria-label="Incluso" />}
                       </td>
                     );
@@ -114,7 +138,7 @@ export function PlansSection() {
               ))}
             </tbody>
           </table>
-        </div>
+        </details>
       </div>
       {waitlistFor ? <WaitlistDialog plan={waitlistFor} onClose={() => setWaitlistFor(null)} /> : null}
     </section>
