@@ -44,7 +44,7 @@ describe("vitrine de planos", () => {
   });
   it("divisão do rolê aparece limitada no grátis e completa nos pagos", () => {
     const role = (i: number) => DEFAULT_PLANS[i].features.find((f) => f.key === "role")!;
-    expect(role(0)).toMatchObject({ value: "limited", note: "1 rolê por mês" });
+    expect(role(0)).toMatchObject({ value: "limited", note: "1 divisão por mês" });
     expect(role(1).value).toBe("yes");
   });
   it("Open Finance só no plano Conecta", () => {
@@ -67,7 +67,7 @@ describe("vitrine de planos", () => {
     const items = (slug: string) => Array.from(container.querySelectorAll(`[data-plan="${slug}"] .lp-plan-features li`)).map((l) => l.textContent ?? "");
     expect(container.querySelector('[data-plan="nino"] .lp-plan-more')?.textContent).toMatch(/Tudo do Grátis, mais/);
     expect(items("nino").join("|")).toMatch(/WhatsApp/);
-    expect(items("nino").join("|")).not.toMatch(/Lançamentos/);
+    expect(items("nino").join("|")).not.toMatch(/Registre seus gastos/);
     expect(items("conecta")).toHaveLength(2);
   });
   it("se a leitura falhar, a vitrine continua com o conteúdo padrão", async () => {

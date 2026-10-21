@@ -727,7 +727,7 @@
 .mn-lp .lp-plan {
   position: relative; display: flex; flex-direction: column;
   background: var(--lp-white); border: 1px solid var(--lp-line); border-radius: var(--lp-radius-md);
-  padding: 26px 22px 22px; box-shadow: var(--lp-shadow-soft);
+  padding: 22px 20px 20px; box-shadow: var(--lp-shadow-soft);
 }
 .mn-lp .lp-plan-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 28px; }
 .mn-lp .lp-plan-name { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--lp-muted); }
@@ -735,18 +735,21 @@
   font-size: 11px; font-weight: 700; padding: 5px 11px; border-radius: var(--lp-radius-pill);
   background: rgba(109, 74, 255, 0.10); color: var(--lp-violet); white-space: nowrap;
 }
-.mn-lp .lp-plan-tagline { margin: 10px 0 0; color: var(--lp-muted); font-size: 14px; line-height: 1.4; }
-.mn-lp .lp-plan-price { margin-top: 18px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-.mn-lp .lp-plan-price strong { font-size: 40px; line-height: 1; letter-spacing: -0.03em; font-weight: 800; }
+.mn-lp .lp-plan-tagline { margin: 6px 0 0; color: var(--lp-muted); font-size: 14px; line-height: 1.4; }
+.mn-lp .lp-plan-price { margin: 14px 0 0; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.mn-lp .lp-plan-price strong { margin: 0; font-size: 38px; line-height: 1.05; letter-spacing: -0.03em; font-weight: 800; }
 .mn-lp .lp-plan-price span { color: var(--lp-muted); font-size: 14px; }
-.mn-lp .lp-plan-yearly { margin: 8px 0 0; font-size: 12.5px; color: var(--lp-muted); }
+.mn-lp .lp-plan-yearly { margin: 6px 0 0; font-size: 12.5px; color: var(--lp-muted); }
 .mn-lp .lp-plan-yearly b { color: var(--lp-mint); font-weight: 700; }
-.mn-lp .lp-plan-cta { width: 100%; margin-top: 20px; text-align: center; text-decoration: none; }
-.mn-lp .lp-plan-more { margin: 22px 0 12px; padding-top: 18px; border-top: 1px solid var(--lp-line); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--lp-muted); }
-.mn-lp .lp-plan-features { list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; }
+.mn-lp .lp-plan-cta { width: 100%; margin-top: 16px; text-align: center; text-decoration: none; }
+.mn-lp .lp-plan-more { margin: 18px 0 12px; padding-top: 16px; border-top: 1px solid var(--lp-line); font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--lp-muted); }
+.mn-lp .lp-plan-features { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .mn-lp .lp-plan-features li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; font-size: 14px; line-height: 1.35; }
 .mn-lp .lp-plan-features svg { color: var(--lp-mint); margin-top: 1px; }
-.mn-lp .lp-plan-features em { display: block; font-style: normal; font-size: 12px; color: var(--lp-muted); margin-top: 1px; }
+.mn-lp .lp-plan-features b { display: block; font-weight: 700; font-size: 14.5px; line-height: 1.3; }
+.mn-lp .lp-plan-features small { display: block; font-size: 12.5px; line-height: 1.4; color: var(--lp-muted); margin-top: 2px; }
+.mn-lp .lp-plan-features em { display: inline-block; margin-top: 6px; font-style: normal; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: var(--lp-radius-pill); background: rgba(109, 74, 255, 0.10); color: var(--lp-violet); }
+.mn-lp .lp-plan-features em.is-up { background: rgba(47, 201, 154, 0.14); color: #1B9E78; }
 
 /* Destaque: o plano recomendado vira o cartão escuro, como o fechamento da página. */
 .mn-lp .lp-plan.is-highlighted {
@@ -759,7 +762,8 @@
 .mn-lp .lp-plan.is-highlighted .lp-plan-price span,
 .mn-lp .lp-plan.is-highlighted .lp-plan-yearly,
 .mn-lp .lp-plan.is-highlighted .lp-plan-more,
-.mn-lp .lp-plan.is-highlighted .lp-plan-features em { color: rgba(255,255,255,0.62); }
+.mn-lp .lp-plan.is-highlighted .lp-plan-features small { color: rgba(255,255,255,0.62); }
+.mn-lp .lp-plan.is-highlighted .lp-plan-features em.is-up { background: rgba(47, 201, 154, 0.18); color: #5FE3BE; }
 .mn-lp .lp-plan.is-highlighted .lp-plan-more { border-top-color: var(--lp-line-dark); }
 .mn-lp .lp-plan.is-highlighted .lp-plan-badge { background: var(--lp-grad); color: #fff; }
 
