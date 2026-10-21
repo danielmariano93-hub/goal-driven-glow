@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildEvolution, buildWeekStrip, emojiForMood, highSpendDays, MIN_POINTS_FOR_EVOLUTION, summarizeWeek } from "@/lib/emotions/history";
+import { buildEvolution, buildWeekStrip, emojiForMood, highSpendDays, MIN_POINTS_FOR_EVOLUTION, smoothPath, summarizeWeek } from "@/lib/emotions/history";
 
 const at = (day: string, emotion: string, hour = 15) => ({ occurred_at: `${day}T${String(hour).padStart(2, "0")}:00:00-03:00`, emotion_key: emotion });
 const TODAY = "2026-10-21";
+const shiftDayLocal = (d: string, delta: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + delta); return x.toISOString().slice(0, 10); };
 
 describe("calendário da semana", () => {
   it("traz 7 dias terminando hoje, com o emoji do dia e dias vazios sem culpa", () => {
@@ -32,15 +33,19 @@ describe("evolução", () => {
   const rows = ["16", "17", "18", "19", "20", "21"].map((d, i) => at(`2026-10-${d}`, i % 2 ? "tranquilo" : "preocupado"));
   it("por dia até 45 dias; por semana acima disso", () => {
     expect(buildEvolution(rows, TODAY, 30)).toHaveLength(6);
-    const weeks = buildEvolution(rows, TODAY, 90);
-    expect(weeks.length).toBeLessThan(6);
+    // poucas semanas com dado: mantém o dia a dia
+    expect(buildEvolution(rows, TODAY, 90)).toHaveLength(6);
+    // histórico longo: uma média por semana
+    const long = Array.from({ length: 40 }, (_, i) => at(shiftDayLocal(TODAY, -i * 2), i % 3 ? "atento" : "tranquilo"));
+    const weeks = buildEvolution(long, TODAY, 90);
+    expect(weeks.length).toBeLessThan(long.length);
     expect(weeks.every((w) => w.n >= 1)).toBe(true);
   });
   it("ignora registros fora da janela", () => {
     expect(buildEvolution([at("2026-08-01", "tranquilo"), ...rows], TODAY, 30)).toHaveLength(6);
   });
   it("só desenha com pontos suficientes", () => {
-    expect(MIN_POINTS_FOR_EVOLUTION).toBeGreaterThanOrEqual(4);
+    expect(MIN_POINTS_FOR_EVOLUTION).toBeGreaterThanOrEqual(3);
   });
   it("emoji por humor médio", () => {
     expect(emojiForMood(5)).toBe("😌");
@@ -69,5 +74,22 @@ describe("gasto alto ao lado do humor", () => {
     for (let d = 1; d <= 10; d++) spend.set(`2026-10-${String(d).padStart(2, "0")}`, 50);
     spend.set("2026-10-11", 600);
     expect([...highSpendDays(spend)]).toEqual(["2026-10-11"]);
+  });
+});
+
+describe("linha suave", () => {
+  it("passa por todos os pontos e não ultrapassa os valores vizinhos", () => {
+    const pts: Array<[number, number]> = [[0, 100], [50, 20], [100, 90], [150, 90], [200, 10]];
+    const d = smoothPath(pts);
+    expect(d.startsWith("M0.0,100.0")).toBe(true);
+    expect(d.match(/C/g)).toHaveLength(4);
+    for (const [x, y] of pts.slice(1)) expect(d).toContain(`${x.toFixed(1)},${y.toFixed(1)}`);
+    const ys = [...d.matchAll(/(?:C|\s)[\d.]+,([\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(100);
+  });
+  it("casos pequenos", () => {
+    expect(smoothPath([])).toBe("");
+    expect(smoothPath([[5, 5]])).toBe("M5.0,5.0");
   });
 });

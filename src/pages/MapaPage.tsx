@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { MapaEntender } from "@/components/mapa/MapaEntender";
 import { FinancialWellBeingCard } from "@/components/habits/FinancialWellBeingCard";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
+import { EmotionEvolution } from "@/components/emotions/EmotionEvolution";
 
 /**
  * Mapa Financeiro (contas com `mapa_enabled()`): "Para agora", Saúde financeira, Hábitos, Bem-estar percebido e "O que mudou".
@@ -28,6 +29,8 @@ export default function MapaPage() {
       <section id="checkin" aria-label="Como você está hoje" className="scroll-mt-24">
         <EmotionalCheckinCard />
       </section>
+
+      <EmotionEvolution />
     </div>
   );
 }

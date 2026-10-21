@@ -33,13 +33,17 @@ describe("evolução do humor", () => {
   it("com poucos registros diz quantos faltam, sem desenhar gráfico", () => {
     rows = [mk(0, "tranquilo"), mk(-1, "atento")];
     const { container } = render(wrap(<EmotionEvolution />));
-    expect(screen.getByText(/Com mais 3 registros a linha do tempo aparece/)).toBeTruthy();
+    expect(screen.getByText(/Com mais 1 registro a linha do tempo aparece/)).toBeTruthy();
     expect(container.querySelector("svg")).toBeNull();
   });
   it("com registros suficientes desenha a linha e deixa trocar 30/90 dias, sem vermelho", () => {
     rows = [0, -1, -2, -3, -4, -5].map((o, i) => mk(o, i % 2 ? "preocupado" : "tranquilo"));
     const { container } = render(wrap(<EmotionEvolution />));
     expect(container.querySelector("svg path")).not.toBeNull();
+    // linha suave: curvas (C), nunca segmentos retos (L) entre os pontos
+    const d = Array.from(container.querySelectorAll("svg path")).find((n) => n.getAttribute("stroke"))!.getAttribute("d")!;
+    expect(d).toMatch(/C/);
+    expect(d).not.toMatch(/L/);
     fireEvent.click(screen.getByRole("button", { name: "90 dias" }));
     expect(screen.getByRole("button", { name: "90 dias" }).getAttribute("aria-pressed")).toBe("true");
     expect(container.innerHTML).not.toMatch(/red|destructive|#f00/i);
