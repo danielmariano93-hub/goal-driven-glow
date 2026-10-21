@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus } from "@phosphor-icons/react";
 import { NinoLogo } from "./NinoLogo";
 import { NinoSymbol } from "./NinoSymbol";
+import { PlansSection } from "./PlansSection";
 import "./landing.css";
 
 /**
@@ -27,6 +28,7 @@ export default function LandingPage() {
         <StoryCanvasChapter />
         <MonthTrackingChapter />
         <SplitStoryChapter />
+        <PlansSection />
         <FinalChapter />
       </main>
       <LandingFooter />
@@ -53,6 +55,7 @@ function LandingHeader() {
         <nav className="lp-nav-links" aria-label="Principal">
           <a href="#acao">Como ajuda</a>
           <a href="#role">Divisão do Rolê</a>
+          <a href="#planos">Planos</a>
           <a href="#duvidas">Dúvidas</a>
           <Link to="/login">Entrar</Link>
         </nav>
