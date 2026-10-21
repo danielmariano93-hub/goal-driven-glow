@@ -58,10 +58,15 @@ export function useLandingPlans() {
     retry: 1,
     placeholderData: DEFAULT_PLANS,
     queryFn: async () => {
-      const { data, error } = await (supabase.rpc as any)("landing_plans_public");
-      if (error) throw error;
-      const plans = (data as { plans?: LandingPlan[] } | null)?.plans;
-      return plans && plans.length ? plans : DEFAULT_PLANS;
+      // A vitrine nunca some: se a leitura falhar, mostra o conteúdo padrão.
+      try {
+        const { data, error } = await (supabase.rpc as any)("landing_plans_public");
+        if (error) return DEFAULT_PLANS;
+        const plans = (data as { plans?: LandingPlan[] } | null)?.plans;
+        return plans && plans.length ? plans : DEFAULT_PLANS;
+      } catch {
+        return DEFAULT_PLANS;
+      }
     },
   });
 }
