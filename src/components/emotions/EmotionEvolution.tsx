@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLedgerWindow } from "@/lib/db/finance";
 import { isRealMonthlyMovement } from "@/lib/engine/facts";
-import { buildEvolution, emojiForMood, highSpendDays, MIN_POINTS_FOR_EVOLUTION, saoPauloDay } from "@/lib/emotions/history";
+import { buildEvolution, emojiForMood, highSpendDays, MIN_POINTS_FOR_EVOLUTION, saoPauloDay, smoothPath } from "@/lib/emotions/history";
 import { useEmotionHistory } from "@/lib/emotions/useEmotionHistory";
 
 const W = 320;
@@ -29,7 +29,7 @@ export function EmotionEvolution() {
   const enough = points.length >= MIN_POINTS_FOR_EVOLUTION;
   const x = (i: number) => PAD.l + (points.length <= 1 ? 0 : (i / (points.length - 1)) * (W - PAD.l - PAD.r));
   const y = (mood: number) => PAD.t + (1 - (mood - 1) / 4) * (H - PAD.t - PAD.b);
-  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.mood).toFixed(1)}`).join(" ");
+  const path = smoothPath(points.map((p, i) => [x(i), y(p.mood)] as [number, number]));
   const markIdx = points.map((p, i) => (windowDays <= 45 && spendMarks.has(p.date) ? i : -1)).filter((i) => i >= 0);
 
   return (
@@ -67,7 +67,7 @@ export function EmotionEvolution() {
             </defs>
             <rect x={PAD.l} y={PAD.t} width={W - PAD.l - PAD.r} height={H - PAD.t - PAD.b} rx="14" fill="url(#mood-bg)" />
             {[1, 3, 5].map((m) => <line key={m} x1={PAD.l} x2={W - PAD.r} y1={y(m)} y2={y(m)} stroke="hsl(var(--border))" strokeDasharray="3 4" />)}
-            <path d={`${path} L${x(points.length - 1)},${H - PAD.b} L${x(0)},${H - PAD.b} Z`} fill="hsl(var(--primary))" opacity="0.07" />
+            <path d={`${path} L${x(points.length - 1).toFixed(1)},${H - PAD.b} L${x(0).toFixed(1)},${H - PAD.b} Z`} fill="hsl(var(--primary))" opacity="0.10" />
             <path d={path} fill="none" stroke="url(#mood-line)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             {points.map((p, i) => <circle key={p.date} cx={x(i)} cy={y(p.mood)} r={i === points.length - 1 ? 4.5 : 3} fill="hsl(var(--card))" stroke="hsl(var(--primary))" strokeWidth="2" />)}
             {markIdx.map((i) => <circle key={`s${i}`} cx={x(i)} cy={H - PAD.b + 10} r="2.6" fill="hsl(var(--muted-foreground))" opacity="0.7" />)}

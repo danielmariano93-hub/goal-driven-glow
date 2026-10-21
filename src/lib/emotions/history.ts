@@ -78,7 +78,7 @@ export interface EvolutionPoint {
   n: number;
 }
 
-export const MIN_POINTS_FOR_EVOLUTION = 5;
+export const MIN_POINTS_FOR_EVOLUTION = 3;
 
 /** Humor médio por dia (até 45 dias) ou por semana (acima disso), na escala 1..5 do catálogo. */
 export function buildEvolution(rows: CheckinRow[], today: string, windowDays: number): EvolutionPoint[] {
@@ -93,16 +93,19 @@ export function buildEvolution(rows: CheckinRow[], today: string, windowDays: nu
   }
   perDay.sort((a, b) => (a.date < b.date ? -1 : 1));
   const fmt = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
-  if (windowDays <= 45) return perDay.map((p) => ({ date: p.date, label: fmt(p.date), mood: p.mood, n: 1 }));
+  const daily = perDay.map((p) => ({ date: p.date, label: fmt(p.date), mood: p.mood, n: 1 }));
+  if (windowDays <= 45) return daily;
   const weeks = new Map<string, number[]>();
   for (const p of perDay) {
     const dt = new Date(`${p.date}T12:00:00Z`);
     const monday = shiftDay(p.date, -((dt.getUTCDay() + 6) % 7));
     weeks.set(monday, [...(weeks.get(monday) ?? []), p.mood]);
   }
-  return [...weeks.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, moods]) => ({
+  const weekly = [...weeks.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([date, moods]) => ({
     date, label: fmt(date), mood: Math.round((moods.reduce((s, m) => s + m, 0) / moods.length) * 10) / 10, n: moods.length,
   }));
+  // Poucas semanas com dado: a linha por dia mostra mais que 1 ou 2 pontos semanais.
+  return weekly.length >= MIN_POINTS_FOR_EVOLUTION ? weekly : daily;
 }
 
 /** Emoji mais próximo de um humor médio (para marcar os extremos do gráfico). */
@@ -137,4 +140,30 @@ export function highSpendDays(dailySpend: Map<string, number>): Set<string> {
   const median = values[Math.floor(values.length / 2)];
   const cut = Math.max(p90, median * 2);
   return new Set([...dailySpend.entries()].filter(([, v]) => v >= cut).map(([d]) => d));
+}
+
+/**
+ * Curva suave (Catmull-Rom convertida em Bézier) passando por todos os pontos.
+ * Os controles ficam entre os valores vizinhos no eixo vertical, então a linha nunca
+ * "passa" do humor mínimo/máximo nem faz ondas que sugiram um valor que não existe.
+ */
+export function smoothPath(pts: Array<[number, number]>, tension = 0.5): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const lo = Math.min(p1[1], p2[1]);
+    const hi = Math.max(p1[1], p2[1]);
+    const clamp = (v: number) => Math.max(lo, Math.min(hi, v));
+    const c1x = p1[0] + ((p2[0] - p0[0]) / 6) * tension * 2;
+    const c1y = clamp(p1[1] + ((p2[1] - p0[1]) / 6) * tension * 2);
+    const c2x = p2[0] - ((p3[0] - p1[0]) / 6) * tension * 2;
+    const c2y = clamp(p2[1] - ((p3[1] - p1[1]) / 6) * tension * 2);
+    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
 }
