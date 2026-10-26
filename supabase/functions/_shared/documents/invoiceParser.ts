@@ -77,8 +77,8 @@ const SUMMARY_LABELS: Array<[keyof InvoiceOfficialSummary, RegExp]> = [
   ["payments_total", /\b(pagamentos? efetuados?|pagamentos? e creditos|total de pagamentos|pagamentos realizados)\b/],
   ["financed_balance", /\b(saldo financiado|total financiado|saldo restante( anterior)?)\b/],
   ["current_charges_total", /\b(lancamentos atuais|total de lancamentos atuais|compras e saques do periodo|lancamentos desta fatura)\b/],
-  ["domestic_total", /\b(total (das )?compras nacionais|total nacionais|total de lancamentos nacionais)\b/],
-  ["international_total", /\b(total (das )?compras internacionais|total internacionais|total de transacoes internacionais|total de lancamentos internacionais)\b/],
+  ["domestic_total", /\b(total (das )?compras nacionais|total nacionais|total de lancamentos nacionais|lancamentos no cartao)\b/],
+  ["international_total", /\b(total (das )?compras internacionais|total internacionais|total de transacoes internacionais|total transacoes inter\.?|total de lancamentos internacionais)\b/],
   ["taxes_total", /\b(total de iof|iof total|total de encargos|total de tarifas)\b/],
   ["credits_total", /\b(total de creditos|total de estornos)\b/],
   ["total", /\b(total desta fatura|total da fatura atual|valor total desta fatura|total a pagar desta fatura|total desta fatura em r\$)\b/],
@@ -122,6 +122,15 @@ function findDate(folded: string): string | null {
   return null;
 }
 
+/** Soma meses a uma data ISO preservando o dia (limitado ao fim do mês). */
+export function addMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const base = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)).getUTCDate();
+  const day = Math.min(d, last);
+  return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 export function parseInvoiceText(text: string): ParsedInvoice {
   const summary: InvoiceOfficialSummary = {
     total: null, previous_balance: null, payments_total: null, financed_balance: null,
@@ -144,17 +153,22 @@ export function parseInvoiceText(text: string): ParsedInvoice {
   else if (/\binter\b/.test(foldedAll)) summary.bank = "Inter";
 
   // 1) Passada de metadados/rotulos.
+  let nextClosing: string | null = null;
   for (const raw of rawLines) {
     const f = fold(raw);
     if (!summary.due_date && /\b(vencimento|vence em|data de vencimento)\b/.test(f)) {
       summary.due_date = findDate(f);
     }
-    if (!summary.closing_date && /\b(fechamento|data de fechamento|fechada em)\b/.test(f)) {
+    // "Previsão próx. fechamento" é o fechamento da PRÓXIMA fatura, não desta.
+    if (/\bprevisao\b.*\bfechamento\b/.test(f)) {
+      nextClosing = nextClosing ?? findDate(f);
+    } else if (!summary.closing_date && /\b(fechamento|data de fechamento|fechada em)\b/.test(f)) {
       summary.closing_date = findDate(f);
     }
     if (!summary.card_last4) {
       const last4 = f.match(/\b(?:final|finais|cartao final|n[.º°]?\s*final)\s*[:\-]?\s*(\d{4})\b/)
-        ?? f.match(/\*{4,}\s*(\d{4})\b/);
+        ?? f.match(/\*{4,}\s*(\d{4})\b/)
+        ?? f.match(/\b\d{4}[. ]?x{4}[. ]?x{4}[. ]?(\d{4})\b/);
       if (last4) summary.card_last4 = last4[1];
     }
     const amount = amountAtEnd(raw);
@@ -162,11 +176,17 @@ export function parseInvoiceText(text: string): ParsedInvoice {
     for (const [key, re] of SUMMARY_LABELS) {
       if (summary[key] != null) continue;
       if (!re.test(f)) continue;
-      (summary as Record<string, unknown>)[key] = Math.abs(amount.value);
+      // Só o total da fatura carrega sinal: "(Crédito)" / valor negativo = saldo credor.
+      const isCredit = key === "total" && (amount.value < 0 || /\bcredito\b/.test(f));
+      (summary as Record<string, unknown>)[key] = key === "total"
+        ? (isCredit ? -Math.abs(amount.value) : amount.value)
+        : Math.abs(amount.value);
       break;
     }
   }
-  if (summary.due_date) summary.competence = `${summary.due_date.slice(0, 7)}-01`;
+  if (!summary.closing_date && nextClosing) summary.closing_date = addMonthsIso(nextClosing, -1);
+  // Competência = mês do FECHAMENTO (card_cycle.v3), nunca o do vencimento.
+  if (summary.closing_date) summary.competence = `${summary.closing_date.slice(0, 7)}-01`;
 
   // 2) Passada de linhas, com seção corrente.
   let section: InvoiceSection = "other";
@@ -187,7 +207,19 @@ export function parseInvoiceText(text: string): ParsedInvoice {
       continue;
     }
     const dateMatch = amount.rest.match(/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.*)$/);
-    if (!dateMatch) continue;
+    if (!dateMatch) {
+      // "Repasse de IOF em R$ 9,14" não tem data: é encargo da fatura e entra como taxa.
+      if (/\brepasse de iof\b/.test(f) && amount.value > 0) {
+        lines.push({
+          date: summary.closing_date ?? summary.due_date,
+          description: "Repasse de IOF",
+          amount: amount.value,
+          section: "taxes",
+          kind: "fee",
+        });
+      }
+      continue;
+    }
     const description = dateMatch[4].trim();
     if (!description || description.length < 2) continue;
     const yearPart = dateMatch[3];

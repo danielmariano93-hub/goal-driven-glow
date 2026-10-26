@@ -15,9 +15,13 @@ import { useAuth } from "@/context/AuthContext";
 
 type StatementRow = {
   id: string; credit_card_id: string; competence_month: string; due_date: string;
-  stated_total: number; paid_amount: number; outstanding_amount: number;
+  stated_total: number; signed_total?: number | null; paid_amount: number; outstanding_amount: number;
   reconciliation_difference: number; status: string; source_document_id?: string | null;
 };
+
+/** Saldo credor (fatura negativa): o banco deve ao cliente; nada a pagar. */
+const creditBalanceOf = (row: { signed_total?: number | null }) =>
+  row.signed_total != null && Number(row.signed_total) < 0 ? Math.abs(Number(row.signed_total)) : 0;
 
 type StatementItemRow = {
   id: string; statement_id: string; legacy_transaction_id: string | null;
@@ -70,7 +74,7 @@ export default function Cartoes() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_statements")
-        .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
+        .select("id,credit_card_id,competence_month,due_date,stated_total,signed_total,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
         .order("competence_month", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -258,11 +262,11 @@ export default function Cartoes() {
                   </div>
                   <div className="mt-4 flex items-end justify-between gap-3">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total da fatura</p>
-                      <p className="text-xl font-bold tabular-nums">{formatBRL(Number(statement.stated_total))}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{creditBalanceOf(statement) > 0 ? "Saldo credor" : "Total da fatura"}</p>
+                      <p className="text-xl font-bold tabular-nums">{formatBRL(creditBalanceOf(statement) > 0 ? creditBalanceOf(statement) : Number(statement.stated_total))}</p>
                     </div>
                     <p className="text-right text-xs text-muted-foreground">
-                      {statement.outstanding_amount > 0 ? <>Falta <strong className="text-foreground">{formatBRL(Number(statement.outstanding_amount))}</strong></> : "Tudo pago ✓"}
+                      {statement.outstanding_amount > 0 ? <>Falta <strong className="text-foreground">{formatBRL(Number(statement.outstanding_amount))}</strong></> : creditBalanceOf(statement) > 0 ? "Nada a pagar · abate a próxima fatura" : "Tudo pago ✓"}
                     </p>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
@@ -484,7 +488,7 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     queryFn: async () => {
       const [statementResult, itemsResult, allocationsResult] = await Promise.all([
         (supabase as any).from("credit_card_statements")
-          .select("id,credit_card_id,competence_month,due_date,stated_total,reconciled_total,opening_balance,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
+          .select("id,credit_card_id,competence_month,due_date,stated_total,signed_total,reconciled_total,opening_balance,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
           .eq("id", statement.id).maybeSingle(),
         (supabase as any).from("credit_card_statement_items")
           .select("id,statement_id,legacy_transaction_id,item_kind,description,amount,occurred_at,transaction:transactions(category_id)")
@@ -651,14 +655,14 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
   return <div className="fixed inset-0 z-50 bg-black/35" onClick={onClose}>
     <section onClick={(event) => event.stopPropagation()} className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col rounded-t-[28px] border border-border bg-background shadow-2xl md:inset-y-0 md:left-auto md:w-[560px] md:max-h-none md:rounded-none">
       <header className="flex items-start justify-between border-b border-border p-5">
-        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(current.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(current.due_date)} · {formatBRL(Number(current.stated_total))}</p></div>
+        <div><p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Fatura</p><h2 className="font-display text-xl font-bold">{formatCompetence(current.competence_month)}</h2><p className="text-xs text-muted-foreground">Vence em {formatDate(current.due_date)} · {creditBalanceOf(current) > 0 ? `saldo credor ${formatBRL(creditBalanceOf(current))}` : formatBRL(Number(current.stated_total))}</p></div>
         <button onClick={onClose} className="rounded-full border border-border p-2" aria-label="Fechar"><X size={16}/></button>
       </header>
       <div className="flex-1 overflow-y-auto p-4 md:p-5">
         {economicLocked && <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground"><strong className="text-foreground">Fatura com pagamento registrado.</strong> Para alterar valores, primeiro desfaça o pagamento abaixo.</div>}
 
         <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="Total oficial" value={formatBRL(Number(current.stated_total))}/>
+          <Stat label={creditBalanceOf(current) > 0 ? "Saldo credor" : "Total oficial"} value={formatBRL(creditBalanceOf(current) > 0 ? creditBalanceOf(current) : Number(current.stated_total))}/>
           <Stat label="Compras e encargos" value={formatBRL(charges)}/>
           <Stat label="Pagamentos e créditos" value={`- ${formatBRL(credits)}`}/>
           <Stat label="Diferença" value={formatBRL(Math.abs(difference))}/>

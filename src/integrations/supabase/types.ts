@@ -4473,6 +4473,7 @@ export type Database = {
           reconciliation_difference: number | null
           requires_manual_review: boolean
           source_document_id: string | null
+          signed_total: number | null
           stated_total: number
           status: string
           updated_at: string
@@ -4498,6 +4499,7 @@ export type Database = {
           reconciliation_difference?: number | null
           requires_manual_review?: boolean
           source_document_id?: string | null
+          signed_total?: number | null
           stated_total?: number
           status?: string
           updated_at?: string
@@ -4523,6 +4525,7 @@ export type Database = {
           reconciliation_difference?: number | null
           requires_manual_review?: boolean
           source_document_id?: string | null
+          signed_total?: number | null
           stated_total?: number
           status?: string
           updated_at?: string
