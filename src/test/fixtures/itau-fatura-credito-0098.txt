@@ -1,0 +1,230 @@
+Estamos lhe enviando esta fatura para simples conferência.
+Este mês não há valores a serem pagos por você.
+O valor apresentado no campo Saldo Credor pode ser utilizado para abater lançamentos da
+próxima fatura. Caso prefira que o valor seja creditado em sua conta corrente, ligue para a Central
+de Atendimento do seu cartão.
+TITULAR DE TESTE
+RUA EXEMPLO, 100
+BAIRRO EXEMPLO
+00000-000 SAO PAULO SPPSL=
+Resumo da fatura em R$
+Total da fatura anterior 1.464,68
+Pagamentos efetuados -9.688,64
+Saldo financiado 0,00
+Lançamentos atuais 4.579,90
+Total desta fatura (Crédito) -3.644,06
+Com vencimento em:
+01/11/2026
+O saldo positivo da sua fatura é:
+R$ 3.644,06Este mês você possui saldo positivo e não tem valores a ser pagos. Este saldo é referente a pagamento maior do que o total da fatura ou
+algum estorno recebido. Caso queira transferir este valor para sua conta entre em contato com os canais de atendimento.
+Limite total de crédito:
+R$ 1,00
+Titular TITULAR DE TESTE
+Cartão 4179.XXXX.XXXX.0098
+Postagem: 25/10/2026
+Vencimento: 01/11/2026
+Emissão: 25/10/2026
+Previsão próx. Fechamento: 24/11/2026
+0000000000
+Signature1
+4004 4828
+0800 970 4828P
+Pagamentos efetuados
+DATA VALOR EM R$
+26/09 Pagamento via conta -1.464,68
+30/09 Pagamento via conta -2.300,00
+02/10 Pagamento via conta -5,00
+02/10 Pagamento via conta -10,00
+04/10 Pagamento via conta -1.656,94
+04/10 Pagamento via conta -4.252,02
+Total dos pagamentos -9.688,64
+Lançamentos: compras e saques
+TITULAR DE TESTE
+DATA ESTABELECIMENTO VALOR EM R$
+04/10 Desc Antecipa Parcelas -60,99
+04/10 Desc Antecipa Parcelas -22,88
+20/10 CREDITO PROV CONTESTACA -106,24
+30/04 JIM.COM 579600 06/06 363,42
+serviços SAO PAULO
+06/07 JIM.COM 579600 04/04 187,87
+serviços SAO PAULO
+26/07 Eventim *E 03/03 220,48
+lazer Sao Paulo
+26/07 TurbiSao Paulo 03/04 41,31
+serviços Sao Paulo
+26/07 TurbiSao Paulo 03/04 76,49
+serviços Sao Paulo
+30/07 JIM.COM 579600 03/06 508,79
+serviços SAO PAULO
+30/07 JIM.COM 579600 04/06 508,79
+serviços SAO PAULO
+30/07 JIM.COM 579600 05/06 508,79
+serviços SAO PAULO
+30/07 JIM.COM 579600 06/06 508,79
+serviços SAO PAULO
+18/08 RD SAUDE ONLIN 03/03 595,80
+saúde SAO PAULO
+Lançamentos: compras e saques
+DATA ESTABELECIMENTO VALOR EM R$
+23/08 TurbiSao Paulo 03/04 89,53
+serviços Sao Paulo
+24/08 Turbi Fechamen 02/04 34,80
+serviços Sao Paulo
+04/09 ADY*IngresseSa 02/02 582,66
+serviços Sao Paulo
+04/09 LocalizaBelo H 02/03 264,30
+serviços Belo Horizont
+09/09 LOCALIZABRRACB 02/03 122,75
+serviços BELO HORIZONT
+10/09 JIM.COM 579600 02/04 134,19
+serviços SAO PAULO
+26/09 FISIA NFS2094S 01/02 100,00
+outros SAO PAULO
+27/09 TurbiSao Paulo 01/05 31,48
+serviços Sao Paulo
+28/09 Turbi Fechamen 01/05 18,09
+serviços Sao Paulo
+30/09 JIM.COM 579600 01/06 545,18
+serviços SAO PAULO
+30/09 JIM.COM 579600 02/06 545,13
+serviços SAO PAULO
+30/09 JIM.COM 579600 03/06 545,13
+serviços SAO PAULO
+30/09 JIM.COM 579600 04/06 545,13
+serviços SAO PAULO
+30/09 JIM.COM 579600 05/06 545,13
+serviços SAO PAULO
+30/09 JIM.COM 579600 06/06 545,13
+serviços SAO PAULO
+02/10 APPLE.COM/BILLSAO PAULO 34,90
+outros SAO PAULO
+02/10 APPLE.COM/BILLSAO PAULO 19,90
+outros SAO PAULO
+04/10 AIRBNB * HMX2YHCSAO PAU -5.407,97
+viagem SAO PAULO
+04/10 AIRBNB * HMX2YHCSAO PAU -286,82
+viagem SAO PAULO
+Caso você pague um valor entre o mínimo e o total de sua fatura, o saldo restante será cobrado na próxima fatura com juros e impostos. O
+pagamento do valor total é sempre a melhor opção porque não há cobranças de juros.
+O pagamento obrigatório é composto pelo saldo do crédito rotativo e respectivos encargos incidentes no período (R$0,00), prestações referentes
+a parcelamentos do saldo devedor de períodos anteriores (R$ 0,00) e valor mínimo de novas transações (R$ 0,00). Para entender mais sobre o
+pagamento obrigatório e o pagamento mínimo, acesse seu contrato e a aba “Serviços” no site Itaú Cartões.
+Previsão para o próximo fechamento: 24/11/2026.
+LLançamentos: compras e saques
+DATA ESTABELECIMENTO VALOR EM R$
+04/10 AIRBNB * HMX2Y 01/06 901,37
+viagem SAO PAULO
+04/10 AIRBNB * HMX2Y 01/06 47,82
+viagem SAO PAULO
+10/10 TurbiSao Paulo 01/04 69,90
+serviços Sao Paulo
+10/10 Turbi Fechamen 01/04 20,06
+serviços Sao Paulo
+10/10 LOJAS RENNER F 01/02 89,95
+vestuário SAO PAULO
+11/10 KEETA*ASM COMERCISao Pa 37,39
+restaurante Sao Paulo
+12/10 KEETA*56 414 975Sao Pau 37,39
+restaurante Sao Paulo
+13/10 RD SAUDE ONLIN 01/03 50,77
+saúde SAO PAULO
+13/10 Total Pass Participacoe 89,90
+lazer Sao Paulo
+14/10 ZP*TITULAR TE57 01/04 271,71
+serviços SAO PAULO
+18/10 Souk4uSAO PAULOBR 22,78
+supermercado SAO PAULO
+18/10 Souk4uSAO PAULOBR 22,78
+supermercado SAO PAULO
+18/10 IFD*56.086.667 01/03 55,50
+outros SAO PAULO
+18/10 Turbi Pagamentos de dSa 66,00
+serviços Sao Paulo
+18/10 TurbiSao Paulo 01/02 40,98
+serviços Sao Paulo
+18/10 MINI EXTRA-0103SAO PAUL 36,15
+supermercado SAO PAULO
+18/10 Turbi Fechamen 01/02 20,40
+serviços Sao Paulo
+18/10 APPLE.COM/BILLSAO PAULO 29,90
+outros SAO PAULO
+20/10 APPLE.COM/BILLSAO PAULO 34,90
+outros SAO PAULO
+22/10 Google OneSAO PAULOBR 24,99
+outros SAO PAULO
+Lançamentos no cartão 4.309,70
+Lançamentos internacionais
+TITULAR DE TESTE
+DATA ESTABELECIMENTO US$ R$
+14/10 hostinger.comLarnakaCY 130,53
+24,49 USD 24,49
+Dólar de Conversão R$ 5,33
+19/10 hostinger.comLarnakaCY 102,65
+19,08 USD 19,08
+Dólar de Conversão R$ 5,38
+23/10 HIGGSFIELD INC.WWW.HIGG 27,88
+26,28 BRL 5,23
+Dólar de Conversão R$ 5,33
+Total transações inter. em R$ 261,06
+Repasse de IOF em R$ 9,14
+Total lançamentos inter. em R$ 270,20
+Total dos lançamentos atuais 4.579,90
+Compras parceladas - próximas faturas
+DATA ESTABELECIMENTO VALOR EM R$
+26/07 TurbiSao Paulo 04/04 41,31
+26/07 TurbiSao Paulo 04/04 76,49
+23/08 TurbiSao Paulo 04/04 89,53
+24/08 Turbi Fechamen 03/04 34,80
+04/09 LocalizaBelo H 03/03 264,30
+09/09 LOCALIZABRRACB 03/03 122,75
+DATA ESTABELECIMENTO VALOR EM R$
+10/09 JIM.COM 579600 03/04 134,19
+26/09 FISIA NFS2094S 02/02 99,99
+27/09 TurbiSao Paulo 02/05 31,44
+28/09 Turbi Fechamen 02/05 18,08
+04/10 AIRBNB * HMX2Y 02/06 901,32
+04/10 AIRBNB * HMX2Y 02/06 47,80
+10/10 TurbiSao Paulo 02/04 69,88
+10/10 Turbi Fechamen 02/04 20,04
+10/10 LOJAS RENNER F 02/02 89,95
+13/10 RD SAUDE ONLIN 02/03 50,75
+14/10 ZP*TITULAR TE57 02/04 271,71
+18/10 IFD*56.086.667 02/03 55,49
+18/10 TurbiSao Paulo 02/02 40,98
+18/10 Turbi Fechamen 02/02 20,40
+Próxima fatura 2.481,20
+Demais faturas 4.943,53
+Total para próximas faturas 7.424,73
+Limites de crédito Valor em R$
+Limite total de crédito 1,00
+Limite disponível -3.779,67
+Limite total utilizado 3.780,67
+Esses são os seus limites na data de fechamento dessa fatura.
+Caso queira consultar informações atualizadas sobre o seu
+limite, consulte nossos canais.
+.
+Encargos cobrados nesta fatura
+Juros do rotativo 15,49 % 0,00
+Juros de mora 1,00 % am 0,00
+Multa por atraso 2,00 % 0,00
+IOF de financiamento (0,38 % + 0,00820 % a.d.) 0,00
+Novo teto de juros do cartão de crédito
+Valor em R$
+Credito Rotativo / Atraso
+Valor original da dívida 0,00
+Juros e encargos financeiros até o momento 0,00
+% juros sobre dívida origem 0,00%
+Os juros e encargos que você irá pagar são os apresentados na
+contratação, e caso ultrapassem a dívida origem, a diferença não
+será cobrada ou será devolvida em fatura. Válido por cada
+operação de parcelamento ou rotativo.
+Fique atento aos encargos para o próximo
+período (01/11 a 30/11)
+Juros Máximos do contrato 15,49 % am 476,71 % aa
+Simulação de Compras parc. c/ juros e
+Crediário (próximo período)
+Limite de crédito 1,00
+Juros da compra parcelada 5,99 % am 102,95 % aa
+Ao contratar esse produto, você declara que o pagamento dos
+valores devidos não compromete sua renda mínima existencial.1

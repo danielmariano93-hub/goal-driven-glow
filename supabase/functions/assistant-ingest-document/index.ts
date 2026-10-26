@@ -1342,7 +1342,9 @@ async function processDocument(documentId: string, userId: string, guidance: str
       // Extrato bancário: DUAS linhas idênticas (mesma data/valor/descrição) são
       // duas cobranças reais. Colapsar por assinatura local apaga cobrança real
       // (foi o bug do Autopass 5,40). Idempotência aqui é documento+ordinal.
-      const collapseIdenticalLines = documentKind !== "statement";
+      // Fatura lida do texto do PDF (parser determinístico) também não colapsa: duas
+      // linhas idênticas (ex.: duas compras de R$ 22,78 no mesmo dia) são duas cobranças.
+      const collapseIdenticalLines = documentKind !== "statement" && !deterministicOutcomes;
       const freshItems = extraction.items
         .filter((item) => {
           if (!collapseIdenticalLines) return true;
@@ -1380,7 +1382,7 @@ async function processDocument(documentId: string, userId: string, guidance: str
           // Em extratos bancários, linhas idênticas (mesma data/valor/descrição) são
           // legítimas (ex.: duas cobranças Uber iguais no mesmo dia). NÃO marcamos
           // como suspeita local — o ordinal garante fingerprint único.
-          const localDuplicate = (!isStatement && priorIdx != null)
+          const localDuplicate = (!isStatement && !deterministicOutcomes && priorIdx != null)
             ? { strength: "ambiguous" as const, reason: `same_document:${priorIdx}` }
             : null;
           const effectiveHit = hit ?? localDuplicate;
