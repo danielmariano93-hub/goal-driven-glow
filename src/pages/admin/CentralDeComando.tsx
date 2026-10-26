@@ -11,6 +11,7 @@ import { PRESET_LABELS, resolvePreset, type PeriodPresetKey, type PeriodRange } 
 import { useCommandCenter, useOpsHealth } from "@/lib/admin/useCommandCenter";
 import { dict } from "@/lib/admin/displayDictionary";
 import { useAiConsumption, workloadLabel } from "@/lib/admin/aiConsumption";
+import { OpsAlertsPanel } from "@/components/admin/OpsAlerts";
 import {
   buildAttention, errorLabel, modelName, serviceState, servicesAttention, type OpsService, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
@@ -269,12 +270,15 @@ function Overview({ data }: { data: CommandCenterData }) {
     () => buildAttention(data, servicesAttention(ops.data?.services ?? [], (k) => dict.job(k))),
     [data, ops.data],
   );
-  const daily = data.daily;
+  // A conversa pode ter dado certo e a resposta nunca ter chegado ao celular: a falha de entrega entra no gráfico por dia.
+  const undeliveredByDay = new Map(data.messaging.daily.map((d) => [d.day, d.failed]));
+  const daily = data.daily.map((d) => ({ ...d, undelivered: undeliveredByDay.get(d.day) ?? 0 }));
   const success = 1 - t.err_rate;
   const successPrev = 1 - t.err_rate_prev;
   const volume: SmoothSeries[] = [
     { key: "turns", label: "Conversas", kind: "area", color: "hsl(var(--primary))", format: formatInt },
-    { key: "errors", label: "Com falha", kind: "line", color: "hsl(var(--destructive))", format: formatInt },
+    { key: "errors", label: "Com erro", kind: "line", color: "hsl(var(--destructive))", format: formatInt },
+    { key: "undelivered", label: "Resposta não entregue", kind: "line", color: "hsl(var(--warning))", format: formatInt },
   ];
   const msg: SmoothSeries[] = [
     { key: "delivered", label: "Entregues", kind: "area", color: "hsl(var(--success))", format: formatInt },
@@ -304,11 +308,13 @@ function Overview({ data }: { data: CommandCenterData }) {
   return (
     <div className="space-y-6">
       <AttentionBoard items={attention} />
+      <OpsAlertsPanel />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} />
         <MetricTile label="Pessoas atendidas" value={formatInt(t.users)} deltaPct={pctDelta(t.users, t.users_prev)} polarity="higher_is_better" spark={spark("users")} />
-        <MetricTile label="Respostas sem falha" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} falharam`} />
+        <MetricTile label="Conversas sem erro" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} com erro · não mede a entrega`} />
+        <MetricTile label="Mensagens entregues" value={formatPct(data.messaging.total > 0 ? 1 - data.messaging.failed / data.messaging.total : 1)} polarity="higher_is_better" spark={data.messaging.daily.map((d) => (d.sent + d.failed > 0 ? 100 - (d.failed / Math.max(1, d.sent + d.failed)) * 100 : 100))} hint={data.messaging.failed > 0 ? `${formatInt(data.messaging.failed)} não chegaram` : "todas chegaram"} />
         <MetricTile label="Tempo típico" value={formatMs(t.p50)} deltaPct={pctDelta(t.p50, t.p50_prev)} polarity="lower_is_better" spark={spark("p50")} hint={`as mais lentas: ${formatMs(t.p95)}`} />
         <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
         <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
