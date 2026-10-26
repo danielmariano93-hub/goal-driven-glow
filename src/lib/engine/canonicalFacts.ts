@@ -20,6 +20,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
+  isCarriedInstallment,
   isRealMonthlyMovement,
   reportingCompetenceDate,
   round2,
@@ -290,6 +291,7 @@ export function computeCanonicalCategoryTotal(
   categoryId: string,
   range: PeriodRange,
   metric: "expense" | "income" = "expense",
+  options: { excludeCarriedInstallments?: boolean } = {},
 ): { net: number; gross: number; refunds: number; count: number } {
   const rows = canonicalLedgerRows(txs);
   const attribution = buildRefundAttribution(rows);
@@ -300,6 +302,7 @@ export function computeCanonicalCategoryTotal(
   for (const t of rows) {
     if (effectiveCategoryId(t, attribution) !== categoryId) continue;
     if (!inRange(financialConsumptionDate(t), range)) continue;
+    if (options.excludeCarriedInstallments && metric === "expense" && isCarriedInstallment(t)) continue;
     const signed = behavioralMetricAmount(t, metric);
     if (signed === 0) continue;
     net += signed;

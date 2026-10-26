@@ -103,6 +103,13 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
         )}
       </p>
 
+      {evaluation.carriedInstallments > 0 ? (
+        <p data-testid="goal-carried-installments" className="mt-1 text-[11px] text-muted-foreground">
+          Fora da meta: <span className="font-medium tabular-nums text-foreground">{formatBRL(evaluation.carriedInstallments)}</span>{" "}
+          em {evaluation.carriedInstallmentsCount} {evaluation.carriedInstallmentsCount === 1 ? "parcela" : "parcelas"} de compras anteriores (já comprometido).
+        </p>
+      ) : null}
+
       {evaluation.status !== "scheduled" && evaluation.status !== "paused" ? (
         <p className="mt-1 text-[11px] text-muted-foreground">
           Projeção do período:{" "}
