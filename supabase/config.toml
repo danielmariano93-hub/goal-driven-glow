@@ -103,3 +103,6 @@ verify_jwt = false
 [functions.behavior-observed-weekly]
 # Somente cron (x-cron-secret validado no handler).
 verify_jwt = false
+
+[functions.ops-alerts-tick]
+verify_jwt = false
