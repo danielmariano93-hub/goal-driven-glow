@@ -68,6 +68,9 @@ export interface TransactionRow {
   investment_id?: string | null;
   /** Estorno: despesa original que este crédito devolve (total ou parcial). */
   refund_of_transaction_id?: string | null;
+  /** Parcela atual / total de parcelas (compra parcelada no cartão). */
+  installment_number?: number | null;
+  installments_total?: number | null;
 }
 
 /** Origens de `posted_at` com autoridade de data bancária real. */
@@ -79,6 +82,23 @@ export function hasBankPosting(
 ): boolean {
   if (!t.posted_at) return false;
   return BANK_POSTING_SOURCES.has(String(t.posted_at_source ?? "inferred"));
+}
+
+/**
+ * `goal_consumption.v1` — parcela "carregada": parcela 2 em diante de compra
+ * parcelada no cartão. A decisão de gastar foi tomada no mês da compra; as
+ * parcelas seguintes são compromisso, não consumo do mês. A meta mede o que o
+ * usuário decide gastar AGORA, então não as conta (fatura, caixa e relatórios
+ * continuam contando por competência).
+ */
+export function isCarriedInstallment(
+  t: Pick<TransactionRow, "payment_method" | "credit_card_id" | "installment_number" | "installments_total">,
+): boolean {
+  const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+  if (!isCard) return false;
+  const total = Number(t.installments_total ?? 0);
+  const number = Number(t.installment_number ?? 0);
+  return total > 1 && number > 1;
 }
 
 /**

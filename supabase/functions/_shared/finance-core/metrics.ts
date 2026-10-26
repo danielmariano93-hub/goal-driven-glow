@@ -19,6 +19,7 @@ import {
   computeMonthlyTotals,
   computeUpcomingCommitments,
   isRealMonthlyMovement,
+  isCarriedInstallment,
   round2,
   reportingCompetenceDate,
   todayISO,
@@ -155,6 +156,9 @@ export interface CategoryGoalEvaluation {
   message: string;
   calculationReferenceDate: string;
   includedTransactionCount: number;
+  /** Parcelas de compras anteriores na fatura do período: compromisso, não consumo da meta. */
+  carriedInstallments: number;
+  carriedInstallmentsCount: number;
   projectionMethod: "linear" | "weekday_weighted" | CategoryProjectionMethod;
   /** Projeção decomposta e auditável (`category_projection.v1`). */
   projection: CategoryProjection;
@@ -550,6 +554,8 @@ export function evaluateCategoryGoal(
   // dos estornos vinculados à despesa original (finance_contract.v9).
   let actualSpend = 0;
   let includedTransactionCount = 0;
+  let carriedInstallments = 0;
+  let carriedInstallmentsCount = 0;
   const goalAttribution = buildRefundAttribution(txs);
   for (const t of txs) {
     if (effectiveCategoryId(t, goalAttribution) !== goal.category_id) continue;
@@ -565,6 +571,12 @@ export function evaluateCategoryGoal(
     }
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
+    // `goal_consumption.v1`: parcela 2+ de compra anterior é compromisso, não consumo.
+    if (isCarriedInstallment(t)) {
+      carriedInstallments += Number(t.amount || 0);
+      carriedInstallmentsCount += 1;
+      continue;
+    }
     actualSpend += Number(t.amount || 0);
     includedTransactionCount += 1;
   }
@@ -646,6 +658,8 @@ export function evaluateCategoryGoal(
     message,
     calculationReferenceDate: referenceIso,
     includedTransactionCount,
+    carriedInstallments: round2(carriedInstallments),
+    carriedInstallmentsCount,
     projectionMethod: projection.method,
     projection,
     projectionConfidence: projection.confidence,
@@ -680,7 +694,9 @@ export function computeCategoryBaseline(
     const end = todayISO(new Date(ref.getFullYear(), ref.getMonth() + 1, 0));
     // finance_truth.v1: baseline usa a MESMA verdade do ranking — categoria
     // econômica efetiva e estorno abatendo a despesa original.
-    const fact = computeCanonicalCategoryTotal(txs, categoryId, { start, end }, "expense");
+    // `goal_consumption.v1`: a base também desconsidera parcelas de compras anteriores,
+    // senão a meta seria medida num critério e o limite calculado em outro.
+    const fact = computeCanonicalCategoryTotal(txs, categoryId, { start, end }, "expense", { excludeCarriedInstallments: true });
     const monthTotal = Math.max(0, fact.net);
     total += monthTotal;
     counted += 1;

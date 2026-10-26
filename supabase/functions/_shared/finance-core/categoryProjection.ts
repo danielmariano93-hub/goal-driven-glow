@@ -25,6 +25,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
+  isCarriedInstallment,
   isRealMonthlyMovement,
   type TransactionRow,
 } from "./facts.ts";
@@ -156,6 +157,8 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     if (!date || date < lookbackStart || date > input.period.end) continue;
     if (String((tx as { movement_kind?: string | null }).movement_kind ?? "") === "refund") continue;
     if (tx.type !== "expense" || !isRealMonthlyMovement(tx)) continue;
+    // Parcela de compra anterior não é hábito nem série da categoria (`goal_consumption.v1`).
+    if (isCarriedInstallment(tx as TransactionRow)) continue;
     const amount = round2(Number(tx.amount || 0));
     if (!(amount > 0)) continue;
 

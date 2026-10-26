@@ -22,6 +22,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
+  isCarriedInstallment,
   isRealMonthlyMovement,
   reportingCompetenceDate,
   type TransactionRow,
@@ -205,6 +206,8 @@ export function buildSpendingLedger(txs: SpendingLedgerTx[], resolver: MerchantR
   const out: SpendingEntry[] = [];
   for (const t of txs) {
     const refund = String(t.movement_kind ?? "") === "refund";
+    // `goal_consumption.v1`: parcela 2+ de compra anterior não consome meta nem submeta.
+    if (!refund && isCarriedInstallment(t)) continue;
     const value = refund
       ? behavioralMetricAmount(t, "expense")
       : t.type === "expense" && isRealMonthlyMovement(t) ? Number(t.amount || 0) : 0;
