@@ -14,7 +14,7 @@
 //  - Uma obrigação aparece UMA única vez. Fatura oficial vence parcela estimada.
 //  - Pagamento de fatura planejado (settles_card_id) nunca soma com a fatura.
 //  - Nada aqui faz I/O: cálculo determinístico e testável.
-import { round2, todayISO, nextRecurringOccurrences, type RecurringRow, type TransactionRow } from "./facts.ts";
+import { round2, todayISO, nextRecurringOccurrences, isScheduledFutureTx, type RecurringRow, type TransactionRow } from "./facts.ts";
 import { isAuthoritativeCardStatement } from "./cardExposure.ts";
 import { civilAddDays, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate.ts";
 import { computeDebtStatus, nextInstallmentOverride, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus.ts";
@@ -215,8 +215,7 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
 
   // 3) Lançamentos planejados (antes das recorrências: têm precedência) ------
   for (const t of input.txs) {
-    if (t.status !== "planned") continue;
-    if (t.type === "transfer") continue;
+    if (!isScheduledFutureTx(t, todayIso)) continue;
     if (t.settles_card_id) continue; // pagamento de fatura já contado no item da fatura
     const date = String(t.occurred_at || "").slice(0, 10);
     if (!inHorizon(date)) continue;

@@ -67,3 +67,22 @@ describe("future_income.v1", () => {
     expect(result.events).toEqual([]);
   });
 });
+describe("lançamento confirmado com data futura", () => {
+  const base = {
+    accounts: [{ id: "acc", name: "Conta", type: "checking", opening_balance: 1000, active: true }],
+    recurring: [], snapshots: [], investments: [], debts: [], categoryGoals: [],
+    period: { start: "2026-10-01", end: "2026-10-31" }, today: new Date(2026, 9, 26, 12),
+    incomeSettings: { approximate_monthly_income: 8000, income_frequency: "mensal", income_day: 27 },
+  };
+  it("salário já lançado para amanhã entra como entrada futura (não some da projeção)", () => {
+    const snapshot = computeFinancialSnapshot({ ...base, txs: [tx({ id: "sal", amount: 8015.78, occurred_at: "2026-10-27" })] as never } as never);
+    expect(snapshot.availableToday).toBe(1000);
+    expect(snapshot.projection.confirmedFutureInflows).toBe(8015.78);
+    expect(snapshot.projection.estimatedFixedInflows).toBe(0);
+    expect(snapshot.projection.freeAfterKnownCommitments).toBe(9015.78);
+  });
+  it("não conta compra de cartão com data futura como saída de caixa", () => {
+    const snapshot = computeFinancialSnapshot({ ...base, txs: [tx({ id: "c", type: "expense", amount: 300, occurred_at: "2026-10-28", credit_card_id: "card" })] as never } as never);
+    expect(snapshot.projection.confirmedFutureInflows).toBe(0);
+  });
+});

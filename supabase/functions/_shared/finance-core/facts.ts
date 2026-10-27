@@ -809,6 +809,22 @@ export interface AvailableUntilOutput {
   available: number;
 }
 
+/**
+ * Lançamento futuro já registrado: planejado OU confirmado com data depois de hoje, sem cartão.
+ * O saldo de hoje não o contém e a estimativa de renda o descarta como duplicado; sem isto
+ * (ex.: salário lançado na véspera) ele sumiria da projeção.
+ */
+export function isScheduledFutureTx(
+  t: Pick<TransactionRow, "status" | "type" | "occurred_at" | "settles_card_id"> & { credit_card_id?: string | null; payment_method?: string | null },
+  todayIso: string,
+): boolean {
+  if (t.type === "transfer" || t.settles_card_id) return false;
+  if (t.status === "planned") return true;
+  if (t.status !== "confirmed") return false;
+  if (t.credit_card_id || String(t.payment_method ?? "") === "credit_card") return false;
+  return String(t.occurred_at ?? "").slice(0, 10) > todayIso;
+}
+
 export function computeAvailableUntil(input: AvailableUntilInput): AvailableUntilOutput {
   const today = input.today ?? new Date();
   const currentCash = computeTotalCash(
@@ -822,8 +838,7 @@ export function computeAvailableUntil(input: AvailableUntilInput): AvailableUnti
   let plannedIncome = 0;
   let plannedExpense = 0;
   for (const t of input.txs) {
-    if (t.status !== "planned") continue;
-    if (t.type === "transfer") continue;
+    if (!isScheduledFutureTx(t, todayISO(today))) continue;
     // Pagamento de fatura planejado NÃO entra em compromissos: a fatura já é
     // descontada em `cardsOwed`. Somar os dois contaria a mesma dívida 2x.
     if (t.settles_card_id) continue;
