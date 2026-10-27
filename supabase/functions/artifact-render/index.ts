@@ -3,6 +3,7 @@
 // Chamado sincronamente por whatsapp-send com timeout curto; se falhar,
 // o caller cai para fallback textual.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { safeEqual } from "../_shared/security/secrets.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { httpContext } from "../_shared/http.ts";
 import { renderArtifactPng } from "../_shared/artifacts/png.ts";
@@ -32,7 +33,7 @@ Deno.serve(async (req) => {
   // Endpoint interno: a função usa service role para ler artefatos de qualquer
   // usuário. Um JWT autenticado comum não pode atravessar esta fronteira.
   const auth = req.headers.get("Authorization") ?? "";
-  if (auth !== `Bearer ${SERVICE_ROLE}`) return h.fail("unauthorized", 401);
+  if (!safeEqual(auth, `Bearer ${SERVICE_ROLE}`)) return h.fail("unauthorized", 401);
 
   try {
     const { artifact_id } = await req.json().catch(() => ({}));

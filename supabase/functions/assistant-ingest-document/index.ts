@@ -9,6 +9,7 @@
 //   POST { mode:'status', document_id }
 //     -> { document_id, status, items?, error?, correlation_id?, user_message? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { safeEqual } from "../_shared/security/secrets.ts";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import { fail } from "../_shared/http.ts";
 import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
@@ -1819,7 +1820,7 @@ Deno.serve(async (req) => {
   // Bypasses user JWT via a service-role bearer. Never expose this mode from clients.
   if (mode === "process-inbound-media") {
     const auth = req.headers.get("Authorization") ?? "";
-    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return fail("forbidden", { status: 403, functionName: FN });
+    if (!safeEqual(auth.replace(/^Bearer\s+/i, ""), SERVICE_ROLE)) return fail("forbidden", { status: 403, functionName: FN });
     const document_id = String(body.document_id ?? "");
     const user_id = String(body.user_id ?? "");
     const guidance = String(body.guidance ?? "").slice(0, 500);
@@ -1841,7 +1842,7 @@ Deno.serve(async (req) => {
   // tem seu próprio limite de 3 tentativas.
   if (mode === "continue-fragments" || mode === "resume-internal") {
     const auth = req.headers.get("Authorization") ?? "";
-    if (auth.replace(/^Bearer\s+/i, "") !== SERVICE_ROLE) return fail("forbidden", { status: 403, functionName: FN });
+    if (!safeEqual(auth.replace(/^Bearer\s+/i, ""), SERVICE_ROLE)) return fail("forbidden", { status: 403, functionName: FN });
     const document_id = String(body.document_id ?? "");
     const user_id = String(body.user_id ?? "");
     const guidance = String(body.guidance ?? "").slice(0, 500);

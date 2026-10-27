@@ -2,13 +2,22 @@
 // Exigência da App Store: o usuário inicia e o processo se conclui sozinho.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders, json } from "../_shared/cors.ts";
+import { matchesAnySecret, safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const CRON_SECRETS = [Deno.env.get("INTERNAL_CRON_SECRET") ?? "", Deno.env.get("CRON_SECRET") ?? ""].filter(Boolean);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+
+  // Só cron/serviço: antes qualquer chamada com a chave pública podia disparar o processamento.
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const cron = req.headers.get("x-cron-secret") ?? req.headers.get("x-internal-secret") ?? "";
+  if (!safeEqual(bearer, SERVICE_ROLE) && !matchesAnySecret(cron, CRON_SECRETS)) {
+    return json({ error: "unauthorized" }, 401);
+  }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
