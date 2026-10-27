@@ -792,6 +792,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     diagnostics: {
       ...(merged.diagnostics ?? {}),
       ...(semanticProviderRecovery ? { semantic_provider_recovery: semanticProviderRecovery } : {}),
+      // Motivo do interpretador (ex.: v3_bridge_rejected:temporal_expression_unresolved:…):
+      // sem ele, um "qual período?" indevido não deixa rastro para diagnosticar.
+      ...(brain.telemetry.error ? { brain_error: String(brain.telemetry.error).slice(0, 300) } : {}),
       v3_first: v3FirstEnabled,
       plan_steps: executions.map((execution) => ({
         mode: execution.contract.mode,

@@ -112,3 +112,20 @@ describe("cobrança parcelada ponta a ponta", () => {
     expect(registry).toContain("sharing.receivables");
   });
 });
+
+describe("vencimento individual do integrante", () => {
+  it("split_create_v3 resolve o integrante pelo telefone do payload, não pela ordem do banco", () => {
+    const sql = read("supabase/migrations/20261027250000_split_create_v3_installments_by_phone.sql");
+    expect(sql).toContain("p_participants -> coalesce((it->>'participant_index')::int, 0) ->> 'phone_e164'");
+    expect(sql).toContain("phone_e164 = v_phone");
+    expect(sql).not.toMatch(/ORDER BY created_at, id\s+OFFSET/);
+  });
+
+  it("a mensagem usa o vencimento do integrante antes do geral", () => {
+    const dispatch = read("supabase/functions/split-reminders-dispatch-v2/index.ts");
+    expect(dispatch).toContain("participant?.due_date");
+    expect(dispatch).toMatch(/reminder_count"\)\s*\.eq\("id", job\.participant_id\)|amount_paid,due_date,opt_out_at/);
+    const pipeline = read("supabase/functions/_shared/split/participantPipeline.ts");
+    expect(pipeline).toContain("participant.due_date ?? expense.due_date");
+  });
+});
