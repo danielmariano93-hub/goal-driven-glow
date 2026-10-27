@@ -163,9 +163,11 @@ export default function DivisaoDoRoleNova() {
           : null;
 
       // Colunas antigas (conta/cartão que gera o lançamento) ficam em sincronia; as origens completas vão em split_set_sources.
+      // A conta/cartão ficam sempre nas colunas antigas; registrar ou não o gasto é decidido pela origem.
+      const ledgerAny = sources.find((r) => r.kind !== "debt") ?? null;
       const legacySource = {
-        account: ledgerSource?.kind === "account" ? ledgerSource.ref_id : null,
-        card: ledgerSource?.kind === "credit_card" ? ledgerSource.ref_id : null,
+        account: ledgerAny?.kind === "account" ? ledgerAny.ref_id : null,
+        card: ledgerAny?.kind === "credit_card" ? ledgerAny.ref_id : null,
         register: Boolean(ledgerSource),
       };
       const saveSources = async (expenseId: string) => {

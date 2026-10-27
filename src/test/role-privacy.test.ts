@@ -47,3 +47,11 @@ describe("privacidade do rolê para o participante", () => {
     expect(list).not.toContain("shared_expenses(id,title,total_amount");
   });
 });
+
+describe("restrição de origem na linha do rolê", () => {
+  it("aceita rolê financiado só por dívida (no máximo uma conta/cartão)", () => {
+    const sql = readFileSync(`${process.cwd()}/supabase/migrations/20261028120000_role_sources_constraint.sql`, "utf8");
+    expect(sql).toContain("drop constraint if exists shared_expenses_exactly_one_financial_source");
+    expect(sql).toContain("<= 1) not valid");
+  });
+});
