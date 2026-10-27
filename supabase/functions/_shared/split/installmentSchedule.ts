@@ -131,6 +131,29 @@ export function buildPaymentConfirmationParts(
   return { headline, scheduleBlock, closing };
 }
 
+// Quitação antecipada: a pessoa pagou de uma vez o que faltava. Agradece, diz que não há mais nada a pagar
+// e lista só as parcelas dela (sem origem, sem outros integrantes).
+export function buildSettlementConfirmationParts(
+  rows: CanonicalReceivable[],
+  ctx: { title: string; ownerName: string },
+): { headline: string; scheduleBlock: string; closing: string } | null {
+  const list = activeReceivables(rows);
+  if (list.length === 0) return null;
+  const stillOpen = list.some((r) => Math.max(0, Number(r.balance_due ?? 0)) > 0.004);
+  if (stillOpen) return null;
+  const total = round2(list.reduce((sum, r) => sum + Number(r.amount ?? 0), 0));
+  const where = `da divisão “${ctx.title}” com ${ctx.ownerName}`;
+  const multi = list.length > 1;
+  return {
+    headline: `Recebemos o pagamento antecipado da sua parte (*${formatBRLSplit(total)}*) ${where}. Obrigado por adiantar! 🙌`,
+    scheduleBlock: multi
+      ? "\n\n*Como ficou sua divisão:*\n" + list.map((r) =>
+        `✅ ${r.installment_number}/${r.total_installments} — ${formatBRLSplit(Number(r.amount ?? 0))} — paga`).join("\n")
+      : "",
+    closing: "\n\nVocê está em dia com essa divisão e não precisa pagar mais nada. 🎉",
+  };
+}
+
 export type ScheduleSummary = {
   count: number;
   total: number;

@@ -91,6 +91,7 @@ export default function DivisaoDoRoleDetalhe() {
   const refreshFinance=()=>{invalidateFinancialQueries(queryClient);};
   const act=async(fn:()=>PromiseLike<{error?:any}>,ok:string)=>{setBusy(true);try{const r=await fn();if(r.error)throw r.error;refreshFinance();toast.success(ok);await load();}catch(e:any){toast.error(friendlyError(e));}finally{setBusy(false)}};
   const payment=(pid:string,amount:number)=>act(()=>supabase.rpc("split_add_payment_v2" as never,{p_participant_id:pid,p_amount:amount} as never),"Pagamento registrado");
+  const settleAll=(pid:string,name:string,amount:number)=>{if(window.confirm(`Registrar que ${name} quitou tudo (${formatBRL(amount)})? Ele recebe uma única mensagem de agradecimento e as próximas cobranças dele são canceladas.`))act(()=>supabase.rpc("split_settle_participant" as never,{p_participant_id:pid} as never),"Quitação registrada");};
   const payInstallment=(installmentId:string,amount:number)=>act(()=>supabase.rpc("split_add_installment_payment" as never,{p_installment_id:installmentId,p_amount:amount} as never),"Pagamento da parcela registrado");
 
   const kick=async(showToast=true)=>{
@@ -228,7 +229,9 @@ export default function DivisaoDoRoleDetalhe() {
             <div className="space-y-2 pt-1">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Registrar recebimento</p>
               <div className="grid grid-cols-2 gap-2">
-              <button disabled={busy} onClick={()=>payment(p.id,left)} className="btn-action"><CheckCircle2 size={16}/> Recebi {formatBRL(left)}</button>
+              {(byParticipant.get(p.id)??[]).filter((r)=>Number(r.balance_due??0)>0.004).length>1
+                ?<button disabled={busy} onClick={()=>settleAll(p.id,p.name,left)} className="btn-action"><CheckCircle2 size={16}/> Quitou tudo · {formatBRL(left)}</button>
+                :<button disabled={busy} onClick={()=>payment(p.id,left)} className="btn-action"><CheckCircle2 size={16}/> Recebi {formatBRL(left)}</button>}
               <button disabled={busy} onClick={()=>{const v=prompt("Quanto foi recebido?");const n=Number((v??"").replace(",","."));if(n>0)payment(p.id,n)}} className="btn-action-secondary"><Pencil size={15}/> Outro valor</button>
               </div>
               {!isOwnerRow&&<p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cobranças</p>}
