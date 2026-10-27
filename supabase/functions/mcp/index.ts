@@ -75,7 +75,6 @@ function cashDateOf(t) {
 }
 function reportingCompetenceDate(t) {
   const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
-  if (isCard && t.economic_competence_date) return String(t.economic_competence_date).slice(0, 10);
   if (isCard && t.competence_date) return String(t.competence_date).slice(0, 10);
   return String(t.occurred_at).slice(0, 10);
 }
@@ -1348,7 +1347,7 @@ var financial_position_default = defineTool5({
     }
     const txs = [];
     for (let from = 0; ; from += CARD_TX_PAGE_SIZE) {
-      const page = await supabase.from("transactions").select("credit_card_id,competence_date,occurred_at,amount,type,status,settles_card_id").not("credit_card_id", "is", null).order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(from, from + CARD_TX_PAGE_SIZE - 1);
+      const page = await supabase.from("transactions").select("credit_card_id,competence_date,economic_competence_date,installment_anticipated,occurred_at,amount,type,status,settles_card_id").not("credit_card_id", "is", null).order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(from, from + CARD_TX_PAGE_SIZE - 1);
       if (page.error) {
         return errorResult("N\xE3o foi poss\xEDvel reconciliar os lan\xE7amentos de cart\xE3o agora. Tente novamente.", "upstream_unavailable");
       }
