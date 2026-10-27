@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw } from "lucide-react";
+import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw, ThumbsUp, ThumbsDown, SlidersHorizontal } from "lucide-react";
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
 import { useAccounts, useLedgerWindow, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
-import { summarizeInvoiceItems } from "@/lib/cardInvoice";
+import { closingDateOf, invoicePoints, smoothPath, summarizeInvoiceItems } from "@/lib/cardInvoice";
 import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -169,22 +169,13 @@ export default function Cartoes() {
                     </button>
                   </div>
                 </div>
-                <CardInvoicePanel card={c} statements={statements as StatementRow[]} onPay={setPaying} onView={setViewing} />
-                {st.openCycle && (
-                  <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-[11px] font-medium text-muted-foreground">Fatura em formação (parcial)</p>
-                      <p className="text-sm font-semibold tabular-nums">{formatBRL(st.formingStatement.amount)}</p>
-                    </div>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      Ciclo {st.openCycle.period_start.split("-").reverse().join("/")} a {st.openCycle.period_end.split("-").reverse().join("/")} · vence {st.openCycle.due_date.split("-").reverse().join("/")}
-                    </p>
-                  </div>
-                )}
-
-                {st.currentStatement.paidAmount > 0 && (
-                  <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.currentStatement.paidAmount)}</p>
-                )}
+                <CardInvoicePanel
+                  card={c}
+                  statements={statements as StatementRow[]}
+                  forming={st.openCycle ? { due_date: st.openCycle.due_date, period_start: st.openCycle.period_start, period_end: st.openCycle.period_end, amount: st.formingStatement.amount } : null}
+                  onPay={setPaying}
+                  onView={setViewing}
+                />
                 {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Esta fatura tem divergência de conciliação. Revise antes de considerar o saldo como conciliado.</p>}
                 {c.total_limit > 0 && (
                   <div className="mt-3">
@@ -262,130 +253,258 @@ export default function Cartoes() {
 
 type InvoiceItem = { id: string; item_kind: string; description: string; amount: number; occurred_at: string | null };
 
-const monthLabel = (date: string) =>
+const dueMonthLabel = (date: string) =>
   new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
 
+const TILE_W = 96;
+const TILE_GAP = 8;
+const TILE_H = 150;
+const PLOT_TOP = 44;
+const PLOT_BOTTOM = 108;
+
+type FormingCycle = { due_date: string; period_start: string; period_end: string; amount: number };
+type InvoiceTile = { key: string; label: string; value: number; due_date: string; statement: StatementRow | null };
+
+const ITEM_FILTERS: Array<{ key: string; label: string; match: (kind: string) => boolean }> = [
+  { key: "all", label: "Todos", match: () => true },
+  { key: "purchases", label: "Compras", match: (k) => ["purchase", "installment"].includes(k) },
+  { key: "credits", label: "Pagamentos e estornos", match: (k) => ["payment", "refund"].includes(k) },
+  { key: "other", label: "Ajustes e encargos", match: (k) => !["purchase", "installment", "payment", "refund"].includes(k) },
+];
+
 /**
- * Painel de faturas no estilo do app do banco. Só faturas oficiais (importadas): nada de estimativa.
- * Meses com marcador, título da fatura, resumo e lançamentos.
+ * Painel de faturas no formato do app do banco. Só dado certo: faturas oficiais importadas e, como último
+ * ponto tracejado, a fatura em formação (compras reais do ciclo em curso). Nada de estimativa de parcelas.
  */
-function CardInvoicePanel({ card, statements, onPay, onView }: {
-  card: CreditCardRow; statements: StatementRow[]; onPay: (st: StatementRow) => void; onView: (st: StatementRow) => void;
+function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
+  card: CreditCardRow; statements: StatementRow[]; forming: FormingCycle | null;
+  onPay: (st: StatementRow) => void; onView: (st: StatementRow) => void;
 }) {
-  const list = useMemo(
+  const official = useMemo(
     () => statements
       .filter((st) => st.credit_card_id === card.id && isAuthoritativeCardStatement(st as never))
-      .sort((a, b) => String(a.competence_month).localeCompare(String(b.competence_month)))
-      .slice(-8),
+      .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
+      .slice(-5),
     [statements, card.id],
   );
+  const tiles: InvoiceTile[] = useMemo(() => {
+    const out: InvoiceTile[] = official.map((st) => ({
+      key: st.id,
+      label: dueMonthLabel(st.due_date),
+      value: Number(st.outstanding_amount) > 0 ? Number(st.outstanding_amount) : creditBalanceOf(st) > 0 ? 0 : Number(st.stated_total),
+      due_date: st.due_date,
+      statement: st,
+    }));
+    const lastDue = official.length ? official[official.length - 1].due_date : "";
+    if (forming && forming.due_date > lastDue) {
+      out.push({ key: "forming", label: dueMonthLabel(forming.due_date), value: Number(forming.amount) || 0, due_date: forming.due_date, statement: null });
+    }
+    return out;
+  }, [official, forming]);
+
+  const defaultKey = tiles.length ? tiles[tiles.length - 1].key : null;
   const [picked, setPicked] = useState<string | null>(null);
-  const fallback = list.length ? ([...list].reverse().find((st) => Number(st.outstanding_amount) > 0) ?? list[list.length - 1]) : null;
-  const current = list.find((st) => st.id === picked) ?? fallback;
+  const [filter, setFilter] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
+  const activeKey = tiles.some((t) => t.key === picked) ? picked : defaultKey;
+  const tile = tiles.find((t) => t.key === activeKey) ?? null;
+  const statement = tile?.statement ?? null;
+  const previous = statement ? null : official[official.length - 1] ?? null;
 
   const itemsQuery = useQuery({
-    queryKey: ["statement-items-panel", current?.id],
-    enabled: Boolean(current?.id),
+    queryKey: ["statement-items-panel", statement?.id],
+    enabled: Boolean(statement?.id),
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("credit_card_statement_items")
         .select("id,item_kind,description,amount,occurred_at")
-        .eq("statement_id", current!.id)
+        .eq("statement_id", statement!.id)
         .order("occurred_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as InvoiceItem[];
+      return (data ?? []) as Array<{ id: string; item_kind: string; description: string; amount: number; occurred_at: string | null }>;
     },
   });
 
-  // Leva o mês selecionado para a vista (o último mês fica na ponta direita da faixa).
+  // Leva o mês selecionado para a vista (a faixa rola; o último mês fica na ponta).
   useEffect(() => {
-    if (!current?.id) return;
-    document.querySelector(`[data-invoice-tile="${current.id}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
-  }, [current?.id]);
+    if (!activeKey) return;
+    document.querySelector(`[data-invoice-tile="${activeKey}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
+  }, [activeKey]);
 
-  if (list.length === 0 || !current) {
+  const [rated, setRated] = useState<number | null>(null);
+  const sendRating = async (rating: 1 | -1) => {
+    setRated(rating);
+    const { error } = await (supabase as any).from("screen_feedback").insert({ screen: "cartoes_fatura", rating });
+    if (error) toast.error("Não foi possível enviar sua opinião agora");
+    else toast.success("Obrigado pela opinião!");
+  };
+
+  if (tiles.length === 0 || !tile) {
     return <p className="mt-4 rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">Ainda não há fatura oficial importada para este cartão. Aqui aparece só o que vem da fatura.</p>;
   }
 
   const items = itemsQuery.data ?? [];
   const summary = summarizeInvoiceItems(items);
-  const credit = creditBalanceOf(current);
-  const outstanding = Number(current.outstanding_amount);
-  const due = new Date(`${current.due_date}T12:00:00`);
-  const overdue = outstanding > 0 && due < new Date();
-  const paid = outstanding <= 0.005 && (current.status === "paid" || Number(current.paid_amount) > 0 || credit > 0);
-  const title = paid ? "Fatura paga" : overdue ? "Fatura vencida" : "Fatura aberta";
+  const credit = statement ? creditBalanceOf(statement) : previous ? creditBalanceOf(previous) : 0;
+  const outstanding = statement ? Number(statement.outstanding_amount) : Number(forming?.amount ?? 0);
+  const overdue = Boolean(statement) && outstanding > 0 && new Date(`${tile.due_date}T12:00:00`) < new Date();
+  const paid = Boolean(statement) && outstanding <= 0.005 && (statement!.status === "paid" || Number(statement!.paid_amount) > 0 || credit > 0);
+  const title = !statement ? "Fatura aberta" : paid ? "Fatura paga" : overdue ? "Fatura vencida" : "Fatura aberta";
   const titleColor = paid ? "text-success" : overdue ? "text-destructive" : "text-primary";
-  const bestDay = Number(card.closing_day) >= 28 ? 1 : Number(card.closing_day) + 1;
-  const reconciled = Math.abs(Number(current.reconciliation_difference)) <= 0.05;
-  const shown = items.slice(0, 8);
+  const closing = closingDateOf(tile.due_date, Number(card.closing_day), Number(card.due_day));
+  const reconciled = !statement || Math.abs(Number(statement.reconciliation_difference)) <= 0.05;
+  const filterDef = ITEM_FILTERS.find((f) => f.key === filter) ?? ITEM_FILTERS[0];
+  const filtered = items.filter((it) => filterDef.match(it.item_kind));
+  const shown = filtered.slice(0, 10);
+  const fmtDay = (d: string) => `${d.slice(8, 10)} ${dueMonthLabel(d)}`;
+
+  const width = tiles.length * TILE_W + (tiles.length - 1) * TILE_GAP;
+  const pts = invoicePoints(tiles.map((t) => t.value), { tileW: TILE_W, gap: TILE_GAP, top: PLOT_TOP, bottom: PLOT_BOTTOM });
+  const hasForming = tiles[tiles.length - 1].key === "forming";
+  const solidPts = hasForming ? pts.slice(0, -1) : pts;
+  const gradId = `inv-grad-${card.id}`;
+  const areaPath = `${smoothPath(pts)} L ${pts[pts.length - 1].x} ${TILE_H - 8} L ${pts[0].x} ${TILE_H - 8} Z`;
 
   return (
     <div className="mt-4" data-testid="card-invoice-panel">
-      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-        {list.map((st) => {
-          const active = st.id === current.id;
-          const stCredit = creditBalanceOf(st);
-          const value = Number(st.outstanding_amount) > 0 ? Number(st.outstanding_amount) : stCredit > 0 ? 0 : Number(st.stated_total);
-          const open = Number(st.outstanding_amount) > 0;
-          return (
-            <button
-              key={st.id}
-              type="button"
-              onClick={() => setPicked(st.id)}
-              aria-pressed={active}
-              data-invoice-tile={st.id}
-              className={`w-[92px] shrink-0 rounded-2xl border px-2 py-3 text-center ${active ? "border-primary bg-primary/5" : "border-border bg-secondary/40"}`}
-            >
-              <span className={`block text-xs font-semibold capitalize ${active ? "text-primary" : "text-foreground"}`}>{monthLabel(st.competence_month)}</span>
-              <span className="relative my-3 block h-3">
-                <span className={`absolute inset-x-[-8px] top-1/2 border-t ${open ? "border-dashed border-primary/60" : "border-success/60"}`} />
-                <span className={`absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${active ? "border-primary bg-card" : open ? "border-primary/60 bg-card" : "border-success bg-success"}`} />
-              </span>
-              <span className="block text-xs font-bold tabular-nums">{formatBRL(value)}</span>
-            </button>
-          );
-        })}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="relative" style={{ width, height: TILE_H }}>
+          <div className="absolute inset-0 flex" style={{ gap: TILE_GAP }}>
+            {tiles.map((t) => {
+              const active = t.key === tile.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setPicked(t.key)}
+                  aria-pressed={active}
+                  data-invoice-tile={t.key}
+                  style={{ width: TILE_W }}
+                  className={`flex shrink-0 flex-col items-center justify-between rounded-2xl border pb-3 pt-3 ${active ? "border-primary bg-gradient-to-b from-card to-primary/15" : "border-transparent bg-secondary/60"}`}
+                >
+                  <span className={`text-sm font-semibold capitalize ${active ? "text-primary" : "text-foreground/80"}`}>{t.label}</span>
+                  <span className={`text-sm font-bold tabular-nums ${active ? "text-primary" : "text-foreground/80"}`}>{formatBRL(t.value)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <svg className="pointer-events-none absolute inset-0" width={width} height={TILE_H} viewBox={`0 0 ${width} ${TILE_H}`} aria-hidden>
+            <defs>
+              <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="currentColor" stopOpacity="0.14" />
+                <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path d={areaPath} fill={`url(#${gradId})`} className="text-foreground" />
+            {solidPts.length > 1 && <path d={smoothPath(solidPts)} fill="none" strokeWidth="1.6" className="stroke-success" />}
+            {hasForming && pts.length > 1 && (
+              <path d={smoothPath(pts.slice(-2))} fill="none" strokeWidth="1.6" strokeDasharray="4 3" className="stroke-primary" />
+            )}
+            {pts.map((pt, i) => {
+              const t = tiles[i];
+              const active = t.key === tile.key;
+              const closed = Boolean(t.statement);
+              return (
+                <circle
+                  key={t.key}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={active ? 6 : 5}
+                  strokeWidth="2"
+                  className={active ? "fill-card stroke-primary" : closed ? "fill-success stroke-success" : "fill-card stroke-muted-foreground"}
+                />
+              );
+            })}
+          </svg>
+        </div>
       </div>
 
       <div className="mt-4 flex items-baseline justify-between">
-        <p className={`font-display text-xl font-bold ${titleColor}`}>{title}</p>
-        <p className="font-display text-xl font-bold tabular-nums">{formatBRL(outstanding > 0 ? outstanding : 0)}</p>
+        <p className={`font-display text-2xl font-bold ${titleColor}`}>{title}</p>
+        <p className="font-display text-2xl font-bold tabular-nums">{formatBRL(outstanding > 0 ? outstanding : 0)}</p>
       </div>
       <dl className="mt-1 space-y-1 text-sm">
         {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Saldo positivo:</dt><dd className="tabular-nums">{formatBRL(credit)}</dd></div>}
-        <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd>dia {bestDay}</dd></div>
-        <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd>{formatDate(current.due_date)}</dd></div>
+        <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd>{fmtDay(closing)}</dd></div>
+        <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd>{fmtDay(tile.due_date)}</dd></div>
       </dl>
       <div className="my-4 border-t border-border" />
 
       <section className="rounded-2xl border border-border p-4">
         <h3 className="font-display text-base font-bold">Resumo da fatura</h3>
-        <dl className="mt-3 space-y-2 text-sm">
-          <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos e estornos</dt><dd className="tabular-nums text-success">{formatBRL(summary.credits)}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">Compras</dt><dd className="tabular-nums">{formatBRL(summary.purchases)}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">Ajustes e encargos</dt><dd className="tabular-nums">{formatBRL(summary.other)}</dd></div>
-          <div className="flex justify-between border-t border-border pt-2 font-semibold"><dt>{credit > 0 ? "Saldo credor da fatura" : "Total da fatura"}</dt><dd className="tabular-nums">{formatBRL(credit > 0 ? -credit : Number(current.stated_total))}</dd></div>
-        </dl>
-        {!reconciled && (
-          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(current.reconciliation_difference)))}</p>
+        {statement ? (
+          <dl className="mt-3 space-y-2 text-sm">
+            <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos e estornos</dt><dd className="tabular-nums text-success">{formatBRL(summary.credits)}</dd></div>
+            <div className="flex justify-between"><dt className="text-muted-foreground">Compras</dt><dd className="tabular-nums">{formatBRL(summary.purchases)}</dd></div>
+            <div className="flex justify-between"><dt className="text-muted-foreground">Produtos e serviços</dt><dd className="tabular-nums">{formatBRL(summary.services)}</dd></div>
+            {Math.abs(summary.adjustments) > 0.005 && (
+              <div className="flex justify-between"><dt className="text-muted-foreground">Ajustes</dt><dd className="tabular-nums">{formatBRL(summary.adjustments)}</dd></div>
+            )}
+            <div className="flex justify-between border-t border-border pt-2 font-semibold"><dt>{credit > 0 ? "Saldo credor da fatura" : "Total da fatura"}</dt><dd className="tabular-nums">{formatBRL(credit > 0 ? -credit : Number(statement.stated_total))}</dd></div>
+          </dl>
+        ) : (
+          <dl className="mt-3 space-y-2 text-sm">
+            {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos antecipados</dt><dd className="tabular-nums text-success">{formatBRL(-credit)}</dd></div>}
+            <div className="flex justify-between"><dt className="text-muted-foreground">Compras do ciclo</dt><dd className="tabular-nums">{formatBRL(Number(forming?.amount ?? 0))}</dd></div>
+            <div className="flex justify-between"><dt className="text-muted-foreground">Produtos e serviços</dt><dd className="tabular-nums">{formatBRL(0)}</dd></div>
+          </dl>
         )}
-        <div className="mt-3 flex gap-2">
-          {outstanding > 0 && reconciled && (
-            <button type="button" onClick={() => onPay(current)} className="btn-brand flex-1 py-2 text-xs">Registrar pagamento</button>
-          )}
-          <button type="button" onClick={() => onView(current)} className="inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-border px-4 py-2 text-xs font-semibold">
-            Ver e editar fatura <ChevronRight size={13} />
-          </button>
-        </div>
+        {statement && !reconciled && (
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(statement.reconciliation_difference)))}</p>
+        )}
+        {statement ? (
+          <div className="mt-3 flex gap-2">
+            {outstanding > 0 && reconciled && (
+              <button type="button" onClick={() => onPay(statement)} className="btn-brand flex-1 py-2 text-xs">Registrar pagamento</button>
+            )}
+            <button type="button" onClick={() => onView(statement)} className="inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-border px-4 py-2 text-xs font-semibold">
+              Ver e editar fatura <ChevronRight size={13} />
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Ciclo de {fmtDay(forming!.period_start)} a {fmtDay(forming!.period_end)}. Parcelas e compras que o banco ainda vai lançar entram aqui quando a fatura for importada.
+          </p>
+        )}
       </section>
 
+      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-secondary/60 px-4 py-3" data-testid="card-feedback">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">Compartilhe a sua opinião</p>
+          <p className="text-xs text-muted-foreground">O que você achou da experiência de consulta de fatura?</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button type="button" disabled={rated != null} onClick={() => void sendRating(1)} aria-label="Gostei" className={`grid h-9 w-9 place-items-center rounded-full border border-border ${rated === 1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsUp size={16} /></button>
+          <button type="button" disabled={rated != null} onClick={() => void sendRating(-1)} aria-label="Não gostei" className={`grid h-9 w-9 place-items-center rounded-full border border-border ${rated === -1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsDown size={16} /></button>
+        </div>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">Compras recentes só aparecem aqui quando a fatura é importada ou sincronizada com o banco.</p>
+
       <section className="mt-5">
-        <h3 className="font-display text-base font-bold">Lançamentos</h3>
-        {itemsQuery.isLoading ? (
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-xl font-bold">Lançamentos</h3>
+          {statement && (
+            <button type="button" onClick={() => setShowFilters((v) => !v)} className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
+              <SlidersHorizontal size={14} /> Filtros
+            </button>
+          )}
+        </div>
+        {showFilters && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {ITEM_FILTERS.map((f) => (
+              <button key={f.key} type="button" onClick={() => setFilter(f.key)} aria-pressed={filter === f.key}
+                className={`rounded-full border px-3 py-1 text-xs font-medium ${filter === f.key ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {!statement ? (
+          <p className="mt-2 text-xs text-muted-foreground">Esta fatura ainda não foi fechada, então não há lançamentos faturados.</p>
+        ) : itemsQuery.isLoading ? (
           <div className="grid place-items-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : shown.length === 0 ? (
-          <p className="mt-2 text-xs text-muted-foreground">Esta fatura não tem lançamentos importados.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Nenhum lançamento nesta seleção.</p>
         ) : (
           <ul className="mt-2 divide-y divide-border">
             {shown.map((it) => (
@@ -399,9 +518,9 @@ function CardInvoicePanel({ card, statements, onPay, onView }: {
             ))}
           </ul>
         )}
-        {items.length > shown.length && (
-          <button type="button" onClick={() => onView(current)} className="mt-2 w-full rounded-full border border-border px-4 py-2 text-xs font-semibold">
-            Ver todos os {items.length} lançamentos
+        {statement && filtered.length > shown.length && (
+          <button type="button" onClick={() => onView(statement)} className="mt-2 w-full rounded-full border border-border px-4 py-2 text-xs font-semibold">
+            Ver todos os {filtered.length} lançamentos
           </button>
         )}
       </section>
