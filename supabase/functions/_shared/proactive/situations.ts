@@ -11,9 +11,20 @@ import type {
   SituationSeverity,
 } from "./contracts.ts";
 import { PROACTIVE_MULTIFINANCE_VERSION } from "./contracts.ts";
+import { civilDateBR } from "./debtObligations.ts";
 import { brlPt, diagnosisCommunicationKind, diagnosisTopicOwnedElsewhere } from "./presentation.ts";
 
 const brl = brlPt;
+
+/** Data civil legível (dd/mm/aaaa); nunca vaza o ISO cru para o usuário. */
+function dateBR(iso: unknown): string {
+  return civilDateBR(typeof iso === "string" ? iso : null) ?? String(iso ?? "");
+}
+
+/** Minúscula só na 1ª letra: `toLowerCase()` inteiro estragava "R$". */
+function lowerFirst(text: string): string {
+  return text ? text.charAt(0).toLowerCase() + text.slice(1) : text;
+}
 
 function pick(signals: FinancialSignal[], key: string): FinancialSignal | undefined {
   return signals.find((signal) => signal.key === key);
@@ -106,8 +117,8 @@ export function composeFinancialSituations(
       type: "card_pressure_on_cash",
       communication_kind: "card_bill_pressure",
       severity: "critical",
-      title: `Sua fatura não cabe no caixa de ${cashNegative.date}`,
-      body: `Com a fatura de ${brl((cardDue ?? cardAboveCash)!.amount)} e os compromissos já conhecidos, o caixa projetado fica em ${brl(cashNegative.amount)} negativo em ${cashNegative.date}. Vale antecipar entrada, remanejar compromisso ou planejar o pagamento parcial.`,
+      title: `Sua fatura não cabe no caixa de ${dateBR(cashNegative.date)}`,
+      body: `Com a fatura de ${brl((cardDue ?? cardAboveCash)!.amount)} e os compromissos já conhecidos, o caixa projetado fica em ${brl(cashNegative.amount)} negativo em ${dateBR(cashNegative.date)}. Vale antecipar entrada, remanejar compromisso ou planejar o pagamento parcial.`,
       primary_domain: "cards",
       signals: group,
       impact_amount: cashNegative.amount,
@@ -122,8 +133,8 @@ export function composeFinancialSituations(
       type: "cash_shortfall_ahead",
       communication_kind: "upcoming_cash_pressure",
       severity: "critical",
-      title: `Caixa fica negativo em ${cashNegative.date}`,
-      body: `Somando o que já está agendado, o saldo projetado chega a ${brl(cashNegative.amount)} negativo em ${cashNegative.date}.${cluster ? ` O peso vem de ${cluster.label.toLowerCase()}.` : ""}`,
+      title: `Caixa fica negativo em ${dateBR(cashNegative.date)}`,
+      body: `Somando o que já está agendado, o saldo projetado chega a ${brl(cashNegative.amount)} negativo em ${dateBR(cashNegative.date)}.${cluster ? ` O peso vem de ${lowerFirst(cluster.label)}.` : ""}`,
       primary_domain: "cash",
       signals: group,
       impact_amount: cashNegative.amount,
