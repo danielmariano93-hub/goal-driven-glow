@@ -106,7 +106,7 @@ export default function DivisaoDoRole() {
       const { data: parts, error } = await supabase
         .from("shared_expense_participants")
         .select(
-          "amount_due,amount_paid,status,shared_expense_id, shared_expenses(id,title,total_amount,occurred_at,due_date,status,owner_user_id,deleted_at)",
+          "amount_due,amount_paid,status,shared_expense_id, shared_expenses(id,title,occurred_at,due_date,status,owner_user_id,deleted_at)",
         )
         .eq("linked_user_id", uid);
       if (error) throw error;
@@ -145,7 +145,7 @@ export default function DivisaoDoRole() {
           return {
             id: se.id,
             title: se.title,
-            total_amount: Number(se.total_amount),
+            total_amount: 0,
             occurred_at: se.occurred_at,
             due_date: se.due_date,
             status: se.status,

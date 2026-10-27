@@ -26,10 +26,8 @@ function render(kind: string, opts: {
   persona?: MessagePersona;
 }) {
   const amount = formatBRL(opts.remaining);
-  const showContext = opts.participantsCount > 0 && opts.totalAmount > 0;
-  const splitContextSentence = showContext
-    ? ` (total do rolê: ${formatBRL(opts.totalAmount)}, dividido entre ${opts.participantsCount} ${opts.participantsCount === 1 ? "pessoa" : "pessoas"})`
-    : "";
+  // Privacidade: o convite nunca traz o total do rolê nem quantas pessoas dividem.
+  const splitContextSentence = "";
   const installments = opts.totalInstallments ?? 1;
   const paid = opts.paidOnInstallment ?? 0;
   const participantRemaining = opts.participantRemaining ?? opts.remaining;
@@ -38,9 +36,7 @@ function render(kind: string, opts: {
     owner_name: opts.owner_name ?? "A pessoa responsável pelo rolê",
     title: opts.title ?? "seu rolê",
     amount,
-    total_amount: formatBRL(opts.totalAmount),
     participant_total: formatBRL(opts.participantTotal ?? opts.remaining),
-    participants_count: String(opts.participantsCount),
     split_context_sentence: splitContextSentence,
     installment_label: installments > 1
       ? `${opts.installmentNumber ?? 1}ª parcela de ${installments}`
@@ -62,7 +58,7 @@ function render(kind: string, opts: {
 }
 
 describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
-  it("convite: total do rolê, pessoas e a parte da pessoa", () => {
+  it("convite: só a parte da pessoa (sem total do rolê nem número de pessoas)", () => {
     const msg = render("invite", {
       participant_name: "Ana",
       owner_name: "Bruno",
@@ -73,8 +69,9 @@ describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
     });
     expect(msg).toContain("Bruno incluiu você");
     expect(msg).toContain("Churrasco");
-    expect(msg).toContain("total do rolê: R$ 120,00");
-    expect(msg).toContain("dividido entre 2 pessoas");
+    expect(msg).not.toContain("total do rolê");
+    expect(msg).not.toContain("R$ 120,00");
+    expect(msg).not.toContain("dividido entre");
     expect(msg).toContain("R$ 60,00");
   });
 
@@ -91,15 +88,15 @@ describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
     expect(msg).toContain("A primeira parcela vence em *10/10/2026*");
   });
 
-  it("convite usa singular quando há uma pessoa", () => {
+  it("convite com uma pessoa também não revela quantas dividem", () => {
     const msg = render("invite", {
       remaining: 30,
       participantsCount: 1,
       totalAmount: 30,
       title: "Farmácia",
     });
-    expect(msg).toContain("dividido entre 1 pessoa");
-    expect(msg).not.toContain("1 pessoas");
+    expect(msg).not.toContain("dividido entre");
+    expect(msg).not.toContain("1 pessoa");
   });
 
   it("cobrança fala da parcela e do saldo, nunca do valor cheio", () => {
@@ -195,6 +192,6 @@ describe("Mensagem da Divisão do Rolê — parcela e contexto", () => {
       persona,
     });
     expect(msg.startsWith("Rolê: Café — R$ 10,00")).toBe(true);
-    expect(msg).toContain("dividido entre 2 pessoas");
+    expect(msg).not.toContain("dividido entre");
   });
 });
