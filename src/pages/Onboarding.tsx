@@ -8,6 +8,7 @@ import {
   type IncomeFrequency,
 } from "@/lib/validation/onboarding";
 import { displayNameSchema } from "@/lib/validation/auth";
+import { OnboardingWhatsAppStep } from "@/components/onboarding/OnboardingWhatsAppStep";
 
 const FREQUENCY_LABEL: Record<IncomeFrequency, string> = {
   mensal: "Mensal",
@@ -85,7 +86,7 @@ export default function Onboarding() {
             MeuNino
           </span>
         </div>
-        <span className="text-xs text-muted-foreground">Passo {step} de 3</span>
+        <span className="text-xs text-muted-foreground">Passo {step} de 4</span>
       </header>
 
       <main className="mx-auto max-w-md px-4 pb-16 pt-4 md:pt-10">
@@ -205,7 +206,9 @@ export default function Onboarding() {
             </>
           )}
 
-          {step === 3 && (
+          {step === 3 && <OnboardingWhatsAppStep onBack={() => setStep(2)} onContinue={() => setStep(4)} />}
+
+          {step === 4 && (
             <>
               <h1 className="font-display text-2xl font-bold tracking-tight">Últimos detalhes</h1>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -225,7 +228,7 @@ export default function Onboarding() {
               <div className="mt-6 flex justify-between">
                 <button
                   type="button"
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
                 >
                   <ArrowLeft size={14} /> Voltar
