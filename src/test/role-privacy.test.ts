@@ -4,25 +4,22 @@ import { describe, expect, it } from "vitest";
 const read = (p: string) => readFileSync(`${process.cwd()}/${p}`, "utf8");
 
 /** O participante só pode saber quanto paga e quando. Origem, total e fluxo são do dono. */
-describe("privacidade do rolê para o participante", () => {
+describe("privacidade do rolê para o participante (a forma de pagamento é só do dono)", () => {
   const templates = read("supabase/functions/_shared/agent/messageTemplates.ts");
   const dispatch = read("supabase/functions/split-reminders-dispatch-v2/index.ts");
   const pipeline = read("supabase/functions/_shared/split/participantPipeline.ts");
 
-  it("os textos padrão não mencionam total, origem, dívida, cartão nem fluxo", () => {
+  it("os textos padrão não mencionam origem, dívida, cartão nem fluxo", () => {
     const splitTemplates = templates.split("\n").filter((l) => /^\s*(invite|reminder|due_soon|due_today|overdue|payment_confirmation|completed):/.test(l)).join("\n");
     expect(splitTemplates.length).toBeGreaterThan(200);
-    for (const forbidden of ["{{total_amount}}", "{{participants_count}}", "{{split_context_sentence}}", "dívida", "cartão", "origem", "fluxo"]) {
+    for (const forbidden of ["dívida", "cartão", "origem", "fluxo"]) {
       expect(splitTemplates.toLowerCase(), forbidden).not.toContain(forbidden.toLowerCase());
     }
     expect(splitTemplates.toLowerCase()).not.toMatch(/\btia\b/);
   });
 
-  it("o despachante não fornece total nem número de pessoas aos textos", () => {
-    expect(dispatch).not.toContain("total do rolê");
-    expect(dispatch).not.toMatch(/total_amount:\s*formatBRL/);
-    expect(dispatch).not.toContain("participants_count:");
-    expect(dispatch).toContain('split_context_sentence: ""');
+  it("o despachante nunca usa as origens do rolê nos textos", () => {
+    expect(dispatch).not.toMatch(/shared_expense_sources|source_credit_card_id|source_account_id|debt_id/);
   });
 
   it("as respostas ao participante usam só parcelas e datas dele", () => {

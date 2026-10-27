@@ -40,10 +40,10 @@ describe("financial concepts shown to the user", () => {
 });
 
 describe("split payment acknowledgement", () => {
-  it("delivers terminal messages even after the split becomes settled", () => {
+  it("delivers the payment confirmation even after the split becomes settled (the 'completed' notice no longer exists)", () => {
     const worker = read("supabase/functions/split-reminders-dispatch-v2/index.ts");
     expect(worker).toContain('String(expense.status) === "settled" && !terminal');
-    expect(worker).toContain('const terminal = ["payment_confirmation", "completed"].includes(kind)');
+    expect(worker).toContain('const terminal = ["payment_confirmation"].includes(kind)');
   });
 
   it("has a friendly and idempotent payment acknowledgement journey", () => {
