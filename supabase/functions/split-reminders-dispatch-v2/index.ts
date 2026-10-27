@@ -143,11 +143,8 @@ function messageFor(
         : expense?.due_date
           ? formatCivilBR(expense.due_date)
           : null;
-  const participantsCount = Math.max(1, Number(split.participantsCount || 0));
-  const totalAmount = Number(split.totalAmount || 0);
-  const splitContextSentence = totalAmount > 0
-    ? ` (total do rolê: ${formatBRL(totalAmount)}, dividido entre ${participantsCount} ${participantsCount === 1 ? "pessoa" : "pessoas"})`
-    : "";
+  // Privacidade: o participante só vê a própria parte e as datas. O valor cheio, quantas pessoas dividem
+  // e de onde saiu o dinheiro são do dono e nunca entram na mensagem.
   const paidOnInstallment = Number(receivable?.paid_amount ?? 0);
   const partialSentence = paidOnInstallment > 0
     ? `\n\n💰 *Pagamento parcial:* já foram pagos *${formatBRL(paidOnInstallment)}*. Restam *${formatBRL(remaining)}*.`
@@ -176,10 +173,8 @@ function messageFor(
     owner_name: String(expense.owner_name ?? "A pessoa responsável pelo rolê"),
     title: String(expense.title ?? "seu rolê"),
     amount: formatBRL(remaining),
-    total_amount: formatBRL(totalAmount),
     participant_total: formatBRL(Number(participant.amount_due ?? 0)),
-    participants_count: String(participantsCount),
-    split_context_sentence: splitContextSentence,
+    split_context_sentence: "",
     installment_label: installmentLabel(receivable),
     installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
     // Com a agenda completa impressa, repetir a 1ª data seria redundante.

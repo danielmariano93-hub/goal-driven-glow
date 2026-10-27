@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import { RoleFlowCard } from "@/components/role/RoleFlowCard";
 import { formatBRL } from "@/lib/split/math";
 import { dispatchSplitReminders } from "@/lib/split/dispatch";
 import {
@@ -42,7 +43,7 @@ export default function DivisaoDoRoleDetalhe() {
   const [receivables,setReceivables]=useState<ReceivableRow[]>([]);
   const load=async()=>{
     const [{data:s,error},{data:p},{data:e},{data:m},{data:r}]=await Promise.all([
-      supabase.from("shared_expenses" as never).select("*").eq("id" as never,id as never).maybeSingle(),
+      supabase.from("shared_expenses" as never).select("id,title,occurred_at,due_date,status,owner_user_id,pix_key,deleted_at,cancelled_at,cancellation_reason,reminder_enabled,created_at" as never).eq("id" as never,id as never).maybeSingle(),
       supabase.from("shared_expense_participants" as never).select("*").eq("shared_expense_id" as never,id as never).order("created_at" as never),
       supabase.from("shared_expense_events" as never).select("*").eq("shared_expense_id" as never,id as never).order("created_at" as never,{ascending:false}).limit(30),
       supabase.rpc("split_message_status" as never,{p_id:id} as never),
@@ -51,7 +52,13 @@ export default function DivisaoDoRoleDetalhe() {
     if(error){setLoadError(error.message||"Não foi possível carregar este rolê.");return;}
     if(!s){setLoadError("Você não tem acesso a este rolê ou ele foi removido.");return;}
     setLoadError(null);
-    setSplit(s);setParts((p??[]) as any[]);setEvents((e??[]) as any[]);
+    // O total e a amarra financeira são do dono: o participante nunca baixa esses campos.
+    let full:any=s;
+    if((s as any).owner_user_id===user?.id){
+      const {data:tot}=await supabase.from("shared_expenses" as never).select("total_amount" as never).eq("id" as never,id as never).maybeSingle();
+      full={...(s as any),...((tot??{}) as any)};
+    }
+    setSplit(full);setParts((p??[]) as any[]);setEvents((e??[]) as any[]);
     setReceivables(((r??[]) as unknown as ReceivableRow[]));
     setMessages(Object.fromEntries(((m??[]) as any[]).map((x)=>[x.participant_id,x])));
     const ownerId=(s as any).owner_user_id;
@@ -166,6 +173,7 @@ export default function DivisaoDoRoleDetalhe() {
     <header className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h1 className="font-display text-2xl font-bold">{split.title}</h1>{split.deleted_at&&<span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-muted-foreground">Excluída</span>}</div><p className="text-xs text-muted-foreground">{new Date(`${split.occurred_at}T12:00:00`).toLocaleDateString("pt-BR")} · <span className={overdue?"font-semibold text-destructive":""}>{split.deleted_at?"Somente no histórico":overdue?"Vencida":labels[split.status]??split.status}</span></p></div>{isOwner&&split.status!=="cancelled"&&<button onClick={()=>nav(`/app/divisao-do-role/${id}/editar`)} className="rounded-full border p-2" aria-label="Editar"><Pencil size={16}/></button>}</header>
     {!split.deleted_at&&external.length>0&&<section className="surface-card overflow-hidden"><div className="flex items-start gap-3 border-b border-border p-4"><div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${failedCount?"bg-destructive/10 text-destructive":pendingInvite?"bg-primary/10 text-primary":"bg-success/10 text-success"}`}>{failedCount?<AlertTriangle size={18}/>:pendingInvite?<Loader2 size={18} className="animate-spin"/>:<MessageCircle size={18}/>}</div><div><p className="text-sm font-semibold">{overallStatus}</p><p className="mt-0.5 text-xs text-muted-foreground">{pendingInvite?"Isso normalmente leva menos de um minuto. Você pode sair desta tela — continuaremos por aqui.":failedCount?"Veja abaixo quem precisa de uma nova tentativa.":"Você acompanha cada convite e pagamento nesta tela."}</p></div></div><div className="grid grid-cols-3 gap-1 p-3 text-center"><JourneyStep icon={<Clock3 size={14}/>} label="Preparado" active/><JourneyStep icon={<Send size={14}/>} label="Enviado" active={deliveredCount>0}/><JourneyStep icon={<CheckCircle2 size={14}/>} label="Recebido" active={received>0}/></div></section>}
     {split.deleted_at&&<div className="rounded-2xl border border-border bg-secondary/50 p-4 text-xs text-muted-foreground"><p className="font-semibold text-foreground">Este rolê foi excluído</p><p className="mt-1">O gasto foi removido das movimentações. Mantivemos este registro somente no histórico para não perder a rastreabilidade.</p></div>}
+    {isOwner&&!split.deleted_at&&<RoleFlowCard expenseId={String(id)} occurredAt={split.occurred_at} receivables={receivables.filter((r:any)=>Boolean(r.phone_e164)&&r.settlement_status!=="cancelled").map((r)=>({due_date:r.due_date,amount:Number(r.amount)}))}/>}
     <section className="surface-card p-4"><div className="grid grid-cols-3 gap-3"><Metric label="Total" value={formatBRL(Number(split.total_amount))}/><Metric label="Recebido" value={formatBRL(received)} tone="text-success"/><Metric label="Falta" value={formatBRL(pending)} tone={pending?"text-destructive":"text-success"}/></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-gradient-to-r from-primary to-brand-coral transition-all" style={{width:`${progress}%`}}/></div><p className="mt-1 text-right text-[11px] text-muted-foreground">{progress}% recebido</p>{summary.nextDueDate&&<p className="mt-2 text-[11px] text-muted-foreground">Próximo vencimento: <strong className="text-foreground">{formatCivil(summary.nextDueDate)}</strong>{summary.overdue>0?` · ${formatBRL(summary.overdue)} em atraso`:""}</p>}</section>
     {overdue&&<div className="flex gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive"><AlertTriangle size={16}/> Há pessoas com pagamento atrasado.</div>}
     {isOwner&&split.status==="active"&&<button disabled={busy||pendingInvite} onClick={sendAll} className="btn-brand w-full disabled:opacity-50"><Bell size={16}/> {pendingInvite?"Enviando convite inicial…":"Lembrar quem ainda não pagou"}</button>}

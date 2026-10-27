@@ -4,7 +4,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAccounts, useCategories } from "@/lib/db/finance";
+import { useAccounts, useCategories, useDebts } from "@/lib/db/finance";
+import { RoleSourcesEditor, emptySource, sourcesToRpc, type SourceRow } from "@/components/role/RoleSourcesEditor";
+import { sourcesBalance } from "@/lib/split/roleFlow";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { formatBRL } from "@/lib/split/math";
 import { buildEqualInstallments, formatCivil, todayCivilSaoPaulo } from "@/lib/split/installments";
@@ -28,6 +30,7 @@ export default function DivisaoDoRoleNova() {
   const { data: accounts = [] } = useAccounts();
   const { data: categories = [] } = useCategories();
   const { data: cards = [] } = useCreditCards();
+  const { data: debts = [] } = useDebts();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
@@ -40,8 +43,7 @@ export default function DivisaoDoRoleNova() {
   const [ownerAmount, setOwnerAmount] = useState("");
   const [reminders, setReminders] = useState(true);
   const [pixKey, setPixKey] = useState("");
-  const [source, setSource] = useState<Source>("account");
-  const [sourceId, setSourceId] = useState("");
+  const [sources, setSources] = useState<SourceRow[]>([emptySource("account")]);
   const [reimbursementAccountId, setReimbursementAccountId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [people, setPeople] = useState<Person[]>([{ name: "", phone_e164: "", amount_due: "" }]);
@@ -70,9 +72,17 @@ export default function DivisaoDoRoleNova() {
       setDueDate(s.due_date ?? ""); setMode(s.split_mode); setReminders(s.reminder_enabled);
       setPixKey(s.pix_key ?? ""); setCategoryId(s.category_id ?? "");
       setReimbursementAccountId(s.reimbursement_account_id ?? "");
-      setMissingFinancialSource(!s.source_account_id && !s.source_credit_card_id);
-      setSource(s.source_credit_card_id ? "credit_card" : "account");
-      setSourceId(s.source_credit_card_id ?? s.source_account_id ?? "");
+      const { data: savedSources } = await supabase.from("shared_expense_sources" as never).select("*").eq("shared_expense_id" as never, id as never).order("created_at" as never);
+      const srcRows = (savedSources ?? []) as any[];
+      if (srcRows.length) {
+        setSources(srcRows.map((r) => ({
+          kind: r.kind, ref_id: r.debt_id ?? r.credit_card_id ?? r.account_id ?? "", amount: String(r.amount).replace(".", ","),
+          register_transaction: Boolean(r.register_transaction), installments: r.installments ? String(r.installments) : "", first_due: r.first_due ?? "",
+        })));
+      } else {
+        setMissingFinancialSource(!s.source_account_id && !s.source_credit_card_id);
+        setSources([{ ...emptySource(s.source_credit_card_id ? "credit_card" : "account"), ref_id: s.source_credit_card_id ?? s.source_account_id ?? "", amount: String(s.total_amount).replace(".", ",") }]);
+      }
       const owner = rows.find((p) => !p.phone_e164 && Number(p.amount_paid) === Number(p.amount_due));
       setIncludeOwner(Boolean(owner)); setOwnerAmount(owner ? String(owner.amount_due).replace(".", ",") : "");
       setPeople(rows.filter((p) => p !== owner).map((p) => ({ id:p.id,name:p.name,phone_e164:p.phone_e164??"",amount_due:String(p.amount_due).replace(".",","),amount_paid:Number(p.amount_paid),due_date:p.due_date??"" })));
@@ -88,9 +98,17 @@ export default function DivisaoDoRoleNova() {
   }, [editing, id, nav]);
 
   useEffect(() => {
-    if (!sourceId && source === "account" && accounts[0]) setSourceId(accounts[0].id);
     if (!reimbursementAccountId && accounts[0]) setReimbursementAccountId(accounts[0].id);
-  }, [accounts, reimbursementAccountId, source, sourceId]);
+  }, [accounts, reimbursementAccountId]);
+  useEffect(() => {
+    // Uma só origem cobre o total sozinha: acompanha o valor digitado (comportamento de sempre).
+    setSources((rows) => (rows.length === 1 && rows[0]!.amount !== total ? [{ ...rows[0]!, amount: total }] : rows));
+    setSources((rows) => (rows.length === 1 && !rows[0]!.ref_id && rows[0]!.kind === "account" && accounts[0] ? [{ ...rows[0]!, ref_id: accounts[0].id }] : rows));
+  }, [total, accounts, sources.length]);
+  const sourcesOk = sources.length > 0 && sources.every((r) => Boolean(r.ref_id) && money(r.amount || "0") > 0)
+    && sourcesBalance(totalNum, sources.map((r) => money(r.amount || "0"))).ok
+    && sources.filter((r) => r.kind !== "debt").length <= 1;
+  const ledgerSource = sources.find((r) => r.kind !== "debt" && r.register_transaction) ?? null;
 
   const shares = useMemo(() => {
     if (!(totalNum > 0)) return [];
@@ -105,7 +123,7 @@ export default function DivisaoDoRoleNova() {
   }, [includeOwner, mode, ownerAmount, people, totalNum]);
   const sharesTotal = shares.reduce((sum,p)=>sum+p.amount,0);
   const valid = title.trim() && totalNum>0 && shares.length>0 && Math.round(sharesTotal*100)===Math.round(totalNum*100)
-    && Boolean(sourceId);
+    && sourcesOk;
 
   const save = async () => {
     if (!valid) { toast.error("Revise os valores e a origem do pagamento"); return; }
@@ -144,6 +162,19 @@ export default function DivisaoDoRoleNova() {
           ? buildEqualInstallments(amount, installmentCount, personDue || firstDue)
           : null;
 
+      // Colunas antigas (conta/cartão que gera o lançamento) ficam em sincronia; as origens completas vão em split_set_sources.
+      // A conta/cartão ficam sempre nas colunas antigas; registrar ou não o gasto é decidido pela origem.
+      const ledgerAny = sources.find((r) => r.kind !== "debt") ?? null;
+      const legacySource = {
+        account: ledgerAny?.kind === "account" ? ledgerAny.ref_id : null,
+        card: ledgerAny?.kind === "credit_card" ? ledgerAny.ref_id : null,
+        register: Boolean(ledgerSource),
+      };
+      const saveSources = async (expenseId: string) => {
+        const { error: srcError } = await supabase.rpc("split_set_sources" as never, { p_expense_id: expenseId, p_sources: sourcesToRpc(sources) } as never);
+        if (srcError) throw srcError;
+      };
+
       if (editing) {
         const ownerExisting = includeOwner ? [{ id: null, name:"Você", phone_e164:null, amount_due:shares.find((s)=>s.name==="Você")?.amount ?? 0 }] : [];
         // O servidor protege pessoas já pagas; o proprietário é representado
@@ -154,11 +185,12 @@ export default function DivisaoDoRoleNova() {
         const { error } = await supabase.rpc("split_update_v3" as never, {
           p_id:id,p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,
           p_split_mode:mode,p_reminder_enabled:reminders,p_pix_key:pixKey||null,
-          p_participants:[...ownerExisting,...participantPayload],p_source_account_id:source==="account"?sourceId:null,
-          p_source_credit_card_id:source==="credit_card"?sourceId:null,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
+          p_participants:[...ownerExisting,...participantPayload],p_source_account_id:legacySource.account,
+          p_source_credit_card_id:legacySource.card,p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:legacySource.register,
           p_installments:null,
         } as never);
         if (error) throw error;
+        await saveSources(String(id));
         // Parcelas são aplicadas depois do update: só aqui todos os
         // participantes (inclusive os criados agora) já têm id canônico.
         const { data: afterRows } = await supabase.from("shared_expense_participants" as never)
@@ -186,11 +218,12 @@ export default function DivisaoDoRoleNova() {
           p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,p_split_mode:mode,
           p_include_owner:includeOwner,p_reminder_enabled:reminders,p_pix_key:pixKey||null,p_participants:participantPayload,
           p_owner_amount:includeOwner?(shares.find((s)=>s.name==="Você")?.amount??null):null,
-          p_source_account_id:source==="account"?sourceId:null,p_source_credit_card_id:source==="credit_card"?sourceId:null,
-          p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:true,
+          p_source_account_id:legacySource.account,p_source_credit_card_id:legacySource.card,
+          p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:legacySource.register,
           p_installments:installmentsPayload,
         } as never);
         if (error) throw error;
+        await saveSources(String(data));
 
         refreshFinance();
         // O convite faz parte do resultado da criação: não esconda falhas do
@@ -259,9 +292,10 @@ export default function DivisaoDoRoleNova() {
       <div className="surface-card space-y-3 p-4">{people.map((p,i)=><div key={p.id??i} className="grid grid-cols-[1fr_8rem_auto] gap-2"><input value={p.name} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,name:e.target.value}:x))} placeholder="Nome" className="input"/><input value={p.phone_e164} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,phone_e164:e.target.value}:x))} placeholder="+55…" className="input"/><button disabled={Boolean(p.amount_paid)} onClick={()=>setPeople(people.filter((_,j)=>j!==i))} className="text-destructive disabled:opacity-30"><Trash2 size={15}/></button>{mode==="custom"&&<input value={p.amount_due} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,amount_due:e.target.value}:x))} placeholder="Parte em R$" inputMode="decimal" className="input col-span-2"/>}<label className="col-span-3 flex items-center gap-2 text-[11px] text-muted-foreground"><span className="shrink-0">{payMode==="installments"?"1ª parcela em":"Paga até"}</span><input type="date" aria-label={`Vencimento de ${p.name||"esta pessoa"}`} value={p.due_date??""} onChange={(e)=>setPeople(people.map((x,j)=>j===i?{...x,due_date:e.target.value}:x))} className="input min-w-0 flex-1 py-1 text-xs"/>{p.due_date?<button type="button" onClick={()=>setPeople(people.map((x,j)=>j===i?{...x,due_date:""}:x))} className="shrink-0 text-primary">limpar</button>:<span className="shrink-0">{dueDate?`(geral: ${formatCivil(dueDate)})`:"(igual ao geral)"}</span>}</label></div>)}<div className="flex flex-wrap items-center gap-2"><button type="button" onClick={()=>setPeople([...people,{name:"",phone_e164:"",amount_due:""}])} className="inline-flex items-center gap-1 text-xs text-primary"><Plus size={13}/> Adicionar pessoa</button><ContactPickerButton onPicked={({name,phone_e164})=>{const dup=people.some((p)=>p.phone_e164&&normalizeBrPhone(p.phone_e164)===phone_e164);if(dup){toast.error("Esta pessoa já está no rolê.");return;}const empty=people.findIndex((p)=>!p.name&&!p.phone_e164);const row={name,phone_e164,amount_due:""};if(empty>=0)setPeople(people.map((x,i)=>i===empty?{...x,...row}:x));else setPeople([...people,row]);}}/><QuickAddPeople existingPhones={people.map((p)=>p.phone_e164)} onAdd={(rows)=>{const base=people.filter((p)=>p.name||p.phone_e164);setPeople([...base,...rows.map((r)=>({name:r.name,phone_e164:r.phone_e164,amount_due:""}))]);}}/></div><div className="border-t pt-3 text-xs">{shares.map((s,i)=><p key={i} className="flex justify-between"><span>{s.name}</span><strong>{formatBRL(s.amount)}</strong></p>)}<p className={`mt-2 flex justify-between ${Math.round(sharesTotal*100)===Math.round(totalNum*100)?"text-success":"text-destructive"}`}><span>Soma</span><strong>{formatBRL(sharesTotal)}</strong></p></div></div>
     </section>}
     {(editing||step===3)&&<section className="surface-card space-y-3 p-4">
-      <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Para manter seu saldo correto, toda divisão registra o gasto na conta ou no cartão usado no pagamento.</div>
+      <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">Informe de onde saiu o valor. Dívidas e gastos que já entram pela fatura não geram lançamento novo; seus amigos só veem a parte deles e as datas.</div>
       {missingFinancialSource&&<div className="flex gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground"><AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning"/> Esta divisão foi criada antes do vínculo financeiro. Escolha a conta ou o cartão usado para salvar e refletir nos movimentos.</div>}
-      <Field label="De onde saiu o pagamento? *"><select value={source} onChange={(e)=>{setSource(e.target.value as Source);setSourceId("")}} className="input"><option value="account">Conta bancária</option><option value="credit_card">Cartão de crédito</option></select></Field><Field label={source==="account"?"Qual conta? *":"Qual cartão? *"}><select value={sourceId} onChange={(e)=>setSourceId(e.target.value)} className="input"><option value="">Selecione</option>{(source==="account"?accounts:cards).filter((x:any)=>x.active).map((x:any)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field label="Categoria"><CategorySelect value={categoryId||null} onChange={(id)=>setCategoryId(id??"")} type="expense" className="input"/></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+      <RoleSourcesEditor total={totalNum} rows={sources} onChange={setSources} accounts={accounts as any[]} cards={cards as any[]} debts={debts as any[]} />
+      <Field label="Categoria"><CategorySelect value={categoryId||null} onChange={(id)=>setCategoryId(id??"")} type="expense" className="input"/></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
       <label className="flex gap-2 text-xs"><input type="checkbox" checked={reminders} onChange={(e)=>setReminders(e.target.checked)}/> Ativar lembretes amigáveis</label><Field label="Chave Pix"><input value={pixKey} onChange={(e)=>setPixKey(e.target.value)} className="input"/></Field>
     </section>}
     <div className="flex gap-2">{!editing&&step>1&&<button onClick={()=>setStep(step-1)} className="rounded-full border px-4 py-2 text-sm">Voltar</button>}{!editing&&step<3?<button disabled={step===1?!(title&&totalNum>0):shares.length===0} onClick={()=>setStep(step+1)} className="ml-auto rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">Continuar</button>:<button disabled={!valid||saving} onClick={save} className="ml-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground disabled:opacity-40">{saving&&<Loader2 size={14} className="animate-spin"/>}{editing?"Salvar alterações":"Criar e avisar"}</button>}</div>
