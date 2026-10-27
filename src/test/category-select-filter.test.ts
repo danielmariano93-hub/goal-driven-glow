@@ -73,3 +73,11 @@ describe("resolveVisibleCategories — clone-on-edit override", () => {
     expect(active.map((c) => c.id)).toEqual(["p-mercado"]);
   });
 });
+
+describe("resolveVisibleCategories — duplicadas", () => {
+  it("nunca mostra duas ativas com mesmo nome e tipo (acento/caixa equivalentes)", () => {
+    const a = mk({ id: "a", user_id: "u1", name: "Divisão do Rolê", slug: "divisao-do-role" });
+    const b = mk({ id: "b", user_id: "u1", name: "divisao do role", slug: "divisao-role-2" });
+    expect(resolveVisibleCategories([a, b], "u1").map((c) => c.id)).toEqual(["a"]);
+  });
+});

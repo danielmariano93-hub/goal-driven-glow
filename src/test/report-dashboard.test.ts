@@ -71,7 +71,7 @@ describe("painel: totais, variação e para onde vai o dinheiro", () => {
     expect(d.verdict?.kind).toBe("worse");
     expect(d.verdict?.headline).toBe("Você está pior que no período anterior");
     const keys = d.verdict?.signals.filter((s) => s.points < 0).map((s) => s.key);
-    expect(keys).toEqual(expect.arrayContaining(["savings", "categories"]));
+    expect(keys).toEqual(expect.arrayContaining(["result", "categories"]));
   });
 
   it("destaques acionáveis e projeção do mês em andamento", () => {
@@ -196,5 +196,34 @@ describe("comparação com janela parcial: conta que vence em outra data não vi
   it("mês fechado compara mês inteiro: sem contexto extra", () => {
     const closed = buildReportDashboard(entries, { today: "2026-10-31", start: "2026-10-01", end: "2026-10-31", compare: "previous" });
     expect(closed.categories.find((c) => c.name === "Energia")!.previousMonth).toBeNull();
+  });
+});
+
+describe("veredito: comparabilidade de renda e sinais sem duplicidade", () => {
+  const base: DashEntry[] = [
+    inc("2026-09-25", 10000), out("2026-09-06", 3000, "Moradia", "LS Prado"), out("2026-09-08", 800, "Mercado", "Extra"),
+    out("2026-10-06", 3000, "Moradia", "LS Prado"), out("2026-10-08", 800, "Mercado", "Extra"),
+    out("2026-09-09", 100, "Lazer"), out("2026-09-10", 100, "Lazer"), out("2026-09-11", 100, "Lazer"),
+    out("2026-10-09", 100, "Lazer"), out("2026-10-10", 100, "Lazer"), out("2026-10-11", 100, "Lazer"),
+  ];
+  const d = buildReportDashboard(base, { today: "2026-10-15", start: "2026-10-01", end: "2026-10-15", compare: "previous" });
+
+  it("salário que ainda não caiu não vira 'você está pior'", () => {
+    expect(d.verdict?.signals.find((s) => s.key === "result")?.points).toBe(0);
+    expect(d.verdict?.kind).not.toBe("worse");
+    expect(d.highlights.some((h) => h.id === "income-pending")).toBe(true);
+    expect(d.highlights.some((h) => h.id === "savings")).toBe(false);
+  });
+
+  it("poupança e sobra contam como um único sinal de resultado", () => {
+    const keys = d.verdict?.signals.map((s) => s.key) ?? [];
+    expect(keys).not.toContain("savings");
+    expect(keys).not.toContain("net");
+    expect(keys).not.toContain("trend");
+  });
+
+  it("renda irrisória diante do gasto não gera taxa de poupança", () => {
+    const x = buildReportDashboard([inc("2026-10-02", 50), out("2026-10-03", 3000, "Moradia")], { today: "2026-10-31", start: "2026-10-01", end: "2026-10-31", compare: "none" });
+    expect(x.totals.savingsRate).toBeNull();
   });
 });
