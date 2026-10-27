@@ -89,7 +89,7 @@ describe("cobrança parcelada ponta a ponta", () => {
 
   it("cria e edita a divisão pelas RPCs parceladas", () => {
     const form = read("src/pages/DivisaoDoRoleNova.tsx");
-    expect(form).toContain("split_create_v3");
+    expect(form).toContain("split_create_v4");
     expect(form).toContain("split_update_v3");
     expect(form).toContain("split_apply_installments");
     expect(form).not.toContain('supabase.rpc("split_create_v2"');

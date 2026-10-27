@@ -42,6 +42,8 @@ export default function DivisaoDoRoleNova() {
   const [includeOwner, setIncludeOwner] = useState(true);
   const [ownerAmount, setOwnerAmount] = useState("");
   const [reminders, setReminders] = useState(true);
+  // Só na criação: false = ninguém recebe a mensagem de inclusão; saem apenas o lembrete do vencimento e a cobrança de atraso.
+  const [sendInvite, setSendInvite] = useState(true);
   const [pixKey, setPixKey] = useState("");
   const [sources, setSources] = useState<SourceRow[]>([emptySource("account")]);
   const [reimbursementAccountId, setReimbursementAccountId] = useState("");
@@ -214,13 +216,14 @@ export default function DivisaoDoRoleNova() {
               rows: buildEqualInstallments(Number(p.amount_due ?? 0), installmentCount, p.due_date || firstDue),
             }))
           : null;
-        const { data, error } = await supabase.rpc("split_create_v3" as never, {
+        const { data, error } = await supabase.rpc("split_create_v4" as never, {
           p_title:title.trim(),p_total:totalNum,p_occurred_at:occurredAt,p_due_date:dueDate||null,p_split_mode:mode,
           p_include_owner:includeOwner,p_reminder_enabled:reminders,p_pix_key:pixKey||null,p_participants:participantPayload,
           p_owner_amount:includeOwner?(shares.find((s)=>s.name==="Você")?.amount??null):null,
           p_source_account_id:legacySource.account,p_source_credit_card_id:legacySource.card,
           p_reimbursement_account_id:reimbursementAccountId||null,p_category_id:categoryId||null,p_register_transaction:legacySource.register,
           p_installments:installmentsPayload,
+          p_send_invite:sendInvite,
         } as never);
         if (error) throw error;
         await saveSources(String(data));
@@ -229,7 +232,9 @@ export default function DivisaoDoRoleNova() {
         // O convite faz parte do resultado da criação: não esconda falhas do
         // dispatcher. O detalhe da divisão permite retomar sem duplicar jobs.
         const recipients = participantPayload.filter((p) => Boolean(p.phone_e164)).length;
-        if (recipients > 0) {
+        if (recipients > 0 && !sendInvite) {
+          toast.success("Divisão criada. Ninguém foi avisado agora: cada pessoa recebe o lembrete no vencimento e, se atrasar, a cobrança.");
+        } else if (recipients > 0) {
           const dispatch = await dispatchSplitReminders();
           if (dispatch.status === "timeout") {
             toast.info("Divisão criada. O envio continua em segundo plano e você pode acompanhar por aqui.");
@@ -296,7 +301,7 @@ export default function DivisaoDoRoleNova() {
       {missingFinancialSource&&<div className="flex gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-foreground"><AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning"/> Esta divisão foi criada antes do vínculo financeiro. Escolha a conta ou o cartão usado para salvar e refletir nos movimentos.</div>}
       <RoleSourcesEditor total={totalNum} rows={sources} onChange={setSources} accounts={accounts as any[]} cards={cards as any[]} debts={debts as any[]} />
       <Field label="Categoria"><CategorySelect value={categoryId||null} onChange={(id)=>setCategoryId(id??"")} type="expense" className="input"/></Field><Field label="Conta para receber os reembolsos"><select value={reimbursementAccountId} onChange={(e)=>setReimbursementAccountId(e.target.value)} className="input"><option value="">Registrar baixa sem lançamento</option>{accounts.filter((a)=>a.active).map((a)=><option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-      <label className="flex gap-2 text-xs"><input type="checkbox" checked={reminders} onChange={(e)=>setReminders(e.target.checked)}/> Ativar lembretes amigáveis</label><Field label="Chave Pix"><input value={pixKey} onChange={(e)=>setPixKey(e.target.value)} className="input"/></Field>
+      <label className="flex gap-2 text-xs"><input type="checkbox" checked={reminders} onChange={(e)=>setReminders(e.target.checked)}/> Ativar lembretes amigáveis</label>{!editing&&<label className="flex flex-col gap-1 text-xs"><span className="flex gap-2"><input type="checkbox" checked={sendInvite} onChange={(e)=>setSendInvite(e.target.checked)}/> Avisar as pessoas agora que elas foram incluídas</span>{!sendInvite&&<span className="pl-6 text-[11px] text-muted-foreground">{reminders?"Ninguém recebe a mensagem de inclusão. Cada pessoa recebe só o lembrete no dia do vencimento e, se atrasar, a cobrança.":"Ninguém será avisado e, com os lembretes desligados, ninguém receberá mensagem nenhuma. Ative os lembretes para que saiam no vencimento."}</span>}</label>}<Field label="Chave Pix"><input value={pixKey} onChange={(e)=>setPixKey(e.target.value)} className="input"/></Field>
     </section>}
     <div className="flex gap-2">{!editing&&step>1&&<button onClick={()=>setStep(step-1)} className="rounded-full border px-4 py-2 text-sm">Voltar</button>}{!editing&&step<3?<button disabled={step===1?!(title&&totalNum>0):shares.length===0} onClick={()=>setStep(step+1)} className="ml-auto rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">Continuar</button>:<button disabled={!valid||saving} onClick={save} className="ml-auto inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground disabled:opacity-40">{saving&&<Loader2 size={14} className="animate-spin"/>}{editing?"Salvar alterações":"Criar e avisar"}</button>}</div>
   </div>;
