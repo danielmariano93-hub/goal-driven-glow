@@ -5,7 +5,7 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useLedgerWindow, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
-import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure, type ExposureSource } from "@/lib/engine/cardExposure";
+import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -135,7 +135,7 @@ export default function Cartoes() {
         <ul className="space-y-3">
           {cards.map((c) => {
             const st: CardExposure = exposures[c.id] ?? emptyExposure(c.id);
-            const commitment = st.totalCardDebt + st.futureInstallments;
+            const commitment = st.totalCardDebt;
             const usedPct = c.total_limit > 0 ? Math.min(1, commitment / Number(c.total_limit)) : 0;
             const available = Math.max(0, Number(c.total_limit) - commitment);
             return (
@@ -168,19 +168,7 @@ export default function Cartoes() {
                     </button>
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
-                  <Stat
-                    label="Em aberto na fatura"
-                    value={formatBRL(st.currentStatement.amount)}
-                    tag={sourceTag(st.currentStatement.source)}
-                  />
-                  <Stat
-                    label="Próxima fatura"
-                    value={formatBRL(st.nextStatement.amount)}
-                    tag={sourceTag(st.nextStatement.source)}
-                  />
-                  <Stat label="Parcelas futuras" value={formatBRL(st.futureInstallments)} tag="Compromisso" />
-                </div>
+                <CardInvoiceStrip card={c} statements={statements as StatementRow[]} />
                 {st.openCycle && (
                   <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2">
@@ -196,11 +184,6 @@ export default function Cartoes() {
                 {st.currentStatement.paidAmount > 0 && (
                   <p className="mt-2 text-[11px] text-success">Já pago nesta fatura: {formatBRL(st.currentStatement.paidAmount)}</p>
                 )}
-                {st.currentStatement.source === "estimated" && (
-                  <p className="mt-2 rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">
-                    Estimativa reconstruída pelos lançamentos: ainda não há fatura oficial importada para {ym.split("-").reverse().join("/")}.
-                  </p>
-                )}
                 {st.needsReview && <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Esta fatura tem divergência de conciliação. Revise antes de considerar o saldo como conciliado.</p>}
                 {c.total_limit > 0 && (
                   <div className="mt-3">
@@ -211,7 +194,7 @@ export default function Cartoes() {
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)} · considera fatura em aberto + parcelas futuras
+                      {Math.round(usedPct * 100)}% do limite de {formatBRL(Number(c.total_limit))} · disponível {formatBRL(available)} · considera só o que já está faturado
                     </p>
                   </div>
                 )}
@@ -225,7 +208,7 @@ export default function Cartoes() {
         <CardCommitmentTimeline
           cards={cards}
           statements={statements as StatementRow[]}
-          installments={installments as TimelineInstallmentRow[]}
+          installments={[]}
           currentYM={ym}
         />
       ) : null}
@@ -333,6 +316,65 @@ export default function Cartoes() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Faixa de faturas no estilo do app do banco: só faturas oficiais (importadas), sem estimativa. */
+function CardInvoiceStrip({ card, statements }: { card: CreditCardRow; statements: StatementRow[] }) {
+  const list = useMemo(
+    () => statements
+      .filter((st) => st.credit_card_id === card.id && isAuthoritativeCardStatement(st as never))
+      .sort((a, b) => String(a.competence_month).localeCompare(String(b.competence_month)))
+      .slice(-8),
+    [statements, card.id],
+  );
+  const [picked, setPicked] = useState<string | null>(null);
+  if (list.length === 0) {
+    return <p className="mt-4 rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">Ainda não há fatura oficial importada para este cartão. Aqui aparece só o que vem da fatura.</p>;
+  }
+  const fallback = [...list].reverse().find((st) => Number(st.outstanding_amount) > 0) ?? list[list.length - 1];
+  const current = list.find((st) => st.id === picked) ?? fallback;
+  const credit = creditBalanceOf(current);
+  const label = (date: string) =>
+    new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const bestDay = Number(card.closing_day) >= 28 ? 1 : Number(card.closing_day) + 1;
+  const overdue = Number(current.outstanding_amount) > 0 && new Date(`${current.due_date}T12:00:00`) < new Date();
+  return (
+    <div className="mt-4" data-testid="card-invoice-strip">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {list.map((st) => {
+          const active = st.id === current.id;
+          const value = creditBalanceOf(st) > 0 ? 0 : Number(st.stated_total);
+          return (
+            <button
+              key={st.id}
+              type="button"
+              onClick={() => setPicked(st.id)}
+              className={`shrink-0 rounded-2xl border px-3 py-2 text-left ${active ? "border-primary bg-primary/10" : "border-border bg-secondary/40"}`}
+            >
+              <span className="block text-[11px] font-semibold capitalize">{label(st.competence_month)}</span>
+              <span className="block text-xs font-bold tabular-nums">{formatBRL(value)}</span>
+              <span className="block text-[9px] text-muted-foreground">{st.status === "paid" ? "paga" : Number(st.outstanding_amount) > 0 ? "em aberto" : "—"}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3 rounded-2xl border border-border p-3">
+        <div className="flex items-baseline justify-between">
+          <p className={`text-sm font-semibold ${overdue ? "text-destructive" : "text-primary"}`}>
+            {Number(current.outstanding_amount) > 0 ? (overdue ? "Fatura vencida" : "Fatura em aberto") : "Fatura"}
+          </p>
+          <p className="text-lg font-bold tabular-nums">{formatBRL(Number(current.outstanding_amount) > 0 ? Number(current.outstanding_amount) : credit > 0 ? 0 : Number(current.stated_total))}</p>
+        </div>
+        <dl className="mt-2 space-y-1 text-xs">
+          {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Saldo credor</dt><dd className="font-medium tabular-nums">{formatBRL(credit)}</dd></div>}
+          <div className="flex justify-between"><dt className="text-muted-foreground">Total da fatura</dt><dd className="font-medium tabular-nums">{formatBRL(credit > 0 ? -credit : Number(current.stated_total))}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos</dt><dd className="font-medium tabular-nums text-success">{formatBRL(Number(current.paid_amount))}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd className="font-medium">dia {bestDay}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd className="font-medium">{formatDate(current.due_date)}</dd></div>
+        </dl>
+      </div>
     </div>
   );
 }
@@ -850,25 +892,6 @@ function StatementPaymentModal({ statement, accounts, onClose, onPaid }: {
     </div>
   );
 }
-
-function sourceTag(source: ExposureSource): string | null {
-  if (source === "official") return "Oficial";
-  if (source === "partial") return "Conferir";
-  if (source === "estimated") return "Estimativa";
-  if (source === "unavailable") return "Sem dados";
-  return null;
-}
-
-function Stat({ label, value, tag }: { label: string; value: string; tag?: string | null }) {
-  return (
-    <div className="rounded-xl bg-secondary/50 p-2">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-0.5 font-semibold tabular-nums">{value}</p>
-      {tag ? <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">{tag}</p> : null}
-    </div>
-  );
-}
-
 
 function CardFormModal({
   initial,
