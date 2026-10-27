@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, CreditCard, Pencil, Trash2, Loader2, CheckCircle2, Clock3, AlertTriangle, ReceiptText, ChevronRight, X, RotateCcw, ThumbsUp, ThumbsDown, SlidersHorizontal } from "lucide-react";
 import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCardRow } from "@/lib/db/creditCards";
@@ -257,11 +257,11 @@ type InvoiceItem = { id: string; item_kind: string; description: string; amount:
 const monthLabelOf = (date: string) =>
   new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
 
-const TILE_W = 96;
-const TILE_GAP = 8;
-const TILE_H = 150;
-const PLOT_TOP = 44;
-const PLOT_BOTTOM = 108;
+const TILE_W = 74;
+const TILE_GAP = 6;
+const TILE_H = 124;
+const PLOT_TOP = 36;
+const PLOT_BOTTOM = 86;
 
 type FormingCycle = { due_date: string; period_start: string; period_end: string; amount: number };
 type InvoiceTile = { key: string; label: string; value: number; due_date: string; statement: StatementRow | null };
@@ -327,10 +327,17 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
   });
 
   // Leva o mês selecionado para a vista (a faixa rola; o último mês fica na ponta).
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!activeKey) return;
-    document.querySelector(`[data-invoice-tile="${activeKey}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
-  }, [activeKey]);
+    const raf = requestAnimationFrame(() => {
+      const box = scrollerRef.current;
+      const el = box?.querySelector<HTMLElement>(`[data-invoice-tile="${activeKey}"]`);
+      if (!box || !el) return;
+      box.scrollTo({ left: Math.max(0, el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2), behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeKey, tiles.length]);
 
   const [rated, setRated] = useState<number | null>(null);
   const sendRating = async (rating: 1 | -1) => {
@@ -368,7 +375,7 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
 
   return (
     <div className="mt-4" data-testid="card-invoice-panel">
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <div ref={scrollerRef} className="-mx-1 overflow-x-auto px-1 pb-1">
         <div className="relative" style={{ width, height: TILE_H }}>
           <div className="absolute inset-0 flex" style={{ gap: TILE_GAP }}>
             {tiles.map((t) => {
@@ -381,10 +388,10 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
                   aria-pressed={active}
                   data-invoice-tile={t.key}
                   style={{ width: TILE_W }}
-                  className={`flex shrink-0 flex-col items-center justify-between rounded-2xl border pb-3 pt-3 ${active ? "border-primary bg-gradient-to-b from-card to-primary/15" : "border-transparent bg-secondary/60"}`}
+                  className={`flex shrink-0 flex-col items-center justify-between rounded-xl border pb-2.5 pt-2.5 ${active ? "border-primary bg-gradient-to-b from-card to-primary/15" : "border-transparent bg-secondary/60"}`}
                 >
-                  <span className={`text-sm font-semibold capitalize ${active ? "text-primary" : "text-foreground/80"}`}>{t.label}</span>
-                  <span className={`text-sm font-bold tabular-nums ${active ? "text-primary" : "text-foreground/80"}`}>{formatBRL(t.value)}</span>
+                  <span className={`text-xs font-semibold capitalize ${active ? "text-primary" : "text-foreground/80"}`}>{t.label}</span>
+                  <span className={`text-[11px] font-bold tabular-nums ${active ? "text-primary" : "text-foreground/80"}`}>{formatBRL(t.value)}</span>
                 </button>
               );
             })}
@@ -410,8 +417,8 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
                   key={t.key}
                   cx={pt.x}
                   cy={pt.y}
-                  r={active ? 6 : 5}
-                  strokeWidth="2"
+                  r={active ? 4.5 : 3.5}
+                  strokeWidth="1.6"
                   className={active ? "fill-card stroke-primary" : closed ? "fill-success stroke-success" : "fill-card stroke-muted-foreground"}
                 />
               );
@@ -421,20 +428,20 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
       </div>
 
       <div className="mt-4 flex items-baseline justify-between">
-        <p className={`font-display text-2xl font-bold ${titleColor}`}>{title}</p>
-        <p className="font-display text-2xl font-bold tabular-nums">{formatBRL(outstanding > 0 ? outstanding : 0)}</p>
+        <p className={`font-display text-lg font-bold ${titleColor}`}>{title}</p>
+        <p className="font-display text-lg font-bold tabular-nums">{formatBRL(outstanding > 0 ? outstanding : 0)}</p>
       </div>
-      <dl className="mt-1 space-y-1 text-sm">
+      <dl className="mt-1 space-y-0.5 text-xs">
         {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Saldo positivo:</dt><dd className="tabular-nums">{formatBRL(credit)}</dd></div>}
         <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd>{fmtDay(closing)}</dd></div>
         <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd>{fmtDay(tile.due_date)}</dd></div>
       </dl>
-      <div className="my-4 border-t border-border" />
+      <div className="my-3 border-t border-border" />
 
-      <section className="rounded-2xl border border-border p-4">
-        <h3 className="font-display text-base font-bold">Resumo da fatura</h3>
+      <section className="rounded-xl border border-border p-3">
+        <h3 className="font-display text-sm font-bold">Resumo da fatura</h3>
         {statement ? (
-          <dl className="mt-3 space-y-2 text-sm">
+          <dl className="mt-2 space-y-1.5 text-xs">
             <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos e estornos</dt><dd className="tabular-nums text-success">{formatBRL(summary.credits)}</dd></div>
             <div className="flex justify-between"><dt className="text-muted-foreground">Compras</dt><dd className="tabular-nums">{formatBRL(summary.purchases)}</dd></div>
             <div className="flex justify-between"><dt className="text-muted-foreground">Produtos e serviços</dt><dd className="tabular-nums">{formatBRL(summary.services)}</dd></div>
@@ -444,7 +451,7 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
             <div className="flex justify-between border-t border-border pt-2 font-semibold"><dt>{credit > 0 ? "Saldo credor da fatura" : "Total da fatura"}</dt><dd className="tabular-nums">{formatBRL(credit > 0 ? -credit : Number(statement.stated_total))}</dd></div>
           </dl>
         ) : (
-          <dl className="mt-3 space-y-2 text-sm">
+          <dl className="mt-2 space-y-1.5 text-xs">
             {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos antecipados</dt><dd className="tabular-nums text-success">{formatBRL(-credit)}</dd></div>}
             <div className="flex justify-between"><dt className="text-muted-foreground">Compras do ciclo</dt><dd className="tabular-nums">{formatBRL(Number(forming?.amount ?? 0))}</dd></div>
             <div className="flex justify-between"><dt className="text-muted-foreground">Produtos e serviços</dt><dd className="tabular-nums">{formatBRL(0)}</dd></div>
@@ -469,23 +476,23 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
         )}
       </section>
 
-      <div className="mt-4 flex items-center gap-3 rounded-2xl bg-secondary/60 px-4 py-3" data-testid="card-feedback">
+      <div className="mt-3 flex items-center gap-3 rounded-xl bg-secondary/60 px-3 py-2.5" data-testid="card-feedback">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Compartilhe a sua opinião</p>
-          <p className="text-xs text-muted-foreground">O que você achou da experiência de consulta de fatura?</p>
+          <p className="text-xs font-semibold">Compartilhe a sua opinião</p>
+          <p className="text-[11px] leading-snug text-muted-foreground">O que você achou da experiência de consulta de fatura?</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button type="button" disabled={rated != null} onClick={() => void sendRating(1)} aria-label="Gostei" className={`grid h-9 w-9 place-items-center rounded-full border border-border ${rated === 1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsUp size={16} /></button>
-          <button type="button" disabled={rated != null} onClick={() => void sendRating(-1)} aria-label="Não gostei" className={`grid h-9 w-9 place-items-center rounded-full border border-border ${rated === -1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsDown size={16} /></button>
+          <button type="button" disabled={rated != null} onClick={() => void sendRating(1)} aria-label="Gostei" className={`grid h-8 w-8 place-items-center rounded-full border border-border ${rated === 1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsUp size={14} /></button>
+          <button type="button" disabled={rated != null} onClick={() => void sendRating(-1)} aria-label="Não gostei" className={`grid h-8 w-8 place-items-center rounded-full border border-border ${rated === -1 ? "bg-primary/15 text-primary" : ""}`}><ThumbsDown size={14} /></button>
         </div>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">Compras recentes só aparecem aqui quando a fatura é importada ou sincronizada com o banco.</p>
+      <p className="mt-2 text-[11px] text-muted-foreground">Compras recentes só aparecem aqui quando a fatura é importada ou sincronizada com o banco.</p>
 
-      <section className="mt-5">
+      <section className="mt-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-xl font-bold">Lançamentos</h3>
+          <h3 className="font-display text-base font-bold">Lançamentos</h3>
           {statement && (
-            <button type="button" onClick={() => setShowFilters((v) => !v)} className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
+            <button type="button" onClick={() => setShowFilters((v) => !v)} className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
               <SlidersHorizontal size={14} /> Filtros
             </button>
           )}
@@ -509,12 +516,12 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
         ) : (
           <ul className="mt-2 divide-y divide-border">
             {shown.map((it) => (
-              <li key={it.id} className="flex items-center justify-between gap-3 py-2.5">
+              <li key={it.id} className="flex items-center justify-between gap-3 py-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{it.description}</p>
+                  <p className="truncate text-xs font-medium">{it.description}</p>
                   <p className="text-[11px] text-muted-foreground">{it.occurred_at ? it.occurred_at.slice(8, 10) + "/" + it.occurred_at.slice(5, 7) : "—"}</p>
                 </div>
-                <p className={`shrink-0 text-sm font-semibold tabular-nums ${Number(it.amount) < 0 ? "text-success" : ""}`}>{formatBRL(Number(it.amount))}</p>
+                <p className={`shrink-0 text-xs font-semibold tabular-nums ${Number(it.amount) < 0 ? "text-success" : ""}`}>{formatBRL(Number(it.amount))}</p>
               </li>
             ))}
           </ul>
