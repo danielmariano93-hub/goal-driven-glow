@@ -5,6 +5,7 @@ import { useCreditCards, useSaveCreditCard, useDeleteCreditCard, type CreditCard
 import { useAccounts, useLedgerWindow, useCategories } from "@/lib/db/finance";
 import { creditCardSchema } from "@/lib/validation/creditCards";
 import { formatBRL, currentMonthYM, todaySP } from "@/lib/engine/facts";
+import { summarizeInvoiceItems } from "@/lib/cardInvoice";
 import { computeCardExposure, emptyExposure, isAuthoritativeCardStatement, type CardExposure } from "@/lib/engine/cardExposure";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -168,7 +169,7 @@ export default function Cartoes() {
                     </button>
                   </div>
                 </div>
-                <CardInvoiceStrip card={c} statements={statements as StatementRow[]} />
+                <CardInvoicePanel card={c} statements={statements as StatementRow[]} onPay={setPaying} onView={setViewing} />
                 {st.openCycle && (
                   <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/40 px-3 py-2">
                     <div className="flex items-baseline justify-between gap-2">
@@ -212,67 +213,6 @@ export default function Cartoes() {
           currentYM={ym}
         />
       ) : null}
-
-      {statements.length > 0 && (
-        <section className="mt-8">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="font-display text-lg font-bold">Histórico de faturas</h2>
-              <p className="text-xs text-muted-foreground">Acompanhe o que está aberto, pago ou atrasado sem contar o pagamento como nova despesa.</p>
-            </div>
-            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium">{statements.length} fatura(s)</span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {(statements as StatementRow[]).map((statement) => {
-              const card = cards?.find((item) => item.id === statement.credit_card_id);
-              const overdue = statement.outstanding_amount > 0 && new Date(`${statement.due_date}T12:00:00`) < new Date();
-              const status = statement.status === "paid" ? "paid" : overdue ? "overdue" : statement.status;
-              const progress = statement.stated_total > 0 ? Math.min(100, Math.round((statement.paid_amount / statement.stated_total) * 100)) : 0;
-              const statusMeta = statementStatus(status);
-              return (
-                <article key={statement.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="rounded-xl bg-primary/10 p-2 text-primary"><ReceiptText size={18} /></div>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{card?.name ?? "Cartão"} · {formatCompetence(statement.competence_month)}</p>
-                        <p className="text-[11px] text-muted-foreground">Vence em {formatDate(statement.due_date)}</p>
-                      </div>
-                    </div>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusMeta.className}`}>
-                      {statusMeta.icon}{statusMeta.label}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{creditBalanceOf(statement) > 0 ? "Saldo credor" : "Total da fatura"}</p>
-                      <p className="text-xl font-bold tabular-nums">{formatBRL(creditBalanceOf(statement) > 0 ? creditBalanceOf(statement) : Number(statement.stated_total))}</p>
-                    </div>
-                    <p className="text-right text-xs text-muted-foreground">
-                      {statement.outstanding_amount > 0 ? <>Falta <strong className="text-foreground">{formatBRL(Number(statement.outstanding_amount))}</strong></> : creditBalanceOf(statement) > 0 ? "Nada a pagar · abate a próxima fatura" : "Tudo pago ✓"}
-                    </p>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-success transition-all" style={{ width: `${progress}%` }} />
-                  </div>
-                  <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
-                    <span>{progress}% quitado</span><span>{formatBRL(Number(statement.paid_amount))} pagos</span>
-                  </div>
-                  {Math.abs(Number(statement.reconciliation_difference)) > 0.05 && (
-                    <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(statement.reconciliation_difference)))}</p>
-                  )}
-                  {statement.outstanding_amount > 0 && Math.abs(Number(statement.reconciliation_difference)) <= 0.05 && (
-                    <button onClick={() => setPaying(statement)} className="btn-brand mt-4 w-full py-2 text-xs">Registrar pagamento</button>
-                  )}
-                  <button onClick={() => setViewing(statement)} className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-full border border-border px-4 py-2 text-xs font-semibold">
-                    Ver e editar fatura <ChevronRight size={13} />
-                  </button>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {open && (
         <CardFormModal
@@ -320,8 +260,18 @@ export default function Cartoes() {
   );
 }
 
-/** Faixa de faturas no estilo do app do banco: só faturas oficiais (importadas), sem estimativa. */
-function CardInvoiceStrip({ card, statements }: { card: CreditCardRow; statements: StatementRow[] }) {
+type InvoiceItem = { id: string; item_kind: string; description: string; amount: number; occurred_at: string | null };
+
+const monthLabel = (date: string) =>
+  new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+
+/**
+ * Painel de faturas no estilo do app do banco. Só faturas oficiais (importadas): nada de estimativa.
+ * Meses com marcador, título da fatura, resumo e lançamentos.
+ */
+function CardInvoicePanel({ card, statements, onPay, onView }: {
+  card: CreditCardRow; statements: StatementRow[]; onPay: (st: StatementRow) => void; onView: (st: StatementRow) => void;
+}) {
   const list = useMemo(
     () => statements
       .filter((st) => st.credit_card_id === card.id && isAuthoritativeCardStatement(st as never))
@@ -330,51 +280,131 @@ function CardInvoiceStrip({ card, statements }: { card: CreditCardRow; statement
     [statements, card.id],
   );
   const [picked, setPicked] = useState<string | null>(null);
-  if (list.length === 0) {
+  const fallback = list.length ? ([...list].reverse().find((st) => Number(st.outstanding_amount) > 0) ?? list[list.length - 1]) : null;
+  const current = list.find((st) => st.id === picked) ?? fallback;
+
+  const itemsQuery = useQuery({
+    queryKey: ["statement-items-panel", current?.id],
+    enabled: Boolean(current?.id),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("credit_card_statement_items")
+        .select("id,item_kind,description,amount,occurred_at")
+        .eq("statement_id", current!.id)
+        .order("occurred_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as InvoiceItem[];
+    },
+  });
+
+  // Leva o mês selecionado para a vista (o último mês fica na ponta direita da faixa).
+  useEffect(() => {
+    if (!current?.id) return;
+    document.querySelector(`[data-invoice-tile="${current.id}"]`)?.scrollIntoView?.({ inline: "center", block: "nearest" });
+  }, [current?.id]);
+
+  if (list.length === 0 || !current) {
     return <p className="mt-4 rounded-xl bg-muted px-3 py-2 text-[11px] text-muted-foreground">Ainda não há fatura oficial importada para este cartão. Aqui aparece só o que vem da fatura.</p>;
   }
-  const fallback = [...list].reverse().find((st) => Number(st.outstanding_amount) > 0) ?? list[list.length - 1];
-  const current = list.find((st) => st.id === picked) ?? fallback;
+
+  const items = itemsQuery.data ?? [];
+  const summary = summarizeInvoiceItems(items);
   const credit = creditBalanceOf(current);
-  const label = (date: string) =>
-    new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+  const outstanding = Number(current.outstanding_amount);
+  const due = new Date(`${current.due_date}T12:00:00`);
+  const overdue = outstanding > 0 && due < new Date();
+  const paid = outstanding <= 0.005 && (current.status === "paid" || Number(current.paid_amount) > 0 || credit > 0);
+  const title = paid ? "Fatura paga" : overdue ? "Fatura vencida" : "Fatura aberta";
+  const titleColor = paid ? "text-success" : overdue ? "text-destructive" : "text-primary";
   const bestDay = Number(card.closing_day) >= 28 ? 1 : Number(card.closing_day) + 1;
-  const overdue = Number(current.outstanding_amount) > 0 && new Date(`${current.due_date}T12:00:00`) < new Date();
+  const reconciled = Math.abs(Number(current.reconciliation_difference)) <= 0.05;
+  const shown = items.slice(0, 8);
+
   return (
-    <div className="mt-4" data-testid="card-invoice-strip">
+    <div className="mt-4" data-testid="card-invoice-panel">
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
         {list.map((st) => {
           const active = st.id === current.id;
-          const value = creditBalanceOf(st) > 0 ? 0 : Number(st.stated_total);
+          const stCredit = creditBalanceOf(st);
+          const value = Number(st.outstanding_amount) > 0 ? Number(st.outstanding_amount) : stCredit > 0 ? 0 : Number(st.stated_total);
+          const open = Number(st.outstanding_amount) > 0;
           return (
             <button
               key={st.id}
               type="button"
               onClick={() => setPicked(st.id)}
-              className={`shrink-0 rounded-2xl border px-3 py-2 text-left ${active ? "border-primary bg-primary/10" : "border-border bg-secondary/40"}`}
+              aria-pressed={active}
+              data-invoice-tile={st.id}
+              className={`w-[92px] shrink-0 rounded-2xl border px-2 py-3 text-center ${active ? "border-primary bg-primary/5" : "border-border bg-secondary/40"}`}
             >
-              <span className="block text-[11px] font-semibold capitalize">{label(st.competence_month)}</span>
+              <span className={`block text-xs font-semibold capitalize ${active ? "text-primary" : "text-foreground"}`}>{monthLabel(st.competence_month)}</span>
+              <span className="relative my-3 block h-3">
+                <span className={`absolute inset-x-[-8px] top-1/2 border-t ${open ? "border-dashed border-primary/60" : "border-success/60"}`} />
+                <span className={`absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${active ? "border-primary bg-card" : open ? "border-primary/60 bg-card" : "border-success bg-success"}`} />
+              </span>
               <span className="block text-xs font-bold tabular-nums">{formatBRL(value)}</span>
-              <span className="block text-[9px] text-muted-foreground">{st.status === "paid" ? "paga" : Number(st.outstanding_amount) > 0 ? "em aberto" : "—"}</span>
             </button>
           );
         })}
       </div>
-      <div className="mt-3 rounded-2xl border border-border p-3">
-        <div className="flex items-baseline justify-between">
-          <p className={`text-sm font-semibold ${overdue ? "text-destructive" : "text-primary"}`}>
-            {Number(current.outstanding_amount) > 0 ? (overdue ? "Fatura vencida" : "Fatura em aberto") : "Fatura"}
-          </p>
-          <p className="text-lg font-bold tabular-nums">{formatBRL(Number(current.outstanding_amount) > 0 ? Number(current.outstanding_amount) : credit > 0 ? 0 : Number(current.stated_total))}</p>
-        </div>
-        <dl className="mt-2 space-y-1 text-xs">
-          {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Saldo credor</dt><dd className="font-medium tabular-nums">{formatBRL(credit)}</dd></div>}
-          <div className="flex justify-between"><dt className="text-muted-foreground">Total da fatura</dt><dd className="font-medium tabular-nums">{formatBRL(credit > 0 ? -credit : Number(current.stated_total))}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos</dt><dd className="font-medium tabular-nums text-success">{formatBRL(Number(current.paid_amount))}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd className="font-medium">dia {bestDay}</dd></div>
-          <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd className="font-medium">{formatDate(current.due_date)}</dd></div>
-        </dl>
+
+      <div className="mt-4 flex items-baseline justify-between">
+        <p className={`font-display text-xl font-bold ${titleColor}`}>{title}</p>
+        <p className="font-display text-xl font-bold tabular-nums">{formatBRL(outstanding > 0 ? outstanding : 0)}</p>
       </div>
+      <dl className="mt-1 space-y-1 text-sm">
+        {credit > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Saldo positivo:</dt><dd className="tabular-nums">{formatBRL(credit)}</dd></div>}
+        <div className="flex justify-between"><dt className="text-muted-foreground">Melhor data de compra</dt><dd>dia {bestDay}</dd></div>
+        <div className="flex justify-between"><dt className="text-muted-foreground">Vencimento</dt><dd>{formatDate(current.due_date)}</dd></div>
+      </dl>
+      <div className="my-4 border-t border-border" />
+
+      <section className="rounded-2xl border border-border p-4">
+        <h3 className="font-display text-base font-bold">Resumo da fatura</h3>
+        <dl className="mt-3 space-y-2 text-sm">
+          <div className="flex justify-between"><dt className="text-muted-foreground">Pagamentos e estornos</dt><dd className="tabular-nums text-success">{formatBRL(summary.credits)}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Compras</dt><dd className="tabular-nums">{formatBRL(summary.purchases)}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Ajustes e encargos</dt><dd className="tabular-nums">{formatBRL(summary.other)}</dd></div>
+          <div className="flex justify-between border-t border-border pt-2 font-semibold"><dt>{credit > 0 ? "Saldo credor da fatura" : "Total da fatura"}</dt><dd className="tabular-nums">{formatBRL(credit > 0 ? -credit : Number(current.stated_total))}</dd></div>
+        </dl>
+        {!reconciled && (
+          <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Conciliação pendente: diferença de {formatBRL(Math.abs(Number(current.reconciliation_difference)))}</p>
+        )}
+        <div className="mt-3 flex gap-2">
+          {outstanding > 0 && reconciled && (
+            <button type="button" onClick={() => onPay(current)} className="btn-brand flex-1 py-2 text-xs">Registrar pagamento</button>
+          )}
+          <button type="button" onClick={() => onView(current)} className="inline-flex flex-1 items-center justify-center gap-1 rounded-full border border-border px-4 py-2 text-xs font-semibold">
+            Ver e editar fatura <ChevronRight size={13} />
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-5">
+        <h3 className="font-display text-base font-bold">Lançamentos</h3>
+        {itemsQuery.isLoading ? (
+          <div className="grid place-items-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : shown.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">Esta fatura não tem lançamentos importados.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-border">
+            {shown.map((it) => (
+              <li key={it.id} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{it.description}</p>
+                  <p className="text-[11px] text-muted-foreground">{it.occurred_at ? it.occurred_at.slice(8, 10) + "/" + it.occurred_at.slice(5, 7) : "—"}</p>
+                </div>
+                <p className={`shrink-0 text-sm font-semibold tabular-nums ${Number(it.amount) < 0 ? "text-success" : ""}`}>{formatBRL(Number(it.amount))}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {items.length > shown.length && (
+          <button type="button" onClick={() => onView(current)} className="mt-2 w-full rounded-full border border-border px-4 py-2 text-xs font-semibold">
+            Ver todos os {items.length} lançamentos
+          </button>
+        )}
+      </section>
     </div>
   );
 }
