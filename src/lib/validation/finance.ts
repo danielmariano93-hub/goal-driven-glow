@@ -156,6 +156,12 @@ export const investmentSchema = z.object({
   reference_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   goal_id: z.string().uuid().nullable().optional(),
   notes: z.string().trim().max(300).optional().or(z.literal("")),
+  // Aporte descontado em folha + contrapartida do empregador (opcional).
+  payroll_contribution_amount: z.number().positive().nullable().optional(),
+  payroll_day: z.number().int().min(1).max(31).nullable().optional(),
+  payroll_account_id: z.string().uuid().nullable().optional(),
+  employer_match_ratio: z.number().min(0).max(10).optional(),
+  employer_vested_pct: z.number().min(0).max(100).optional(),
 });
 export type InvestmentInput = z.infer<typeof investmentSchema>;
 

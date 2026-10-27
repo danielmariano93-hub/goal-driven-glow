@@ -13,6 +13,11 @@ ALTER TABLE public.investments
   ADD COLUMN IF NOT EXISTS employer_vested_pct numeric(5,2) NOT NULL DEFAULT 100 CHECK (employer_vested_pct BETWEEN 0 AND 100),
   ADD COLUMN IF NOT EXISTS employer_match_total numeric(14,2) NOT NULL DEFAULT 0 CHECK (employer_match_total >= 0);
 
+ALTER TABLE public.transactions
+  ADD COLUMN IF NOT EXISTS payroll_income_transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL;
+COMMENT ON COLUMN public.transactions.payroll_income_transaction_id IS
+  'Aporte descontado em folha: entrada de salário da qual o valor foi descontado.';
+
 -- Contrapartida automática: cada aplicação efetivamente aplicada à posição gera ratio × valor.
 CREATE OR REPLACE FUNCTION public.tf_investment_employer_match()
 RETURNS trigger
@@ -65,6 +70,7 @@ DECLARE
   v_due date;
   v_ext text;
   v_cat uuid;
+  v_income uuid;
   v_n integer := 0;
 BEGIN
   FOR r IN
@@ -81,18 +87,24 @@ BEGIN
      WHERE type = 'expense' AND archived_at IS NULL AND (user_id = r.user_id OR user_id IS NULL)
        AND lower(name) = 'aplicações'
      ORDER BY (user_id IS NULL) LIMIT 1;
+    SELECT t.id INTO v_income FROM public.transactions t
+     WHERE t.user_id = r.user_id AND t.type = 'income' AND t.status = 'confirmed'
+       AND coalesce(t.movement_kind, 'transaction') = 'transaction'
+       AND t.occurred_at BETWEEN v_due - 5 AND v_due + 5
+     ORDER BY t.amount DESC LIMIT 1;
     INSERT INTO public.transactions
       (user_id, type, status, amount, occurred_at, origin, payment_method, movement_kind,
-       account_id, category_id, description, notes, external_id, investment_id)
+       account_id, category_id, description, notes, external_id, investment_id, payroll_income_transaction_id)
     VALUES
       (r.user_id, 'expense', 'confirmed', r.amt, v_due, 'recurring', 'account', 'investment_application',
-       r.acc, v_cat, 'Aporte ' || r.name || ' (folha)', 'Descontado direto da folha de pagamento', v_ext, r.id);
+       r.acc, v_cat, 'Aporte ' || r.name || ' (folha)', 'Descontado direto da folha de pagamento', v_ext, r.id, v_income);
     v_n := v_n + 1;
   END LOOP;
   RETURN v_n;
 END $function$;
 REVOKE ALL ON FUNCTION public.generate_payroll_contributions(date) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.generate_payroll_contributions(date) TO service_role;
+REVOKE ALL ON FUNCTION public.tf_investment_employer_match() FROM public, anon, authenticated;
 
 DO $do$
 BEGIN
