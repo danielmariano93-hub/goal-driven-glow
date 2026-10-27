@@ -214,7 +214,7 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
   if (!d.filtered) {
     cards.push({ label: "Sobrou", value: `${t.net < 0 ? "−" : ""}${formatBRL(Math.abs(t.net))}`, delta: dl?.net ?? null, upIsGood: true });
     cards.push({
-      label: "Poupança", value: t.savingsRate == null ? "—" : pct(t.savingsRate), delta: null, upIsGood: true,
+      label: "Poupança", value: t.savingsRate == null ? "—" : `${t.savingsRate < 0 ? "−" : ""}${pct(t.savingsRate)}`, delta: null, upIsGood: true,
       extra: dl?.savingsRatePoints != null ? `${dl.savingsRatePoints >= 0 ? "+" : "−"}${Math.abs(Math.round(dl.savingsRatePoints))} p.p.` : undefined,
     });
   }

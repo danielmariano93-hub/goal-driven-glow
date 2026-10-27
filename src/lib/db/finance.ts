@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useAuth } from "@/context/AuthContext";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
+import { compareCategoryNames } from "@/lib/categories/order";
 import { classifyTransaction, learnCategory } from "@/lib/categoryEngine";
 import type {
   AccountInput,
@@ -138,6 +139,11 @@ export function useDeleteAccount() {
 }
 
 // ================ CATEGORIES ================
+/** Tipo e depois nome em pt-BR (acentos/caixa equivalentes): a ordenação do banco não trata "Água" nem "Ó". */
+function sortCategoryRows(rows: CategoryRow[]): CategoryRow[] {
+  return [...rows].sort((a, b) => (a.type === b.type ? compareCategoryNames(a, b) : String(a.type).localeCompare(String(b.type))));
+}
+
 export function useCategories() {
   const { user } = useAuth();
   return useQuery({
@@ -151,7 +157,7 @@ export function useCategories() {
         .order("type", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
-      return data as CategoryRow[];
+      return sortCategoryRows(data as CategoryRow[]);
     },
   });
 }
@@ -172,7 +178,7 @@ export function useAllCategories() {
         .order("type", { ascending: true })
         .order("name", { ascending: true });
       if (error) throw error;
-      return data as CategoryRow[];
+      return sortCategoryRows(data as CategoryRow[]);
     },
   });
 }
@@ -243,9 +249,18 @@ export function resolveVisibleCategories(rows: CategoryRow[], userId: string | n
   const fold = (value: string | null | undefined) =>
     String(value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   const overriddenNames = new Set(personal.map((c) => `${c.type}:${fold(c.name)}`));
-  return rows.filter((c) => {
+  const shown = rows.filter((c) => {
     if (c.user_id === null && overriddenSlugs.has(c.slug as string)) return false;
     if (c.user_id === null && overriddenNames.has(`${c.type}:${fold(c.name)}`)) return false;
+    return true;
+  });
+  // Nunca mostra duas categorias ativas com o mesmo nome e tipo (a primeira ocorrência vence).
+  const seen = new Set<string>();
+  return shown.filter((c) => {
+    if (c.archived_at != null || (c.user_id !== null && c.user_id !== userId)) return true;
+    const key = `${c.type}:${fold(c.name)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }

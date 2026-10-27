@@ -114,6 +114,8 @@ export interface VerdictSignal {
   tone: "good" | "bad" | "neutral";
   detail: string;
   points: number;
+  /** Pergunta que o sinal responde: quanto gastou, o que sobrou, onde mudou. */
+  group?: "gastos" | "resultado" | "categorias";
 }
 
 export type VerdictKind = "better" | "same" | "worse" | "insufficient";
@@ -314,7 +316,8 @@ function totalsOf(entries: DashEntry[], r: DashRange, daysForAvg: number): Total
   const net = round2(income + refunds - expense);
   return {
     income, expense, refunds, net,
-    savingsRate: income > 0 ? round2(net / income) : null,
+    // Renda irrisória diante do gasto (ex.: salário ainda não caiu) gera taxas absurdas (−2000%): não é leitura válida.
+    savingsRate: income > 0 && income >= expense * 0.1 ? round2(net / income) : null,
     count,
     dailyAvg: round2(expense / Math.max(1, daysForAvg)),
   };
@@ -503,8 +506,14 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   // Hábitos
   const habits = filtered ? [] : buildHabits({ entries: scoped.filter((e) => e.kind !== "expense" || e.amount > 0), period, previous, totals, previousTotals, categories, req, elapsedDays: elapsed(period) });
 
+  // Renda esperada: em período parcial, a referência é a renda do mês anterior INTEIRO (salário cai dia 25–27, fora da janela dia 1–N).
+  const expectedIncome = previousMonthRange ? totalsOf(scoped, previousMonthRange, 1).income : previousTotals?.income ?? 0;
+  const incomeIncomplete = !filtered && period.end >= req.today && expectedIncome > 0 && totals.income < expectedIncome * 0.5;
+
   // Veredito
-  const verdict = filtered ? null : buildVerdict({ totals, previousTotals, deltas, categories, habits, trend, comparing: previous != null, tooEarly: period.end >= req.today && elapsed(period) < 3 });
+  const verdict = filtered ? null : buildVerdict({ totals, previousTotals, deltas, categories, habits, trend, comparing: previous != null, tooEarly: period.end >= req.today && elapsed(period) < 3,
+    // Período em andamento cuja renda ainda não chegou (ex.: salário no dia 27) não é comparável com o anterior fechado.
+    incomeIncomplete: incomeIncomplete });
 
   // Projeção do mês em andamento
   let projection: ReportDashboard["projection"] = null;
@@ -519,7 +528,8 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
     };
   }
 
-  const highlights = buildHighlights({ totals, previousTotals, deltas, categories, habits, trend, projection, filtered });
+  const highlights = buildHighlights({ totals, previousTotals, deltas, categories, habits, trend, projection, filtered,
+    incomeIncomplete, expectedIncome });
 
   // Opções de filtro (independem do filtro de categoria ativo).
   const optionTotals = new Map<string, { id: string; name: string; total: number }>();
@@ -546,7 +556,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
 
 function trendOf(closed: TrendMonth[], filtered: boolean): ReportDashboard["trend"] {
   const withMoney = closed.filter((m) => (filtered ? m.expense > 0 : m.income > 0 || m.expense > 0));
-  if (withMoney.length < 4) return { months: closed, direction: "unknown", detail: "Ainda há poucos meses fechados para ler a tendência." };
+  if (withMoney.length < (filtered ? 4 : 6)) return { months: closed, direction: "unknown", detail: "Ainda há poucos meses fechados para ler a tendência." };
   const half = Math.floor(withMoney.length / 2);
   const older = withMoney.slice(0, half);
   const recent = withMoney.slice(-half);
@@ -669,9 +679,9 @@ function buildHabits(a: {
 
 function buildVerdict(a: {
   totals: Totals; previousTotals: Totals | null; deltas: ReportDashboard["deltas"]; categories: DashCategoryRow[];
-  habits: Habit[]; trend: ReportDashboard["trend"]; comparing: boolean; tooEarly: boolean;
+  habits: Habit[]; trend: ReportDashboard["trend"]; comparing: boolean; tooEarly: boolean; incomeIncomplete: boolean;
 }): Verdict {
-  const { totals, previousTotals, deltas, categories, habits, trend } = a;
+  const { totals, previousTotals, deltas, categories, habits } = a;
   const noData = totals.count < 5 && (previousTotals?.count ?? 0) < 5;
   if (a.tooEarly) {
     return {
@@ -692,24 +702,32 @@ function buildVerdict(a: {
     };
   }
   const signals: VerdictSignal[] = [];
-  const push = (key: string, label: string, points: number, detail: string) =>
-    signals.push({ key, label, points, detail, tone: points > 0 ? "good" : points < 0 ? "bad" : "neutral" });
+  const push = (key: string, label: string, points: number, detail: string, group: VerdictSignal["group"]) =>
+    signals.push({ key, label, points, detail, group, tone: points > 0 ? "good" : points < 0 ? "bad" : "neutral" });
 
-  const pp = deltas.savingsRatePoints;
-  if (pp != null) {
-    const points = pp >= 3 ? 2 : pp >= 1 ? 1 : pp <= -3 ? -2 : pp <= -1 ? -1 : 0;
-    push("savings", "Poupança", points, `Taxa de poupança ${pp >= 0 ? "+" : "−"}${Math.abs(Math.round(pp))} p.p. (${totals.savingsRate != null ? rateText(totals.savingsRate) : "—"}).`);
+  // Gastos: independe da renda, sempre comparável.
+  if (previousTotals.expense > 0) {
+    const rel = (totals.expense - previousTotals.expense) / previousTotals.expense;
+    const points = rel <= -0.1 ? 1 : rel >= 0.1 ? -1 : 0;
+    push("expense", "Gastos totais", points, `Gastou ${brl(totals.expense)} contra ${brl(previousTotals.expense)} antes.`, "gastos");
   }
-  if (previousTotals.net !== 0 || totals.net !== 0) {
+  // Resultado: poupança e sobra são a mesma informação; contam como UM sinal. Sem renda completa não há resultado comparável.
+  const pp = deltas.savingsRatePoints;
+  if (a.incomeIncomplete) {
+    push("result", "Resultado", 0, "A renda deste período ainda não chegou por completo; o resultado só é comparável depois que ela entrar.", "resultado");
+  } else if (pp != null) {
+    const points = pp >= 3 ? 2 : pp >= 1 ? 1 : pp <= -3 ? -2 : pp <= -1 ? -1 : 0;
+    push("result", "Resultado", points, `Taxa de poupança ${pp >= 0 ? "+" : "−"}${Math.abs(Math.round(pp))} p.p. (${totals.savingsRate != null ? rateText(totals.savingsRate) : "—"}); sobrou ${brl(totals.net)} contra ${brl(previousTotals.net)} antes.`, "resultado");
+  } else if (previousTotals.net !== 0 || totals.net !== 0) {
     const base = Math.max(1, Math.abs(previousTotals.net));
     const rel = (totals.net - previousTotals.net) / base;
     const points = rel >= 0.1 ? 1 : rel <= -0.1 ? -1 : 0;
-    push("net", "Sobra do período", points, `Sobrou ${brl(totals.net)} contra ${brl(previousTotals.net)} antes.`);
+    push("result", "Resultado", points, `Sobrou ${brl(totals.net)} contra ${brl(previousTotals.net)} antes.`, "resultado");
   }
   const flex = habits.find((h) => h.key === "flexible");
   if (flex && flex.deltaPct != null) {
     const points = flex.deltaPct <= -0.1 ? 2 : flex.deltaPct <= -0.05 ? 1 : flex.deltaPct >= 0.1 ? -2 : flex.deltaPct >= 0.05 ? -1 : 0;
-    push("flexible", "Gasto flexível", points, `${flex.deltaPct >= 0 ? "Subiu" : "Caiu"} ${pctText(flex.deltaPct)} (${brl(flex.value ?? 0)}).`);
+    push("flexible", "Gasto flexível", points, `${flex.deltaPct >= 0 ? "Subiu" : "Caiu"} ${pctText(flex.deltaPct)} (${brl(flex.value ?? 0)}).`, "gastos");
   }
   const material = Math.max(100, totals.expense * 0.03);
   const up = categories.filter((c) => c.deltaPct != null && c.deltaPct >= 0.3 && c.deltaAbs >= material);
@@ -720,10 +738,7 @@ function buildVerdict(a: {
       up.length ? `${up.slice(0, 2).map((c) => c.name).join(" e ")} ${up.length > 1 ? "subiram" : "subiu"} bastante` : "",
       down.length ? `${down.slice(0, 2).map((c) => c.name).join(" e ")} ${down.length > 1 ? "caíram" : "caiu"} bastante` : "",
     ].filter(Boolean);
-    push("categories", "Categorias", points, `${parts.join("; ")}.`);
-  }
-  if (trend.direction === "better" || trend.direction === "worse") {
-    push("trend", "Tendência de meses", trend.direction === "better" ? 1 : -1, trend.detail);
+    push("categories", "Categorias", points, `${parts.join("; ")}.`, "categorias");
   }
   const points = sum(signals.map((s) => s.points));
   const kind: VerdictKind = points >= 2 ? "better" : points <= -2 ? "worse" : "same";
@@ -745,7 +760,7 @@ function buildVerdict(a: {
 
 function buildHighlights(a: {
   totals: Totals; previousTotals: Totals | null; deltas: ReportDashboard["deltas"]; categories: DashCategoryRow[];
-  habits: Habit[]; trend: ReportDashboard["trend"]; projection: ReportDashboard["projection"]; filtered: boolean;
+  habits: Habit[]; trend: ReportDashboard["trend"]; projection: ReportDashboard["projection"]; filtered: boolean; incomeIncomplete: boolean; expectedIncome: number;
 }): DashHighlight[] {
   const { totals, previousTotals, categories, habits, trend, projection } = a;
   const out: Array<DashHighlight & { weight: number }> = [];
@@ -781,7 +796,7 @@ function buildHighlights(a: {
     });
   }
   const savings = habits.find((h) => h.key === "savings");
-  if (savings && savings.value != null && savings.previous != null && savings.direction !== "same" && savings.direction !== "unknown") {
+  if (!a.incomeIncomplete && savings && savings.value != null && savings.previous != null && savings.direction !== "same" && savings.direction !== "unknown") {
     out.push({
       id: "savings", tone: savings.direction === "better" ? "positive" : "negative", weight: 80,
       title: `Taxa de poupança ${savings.direction === "better" ? "subiu" : "caiu"} para ${rateText(savings.value)}`,
@@ -812,11 +827,19 @@ function buildHighlights(a: {
   if (trend.direction === "better" || trend.direction === "worse") {
     out.push({
       id: "trend", tone: trend.direction === "better" ? "positive" : "negative", weight: 65,
-      title: trend.direction === "better" ? "Seus últimos meses estão melhorando" : "Seus últimos meses estão piorando",
+      title: trend.direction === "better" ? "Sua taxa de poupança vem subindo nos últimos meses" : "Sua taxa de poupança vem caindo nos últimos meses",
       body: trend.detail, action: null,
     });
   }
-  if (previousTotals && previousTotals.income > 0 && totals.income > 0 && Math.abs(totals.income - previousTotals.income) / previousTotals.income >= 0.2) {
+  if (a.incomeIncomplete) {
+    out.push({
+      id: "income-pending", tone: "neutral", weight: 88,
+      title: "A renda deste período ainda não chegou por completo",
+      body: `Entraram ${brl(totals.income)} até agora; no mês passado a renda total foi ${brl(a.expectedIncome)}. Poupança e sobra só são comparáveis depois que a renda esperada entrar.`,
+      action: null,
+    });
+  }
+  if (!a.incomeIncomplete && previousTotals && previousTotals.income > 0 && totals.income > 0 && Math.abs(totals.income - previousTotals.income) / previousTotals.income >= 0.2) {
     const up = totals.income > previousTotals.income;
     out.push({
       id: "income", tone: up ? "positive" : "negative", weight: 50,

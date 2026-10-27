@@ -112,7 +112,7 @@ export default function MetaCategoriaDetalhe() {
         return day >= evaluation.period.start && day <= evaluation.period.end;
       })
       .filter((t) => String(t.movement_kind ?? "") === "refund" || (t.type === "expense" && isRealMonthlyMovement(t as never)))
-      .sort((a, b) => (reportingCompetenceDate(a as never) < reportingCompetenceDate(b as never) ? 1 : -1));
+      .sort((a, b) => (String(a.occurred_at) < String(b.occurred_at) ? 1 : -1));
   }, [evaluation, numericTxs]);
 
 
