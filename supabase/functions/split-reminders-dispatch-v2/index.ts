@@ -138,9 +138,11 @@ function messageFor(
     ? formatCivilBR(receivable.due_date)
     : kind === "invite" && scheduleFirst?.due_date
       ? formatCivilBR(scheduleFirst.due_date)
-      : expense?.due_date
-        ? formatCivilBR(expense.due_date)
-        : null;
+      : participant?.due_date
+        ? formatCivilBR(participant.due_date)
+        : expense?.due_date
+          ? formatCivilBR(expense.due_date)
+          : null;
   const participantsCount = Math.max(1, Number(split.participantsCount || 0));
   const totalAmount = Number(split.totalAmount || 0);
   const splitContextSentence = totalAmount > 0
@@ -377,7 +379,7 @@ Deno.serve(async (req) => {
       const terminal = ["payment_confirmation", "completed"].includes(kind);
 
       const { data: participant, error: participantError } = await sb.from("shared_expense_participants")
-        .select("id,name,phone_e164,amount_due,amount_paid,opt_out_at,reminders_paused_at,status,linked_user_id,reminder_count")
+        .select("id,name,phone_e164,amount_due,amount_paid,due_date,opt_out_at,reminders_paused_at,status,linked_user_id,reminder_count")
         .eq("id", job.participant_id)
         .single();
       if (participantError || !participant) throw new Error(participantError?.message ?? "participant_not_found");

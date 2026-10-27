@@ -88,6 +88,7 @@ export type ParticipantRow = {
   amount_paid: number;
   shared_expense_id: string;
   phone_e164: string;
+  due_date?: string | null;
 };
 
 export type ExpenseRow = {
@@ -324,8 +325,8 @@ export async function handleParticipantInbound(
   const nextRow = summary.next;
   const due = nextRow?.due_date
     ? `, com vencimento em ${formatCivilBR(nextRow.due_date)}`
-    : expense.due_date
-      ? `, com vencimento em ${formatCivilBR(expense.due_date)}`
+    : (participant.due_date ?? expense.due_date)
+      ? `, com vencimento em ${formatCivilBR((participant.due_date ?? expense.due_date) as string)}`
       : "";
 
   if (intent === "asking_schedule") {
