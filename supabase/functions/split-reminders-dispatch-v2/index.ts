@@ -10,7 +10,7 @@ import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { renderMessageTemplate, renderOverdueMessage, buildLinkSentence, OVERDUE_COPY_VERSION, type MessagePersona } from "../_shared/agent/messageTemplates.ts";
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
-import { activeReceivables, buildInstallmentSchedule, buildPaymentConfirmationParts, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
+import { activeReceivables, buildInstallmentSchedule, buildPaymentConfirmationParts, buildSettlementConfirmationParts, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
 import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -131,6 +131,7 @@ function messageFor(
   participantRemaining: number,
   schedule: Receivable[] = [],
   overdue: { daysOverdue: number; seqToday: number; sendHour: number } | null = null,
+  settledInFull = false,
 ): { text: string; variant: string | null } {
   const activeSchedule = activeReceivables(schedule as any) as unknown as Receivable[];
   const scheduleFirst = activeSchedule[0] ?? null;
@@ -163,7 +164,10 @@ function messageFor(
   const ownerLabel = String(expense.owner_name ?? "A pessoa responsável pelo rolê");
   const titleLabel = String(expense.title ?? "seu rolê");
   const confirmation = kind === "payment_confirmation"
-    ? buildPaymentConfirmationParts(activeSchedule as any, receivable?.installment_id, { title: titleLabel, ownerName: ownerLabel })
+    ? (settledInFull
+      ? buildSettlementConfirmationParts(activeSchedule as any, { title: titleLabel, ownerName: ownerLabel })
+      : null) ??
+      buildPaymentConfirmationParts(activeSchedule as any, receivable?.installment_id, { title: titleLabel, ownerName: ownerLabel })
     : null;
   const confirmationFallback = `Recebemos a sua *${installmentLabel(receivable)}* em “${titleLabel}”.${remainingSentence}`;
 
@@ -512,9 +516,15 @@ Deno.serve(async (req) => {
         }
         overdueInfo = { daysOverdue, seqToday: Math.min(2, sentToday + 1), sendHour: clock.hour };
       }
+      let settledInFull = false;
+      if (kind === "payment_confirmation" && job.installment_id) {
+        const { data: batchPay } = await sb.from("shared_expense_payments").select("id")
+          .eq("installment_id", job.installment_id).is("reversed_at", null).not("batch_id", "is", null).limit(1);
+        settledInFull = (batchPay ?? []).length > 0;
+      }
       const composed = messageFor(
         kind, participant, expense, remaining, persona, linkSentence,
-        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule, overdueInfo,
+        await splitContext(String(job.shared_expense_id)), receivable, participantRemaining, schedule, overdueInfo, settledInFull,
       );
       const message = composed.text;
 
