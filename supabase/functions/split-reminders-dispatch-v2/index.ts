@@ -143,8 +143,11 @@ function messageFor(
         : expense?.due_date
           ? formatCivilBR(expense.due_date)
           : null;
-  // Privacidade: o participante só vê a própria parte e as datas. O valor cheio, quantas pessoas dividem
-  // e de onde saiu o dinheiro são do dono e nunca entram na mensagem.
+  const participantsCount = Math.max(1, Number(split.participantsCount || 0));
+  const totalAmount = Number(split.totalAmount || 0);
+  const splitContextSentence = totalAmount > 0
+    ? ` (total do rolê: ${formatBRL(totalAmount)}, dividido entre ${participantsCount} ${participantsCount === 1 ? "pessoa" : "pessoas"})`
+    : "";
   const paidOnInstallment = Number(receivable?.paid_amount ?? 0);
   const partialSentence = paidOnInstallment > 0
     ? `\n\n💰 *Pagamento parcial:* já foram pagos *${formatBRL(paidOnInstallment)}*. Restam *${formatBRL(remaining)}*.`
@@ -173,8 +176,10 @@ function messageFor(
     owner_name: String(expense.owner_name ?? "A pessoa responsável pelo rolê"),
     title: String(expense.title ?? "seu rolê"),
     amount: formatBRL(remaining),
+    total_amount: formatBRL(totalAmount),
     participant_total: formatBRL(Number(participant.amount_due ?? 0)),
-    split_context_sentence: "",
+    participants_count: String(participantsCount),
+    split_context_sentence: splitContextSentence,
     installment_label: installmentLabel(receivable),
     installments_sentence: installments > 1 ? `, em *${installments}x*` : "",
     // Com a agenda completa impressa, repetir a 1ª data seria redundante.
@@ -371,7 +376,15 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const terminal = ["payment_confirmation", "completed"].includes(kind);
+      // O aviso "rolê fechado" para todos foi desativado: ele expunha quem pagou fora da data.
+      // Jobs antigos desse tipo são descartados sem enviar nada.
+      if (kind === "completed") {
+        await sb.from("reminder_jobs").update({ status: "skipped", last_error: "completed_disabled", lease_expires_at: null }).eq("id", job.id);
+        skipped++;
+        continue;
+      }
+
+      const terminal = ["payment_confirmation"].includes(kind);
 
       const { data: participant, error: participantError } = await sb.from("shared_expense_participants")
         .select("id,name,phone_e164,amount_due,amount_paid,due_date,opt_out_at,reminders_paused_at,status,linked_user_id,reminder_count")
