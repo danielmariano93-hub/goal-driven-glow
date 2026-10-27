@@ -14,7 +14,7 @@
 //  - Nada aqui faz I/O: cálculo determinístico e testável.
 import { round2, todayISO, nextRecurringOccurrences, isScheduledFutureTx, type RecurringRow, type TransactionRow } from "./facts";
 import { isAuthoritativeCardStatement } from "./cardExposure";
-import { civilAddDays, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate";
+import { civilAddDays, civilAddMonths, civilDueDateForCompetence, civilDueDateInMonthOf } from "./civilDate";
 import { computeDebtStatus, nextInstallmentOverride, type DebtPaymentRow, type DebtScheduleRow } from "./debtStatus";
 
 export const COMMITMENT_AGENDA_VERSION = "commitment_agenda.v3";
@@ -88,6 +88,7 @@ export interface AgendaCardRow {
   id: string;
   name?: string | null;
   due_day?: number | null;
+  closing_day?: number | null;
 }
 
 export interface AgendaDebtRow {
@@ -112,9 +113,18 @@ function addDaysISO(iso: string, days: number): string {
   return civilAddDays(iso, days);
 }
 
-/** Vencimento previsto de uma competência de cartão, a partir do dia de vencimento. */
-export function dueDateForCompetence(competenceMonth: string, dueDay?: number | null): string | null {
-  return civilDueDateForCompetence(competenceMonth, dueDay, 10);
+/**
+ * Vencimento previsto de uma competência de cartão.
+ * A competência é o mês de REFERÊNCIA da fatura (o mês em que ela fecha). Se o vencimento cai no dia
+ * do fechamento ou antes (ex.: fecha dia 24, vence dia 1), a fatura vence no mês SEGUINTE à referência:
+ * competência 11 → vence 01/12. Sem o dia de fechamento, mantém o mês da competência.
+ */
+export function dueDateForCompetence(competenceMonth: string, dueDay?: number | null, closingDay?: number | null): string | null {
+  const m = /^(\d{4})-(\d{2})/.exec(String(competenceMonth ?? "").trim());
+  if (!m) return null;
+  const dueNextMonth = Number(dueDay) > 0 && Number(closingDay) > 0 && Number(dueDay) <= Number(closingDay);
+  const month = dueNextMonth ? civilAddMonths(`${m[1]}-${m[2]}-01`, 1).slice(0, 7) : `${m[1]}-${m[2]}`;
+  return civilDueDateForCompetence(month, dueDay, 10);
 }
 
 /** Vencimento da parcela de dívida no mês de referência. */
@@ -162,7 +172,7 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
     if (!isAuthoritativeCardStatement(st)) continue;
     officialCompetences.add(`${st.credit_card_id}:${competence}`);
     if (SETTLED.has(String(st.status ?? "").toLowerCase())) continue;
-    const due = st.due_date ? String(st.due_date).slice(0, 10) : dueDateForCompetence(competence, cardById.get(st.credit_card_id)?.due_day);
+    const due = st.due_date ? String(st.due_date).slice(0, 10) : dueDateForCompetence(competence, cardById.get(st.credit_card_id)?.due_day, cardById.get(st.credit_card_id)?.closing_day);
     if (!due || !inHorizon(due)) continue;
     const amount = round2(
       st.outstanding_amount != null
@@ -197,7 +207,7 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
   for (const [key, amount] of installmentByKey) {
     if (amount <= 0) continue;
     const [cardId, competence] = key.split(":");
-    const due = dueDateForCompetence(competence, cardById.get(cardId)?.due_day);
+    const due = dueDateForCompetence(competence, cardById.get(cardId)?.due_day, cardById.get(cardId)?.closing_day);
     if (!due || !inHorizon(due)) continue;
     push({
       id: key,
