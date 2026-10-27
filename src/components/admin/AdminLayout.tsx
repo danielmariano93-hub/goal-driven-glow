@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { OpsAlertsBanner } from "@/components/admin/OpsAlerts";
 import {
   LayoutDashboard, Users, Sparkles, MessageCircle,
   ShieldCheck, LogOut, Menu, Bot,
@@ -227,6 +228,7 @@ export function AdminLayout() {
           </p>
         </header>
         <div className="mx-auto w-full max-w-6xl px-4 md:px-8 py-6 md:py-8">
+          <OpsAlertsBanner />
           <AdminErrorBoundary>
             <Outlet />
           </AdminErrorBoundary>
