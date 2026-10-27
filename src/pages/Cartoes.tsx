@@ -348,7 +348,7 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
   const summary = summarizeInvoiceItems(items);
   const credit = statement ? creditBalanceOf(statement) : previous ? creditBalanceOf(previous) : 0;
   const outstanding = statement ? Number(statement.outstanding_amount) : Number(forming?.amount ?? 0);
-  const overdue = Boolean(statement) && outstanding > 0 && new Date(`${tile.due_date}T12:00:00`) < new Date();
+  const overdue = Boolean(statement) && outstanding > 0 && tile.due_date < todaySP();
   const paid = Boolean(statement) && outstanding <= 0.005 && (statement!.status === "paid" || Number(statement!.paid_amount) > 0 || credit > 0);
   const title = !statement ? "Fatura aberta" : paid ? "Fatura paga" : overdue ? "Fatura vencida" : "Fatura aberta";
   const titleColor = paid ? "text-success" : overdue ? "text-destructive" : "text-primary";
