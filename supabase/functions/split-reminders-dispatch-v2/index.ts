@@ -11,6 +11,7 @@ import { renderMessageTemplate, renderOverdueMessage, buildLinkSentence, OVERDUE
 import { buildSharedExpenseUrl, buildSignupUrl } from "../_shared/messaging/appUrl.ts";
 import { shortenAppUrl } from "../_shared/agent/core/ShortLinks.ts";
 import { activeReceivables, buildInstallmentSchedule, buildPaymentConfirmationParts, buildSettlementConfirmationParts, formatCivilBR } from "../_shared/split/installmentSchedule.ts";
+import { dispatchGroupedReminder, planReminderGroups } from "../_shared/split/groupedReminder.ts";
 import { safeEqual } from "../_shared/security/secrets.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -281,9 +282,42 @@ Deno.serve(async (req) => {
   const failedJobs: Array<{ job_id: string; reason: string }> = [];
   const targetOutboundIds: string[] = [];
 
+  // Lembretes/cobranças da mesma pessoa, do mesmo dono, no mesmo vencimento, em mais de um rolê: 1 mensagem só.
+  // Se o planejamento falhar, cai no envio individual de sempre.
+  let groupPlan = new Map<string, any>();
+  try {
+    groupPlan = await planReminderGroups(sb, jobs as any[]);
+  } catch (planError) {
+    console.error(JSON.stringify({ event: "split_group_plan_failed", error: String((planError as Error).message).slice(0, 160) }));
+  }
+  const groupHandled = new Set<string>();
+
   for (const job of jobs) {
     try {
       const kind = String(job.kind ?? "reminder");
+
+      if (groupHandled.has(job.id)) continue;
+      const group = groupPlan.get(job.id);
+      if (group && group.jobs[0].id === job.id) {
+        const grouped = await dispatchGroupedReminder(sb, group, {
+          today: spClock().date,
+          daysBetween: civilDaysBetween,
+          ownerName: async (ownerUserId: string) => {
+            if (!ownerNames.has(ownerUserId)) {
+              const { data: owner } = await sb.from("profiles").select("display_name").eq("id", ownerUserId).maybeSingle();
+              ownerNames.set(ownerUserId, String(owner?.display_name ?? "").trim());
+            }
+            return ownerNames.get(ownerUserId) || "A pessoa responsável pelo rolê";
+          },
+          splitContext,
+        });
+        for (const id of grouped.finalized) groupHandled.add(id);
+        whatsappQueued += grouped.enqueued;
+        appDelivered += grouped.appDelivered;
+        skipped += grouped.skipped;
+        targetOutboundIds.push(...grouped.outboundIds);
+        if (groupHandled.has(job.id)) continue;
+      }
 
       // ---- Resumo para o dono do rolê (não tem participante alvo) ----
       if (kind === "owner_digest") {
