@@ -9,7 +9,7 @@ const src = readFileSync(resolve(process.cwd(), "src/pages/MetaCategoriaDetalhe.
 
 describe("MetaCategoriaDetalhe — fora da meta", () => {
   it("separa parcelas carregadas dos lançamentos considerados", () => {
-    expect(src).toContain("isCarriedInstallment");
+    expect(src).toContain("buildCarriedInstallmentIds");
     expect(src).toContain("const countedTxs");
     expect(src).toContain("const carriedTxs");
     expect(src).toContain('data-testid="goal-carried-list"');

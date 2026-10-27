@@ -24,7 +24,7 @@ const TX_COLUMNS = [
   "description", "merchant_name", "friendly_description", "transfer_group_id", "payment_method",
   "credit_card_id", "settles_card_id", "movement_kind", "posted_at", "competence_date",
   "refund_of_transaction_id", "origin", "purchase_date", "behavioral_day", "behavior_date_source",
-  "behavior_date_confidence", "installment_number", "installments_total", "created_at",
+  "behavior_date_confidence", "installment_number", "installments_total", "purchase_group_id", "created_at",
 ].join(",");
 
 export type SpendingGoalContext = {

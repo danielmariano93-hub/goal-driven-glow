@@ -67,6 +67,9 @@ export interface TransactionRow {
   /** Parcela atual / total de parcelas (compra parcelada no cartão). */
   installment_number?: number | null;
   installments_total?: number | null;
+  /** Compra parcelada: todas as parcelas compartilham o grupo. */
+  purchase_group_id?: string | null;
+  purchase_date?: string | null;
 }
 
 /** Origens de `posted_at` com autoridade de data bancária real. */
@@ -80,21 +83,52 @@ export function hasBankPosting(
   return BANK_POSTING_SOURCES.has(String(t.posted_at_source ?? "inferred"));
 }
 
+const monthIndex = (iso: string) => {
+  const d = String(iso).slice(0, 10);
+  return Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7)) - 1;
+};
+
+type CarriedProbe = Pick<
+  TransactionRow,
+  "id" | "payment_method" | "credit_card_id" | "installment_number" | "installments_total"
+  | "purchase_group_id" | "purchase_date" | "competence_date" | "occurred_at"
+>;
+
 /**
- * `goal_consumption.v1` — parcela "carregada": parcela 2 em diante de compra
- * parcelada no cartão. A decisão de gastar foi tomada no mês da compra; as
- * parcelas seguintes são compromisso, não consumo do mês. A meta mede o que o
- * usuário decide gastar AGORA, então não as conta (fatura, caixa e relatórios
+ * `goal_consumption.v1` — parcela "carregada": parcela 2+ de compra parcelada no
+ * cartão cuja COMPRA foi feita antes do ciclo da fatura em que ela aparece. A
+ * decisão de gastar foi tomada naquele mês anterior; a parcela é compromisso, não
+ * consumo de agora, então a meta não a conta (fatura, caixa e relatórios
  * continuam contando por competência).
+ *
+ * Parcela 2+ de compra feita NESTE ciclo (ex.: compra de 30/09 antecipada na
+ * fatura de outubro) NÃO é carregada: foi decidida agora. Evidências, nesta ordem:
+ *  1. outra parcela do mesmo grupo cai em competência anterior → compra anterior;
+ *  2. a compra é de 2+ meses antes da competência → compra anterior;
+ *  3. senão, é compra do ciclo atual.
  */
-export function isCarriedInstallment(
-  t: Pick<TransactionRow, "payment_method" | "credit_card_id" | "installment_number" | "installments_total">,
-): boolean {
-  const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
-  if (!isCard) return false;
-  const total = Number(t.installments_total ?? 0);
-  const number = Number(t.installment_number ?? 0);
-  return total > 1 && number > 1;
+export function buildCarriedInstallmentIds(txs: CarriedProbe[]): Set<string> {
+  const earliestByGroup = new Map<string, number>();
+  const isInstallment = (t: CarriedProbe) => {
+    const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+    return isCard && Number(t.installments_total ?? 0) > 1;
+  };
+  for (const t of txs) {
+    if (!isInstallment(t) || !t.purchase_group_id) continue;
+    const m = monthIndex(reportingCompetenceDate(t));
+    const cur = earliestByGroup.get(t.purchase_group_id);
+    if (cur == null || m < cur) earliestByGroup.set(t.purchase_group_id, m);
+  }
+  const out = new Set<string>();
+  for (const t of txs) {
+    if (!isInstallment(t) || Number(t.installment_number ?? 0) <= 1) continue;
+    const comp = monthIndex(reportingCompetenceDate(t));
+    const group = t.purchase_group_id ? earliestByGroup.get(t.purchase_group_id) : undefined;
+    if (group != null && group < comp) { out.add(t.id); continue; }
+    const purchaseMonth = monthIndex(t.purchase_date ?? t.occurred_at);
+    if (comp - purchaseMonth >= 2) out.add(t.id);
+  }
+  return out;
 }
 
 /**

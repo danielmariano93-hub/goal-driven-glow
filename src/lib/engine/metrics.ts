@@ -17,7 +17,7 @@ import {
   computeMonthlyTotals,
   computeUpcomingCommitments,
   isRealMonthlyMovement,
-  isCarriedInstallment,
+  buildCarriedInstallmentIds,
   round2,
   reportingCompetenceDate,
   todayISO,
@@ -555,6 +555,7 @@ export function evaluateCategoryGoal(
   let carriedInstallments = 0;
   let carriedInstallmentsCount = 0;
   const goalAttribution = buildRefundAttribution(txs);
+  const carriedIds = buildCarriedInstallmentIds(txs);
   for (const t of txs) {
     if (effectiveCategoryId(t, goalAttribution) !== goal.category_id) continue;
     // `reporting_competence.v1`: fatura define o mês do gasto de cartão.
@@ -570,7 +571,7 @@ export function evaluateCategoryGoal(
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
     // `goal_consumption.v1`: parcela 2+ de compra anterior é compromisso, não consumo.
-    if (isCarriedInstallment(t)) {
+    if (carriedIds.has(t.id)) {
       carriedInstallments += Number(t.amount || 0);
       carriedInstallmentsCount += 1;
       continue;
