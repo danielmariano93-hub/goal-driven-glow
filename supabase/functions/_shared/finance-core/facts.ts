@@ -50,6 +50,8 @@ export interface TransactionRow {
   type: "income" | "expense" | "transfer";
   status: "confirmed" | "planned";
   amount: number;
+  /** Vínculo manual a uma meta de doação (o lançamento continua sendo uma despesa normal). */
+  donation_goal_id?: string | null;
   occurred_at: string; // YYYY-MM-DD — data econômica (competência do consumo)
   description: string | null;
   transfer_group_id: string | null;
@@ -221,6 +223,9 @@ export interface GoalRow {
   donation_income_category_ids?: string[] | null;
   donation_due_day?: number | null;
   donation_end_date?: string | null;
+  /** Despesas confirmadas nesta categoria contam no mês da meta de doação. */
+  donation_category_id?: string | null;
+  created_at?: string | null;
 }
 
 export interface GoalContributionRow {

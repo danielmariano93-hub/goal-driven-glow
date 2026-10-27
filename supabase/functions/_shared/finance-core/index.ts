@@ -27,6 +27,7 @@ export * from "./civilDate.ts";
 export * from "./commitmentAgenda.ts";
 export * from "./debtStatus.ts";
 export * from "./categoryProjection.ts";
+export * from "./donationGoal.ts";
 export * from "./metrics.ts";
 export * from "./categoryGoalStrategy.ts";
 export * from "./goalPerformanceAssessment.ts";

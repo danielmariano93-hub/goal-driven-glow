@@ -1,3 +1,4 @@
+import { DonationCurrentMonth, DonationGoalMonths } from "@/components/metas/DonationGoalMonths";
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, TrendingUp } from "lucide-react";
@@ -18,7 +19,7 @@ export default function MetaDetalhe() {
   const { data: contribs } = useContributions();
   const { data: investments } = useInvestments();
   const { data: categories } = useCategories();
-  const { data: txs } = useLedgerWindow({ monthsBack: 3, monthsAhead: 0 });
+  const { data: txs } = useLedgerWindow({ monthsBack: 12, monthsAhead: 0 });
 
   const goal = (goals ?? []).find((g) => g.id === id) ?? null;
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })), [txs]);
@@ -49,6 +50,24 @@ export default function MetaDetalhe() {
         <div className="mt-4 rounded-2xl border border-dashed border-border bg-card p-8 text-center">
           <p className="text-sm font-medium">Esta meta não está mais disponível.</p>
         </div>
+      </div>
+    );
+  }
+
+  if (goal.kind === "donation") {
+    const rule = String(goal.donation_mode) === "income_percent"
+      ? `${Number(goal.donation_percent ?? 0)}% da renda`
+      : `${formatBRL(Number(goal.monthly_target ?? 0))} por mês`;
+    return (
+      <div className="pb-8 pt-2">
+        <Link to="/app/metas" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><ArrowLeft size={14} /> Metas</Link>
+        <h1 className="mt-2 font-display text-2xl font-bold tracking-tight">{goal.name}</h1>
+        <p className="text-sm text-muted-foreground">
+          {rule} · dia {Number(goal.donation_due_day ?? 25)}
+          {goal.donation_end_date ? ` · até ${new Date(goal.donation_end_date + "T00:00:00").toLocaleDateString("pt-BR")}` : " · sem data de fim"}
+        </p>
+        <DonationCurrentMonth goal={goal as never} txs={numericTxs as never} />
+        <DonationGoalMonths goal={goal as never} txs={numericTxs as never} />
       </div>
     );
   }

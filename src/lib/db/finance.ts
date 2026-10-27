@@ -63,7 +63,7 @@ export const TX_COLUMNS = [
   "shared_expense_id", "split_transaction_role", "category_confidence",
   "category_source", "category_reason", "posted_at", "posted_at_source",
   "source_document_id", "behavioral_day", "investment_id", "superseded_by",
-  "supersede_reason", "refund_of_transaction_id", "merchant_name",
+  "supersede_reason", "refund_of_transaction_id", "merchant_name", "donation_goal_id",
 ].join(",");
 
 
@@ -559,6 +559,7 @@ export function useSaveGoal() {
         donation_income_category_ids: input.kind === "donation" ? input.donation_income_category_ids ?? [] : [],
         donation_due_day: input.kind === "donation" ? input.donation_due_day ?? 25 : 25,
         donation_end_date: input.kind === "donation" ? input.donation_end_date ?? null : null,
+        donation_category_id: input.kind === "donation" ? input.donation_category_id ?? null : null,
       };
       if (input.id) {
         const { error } = await supabase
@@ -620,6 +621,21 @@ export function useAddContribution() {
       await supabase.rpc("challenge_progress_add", {
         p_slug: "aportar-meta", p_delta: 1, p_source_type: "goal_contribution", p_source_id: contributionId,
       });
+    },
+    onSuccess: () => invalidateFinancialQueries(qc),
+  });
+}
+
+/** Vincula (ou desvincula, com goalId nulo) um lançamento existente a uma meta de doação. Não cria nem altera valores. */
+export function useLinkDonationTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { transactionId: string; goalId: string | null }) => {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ donation_goal_id: input.goalId })
+        .eq("id", input.transactionId);
+      if (error) throw error;
     },
     onSuccess: () => invalidateFinancialQueries(qc),
   });

@@ -32,6 +32,7 @@ import {
   type RecurringRow,
   type TransactionRow,
 } from "./facts";
+import { donationDueDate, evaluateDonationMonth, isDonationGoal } from "./donationGoal";
 import {
   computeCategoryProjection,
   type CategoryProjection,
@@ -817,21 +818,20 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
   });
 
   // ── Metas de doação viram compromisso do mês (valor fixo ou % da receita) ──
+  // O mês corrente só projeta o que AINDA falta: despesa na categoria da meta ou lançamento vinculado abate o alvo.
+  // Passado o vencimento, projeta o mês seguinte com a mesma base (estimativa).
   const donationCommitments = (input.goals ?? [])
-    .filter((g) => String(g.kind ?? "savings") === "donation" && g.status === "active" && (!g.donation_end_date || g.donation_end_date >= todayIso))
+    .filter((g) => isDonationGoal(g) && g.status === "active" && (!g.donation_end_date || g.donation_end_date >= todayIso))
     .map((g) => {
-      const selectedIncomeCategories = new Set(g.donation_income_category_ids ?? []);
-      const scopedTxs = g.donation_income_scope === "selected_categories"
-        ? input.txs.filter((tx) => tx.type !== "income" || (tx.category_id != null && selectedIncomeCategories.has(tx.category_id)))
-        : input.txs;
-      const monthIncome = computeMonthlyTotals(scopedTxs, currentYM).income;
-      const amount = String(g.donation_mode) === "income_percent"
-        ? round2((monthIncome * Number(g.donation_percent ?? 0)) / 100)
-        : round2(Number(g.monthly_target ?? 0));
+      const due = donationDueDate(g, currentYM);
+      const current = evaluateDonationMonth(g, currentYM, input.txs as never, todayIso);
+      if (due >= todayIso) {
+        const date = g.donation_end_date && due > g.donation_end_date ? "" : due;
+        return { id: g.id, name: `Doação · ${g.name}`, amount: date ? current.remaining : 0, date: date || due };
+      }
       const dueDay = Math.max(1, Math.min(28, Number(g.donation_due_day ?? 25)));
-      const due = todayISO(new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay, daysInclusive(monthRange.start, monthRange.end))));
-      const date = due < todayIso ? todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay)) : due;
-      return { id: g.id, name: `Doação · ${g.name}`, amount: g.donation_end_date && date > g.donation_end_date ? 0 : amount, date };
+      const next = todayISO(new Date(today.getFullYear(), today.getMonth() + 1, dueDay));
+      return { id: g.id, name: `Doação · ${g.name}`, amount: g.donation_end_date && next > g.donation_end_date ? 0 : current.target, date: next };
     })
     .filter((d) => d.amount > 0);
 

@@ -119,6 +119,7 @@ export const goalSchema = z
     donation_income_category_ids: z.array(z.string().uuid()).default([]),
     donation_due_day: z.number().int().min(1).max(28).default(25),
     donation_end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    donation_category_id: z.string().uuid().nullable().optional(),
   })
   .refine((v) => v.kind !== "donation" || !!v.donation_mode, {
     path: ["donation_mode"],

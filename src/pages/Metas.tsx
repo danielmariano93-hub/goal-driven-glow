@@ -34,6 +34,8 @@ import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
+import { DonationCurrentMonth } from "@/components/metas/DonationGoalMonths";
+import { evaluateDonationMonth } from "@/lib/engine/donationGoal";
 import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
@@ -139,6 +141,10 @@ export default function Metas() {
     investments: (investments ?? []).map((item) => ({ goal_id: item.goal_id, current_value: Number(item.current_value) })),
     categoryGoals: catGoalEvals.filter((goal) => goal.goal.status === "active"),
     month: todayISO().slice(0, 7),
+    donationMonthByGoal: Object.fromEntries((goals ?? []).filter((goal) => goal.kind === "donation" && goal.status === "active").map((goal) => {
+      const m = evaluateDonationMonth(goal as never, todayISO().slice(0, 7), numericTxs as never, todayISO());
+      return [goal.id, { target: m.target, done: m.done }];
+    })),
     monthlyIncomeByCategory: (numericTxs as unknown as Array<{ category_id?: string | null; occurred_at: string }>).reduce((map: Record<string, number>, tx) => {
       if (tx.occurred_at.slice(0, 7) !== todayISO().slice(0, 7)) return map;
       const value = behavioralMetricAmount(tx as never, "income");
@@ -370,7 +376,6 @@ export default function Metas() {
           {goals.map((g) => {
             const prog = computeGoalProgress(g, contribs ?? [], investments ?? []);
             const goalContribs = (contribs ?? []).filter((c) => c.goal_id === g.id);
-            const donationThisMonth = goalContribs.filter((c) => c.occurred_at.slice(0, 7) === todayISO().slice(0, 7)).reduce((sum, c) => sum + Number(c.amount), 0);
             const linkedInvestments = (investments ?? []).filter((i) => i.goal_id === g.id);
             const isOpen = expanded === g.id;
             return (
@@ -387,6 +392,16 @@ export default function Metas() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{g.name}</p>
+                    {g.kind === "donation" ? (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          {String(g.donation_mode) === "income_percent" ? `${Number(g.donation_percent ?? 0)}% da renda` : `${formatBRL(Number(g.monthly_target ?? 0))} por mês`}
+                          {g.donation_end_date ? ` · até ${new Date(g.donation_end_date + "T00:00:00").toLocaleDateString("pt-BR")}` : " · sem data de fim"}
+                        </p>
+                        <DonationCurrentMonth goal={g as never} txs={(txs ?? []) as never} />
+                      </>
+                    ) : (
+                      <>
                     <p className="text-xs text-muted-foreground">
                       Meta: {formatBRL(Number(g.target_amount))}
                       {g.target_date ? ` · até ${new Date(g.target_date + "T00:00:00").toLocaleDateString("pt-BR")}` : ""}
@@ -404,28 +419,23 @@ export default function Metas() {
                         {prog.contributed > 0 ? ` · Aportes: ${formatBRL(prog.contributed)}` : ""}
                       </p>
                     )}
-                    {g.kind === "donation" ? (
-                      <p className="mt-2 rounded-xl bg-success/10 px-3 py-2 text-[11px] leading-4 text-success">
-                        {donationThisMonth >= Number(g.monthly_target ?? 0) && Number(g.monthly_target ?? 0) > 0
-                          ? "Você cumpriu seu compromisso de generosidade neste mês. Continue no seu ritmo."
-                          : `${formatBRL(donationThisMonth)} destinados neste mês. Cada passo consciente também faz parte de uma vida financeira saudável.`}
-                      </p>
-                    ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-                  <button
+                  {g.kind === "donation" ? null : <button
                     onClick={() => setContribFor(g)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
                   >
                     <TrendingUp size={12} /> Guardar
-                  </button>
-                  <button
+                  </button>}
+                  {g.kind === "donation" ? null : <button
                     onClick={() => setExpanded(isOpen ? null : g.id)}
                     className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium"
                   >
                     {isOpen ? "Ocultar" : `Valores guardados (${goalContribs.length})`}
-                  </button>
+                  </button>}
                   <button
                     onClick={() => {
                       setEditing(g);
@@ -685,6 +695,9 @@ function GoalModal({
   const [donationEndDate, setDonationEndDate] = useState(
     (initial as { donation_end_date?: string | null } | null)?.donation_end_date ?? "",
   );
+  const [donationCategoryId, setDonationCategoryId] = useState(
+    (initial as { donation_category_id?: string | null } | null)?.donation_category_id ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const toNumber = (v: string) => Number(v.replace(/\./g, "").replace(",", ".")) || 0;
@@ -707,6 +720,7 @@ function GoalModal({
       donation_income_category_ids: kind === "donation" && donationIncomeScope === "selected_categories" ? donationIncomeCategoryIds : [],
       donation_due_day: kind === "donation" ? donationDueDay : 25,
       donation_end_date: kind === "donation" && donationEndDate ? donationEndDate : null,
+      donation_category_id: kind === "donation" && donationCategoryId ? donationCategoryId : null,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
@@ -774,6 +788,16 @@ function GoalModal({
                 <div><label className="mb-1 block text-xs font-medium">Dia do compromisso</label><input type="number" min={1} max={28} value={donationDueDay} onChange={(e) => setDonationDueDay(Number(e.target.value) || 25)} className="input-base" /></div>
                 <div><label className="mb-1 block text-xs font-medium">Até quando</label><input type="date" value={donationEndDate} onChange={(e) => setDonationEndDate(e.target.value)} className="input-base" /></div>
               </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">Categoria da despesa (opcional)</label>
+                <select value={donationCategoryId} onChange={(e) => setDonationCategoryId(e.target.value)} className="input-base">
+                  <option value="">Não vincular por categoria</option>
+                  {sortCategories(categories.filter((category) => category.type === "expense")).map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">Despesas confirmadas nesta categoria contam sozinhas no mês. Você também pode vincular lançamentos à mão na meta.</p>
+              </div>
               <p className="text-[11px] text-muted-foreground">A doação entra como compromisso do mês nas projeções do Nino.</p>
             </div>
           ) : null}
@@ -781,16 +805,16 @@ function GoalModal({
             <label className="mb-1 block text-xs font-medium">Nome</label>
             <input value={name} onChange={(e) => setName(e.target.value)} className="input-base" />
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          {kind === "donation" ? null : <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="mb-1 block text-xs font-medium">{kind === "donation" ? "Alvo total (opcional)" : "Valor alvo (R$)"}</label>
+              <label className="mb-1 block text-xs font-medium">Valor alvo (R$)</label>
               <input inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} className="input-base" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium">Data alvo</label>
               <input type="date" value={date ?? ""} onChange={(e) => setDate(e.target.value)} className="input-base" />
             </div>
-          </div>
+          </div>}
           <div>
             <label className="mb-1 block text-xs font-medium">Prioridade (1 alta – 5 baixa)</label>
             <input type="number" min={1} max={5} value={priority} onChange={(e) => setPriority(Number(e.target.value) || 3)} className="input-base" />
