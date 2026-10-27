@@ -13,6 +13,16 @@ export default {
       },
     },
     extend: {
+      // Escala tipográfica compacta (≈6–10% menor que a padrão do Tailwind), no estilo de apps financeiros.
+      // `text-xs` fica em 12px de propósito (limite de legibilidade).
+      fontSize: {
+        sm: ["0.8125rem", { lineHeight: "1.25rem" }],
+        base: ["0.9375rem", { lineHeight: "1.4rem" }],
+        lg: ["1.0625rem", { lineHeight: "1.5rem" }],
+        xl: ["1.1875rem", { lineHeight: "1.65rem" }],
+        "2xl": ["1.3125rem", { lineHeight: "1.75rem" }],
+        "3xl": ["1.625rem", { lineHeight: "2rem" }],
+      },
       fontFamily: {
         sans: ["DM Sans", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         display: ["DM Sans", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],

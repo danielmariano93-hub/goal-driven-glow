@@ -218,6 +218,13 @@ function currentCycleCovered(debt: DebtScheduleRow, payments: DebtPaymentRow[], 
   });
 }
 
+/** Dia anterior (YYYY-MM-DD): parcela que vence hoje ainda NÃO está vencida. */
+function dayBefore(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function expectedInstallmentsThrough(anchor: string, today: string, total: number | null): number {
   let expected = 0;
   for (let i = 1; i <= 600; i += 1) {
@@ -342,11 +349,13 @@ function evaluateDebt(
   const ovr = nextInstallmentOverride(debt, covered);
   const ovrDue = ovr?.due ?? null;
 
-  let overdueCount = Math.max(0, cappedExpected - covered);
+  // Atraso = vencimento ANTES de hoje. Parcela que vence hoje é "vence hoje", não "em atraso".
+  const overdueExpected = expectedInstallmentsThrough(anchor, dayBefore(today), total);
+  let overdueCount = Math.max(0, overdueExpected - covered);
   if (ovrDue) {
     const natural = dueDateOf(anchor, covered + 1);
-    if (natural <= today && ovrDue > today) overdueCount = Math.max(0, overdueCount - 1);
-    else if (natural > today && ovrDue <= today) overdueCount += 1;
+    if (natural < today && ovrDue >= today) overdueCount = Math.max(0, overdueCount - 1);
+    else if (natural >= today && ovrDue < today) overdueCount += 1;
   }
   const overdueAmount = round2(Math.min(outstanding, overdueCount * installment));
 
@@ -355,7 +364,7 @@ function evaluateDebt(
     ? null
     : (ovrDue ?? dueDateOf(anchor, nextIndex));
   const oldestUnpaidDue = overdueCount > 0
-    ? (ovrDue && ovrDue <= today ? ovrDue : dueDateOf(anchor, covered + (ovrDue ? 2 : 1)))
+    ? (ovrDue && ovrDue < today ? ovrDue : dueDateOf(anchor, covered + (ovrDue ? 2 : 1)))
     : null;
 
   // Próximo vencimento futuro (para avisos de "vence em breve").
