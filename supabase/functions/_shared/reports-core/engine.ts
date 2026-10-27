@@ -23,6 +23,7 @@ import {
 } from "../finance-core/cardExposure.ts";
 
 import { exactBRL, pct } from "../copy/numbers.ts";
+import { computeInstallmentAnticipation } from "../finance-core/canonicalFacts.ts";
 
 import { eachDay, resolvePeriods, shortDay, daysInPeriod, daysInMonthOf } from "./periods.ts";
 import { detectHighlights, mergeHighlights } from "./highlights.ts";
@@ -428,6 +429,7 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     .sort((a, b) => b.progress - a.progress)
     .slice(0, 4);
 
+  const anticipationFact = computeInstallmentAnticipation(all, { start: period.start, end: period.end });
   const payload: ReportPayload = {
     version: REPORTS_CATALOG_VERSION,
     reportType: input.reportType,
@@ -461,6 +463,9 @@ export function buildIntelligentReport(input: ReportEngineInput): IntelligentRep
     },
     categories,
     series,
+    anticipation: anticipationFact.amount > 0
+      ? { amount: anticipationFact.amount, count: anticipationFact.count, purchases: anticipationFact.purchases }
+      : null,
     goals,
   };
 

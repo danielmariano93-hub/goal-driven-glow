@@ -120,7 +120,7 @@ async function loadTransactions(sb: Sb, userId: string, fromDate: string): Promi
     const offset = page * TX_PAGE;
     const { data, error } = await sb
       .from("transactions")
-      .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
+      .select("id,account_id,type,status,amount,occurred_at,competence_date,economic_competence_date,installment_anticipated,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description")
       .eq("user_id", userId)
       .gte("occurred_at", since)
       .order("occurred_at", { ascending: true })

@@ -39,7 +39,7 @@ export const FINANCE_TRUTH_VERSION = "finance_truth.v2";
  * sem o qual o motor não consegue atribuir o estorno à categoria original.
  */
 export const TRANSACTION_FACT_SELECT =
-  "id,account_id,category_id,type,status,amount,occurred_at,posted_at,posted_at_source,purchase_date,competence_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,friendly_description,merchant_name,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,investment_id,refund_of_transaction_id";
+  "id,account_id,category_id,type,status,amount,occurred_at,posted_at,posted_at_source,purchase_date,competence_date,economic_competence_date,installment_anticipated,behavioral_day,behavior_date_source,behavior_date_confidence,description,friendly_description,merchant_name,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,investment_id,refund_of_transaction_id";
 
 /** Contrato de leitura único da âncora bancária. */
 export const BANK_ANCHOR_SELECT =
@@ -310,6 +310,56 @@ export function computeCanonicalCategoryTotal(
     if (signed > 0) { gross += signed; count += 1; } else { refunds -= signed; }
   }
   return { net: round2(net), gross: round2(gross), refunds: round2(refunds), count };
+}
+
+/**
+ * `installment_anticipation.v1` — parcelas pagas antes do vencimento do cronograma.
+ *
+ * Antecipar é liquidação de dívida: não é consumo do mês (o gasto fica na competência
+ * em que a parcela venceria) e reduz a dívida a vencer. O período é o da FATURA em
+ * que a antecipação foi cobrada (`competence_date`, não a competência econômica).
+ */
+export interface InstallmentAnticipationFact {
+  /** Valor de face antecipado no período. */
+  amount: number;
+  /** Quantidade de parcelas antecipadas. */
+  count: number;
+  /** Compras distintas envolvidas. */
+  purchases: number;
+  /** Para onde o gasto foi na leitura de consumo: mês econômico → valor. */
+  by_economic_month: Array<{ month: string; amount: number }>;
+}
+
+export function computeInstallmentAnticipation(
+  txs: TransactionRow[],
+  range: PeriodRange,
+): InstallmentAnticipationFact {
+  const rows = canonicalLedgerRows(txs);
+  const byMonth = new Map<string, number>();
+  const groups = new Set<string>();
+  let amount = 0;
+  let count = 0;
+  for (const t of rows) {
+    if (!t.installment_anticipated) continue;
+    if (t.status !== "confirmed" || t.type !== "expense") continue;
+    const billed = String(t.competence_date ?? t.occurred_at ?? "").slice(0, 10);
+    if (!inRange(billed, range)) continue;
+    const value = Number(t.amount || 0);
+    if (!(value > 0)) continue;
+    amount += value;
+    count += 1;
+    groups.add(String(t.purchase_group_id ?? t.id));
+    const month = String(t.economic_competence_date ?? billed).slice(0, 7);
+    byMonth.set(month, (byMonth.get(month) ?? 0) + value);
+  }
+  return {
+    amount: round2(amount),
+    count,
+    purchases: groups.size,
+    by_economic_month: [...byMonth.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([month, v]) => ({ month, amount: round2(v) })),
+  };
 }
 
 /** Comparação canônica entre dois períodos, com drivers por categoria econômica. */

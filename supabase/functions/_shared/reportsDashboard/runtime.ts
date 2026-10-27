@@ -17,6 +17,33 @@ export type DashboardParams = {
   merchant: string;
 };
 
+const fmtBRL = (n: number) => `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Antecipações cobradas em faturas cujo mês cai no período pedido. */
+export function summarizeAnticipation(
+  rows: Array<{ billed_month: string; economic_month: string; amount: number; group: string }>,
+  start: string,
+  end: string,
+): ReportDashboard["anticipation"] {
+  const from = start.slice(0, 7);
+  const to = end.slice(0, 7);
+  const inPeriod = rows.filter((r) => r.billed_month >= from && r.billed_month <= to);
+  if (inPeriod.length === 0) return null;
+  const byMonth = new Map<string, number>();
+  let amount = 0;
+  for (const r of inPeriod) {
+    amount += r.amount;
+    byMonth.set(r.economic_month, (byMonth.get(r.economic_month) ?? 0) + r.amount);
+  }
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  return {
+    amount: round2(amount),
+    count: inPeriod.length,
+    purchases: new Set(inPeriod.map((r) => r.group)).size,
+    months: [...byMonth.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([month, v]) => ({ month, amount: round2(v) })),
+  };
+}
+
 const ms = (iso: string) => Date.parse(`${iso}T12:00:00Z`);
 
 /** Valida e normaliza o pedido. Devolve texto de erro quando inválido. */
@@ -49,6 +76,17 @@ export async function loadReportDashboard(sb: any, userId: string, today: string
     categoryIds: params.categoryIds,
     merchant: params.merchant,
   });
+  dash.anticipation = summarizeAnticipation(input.anticipations ?? [], params.start, params.end);
+  if (dash.anticipation && !dash.filtered) {
+    const a = dash.anticipation;
+    dash.highlights = [{
+      id: "installment_anticipation",
+      tone: "positive",
+      title: `Você antecipou ${fmtBRL(a.amount)} em parcelas`,
+      body: `Antecipar é pagar dívida antes do prazo, não gasto novo: o consumo continua nos meses em que as parcelas venceriam, e sua dívida a vencer caiu ${fmtBRL(a.amount)}.`,
+      action: { label: "Ver cartões e parcelas", route: "/app/cartoes" },
+    }, ...dash.highlights];
+  }
   // Só mostra o que entrou fora da renda quando não há filtro (filtro = só despesa).
   if (!dash.filtered) dash.otherInflows = await loadOtherInflows(sb, userId, params.start, params.end);
   return dash;

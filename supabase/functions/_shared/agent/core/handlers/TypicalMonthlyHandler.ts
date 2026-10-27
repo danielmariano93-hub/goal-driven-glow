@@ -26,7 +26,7 @@ import { DIVERGENCE_ALERT_PCT, MIN_MONTHS_FOR_HABIT } from "../resolvers/Assesso
 const TX_COLUMNS = [
   "id", "category_id", "type", "status", "amount", "occurred_at",
   "transfer_group_id", "payment_method", "credit_card_id", "settles_card_id",
-  "movement_kind", "competence_date", "refund_of_transaction_id",
+  "movement_kind", "competence_date", "economic_competence_date", "installment_anticipated", "refund_of_transaction_id",
 ].join(",");
 
 export type MonthlyBucket = { month: string; total: number; has_data: boolean };

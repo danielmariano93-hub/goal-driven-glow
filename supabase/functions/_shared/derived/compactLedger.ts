@@ -227,6 +227,7 @@ export async function fetchWindowTransactions(
       .or(
         `and(occurred_at.gte.${window.start},occurred_at.lte.${window.end}),` +
           `and(competence_date.gte.${window.start},competence_date.lte.${window.end}),` +
+          `and(economic_competence_date.gte.${window.start},economic_competence_date.lte.${window.end}),` +
           `and(posted_at.gte.${window.start},posted_at.lte.${window.end})`,
       )
       .order("id", { ascending: true })

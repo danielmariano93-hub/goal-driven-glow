@@ -661,6 +661,7 @@ export default function Lancamentos() {
                               <p className="mt-0.5 truncate text-xs text-muted-foreground">
                                 {accName(t)} · {t.type === "income" ? "Receita" : t.type === "expense" ? "Despesa" : "Transferência"}
                                 {t.status === "planned" ? " · Planejado" : ""}
+                                {t.installment_anticipated ? " · Parcela antecipada" : ""}
                                 {!t.category_id && !isTransfer ? " · Sem categoria" : ""}
                                 {t.category_id && t.category_source && t.category_source !== "user" && !isTransfer ? " · Identificado pelo Nino" : ""}
                               </p>

@@ -55,7 +55,7 @@ async function backfillUser(
 ): Promise<{ user_id: string; periods: number; pending_reconciliation: number }> {
   const [txsR, accountsR, snapsR, invR, debtsR, movR] = await Promise.all([
     sb.from("transactions")
-      .select("id,account_id,type,status,amount,occurred_at,posted_at,competence_date,category_id,credit_card_id,payment_method,settles_card_id,transfer_group_id,movement_kind,description")
+      .select("id,account_id,type,status,amount,occurred_at,posted_at,competence_date,economic_competence_date,installment_anticipated,category_id,credit_card_id,payment_method,settles_card_id,transfer_group_id,movement_kind,description")
       .eq("user_id", userId),
     sb.from("accounts").select("id,name,type,opening_balance,active").eq("user_id", userId),
     sb.from("account_balance_snapshots").select("account_id,balance,balance_date,status,anchor_kind,source_document_id,reconciliation_delta").eq("user_id", userId),

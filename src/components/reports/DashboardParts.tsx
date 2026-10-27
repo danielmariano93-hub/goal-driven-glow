@@ -204,9 +204,12 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
       note: other > 0 ? `Entrou também ${formatBRL(other)} que não é renda (veja abaixo)` : undefined,
     });
   }
+  const anticNote = d.anticipation && d.anticipation.amount > 0
+    ? `Não inclui ${formatBRL(d.anticipation.amount)} de parcelas antecipadas (dívida paga antes do prazo)`
+    : undefined;
   cards.push({
     label: "Saiu", value: formatBRL(t.expense), delta: dl?.expense ?? null, upIsGood: false,
-    note: t.refunds > 0 ? `+ ${formatBRL(t.refunds)} de estorno que voltou` : undefined,
+    note: [t.refunds > 0 ? `+ ${formatBRL(t.refunds)} de estorno que voltou` : null, anticNote].filter(Boolean).join(" · ") || undefined,
   });
   if (!d.filtered) {
     cards.push({ label: "Sobrou", value: `${t.net < 0 ? "−" : ""}${formatBRL(Math.abs(t.net))}`, delta: dl?.net ?? null, upIsGood: true });
@@ -228,6 +231,34 @@ export function KpiStrip({ d }: { d: ReportDashboard }) {
           {c.note ? <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{c.note}</p> : null}
         </div>
       ))}
+    </section>
+  );
+}
+
+const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const monthLabel = (ym: string) => `${MONTHS_PT[Number(ym.slice(5, 7)) - 1] ?? ym} de ${ym.slice(0, 4)}`;
+
+/** Antecipação de parcelas (`installment_anticipation.v1`): liquidação de dívida, fora do "Saiu". */
+export function AnticipationCard({ d }: { d: ReportDashboard }) {
+  const a = d.anticipation;
+  if (d.filtered || !a || a.amount <= 0) return null;
+  return (
+    <section data-testid="anticipation-card" className="rounded-2xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 print:break-inside-avoid dark:border-emerald-900 dark:bg-emerald-950/20">
+      <p className="text-sm font-semibold">Você antecipou {formatBRL(a.amount)} em parcelas</p>
+      <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
+        Antecipar é pagar dívida antes do prazo, não gasto novo. Por isso esse valor não entra em "Saiu" deste período: o consumo continua contado nos meses em que as parcelas venceriam, e sua dívida a vencer caiu {formatBRL(a.amount)}.
+      </p>
+      <ul className="mt-2 divide-y divide-border">
+        {a.months.map((m) => (
+          <li key={m.month} className="flex items-center justify-between gap-3 py-1.5 text-[13px]">
+            <span>Venceria em {monthLabel(m.month)}</span>
+            <span className="font-semibold tabular-nums">{formatBRL(m.amount)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        {a.count} {a.count === 1 ? "parcela" : "parcelas"} de {a.purchases} {a.purchases === 1 ? "compra" : "compras"}.
+      </p>
     </section>
   );
 }

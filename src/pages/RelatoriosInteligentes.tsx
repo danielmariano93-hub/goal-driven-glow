@@ -4,7 +4,7 @@ import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
 import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
-import { ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
+import { AnticipationCard, ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
 import { notifyError, notifySuccess } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -47,7 +47,7 @@ export default function RelatoriosInteligentes() {
     try {
       const { data, error } = await supabase
         .from("transactions")
-        .select("id,account_id,type,status,amount,occurred_at,competence_date,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
+        .select("id,account_id,type,status,amount,occurred_at,competence_date,economic_competence_date,installment_anticipated,category_id,refund_of_transaction_id,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,description,friendly_description,categories(name)")
         // Margem para trás: compra de cartão do ciclo anterior tem competência
         // dentro do período. O recorte final é feito por competência.
         .gte("occurred_at", csvLoadFloor(from))
@@ -143,6 +143,7 @@ export default function RelatoriosInteligentes() {
         <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
           <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
           <KpiStrip d={dash} />
+          <AnticipationCard d={dash} />
           <OtherInflowsCard d={dash} />
           <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
           <EvolutionChart d={dash} />

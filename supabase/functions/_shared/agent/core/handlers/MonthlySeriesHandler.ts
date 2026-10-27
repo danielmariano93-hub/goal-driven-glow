@@ -25,7 +25,7 @@ const TX_COLUMNS = [
   "id", "account_id", "category_id", "type", "status", "amount", "occurred_at",
   "description", "transfer_group_id", "payment_method", "credit_card_id",
   "settles_card_id", "movement_kind", "posted_at", "posted_at_source",
-  "competence_date", "investment_id", "refund_of_transaction_id",
+  "competence_date", "economic_competence_date", "installment_anticipated", "investment_id", "refund_of_transaction_id",
 ].join(",");
 
 export const MONTHLY_SERIES_FORMULA_VERSION = "monthly_spending_series.v1";

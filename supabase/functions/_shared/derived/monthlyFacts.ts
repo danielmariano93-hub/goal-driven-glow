@@ -189,6 +189,7 @@ export async function fetchMonthRows(
       .or(
         `and(occurred_at.gte.${start},occurred_at.lte.${end}),` +
           `and(competence_date.gte.${start},competence_date.lte.${end}),` +
+          `and(economic_competence_date.gte.${start},economic_competence_date.lte.${end}),` +
           `and(posted_at.gte.${start},posted_at.lte.${end})`,
       )
       .order("id", { ascending: true })

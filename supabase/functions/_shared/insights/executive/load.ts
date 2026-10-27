@@ -12,13 +12,46 @@ import {
   type TransactionRow,
 } from "../../finance-core/facts.ts";
 import { buildMerchantResolver, type MerchantAliasRow } from "../../finance-core/merchant.ts";
-import type { ExecutiveInput, LedgerEntry } from "./engine.ts";
+import type { AnticipatedInstallment, ExecutiveInput, LedgerEntry } from "./engine.ts";
 
 const TX_COLUMNS = [
   "id", "account_id", "category_id", "type", "status", "amount", "occurred_at",
   "description", "transfer_group_id", "payment_method", "credit_card_id",
-  "settles_card_id", "movement_kind", "posted_at", "competence_date", "refund_of_transaction_id",
+  "settles_card_id", "movement_kind", "posted_at", "competence_date", "economic_competence_date", "installment_anticipated", "refund_of_transaction_id",
+  "purchase_date", "purchase_group_id", "installment_number", "installments_total",
 ].join(",");
+
+const lastDay = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
+
+/**
+ * Dia do gráfico diário/semanal. Cartão: dia da compra quando ela é do mesmo mês da
+ * competência; compra de mês anterior (parcela antiga, borda do ciclo) vai para o dia
+ * de fechamento da fatura. Nunca o dia 1: o dia 1 acumulava o cartão inteiro do mês.
+ */
+export function chartDateOf(row: any, closingDay: number | null): string | null {
+  const isCard = Boolean(row.credit_card_id) || String(row.payment_method ?? "") === "credit_card";
+  if (!isCard) return null;
+  const comp = reportingCompetenceDate(row as TransactionRow);
+  const purchase = String(row.purchase_date ?? row.occurred_at ?? "").slice(0, 10);
+  if (purchase.length === 10 && purchase.slice(0, 7) === comp.slice(0, 7)) return purchase;
+  const ym = comp.slice(0, 7);
+  const day = Math.min(Math.max(1, closingDay ?? lastDay(ym)), lastDay(ym));
+  return `${ym}-${String(day).padStart(2, "0")}`;
+}
+
+/** Parcelas antecipadas do livro: cobradas numa fatura, vencendo em outro mês. */
+export function collectAnticipations(rows: any[]): AnticipatedInstallment[] {
+  const out: AnticipatedInstallment[] = [];
+  for (const r of rows) {
+    if (!r.installment_anticipated || String(r.status ?? "") !== "confirmed" || r.type !== "expense") continue;
+    const amount = Number(r.amount ?? 0);
+    const billed = String(r.competence_date ?? "").slice(0, 7);
+    const economic = String(r.economic_competence_date ?? r.competence_date ?? "").slice(0, 7);
+    if (!(amount > 0) || billed.length !== 7) continue;
+    out.push({ billed_month: billed, economic_month: economic, amount, group: String(r.purchase_group_id ?? r.id) });
+  }
+  return out;
+}
 
 function shiftDays(ymd: string, days: number): string {
   const d = new Date(`${ymd}T12:00:00Z`);
@@ -32,7 +65,7 @@ export function toLedger(
   categories: Map<string, string>,
   aliases: MerchantAliasRow[],
   window: { from: string; to: string },
-  opts: { includeDebtPayments?: boolean } = {},
+  opts: { includeDebtPayments?: boolean; closingDays?: Map<string, number> } = {},
 ): LedgerEntry[] {
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   const attribution = buildRefundAttribution(rows as TransactionRow[]);
@@ -64,6 +97,9 @@ export function toLedger(
       category: (categoryId && categories.get(String(categoryId))) || "Sem categoria",
       merchant_key: merchant?.key ?? null,
       merchant: merchant?.label ?? null,
+      chart_date: kind === "expense"
+        ? chartDateOf(row, row.credit_card_id ? opts.closingDays?.get(String(row.credit_card_id)) ?? null : null)
+        : null,
     });
   }
   return out;
@@ -88,14 +124,17 @@ export async function loadExecutiveInput(sb: any, userId: string, asOf: string, 
       .range(a, b),
   { source: "executive_insights" });
 
-  const [{ data: cats }, { data: aliasRows }, { data: installments }] = await Promise.all([
+  const [{ data: cats }, { data: aliasRows }, { data: installments }, { data: cardRows }] = await Promise.all([
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
     sb.from("merchant_aliases").select("alias_key,friendly_name,hits").eq("user_id", userId),
     sb.from("credit_card_installments")
       .select("competence_month,amount,status,absorbed_by_statement_id")
       .eq("user_id", userId)
       .gt("competence_month", `${asOf.slice(0, 7)}-01`),
+    sb.from("credit_cards").select("id,closing_day").eq("user_id", userId),
   ]);
+  const closingDays = new Map<string, number>(((cardRows ?? []) as any[])
+    .filter((c) => Number(c.closing_day) > 0).map((c) => [String(c.id), Number(c.closing_day)]));
   const categories = new Map<string, string>(((cats ?? []) as any[]).map((c) => [String(c.id), String(c.name)]));
   const aliases: MerchantAliasRow[] = ((aliasRows ?? []) as any[]).map((a) => ({
     alias_normalized: a.alias_key,
@@ -104,7 +143,8 @@ export async function loadExecutiveInput(sb: any, userId: string, asOf: string, 
   }));
   return {
     as_of: asOf,
-    entries: toLedger(rows, categories, aliases, { from, to }, opts),
+    entries: toLedger(rows, categories, aliases, { from, to }, { ...opts, closingDays }),
+    anticipations: collectAnticipations(rows),
     future_installments: ((installments ?? []) as any[])
       .filter((row) => String(row.status ?? "") !== "paid" && !row.absorbed_by_statement_id)
       .map((row) => ({ month: String(row.competence_month ?? "").slice(0, 7), amount: Number(row.amount ?? 0) }))
