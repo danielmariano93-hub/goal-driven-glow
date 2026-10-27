@@ -15,7 +15,7 @@ import { buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
-import { formatBRL, effectiveCategoryId, buildRefundAttribution, isCarriedInstallment, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
+import { formatBRL, effectiveCategoryId, buildCarriedInstallmentIds, buildRefundAttribution, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
 import { useGoals } from "@/lib/db/finance";
 import type { MerchantTargetEvaluation } from "@/lib/engine/spendingGoals";
 import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
@@ -122,8 +122,10 @@ export default function MetaCategoriaDetalhe() {
 
   // `goal_consumption.v1`: parcela 2+ de compra anterior não consome a meta; vai para
   // a seção "Fora da meta" em vez de aparecer misturada nos lançamentos considerados.
-  const countedTxs = useMemo(() => periodTxs.filter((t) => !isCarriedInstallment(t as never)), [periodTxs]);
-  const carriedTxs = useMemo(() => periodTxs.filter((t) => isCarriedInstallment(t as never)), [periodTxs]);
+  // O grupo da compra vem de TODO o razão (a parcela anterior pode estar fora do período).
+  const carriedIds = useMemo(() => buildCarriedInstallmentIds(numericTxs as never), [numericTxs]);
+  const countedTxs = useMemo(() => periodTxs.filter((t) => !carriedIds.has(t.id)), [periodTxs, carriedIds]);
+  const carriedTxs = useMemo(() => periodTxs.filter((t) => carriedIds.has(t.id)), [periodTxs, carriedIds]);
 
   if (!goal || !evaluation || !strategy) {
     return (

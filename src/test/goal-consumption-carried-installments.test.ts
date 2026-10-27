@@ -8,7 +8,7 @@ import {
   type CategorySpendingGoalRow,
 } from "@/lib/engine/metrics";
 import { buildSpendingLedger } from "@/lib/engine/spendingGoals";
-import { isCarriedInstallment, type TransactionRow } from "@/lib/engine/facts";
+import { buildCarriedInstallmentIds, type TransactionRow } from "@/lib/engine/facts";
 
 const CAT = "cat-transporte";
 const today = new Date("2026-10-26T12:00:00");
@@ -39,12 +39,30 @@ const goal = {
   period_type: "this_month",
 } as CategorySpendingGoalRow;
 
-describe("isCarriedInstallment", () => {
+describe("buildCarriedInstallmentIds", () => {
+  const ids = (list: TransactionRow[]) => [...buildCarriedInstallmentIds(list)].sort();
+
   it("só parcela 2+ de compra parcelada no cartão", () => {
-    expect(isCarriedInstallment(card({ id: "a", amount: 1, installment_number: 1, installments_total: 4 }))).toBe(false);
-    expect(isCarriedInstallment(card({ id: "b", amount: 1, installment_number: 2, installments_total: 4 }))).toBe(true);
-    expect(isCarriedInstallment(card({ id: "c", amount: 1 }))).toBe(false);
-    expect(isCarriedInstallment(card({ id: "d", amount: 1, installment_number: 3, installments_total: 3, credit_card_id: null, payment_method: "account" }))).toBe(false);
+    expect(ids([card({ id: "a", amount: 1, installment_number: 1, installments_total: 4 })])).toEqual([]);
+    expect(ids([card({ id: "b", amount: 1, occurred_at: "2026-07-26", purchase_date: "2026-07-26", installment_number: 3, installments_total: 4 })])).toEqual(["b"]);
+    expect(ids([card({ id: "c", amount: 1 })])).toEqual([]);
+    expect(ids([card({ id: "d", amount: 1, installment_number: 3, installments_total: 3, credit_card_id: null, payment_method: "account" })])).toEqual([]);
+  });
+
+  it("compra deste ciclo antecipada (parcelas 1..6 na mesma fatura) NÃO é carregada", () => {
+    const list = [1, 2, 3, 4, 5, 6].map((k) => card({
+      id: `jim-${k}`, amount: 545.13, occurred_at: "2026-09-30", purchase_date: "2026-09-30",
+      installment_number: k, installments_total: 6, purchase_group_id: "g-jim",
+    }));
+    expect(ids(list)).toEqual([]);
+  });
+
+  it("parcela cuja compra tem parcela anterior em outra fatura é carregada", () => {
+    const list = [
+      card({ id: "loc-1", amount: 264.3, occurred_at: "2026-09-04", purchase_date: "2026-09-04", competence_date: "2026-09-01", installment_number: 1, installments_total: 3, purchase_group_id: "g-loc" }),
+      card({ id: "loc-2", amount: 264.3, occurred_at: "2026-09-04", purchase_date: "2026-09-04", competence_date: "2026-10-01", installment_number: 2, installments_total: 3, purchase_group_id: "g-loc" }),
+    ];
+    expect(ids(list)).toEqual(["loc-2"]);
   });
 });
 
@@ -75,7 +93,7 @@ describe("meta por categoria", () => {
 describe("livro de submetas", () => {
   it("parcela de compra anterior não entra no livro de gasto", () => {
     const ledger = buildSpendingLedger([
-      card({ id: "old", amount: 100, installment_number: 2, installments_total: 3 }),
+      card({ id: "old", amount: 100, occurred_at: "2026-07-20", purchase_date: "2026-07-20", installment_number: 2, installments_total: 3 }),
       card({ id: "new", amount: 50 }),
     ]);
     expect(ledger.map((e) => e.id)).toEqual(["new"]);

@@ -22,7 +22,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
-  isCarriedInstallment,
+  buildCarriedInstallmentIds,
   isRealMonthlyMovement,
   reportingCompetenceDate,
   type TransactionRow,
@@ -180,6 +180,7 @@ function mergeTruncatedMerchants(ids: Array<{ key: string; label: string; trunca
  */
 export function buildSpendingLedger(txs: SpendingLedgerTx[], resolver: MerchantResolver = buildMerchantResolver()): SpendingEntry[] {
   const attribution = buildRefundAttribution(txs);
+  const carriedIds = buildCarriedInstallmentIds(txs);
   const identity = new Map<string, { key: string; label: string; truncated: boolean; normalized: boolean }>();
   const resolveTx = (t: SpendingLedgerTx) => {
     const cached = identity.get(t.id);
@@ -207,7 +208,7 @@ export function buildSpendingLedger(txs: SpendingLedgerTx[], resolver: MerchantR
   for (const t of txs) {
     const refund = String(t.movement_kind ?? "") === "refund";
     // `goal_consumption.v1`: parcela 2+ de compra anterior não consome meta nem submeta.
-    if (!refund && isCarriedInstallment(t)) continue;
+    if (!refund && carriedIds.has(t.id)) continue;
     const value = refund
       ? behavioralMetricAmount(t, "expense")
       : t.type === "expense" && isRealMonthlyMovement(t) ? Number(t.amount || 0) : 0;

@@ -23,7 +23,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
-  isCarriedInstallment,
+  buildCarriedInstallmentIds,
   isRealMonthlyMovement,
   type TransactionRow,
 } from "./facts";
@@ -141,6 +141,7 @@ function intervalsOf(dates: string[]): number[] {
 export function computeCategoryProjection(input: CategoryProjectionInput): CategoryProjection {
   const resolver = input.resolver ?? buildMerchantResolver(input.aliases ?? []);
   const attribution = buildRefundAttribution(input.txs);
+  const carriedIds = buildCarriedInstallmentIds(input.txs);
   const confirmedSpend = round2(Math.max(0, input.confirmedSpend));
   const lookbackStart = shiftMonthStart(input.period.start, -6);
 
@@ -156,7 +157,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     if (String((tx as { movement_kind?: string | null }).movement_kind ?? "") === "refund") continue;
     if (tx.type !== "expense" || !isRealMonthlyMovement(tx)) continue;
     // Parcela de compra anterior não é hábito nem série da categoria (`goal_consumption.v1`).
-    if (isCarriedInstallment(tx as TransactionRow)) continue;
+    if (carriedIds.has(tx.id)) continue;
     const amount = round2(Number(tx.amount || 0));
     if (!(amount > 0)) continue;
 
