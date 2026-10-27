@@ -60,6 +60,46 @@ async function sendNtfy(topic: string, n: Notify): Promise<boolean> {
   } catch { return false; }
 }
 
+
+const MAX_EVENT_LINES = 12;
+
+/** Eventos do painel (novos cadastros, exclusões, lista de espera, feedback…) numa única mensagem para o admin. */
+async function notifyEvents(sb: any): Promise<number> {
+  const { data, error } = await sb.rpc("ops_events_collect");
+  if (error) { console.error("ops-events-collect", String(error.message).slice(0, 160)); return 0; }
+  const res = data as { enabled?: boolean; lines?: { type: string; text: string }[]; until?: string; admin_phone?: string | null; notify_whatsapp?: boolean; ntfy_topic?: string | null };
+  const lines = res?.lines ?? [];
+  if (!res?.enabled || !lines.length) {
+    if (res?.enabled && res.until) await sb.rpc("ops_events_ack", { _until: res.until });
+    return 0;
+  }
+  const shown = lines.slice(0, MAX_EVENT_LINES).map((l) => l.text);
+  if (lines.length > MAX_EVENT_LINES) shown.push(`… e mais ${lines.length - MAX_EVENT_LINES} evento(s)`);
+  const body = `📣 Nino · painel admin\n${shown.join("\n")}`;
+
+  let delivered = false;
+  if (res.ntfy_topic) {
+    try {
+      const r = await fetch("https://ntfy.sh/", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(8_000),
+        body: JSON.stringify({ topic: res.ntfy_topic, title: "Nino · painel admin", message: shown.join("\n"), priority: 3, tags: ["bell"] }),
+      });
+      delivered = r.ok || delivered;
+    } catch { /* tenta os demais canais */ }
+  }
+  if (res.notify_whatsapp && res.admin_phone) {
+    const { error: insErr } = await sb.from("outbound_messages").insert({ to_phone: res.admin_phone, body, kind: "system" });
+    delivered = !insErr || delivered;
+  }
+  const externalConfigured = Boolean(res.ntfy_topic) || Boolean(res.notify_whatsapp && res.admin_phone);
+  // Sem canal externo, os eventos ficam só no painel; com canal, a marca d'água só avança se algum entregou.
+  if (!externalConfigured || delivered) {
+    await sb.rpc("ops_events_ack", { _until: res.until });
+    return delivered ? lines.length : 0;
+  }
+  return 0;
+}
+
 Deno.serve(async (req) => {
   const h = httpContext("ops-alerts-tick", req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -100,8 +140,9 @@ Deno.serve(async (req) => {
         }
       }
     }
-    await writeJobHeartbeat({ jobKey: "ops-alerts-tick", ok: true, processed: notify.length, failed: 0 }).catch(() => {});
-    return h.ok({ ok: true, active: active.map((a) => a.key), notified: sent });
+    const eventsSent = await notifyEvents(sb);
+    await writeJobHeartbeat({ jobKey: "ops-alerts-tick", ok: true, processed: notify.length + eventsSent, failed: 0 }).catch(() => {});
+    return h.ok({ ok: true, active: active.map((a) => a.key), notified: sent, events: eventsSent });
   } catch (e) {
     await writeJobHeartbeat({ jobKey: "ops-alerts-tick", ok: false, processed: 0, failed: 1 }).catch(() => {});
     console.error("ops-alerts-tick", String((e as Error)?.message ?? e).slice(0, 200));
