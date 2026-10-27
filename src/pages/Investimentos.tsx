@@ -104,6 +104,15 @@ export default function Investimentos() {
                         Investido {formatBRL(Number(i.invested_amount))} · Atual{" "}
                         <span className="font-semibold">{formatBRL(Number(i.current_value))}</span>
                       </p>
+                      {Number((i as Record<string, unknown>).employer_match_total ?? 0) > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Sua parte {formatBRL(Number(i.current_value) - Number((i as Record<string, unknown>).employer_match_total))}
+                          {" + "}contrapartida da empresa {formatBRL(Number((i as Record<string, unknown>).employer_match_total))}
+                          {Number((i as Record<string, unknown>).employer_vested_pct ?? 100) < 100
+                            ? ` (você tem direito a ${Number((i as Record<string, unknown>).employer_vested_pct)}% dela no resgate antecipado)`
+                            : ""}
+                        </p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button
