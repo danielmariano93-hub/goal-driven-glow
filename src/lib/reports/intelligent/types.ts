@@ -109,6 +109,8 @@ export interface ReportPayload {
   };
   categories: CategorySlice[];
   series: SeriesPoint[];
+  /** `installment_anticipation.v1`: parcelas pagas antes do prazo no período (não é consumo). */
+  anticipation?: { amount: number; count: number; purchases: number } | null;
   goals: Array<{ name: string; current: number; target: number; progress: number }>;
   /**
    * Presente apenas em relatórios do mês corrente (parciais). O mês ainda não

@@ -16,7 +16,7 @@ import { fetchAllPages } from "../../db/pagedSelect";
 
 /** Colunas exigidas pelo contrato `TransactionRow` do finance-core. */
 const TX_COLUMNS =
-  "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,settles_card_id,movement_kind";
+  "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,occurred_at,description,transfer_group_id,payment_method,credit_card_id,competence_date,economic_competence_date,installment_anticipated,settles_card_id,movement_kind";
 
 export default defineTool({
   name: "monthly_summary",

@@ -46,6 +46,23 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     });
   }
 
+  const antic = payload.anticipation;
+  if (antic && antic.amount > 0) {
+    out.push({
+      detectorKey: "installment_anticipation",
+      type: "win",
+      title: `Você antecipou ${BRL(antic.amount)} em parcelas neste ${periodWord}.`,
+      body: `Antecipar é pagar dívida antes do prazo, não gasto novo: esse valor fica fora dos gastos do ${periodWord} e sua dívida a vencer caiu ${BRL(antic.amount)}.`,
+      priority: 88,
+      confidence: "high",
+      evidence: { amount: antic.amount, installments: antic.count, purchases: antic.purchases },
+      ctaLabel: "Ver cartões e parcelas",
+      ctaRoute: "/app/cartoes",
+      dedupKey: `${prefix}:installment_anticipation`,
+      selectionReason: "parcelas pagas antes do vencimento no período",
+    });
+  }
+
   if (t.expenseDeltaPct !== null && t.expenseDeltaPct >= 20 && t.previousExpense > 0) {
     out.push({
       detectorKey: "expense_spike",

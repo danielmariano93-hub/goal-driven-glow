@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     const cutoff90 = shift(todayIso, -90);
 
     const [txsR, accountsR, cardsR, goalsR, debtsR, contribR, emoR, recR, invR, snapR, stmtR, instR, debtPayR, pendingR, catGoalsR] = await Promise.all([
-      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,transfer_group_id,movement_kind,description,created_at,origin,local_occurred_at").eq("user_id", userId).gte("occurred_at", cutoff90),
+      sb.from("transactions").select("id,account_id,type,status,amount,occurred_at,posted_at,posted_at_source,category_id,credit_card_id,payment_method,settles_card_id,competence_date,economic_competence_date,installment_anticipated,transfer_group_id,movement_kind,description,created_at,origin,local_occurred_at").eq("user_id", userId).gte("occurred_at", cutoff90),
       sb.from("accounts").select("id,opening_balance,active,type").eq("user_id", userId),
       sb.from("credit_cards").select("id,total_limit,active,closing_day,due_day").eq("user_id", userId).eq("active", true),
       sb.from("goals").select("id,target_amount,status").eq("user_id", userId).eq("status", "active"),

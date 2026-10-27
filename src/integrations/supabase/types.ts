@@ -12218,6 +12218,8 @@ export type Database = {
           category_review_status: string
           category_source: string | null
           competence_date: string | null
+          economic_competence_date: string | null
+          installment_anticipated: boolean
           created_at: string
           credit_card_id: string | null
           dedupe_fingerprint: string | null
@@ -12286,6 +12288,8 @@ export type Database = {
           category_review_status?: string
           category_source?: string | null
           competence_date?: string | null
+          economic_competence_date?: string | null
+          installment_anticipated?: boolean
           created_at?: string
           credit_card_id?: string | null
           dedupe_fingerprint?: string | null
@@ -12354,6 +12358,8 @@ export type Database = {
           category_review_status?: string
           category_source?: string | null
           competence_date?: string | null
+          economic_competence_date?: string | null
+          installment_anticipated?: boolean
           created_at?: string
           credit_card_id?: string | null
           dedupe_fingerprint?: string | null

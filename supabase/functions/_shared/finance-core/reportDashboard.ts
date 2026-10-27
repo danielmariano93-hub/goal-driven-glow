@@ -23,6 +23,8 @@ export interface DashEntry {
   category: string;
   merchant_key: string | null;
   merchant: string | null;
+  /** Dia no gráfico diário/semanal (data da compra no cartão). Totais seguem `date`. */
+  chart_date?: string | null;
 }
 
 export type CompareMode = "previous" | "year" | "none";
@@ -172,6 +174,16 @@ export interface ReportDashboard {
   coverage: { firstDate: string | null; monthsOfHistory: number; comparisonAvailable: boolean };
   /** Dinheiro que entrou no período e NÃO é renda (resgate, empréstimo, reembolso, rendimento). Preenchido no servidor. */
   otherInflows?: OtherInflow[];
+  /** `installment_anticipation.v1`: parcelas pagas antes do prazo no período. Liquidação de dívida, não consumo. */
+  anticipation?: DashboardAnticipation | null;
+}
+
+export interface DashboardAnticipation {
+  amount: number;
+  count: number;
+  purchases: number;
+  /** Mês em que cada parcela venceria (onde o consumo continua contado). */
+  months: Array<{ month: string; amount: number }>;
 }
 
 export interface OtherInflow {
@@ -384,16 +396,27 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
       ? round2((totals.savingsRate - previousTotals.savingsRate) * 100) : null,
   } : null;
 
-  // Série
+  // Série. Gráfico diário/semanal mostra QUANDO você gastou (data da compra no cartão);
+  // o total do período continua por competência. Cada lançamento entra no período pela
+  // competência e só muda de dia dentro dele (nunca sai do período).
+  const chartEntries = (r: DashRange): DashEntry[] => scoped
+    .filter((e) => inRange(e, r))
+    .map((e) => {
+      if (granularity === "month" || !e.chart_date) return e;
+      const day = e.chart_date < r.start ? r.start : e.chart_date > r.end ? r.end : e.chart_date;
+      return { ...e, date: day };
+    });
   const buckets = bucketsOf(period, granularity);
   const prevBuckets = previous ? bucketsOf(previous, granularity) : [];
+  const curChart = chartEntries(period);
+  const prevChart = previous ? chartEntries(previous) : [];
   const series: SeriesPoint[] = buckets.map((b, i) => {
-    const t = totalsOf(scoped, { start: b.from, end: b.to, days: 1 }, 1);
+    const t = totalsOf(curChart, { start: b.from, end: b.to, days: 1 }, 1);
     const pb = prevBuckets[i];
     return {
       key: b.key, label: b.label, from: b.from, to: b.to,
       income: t.income, expense: t.expense, net: t.net,
-      previousExpense: pb ? totalsOf(scoped, { start: pb.from, end: pb.to, days: 1 }, 1).expense : null,
+      previousExpense: pb ? totalsOf(prevChart, { start: pb.from, end: pb.to, days: 1 }, 1).expense : null,
     };
   });
 

@@ -57,7 +57,7 @@ export const TX_COLUMNS = [
   "id", "user_id", "account_id", "category_id", "type", "status", "amount",
   "occurred_at", "description", "notes", "emotional_trigger", "transfer_group_id",
   "created_at", "origin", "payment_method", "credit_card_id", "installment_number",
-  "installments_total", "purchase_date", "competence_date", "purchase_group_id",
+  "installments_total", "purchase_date", "competence_date", "economic_competence_date", "installment_anticipated", "purchase_group_id",
   "settles_card_id", "raw_description", "movement_kind", "friendly_description",
   "shared_expense_id", "split_transaction_role", "category_confidence",
   "category_source", "category_reason", "posted_at", "posted_at_source",
@@ -439,7 +439,7 @@ export function useSaveTransaction() {
         ...(competence_date ? { competence_date } : {}),
       };
       const SELECT_COLS =
-        "id, purchase_date, competence_date, movement_kind, investment_id, credit_card_id, account_id, status, type, amount, occurred_at, posted_at, posted_at_source, payment_method, category_id, description, notes, installments_total, installment_number";
+        "id, purchase_date, competence_date,economic_competence_date,installment_anticipated, movement_kind, investment_id, credit_card_id, account_id, status, type, amount, occurred_at, posted_at, posted_at_source, payment_method, category_id, description, notes, installments_total, installment_number";
       let saved: Record<string, unknown> | null = null;
       if (input.id) {
         const { data, error } = await supabase

@@ -33,6 +33,18 @@ export type LedgerEntry = {
   category: string;
   merchant_key: string | null;
   merchant: string | null;
+  /** Dia em que o gasto aparece nos gráficos diários/semanais (data da compra); totais seguem `date`. */
+  chart_date?: string | null;
+};
+
+/** Parcela paga antes do vencimento do cronograma (`installment_anticipation.v1`). */
+export type AnticipatedInstallment = {
+  /** Mês (YYYY-MM) da fatura em que foi cobrada. */
+  billed_month: string;
+  /** Mês (YYYY-MM) em que venceria no cronograma. */
+  economic_month: string;
+  amount: number;
+  group: string;
 };
 
 export type ExecutiveInput = {
@@ -40,6 +52,8 @@ export type ExecutiveInput = {
   entries: LedgerEntry[];
   /** Parcelas de cartão já contratadas para os próximos meses (competência YYYY-MM). */
   future_installments?: Array<{ month: string; amount: number }>;
+  /** Parcelas antecipadas (liquidação de dívida): não são consumo do mês. */
+  anticipations?: AnticipatedInstallment[];
 };
 
 export type InsightKind =
@@ -51,6 +65,7 @@ export type InsightKind =
   | "usage_concentration"
   | "recurring_costs"
   | "installments_ahead"
+  | "installment_anticipation"
   | "unusual_charge"
   | "income_volatility";
 
@@ -546,6 +561,37 @@ export function computeExecutiveInsights(input: ExecutiveInput): ExecutiveBriefi
       action: { type: "route", label: "Ver cartões e parcelas", route: "/app/cartoes", detail: null },
       impact_monthly: r2(committed / 3),
       score: score(committed / 3, 0.6),
+    });
+  }
+
+  // 6b) Antecipação de parcelas ---------------------------------------------------
+  // Pagar parcela antes do prazo é amortização de dívida, não gasto novo: o consumo fica
+  // no mês em que ela venceria. Só aparece quando houve antecipação no mês de referência
+  // ou no atual, para o usuário não ler a fatura cheia como piora de comportamento.
+  const antic = (input.anticipations ?? []).filter((a) => a.billed_month === ref || a.billed_month === current);
+  const anticTotal = r2(sum(antic.map((a) => a.amount)));
+  if (anticTotal >= 100) {
+    const billed = antic.some((a) => a.billed_month === current) ? current : ref;
+    const inMonth = antic.filter((a) => a.billed_month === billed);
+    const total = r2(sum(inMonth.map((a) => a.amount)));
+    const purchases = new Set(inMonth.map((a) => a.group)).size;
+    const byMonth = new Map<string, number>();
+    for (const a of inMonth) byMonth.set(a.economic_month, (byMonth.get(a.economic_month) ?? 0) + a.amount);
+    insights.push({
+      key: "installment_anticipation",
+      kind: "installment_anticipation",
+      direction: "better",
+      severity: "positive",
+      section: "agora",
+      headline: `Você antecipou ${compact(total)} em parcelas em ${monthName(billed)}`,
+      why: `Antecipar é pagar dívida antes do prazo, não gasto novo: esse valor continua contado nos meses em que as parcelas venceriam, e sua dívida a vencer caiu ${compact(total)}. A fatura de ${monthName(billed)} parece mais pesada, mas o consumo do mês não piorou por causa disso.`,
+      evidence: [
+        `${plural(inMonth.length, "parcela antecipada", "parcelas antecipadas")} de ${plural(purchases, "compra", "compras")}`,
+        ...[...byMonth.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([m, v]) => `${monthNameCap(m)}: ${brl(v)} liquidado antes`),
+      ],
+      action: { type: "route", label: "Ver cartões e parcelas", route: "/app/cartoes", detail: null },
+      impact_monthly: 0,
+      score: 55,
     });
   }
 

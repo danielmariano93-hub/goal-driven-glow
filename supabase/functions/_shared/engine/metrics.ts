@@ -236,7 +236,7 @@ function daysInclusive(a: string, b: string): number {
   return Math.max(1, Math.round((e - s) / 86_400_000) + 1);
 }
 
-const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,origin,installments_total,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date,created_at,local_occurred_at";
+const AGENT_TRANSACTION_SELECT = "id,account_id,category_id,type,status,amount,refund_of_transaction_id,merchant_name,friendly_description,origin,installments_total,occurred_at,posted_at,posted_at_source,purchase_date,behavioral_day,behavior_date_source,behavior_date_confidence,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,investment_id,competence_date,economic_competence_date,installment_anticipated,created_at,local_occurred_at";
 
 async function fetchAllAgentTransactions(sb: SupabaseClient, user_id: string) {
   const pageSize = 1_000;

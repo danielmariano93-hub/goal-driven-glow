@@ -67,6 +67,10 @@ export interface TransactionRow {
   /** Parcela atual / total de parcelas (compra parcelada no cartão). */
   installment_number?: number | null;
   installments_total?: number | null;
+  /** `installment_anticipation.v1`: competência em que a parcela antecipada venceria (NULL = a da fatura). */
+  economic_competence_date?: string | null;
+  /** Parcela cobrada antes do vencimento do cronograma: liquidação de dívida, não consumo do mês. */
+  installment_anticipated?: boolean | null;
   /** Compra parcelada: todas as parcelas compartilham o grupo. */
   purchase_group_id?: string | null;
   purchase_date?: string | null;
@@ -92,7 +96,7 @@ type CarriedProbe = Pick<
   TransactionRow,
   "id" | "payment_method" | "credit_card_id" | "installment_number" | "installments_total"
   | "purchase_group_id" | "purchase_date" | "competence_date" | "occurred_at"
->;
+> & { economic_competence_date?: string | null };
 
 /**
  * `goal_consumption.v1` — parcela "carregada": parcela 2+ de compra parcelada no
@@ -156,9 +160,14 @@ export function cashDateOf(
  * fechamento e assessment composto) recorta período por esta função.
  */
 export function reportingCompetenceDate(
-  t: Pick<TransactionRow, "payment_method" | "credit_card_id" | "competence_date" | "occurred_at">,
+  t: Pick<TransactionRow, "payment_method" | "credit_card_id" | "competence_date" | "occurred_at"> & {
+    economic_competence_date?: string | null;
+  },
 ): string {
   const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+  // `installment_anticipation.v1`: parcela antecipada pertence ao mês em que venceria no
+  // cronograma; a fatura (`competence_date`) segue mostrando quando foi cobrada.
+  if (isCard && t.economic_competence_date) return String(t.economic_competence_date).slice(0, 10);
   if (isCard && t.competence_date) return String(t.competence_date).slice(0, 10);
   return String(t.occurred_at).slice(0, 10);
 }

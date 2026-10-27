@@ -22,7 +22,7 @@ import {
 const TX_COLUMNS = [
   "id", "account_id", "category_id", "type", "status", "amount", "occurred_at",
   "description", "merchant_name", "friendly_description", "transfer_group_id", "payment_method",
-  "credit_card_id", "settles_card_id", "movement_kind", "posted_at", "competence_date",
+  "credit_card_id", "settles_card_id", "movement_kind", "posted_at", "competence_date", "economic_competence_date", "installment_anticipated",
   "refund_of_transaction_id", "origin", "purchase_date", "behavioral_day", "behavior_date_source",
   "behavior_date_confidence", "installment_number", "installments_total", "purchase_group_id", "created_at",
 ].join(",");
