@@ -116,16 +116,17 @@ export default function MetaCategoriaDetalhe() {
   }, [evaluation, numericTxs]);
 
 
-  if (isLoading) {
-    return <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-  }
-
   // `goal_consumption.v1`: parcela 2+ de compra anterior não consome a meta; vai para
   // a seção "Fora da meta" em vez de aparecer misturada nos lançamentos considerados.
   // O grupo da compra vem de TODO o razão (a parcela anterior pode estar fora do período).
   const carriedIds = useMemo(() => buildCarriedInstallmentIds(numericTxs as never), [numericTxs]);
   const countedTxs = useMemo(() => periodTxs.filter((t) => !carriedIds.has(t.id)), [periodTxs, carriedIds]);
   const carriedTxs = useMemo(() => periodTxs.filter((t) => carriedIds.has(t.id)), [periodTxs, carriedIds]);
+
+  // Hooks sempre antes de qualquer retorno antecipado (regras de hooks).
+  if (isLoading) {
+    return <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+  }
 
   if (!goal || !evaluation || !strategy) {
     return (
