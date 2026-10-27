@@ -15,7 +15,7 @@ import { buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
-import { formatBRL, effectiveCategoryId, buildRefundAttribution, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
+import { formatBRL, effectiveCategoryId, buildRefundAttribution, isCarriedInstallment, isRealMonthlyMovement, reportingCompetenceDate, todayISO } from "@/lib/engine/facts";
 import { useGoals } from "@/lib/db/finance";
 import type { MerchantTargetEvaluation } from "@/lib/engine/spendingGoals";
 import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
@@ -120,6 +120,11 @@ export default function MetaCategoriaDetalhe() {
     return <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
+  // `goal_consumption.v1`: parcela 2+ de compra anterior não consome a meta; vai para
+  // a seção "Fora da meta" em vez de aparecer misturada nos lançamentos considerados.
+  const countedTxs = useMemo(() => periodTxs.filter((t) => !isCarriedInstallment(t as never)), [periodTxs]);
+  const carriedTxs = useMemo(() => periodTxs.filter((t) => isCarriedInstallment(t as never)), [periodTxs]);
+
   if (!goal || !evaluation || !strategy) {
     return (
       <div className="pt-2">
@@ -211,13 +216,13 @@ export default function MetaCategoriaDetalhe() {
       <section className="mt-5 rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold">Lançamentos considerados</p>
-          <span className="text-[11px] text-muted-foreground">{periodTxs.length} no período</span>
+          <span className="text-[11px] text-muted-foreground">{countedTxs.length} no período</span>
         </div>
-        {periodTxs.length === 0 ? (
+        {countedTxs.length === 0 ? (
           <p className="mt-2 text-xs text-muted-foreground">Nenhum gasto registrado nesta categoria dentro do período.</p>
         ) : (
           <ul className="mt-3 divide-y divide-border">
-            {periodTxs.map((t) => (
+            {countedTxs.map((t) => (
               <li key={t.id} className="flex items-center justify-between gap-3 py-2">
                 <Link to={`/app/lancamentos/${t.id}`} className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{t.merchant_name || t.description || "Sem descrição"}</p>
@@ -237,6 +242,34 @@ export default function MetaCategoriaDetalhe() {
           </ul>
         )}
       </section>
+
+      {carriedTxs.length > 0 ? (
+        <section data-testid="goal-carried-list" className="mt-3 rounded-2xl border border-dashed border-border bg-card/50 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Fora da meta</p>
+            <span className="text-[11px] text-muted-foreground">
+              {carriedTxs.length} {carriedTxs.length === 1 ? "parcela" : "parcelas"} de compras anteriores
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Já estavam comprometidas antes deste mês e não consomem a meta. Seguem na sua fatura.
+          </p>
+          <ul className="mt-3 divide-y divide-border">
+            {carriedTxs.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-3 py-2">
+                <Link to={`/app/lancamentos/${t.id}`} className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-muted-foreground">{t.merchant_name || t.description || "Sem descrição"}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Parcela {String((t as { installment_number?: number | null }).installment_number ?? "")}/{String((t as { installments_total?: number | null }).installments_total ?? "")}
+                    {" · compra de "}{new Date(t.occurred_at + "T00:00:00").toLocaleDateString("pt-BR")}
+                  </p>
+                </Link>
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{formatBRL(Number(t.amount))}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {targetForm.open && reading ? (
         <MerchantTargetForm
