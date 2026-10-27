@@ -321,7 +321,7 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
           ? "partial"
           : cycleStatus === "overdue"
             ? "overdue"
-            : canonical?.situation === "em_atraso" && due <= todayIso
+            : canonical?.situation === "em_atraso" && due < todayIso
               ? "overdue"
               : "pending";
       push({
