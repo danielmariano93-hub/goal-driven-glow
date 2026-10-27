@@ -32,6 +32,8 @@ export function computeGoalOverview(input: {
   investments: InvestmentLike[];
   categoryGoals: CategoryGoalEvaluation[];
   month: string;
+  /** Realizado x alvo do mês por meta de doação (`donation_goal.v1`); sem isso cai nos aportes. */
+  donationMonthByGoal?: Record<string, { target: number; done: number }>;
   monthlyIncomeByCategory?: Record<string, number>;
 }): GoalOverview {
   const contributionByGoal = new Map<string, number>();
@@ -58,6 +60,8 @@ export function computeGoalOverview(input: {
     : null;
   const donation = donationGoals.length
     ? mean(donationGoals.map((goal) => {
+      const month = input.donationMonthByGoal?.[goal.id];
+      if (month) return month.target > 0 ? clampPct(month.done / month.target * 100) : month.done > 0 ? 100 : 0;
       const incomes = input.monthlyIncomeByCategory ?? {};
       const incomeBase = goal.donation_income_scope === "selected_categories"
         ? (goal.donation_income_category_ids ?? []).reduce((sum, id) => sum + Number(incomes[id] || 0), 0)

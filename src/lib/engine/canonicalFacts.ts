@@ -39,7 +39,7 @@ export const FINANCE_TRUTH_VERSION = "finance_truth.v2";
  * sem o qual o motor não consegue atribuir o estorno à categoria original.
  */
 export const TRANSACTION_FACT_SELECT =
-  "id,account_id,category_id,type,status,amount,occurred_at,posted_at,posted_at_source,purchase_date,competence_date,economic_competence_date,installment_anticipated,behavioral_day,behavior_date_source,behavior_date_confidence,description,friendly_description,merchant_name,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,investment_id,refund_of_transaction_id";
+  "id,account_id,category_id,type,status,amount,occurred_at,posted_at,posted_at_source,purchase_date,competence_date,economic_competence_date,installment_anticipated,behavioral_day,behavior_date_source,behavior_date_confidence,description,friendly_description,merchant_name,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,origin,installments_total,investment_id,refund_of_transaction_id,donation_goal_id";
 
 /** Contrato de leitura único da âncora bancária. */
 export const BANK_ANCHOR_SELECT =

@@ -45,6 +45,7 @@ export const FINANCE_CORE_MODULES = [
   "commitmentAgenda",
   "debtStatus",
   "categoryProjection",
+  "donationGoal",
   "metrics",
   "categoryGoalStrategy",
   "goalPerformanceAssessment",
