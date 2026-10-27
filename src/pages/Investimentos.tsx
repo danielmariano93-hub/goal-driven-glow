@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2, Loader2, Pencil, TrendingUp, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { useInvestments, useSaveInvestment, useDeleteInvestment, useGoals, type InvestmentRow } from "@/lib/db/finance";
+import { useInvestments, useSaveInvestment, useDeleteInvestment, useGoals, useAccounts, type InvestmentRow } from "@/lib/db/finance";
 import { investmentSchema } from "@/lib/validation/finance";
 import { computeInvestedPrincipal, computeInvestmentsTotal, formatBRL, todayISO } from "@/lib/engine/facts";
 import { supabase } from "@/integrations/supabase/client";
@@ -187,6 +187,14 @@ function InvestmentModal({
   const [current, setCurrent] = useState(initial ? String(initial.current_value) : "");
   const [refDate, setRefDate] = useState(initial?.reference_date ?? todayISO());
   const [goalId, setGoalId] = useState<string>(initial?.goal_id ?? "");
+  const { data: accounts } = useAccounts();
+  const init = initial as (InvestmentRow & Record<string, unknown>) | null;
+  const [payrollOn, setPayrollOn] = useState(Number(init?.payroll_contribution_amount ?? 0) > 0);
+  const [payrollAmount, setPayrollAmount] = useState(init?.payroll_contribution_amount != null ? String(init.payroll_contribution_amount) : "");
+  const [payrollDay, setPayrollDay] = useState(init?.payroll_day != null ? String(init.payroll_day) : "");
+  const [payrollAccount, setPayrollAccount] = useState<string>(String(init?.payroll_account_id ?? ""));
+  const [matchPct, setMatchPct] = useState(init?.employer_match_ratio != null ? String(Number(init.employer_match_ratio) * 100) : "0");
+  const [vestedPct, setVestedPct] = useState(init?.employer_vested_pct != null ? String(init.employer_vested_pct) : "100");
   const [error, setError] = useState<string | null>(null);
 
   function submit(e: React.FormEvent) {
@@ -199,7 +207,21 @@ function InvestmentModal({
       current_value: Number(current.replace(",", ".")) || 0,
       reference_date: refDate,
       goal_id: goalId || null,
+      // Aporte em folha: ao desligar, zera o agendamento (undefined mantém o que já existe).
+      ...(payrollOn
+        ? {
+            payroll_contribution_amount: Number(payrollAmount.replace(",", ".")) || null,
+            payroll_day: Number(payrollDay) || null,
+            payroll_account_id: payrollAccount || null,
+            employer_match_ratio: (Number(matchPct.replace(",", ".")) || 0) / 100,
+            employer_vested_pct: Number(vestedPct.replace(",", ".")) || 0,
+          }
+        : initial ? { payroll_contribution_amount: null, payroll_day: null, payroll_account_id: null } : {}),
     });
+    if (payrollOn && (!Number(payrollAmount.replace(",", ".")) || !Number(payrollDay) || !payrollAccount)) {
+      setError("Informe valor, dia e conta do desconto em folha.");
+      return;
+    }
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Dados inválidos");
       return;
@@ -258,6 +280,48 @@ function InvestmentModal({
                 ))}
               </select>
             </div>
+          </div>
+          <div className="rounded-xl border border-border p-3">
+            <label className="flex items-center gap-2 text-xs font-medium">
+              <input type="checkbox" checked={payrollOn} onChange={(e) => setPayrollOn(e.target.checked)} />
+              Aporte descontado em folha (com contrapartida da empresa)
+            </label>
+            {payrollOn && (
+              <div className="mt-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Valor mensal</label>
+                    <input inputMode="decimal" value={payrollAmount} onChange={(e) => setPayrollAmount(e.target.value)} className="input-base" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Dia do desconto</label>
+                    <input inputMode="numeric" value={payrollDay} onChange={(e) => setPayrollDay(e.target.value)} className="input-base" />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Conta onde o salário cai</label>
+                  <select value={payrollAccount} onChange={(e) => setPayrollAccount(e.target.value)} className="input-base">
+                    <option value="">—</option>
+                    {(accounts ?? []).map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Contrapartida (% do aporte)</label>
+                    <input inputMode="decimal" value={matchPct} onChange={(e) => setMatchPct(e.target.value)} className="input-base" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Direito no resgate (%)</label>
+                    <input inputMode="decimal" value={vestedPct} onChange={(e) => setVestedPct(e.target.value)} className="input-base" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Todo mês o Nino lança o aporte no dia indicado, ligado à entrada do salário, e soma a contrapartida à posição. A contrapartida não conta como sua poupança.
+                </p>
+              </div>
+            )}
           </div>
         </div>
         {error && <p className="mt-3 text-xs text-destructive">{error}</p>}

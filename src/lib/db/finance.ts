@@ -667,6 +667,14 @@ export function useSaveInvestment() {
         reference_date: input.reference_date,
         goal_id: input.goal_id || null,
         notes: input.notes || null,
+        // Só envia o bloco de folha quando o formulário o informa, para não zerar o que já existe.
+        ...(input.payroll_contribution_amount !== undefined ? {
+          payroll_contribution_amount: input.payroll_contribution_amount,
+          payroll_day: input.payroll_day ?? null,
+          payroll_account_id: input.payroll_account_id ?? null,
+          employer_match_ratio: input.employer_match_ratio ?? 0,
+          employer_vested_pct: input.employer_vested_pct ?? 100,
+        } : {}),
       };
       if (input.id) {
         const { error } = await supabase.from("investments").update(payload).eq("id", input.id);
