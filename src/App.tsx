@@ -24,6 +24,7 @@ import { NativeRuntime } from "@/components/native/NativeRuntime";
 import { NativeLockGate } from "@/components/native/NativeLockGate";
 import { PrivacyScreen } from "@/components/native/PrivacyScreen";
 import { OfflineNotice } from "@/components/OfflineNotice";
+import { AppUpdateNotice } from "@/components/AppUpdateNotice";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { FinancialRealtimeSync } from "@/components/finance/FinancialRealtimeSync";
 import { ScreenPerfTracker } from "@/components/perf/ScreenPerfTracker";
@@ -133,6 +134,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <OfflineNotice />
+          <AppUpdateNotice />
           <NativeLockGate />
           <PrivacyScreen />
           <Suspense fallback={<Fallback />}>
