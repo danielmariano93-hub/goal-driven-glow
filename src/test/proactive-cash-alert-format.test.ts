@@ -11,3 +11,10 @@ describe("alerta de caixa negativo", () => {
     expect(src).toContain("lowerFirst(cluster.label)");
   });
 });
+
+describe("rastro do motivo do interpretador", () => {
+  it("o turno persiste brain_error nos diagnósticos", () => {
+    const core = readFileSync(`${process.cwd()}/supabase/functions/_shared/agent/core/AgentCoreV2.ts`, "utf8");
+    expect(core).toContain("brain_error");
+  });
+});
