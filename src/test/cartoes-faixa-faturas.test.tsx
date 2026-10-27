@@ -10,6 +10,11 @@ describe("aba Cartões: estrutura da referência e só o que é certeza", () => 
       expect(src).toContain(t);
     }
   });
+  it("rotula o mês pela competência (referência), não pelo vencimento", () => {
+    expect(src).toContain("monthLabelOf(st.competence_month)");
+    expect(src).toContain("monthLabelOf(forming.period_end)");
+    expect(src).not.toContain("label: dueMonthLabel(");
+  });
   it("sem estimativas, sem histórico duplicado e sem o '% quitado' que dava 0% em fatura paga", () => {
     expect(src).not.toContain("Próxima fatura");
     expect(src).not.toContain("Estimativa reconstruída");

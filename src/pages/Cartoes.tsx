@@ -253,7 +253,8 @@ export default function Cartoes() {
 
 type InvoiceItem = { id: string; item_kind: string; description: string; amount: number; occurred_at: string | null };
 
-const dueMonthLabel = (date: string) =>
+/** Mês de referência (competência): fatura que vence em 01/11 e fecha em 24/10 é a de outubro. */
+const monthLabelOf = (date: string) =>
   new Date(`${date.slice(0, 7)}-01T12:00:00`).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
 
 const TILE_W = 96;
@@ -283,21 +284,21 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
   const official = useMemo(
     () => statements
       .filter((st) => st.credit_card_id === card.id && isAuthoritativeCardStatement(st as never))
-      .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
+      .sort((a, b) => String(a.competence_month).localeCompare(String(b.competence_month)))
       .slice(-5),
     [statements, card.id],
   );
   const tiles: InvoiceTile[] = useMemo(() => {
     const out: InvoiceTile[] = official.map((st) => ({
       key: st.id,
-      label: dueMonthLabel(st.due_date),
+      label: monthLabelOf(st.competence_month),
       value: Number(st.outstanding_amount) > 0 ? Number(st.outstanding_amount) : creditBalanceOf(st) > 0 ? 0 : Number(st.stated_total),
       due_date: st.due_date,
       statement: st,
     }));
     const lastDue = official.length ? official[official.length - 1].due_date : "";
     if (forming && forming.due_date > lastDue) {
-      out.push({ key: "forming", label: dueMonthLabel(forming.due_date), value: Number(forming.amount) || 0, due_date: forming.due_date, statement: null });
+      out.push({ key: "forming", label: monthLabelOf(forming.period_end), value: Number(forming.amount) || 0, due_date: forming.due_date, statement: null });
     }
     return out;
   }, [official, forming]);
@@ -356,7 +357,7 @@ function CardInvoicePanel({ card, statements, forming, onPay, onView }: {
   const filterDef = ITEM_FILTERS.find((f) => f.key === filter) ?? ITEM_FILTERS[0];
   const filtered = items.filter((it) => filterDef.match(it.item_kind));
   const shown = filtered.slice(0, 10);
-  const fmtDay = (d: string) => `${d.slice(8, 10)} ${dueMonthLabel(d)}`;
+  const fmtDay = (d: string) => `${d.slice(8, 10)} ${monthLabelOf(d)}`;
 
   const width = tiles.length * TILE_W + (tiles.length - 1) * TILE_GAP;
   const pts = invoicePoints(tiles.map((t) => t.value), { tileW: TILE_W, gap: TILE_GAP, top: PLOT_TOP, bottom: PLOT_BOTTOM });
