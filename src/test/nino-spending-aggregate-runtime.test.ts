@@ -171,3 +171,46 @@ describe("analyze_spending usa competência (regra da Home)", () => {
     expect(out.result.total_metric).toBe(0);
   });
 });
+
+describe("forma de pagamento e valores negativos", () => {
+  it("'cartão' é normalizado no motor e o filtro executado ecoa o pedido", async () => {
+    const card = tx({ user_id: "u1", amount: 100, description: "LOJA A", credit_card_id: "card1", payment_method: "credit_card" });
+    const acct = tx({ user_id: "u1", amount: 40, description: "LOJA B", credit_card_id: null, payment_method: "account" });
+    const out: any = await spending_aggregate(
+      { sb: filteringSb([card, acct]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30", payment_method: "cartão" },
+    );
+    expect(out.ok).toBe(true);
+    expect(out.result.total).toBe(100);
+    expect(out.result.executed_ir.filters).toEqual([{ field: "payment_method", op: "eq", value: "cartão" }]);
+  });
+
+  it("forma de pagamento desconhecida é erro, não R$ 0", async () => {
+    const out: any = await spending_aggregate(
+      { sb: filteringSb([]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30", payment_method: "dinheiro vivo" },
+    );
+    expect(out.ok).toBe(false);
+  });
+});
+
+describe("analyze_spending: origem implícita da dimensão cartão/conta não é filtro pedido", () => {
+  const requested: any = {
+    metric: "expense_amount", filters: [], time: { aspect: "calendar", from: "2026-09-01", to: "2026-09-30", n: null, exclude_partial: false },
+    grain: "none", reduce: "sum", group_by: ["card"], legacy_operation: "breakdown",
+  };
+  const result = {
+    kind: "spending_report", metric: "expense", group_by: "card", period: { from: "2026-09-01", to: "2026-09-30" },
+    filters: { payment_method: "credit_card", category: null, card: null, account: null },
+  };
+  it("não conta payment_method fixado pela dimensão", () => {
+    const executed = executedIRFrom(requested, result);
+    expect(executed?.filters).toEqual([]);
+    expect(planPreservation([{ requested, executed }]).compatible).toBe(true);
+  });
+  it("mas se o usuário PEDIU forma de pagamento, ela continua valendo", () => {
+    const req2 = { ...requested, filters: [{ field: "payment_method", op: "eq", value: "credit_card" }] };
+    const executed = executedIRFrom(req2, result);
+    expect(executed?.filters.map((f) => f.field)).toEqual(["payment_method"]);
+  });
+});

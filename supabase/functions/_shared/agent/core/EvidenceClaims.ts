@@ -214,7 +214,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
   if (result.engine === "spending_aggregate" && Array.isArray(result.groups)) {
     const omitted = (result.omitted ?? {}) as Record<string, unknown>;
     const omittedTotal = num(omitted.total);
-    if (omittedTotal != null && omittedTotal > 0) claims.push({ id: seq(), ...base, type: "money", value: omittedTotal, label: "omitted_total", rank: null });
+    if (omittedTotal != null && omittedTotal !== 0) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(omittedTotal), label: "omitted_total", rank: null });
+    // Total/grupo negativo (estorno, crédito) é escrito como "-R$ 1,46": o valor lido do texto é o módulo.
+    const grandTotal = num(result.total);
+    if (grandTotal != null && grandTotal < 0) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(grandTotal), label: "total:abs", rank: null });
     const txTotal = num(result.transaction_count);
     if (txTotal != null) claims.push({ id: seq(), ...base, type: "count", value: txTotal, label: "transaction_count", rank: null });
     (result.groups as Array<Record<string, unknown>>).forEach((row, index) => {
@@ -224,6 +227,7 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       claims.push({ id: seq(), ...base, type: "rank", value: amount, label: name, rank: index + 1 });
       claims.push({ id: seq(), ...base, type: "entity", value: amount, label: name, rank: index + 1 });
       if (amount != null) claims.push({ id: seq(), ...base, type: "money", value: amount, label: name, rank: index + 1 });
+      if (amount != null && amount < 0) claims.push({ id: seq(), ...base, type: "money", value: Math.abs(amount), label: `${name}:abs`, rank: index + 1 });
       const share = num(row.share);
       if (share != null) claims.push({ id: seq(), ...base, type: "percentage", value: share, label: name, rank: index + 1 });
       const count = num(row.transaction_count);

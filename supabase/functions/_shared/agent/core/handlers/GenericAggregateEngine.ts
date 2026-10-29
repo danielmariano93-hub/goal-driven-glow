@@ -10,6 +10,7 @@ import {
 } from "./GenericAggregate.ts";
 import { loadAliases, loadReferencedOriginals, TX_COLUMNS } from "./MonthlySeriesHandler.ts";
 import { loadTransactionsForCompetenceWindow } from "./TransactionWindowLoader.ts";
+import { normalizePaymentMethod } from "../GenericAggregateEligibility.ts";
 import { resolveCategoryIdsByName } from "./TypicalMonthlyHandler.ts";
 
 export const SPENDING_AGGREGATE_ENGINE = "spending_aggregate";
@@ -61,6 +62,10 @@ export async function runSpendingAggregate(
   const groupBy = (args.group_by ?? []).filter((g): g is AggDimension =>
     (AGG_DIMENSIONS as readonly string[]).includes(g)).slice(0, MAX_AGG_DIMENSIONS);
   if ((args.group_by ?? []).length !== groupBy.length) throw new Error("spending_aggregate_dimension_unsupported");
+
+  // Forma de pagamento: aceita o catálogo e sinônimos; valor desconhecido é erro, nunca "0 gastos".
+  const paymentMethod = args.payment_method ? normalizePaymentMethod(args.payment_method) : null;
+  if (args.payment_method && !paymentMethod) throw new Error("payment_method_not_found");
 
   const [cards, accounts, categories] = await Promise.all([
     sb.from("credit_cards").select("id,name").eq("user_id", user_id),
@@ -122,7 +127,7 @@ export async function runSpendingAggregate(
       merchant: args.merchant ?? null,
       card_ids: cardIds,
       account_ids: accountIds,
-      payment_method: args.payment_method ?? null,
+      payment_method: paymentMethod,
     },
   });
 
@@ -133,7 +138,7 @@ export async function runSpendingAggregate(
   if (result.scope.merchant) filters.push({ field: "merchant", op: "eq", value: result.scope.merchant });
   if (cardLabel) filters.push({ field: "card", op: "eq", value: String(args.card ?? cardLabel) });
   if (accountLabel) filters.push({ field: "account", op: "eq", value: String(args.account ?? accountLabel) });
-  if (result.scope.payment_method) filters.push({ field: "payment_method", op: "eq", value: result.scope.payment_method });
+  if (paymentMethod) filters.push({ field: "payment_method", op: "eq", value: String(args.payment_method) });
 
   return {
     ...result,

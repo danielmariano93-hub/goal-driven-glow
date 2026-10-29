@@ -54,13 +54,11 @@ export function genericAggregateMapping(
   const scope: Record<string, string> = {};
   for (const f of q.filters) {
     if (f.op !== "eq" || !FILTER_FIELDS.has(f.field) || seen.has(f.field)) return null;
-    let value = String(f.value ?? "").trim();
+    const value = String(f.value ?? "").trim();
     if (!value) return null;
     if (f.field === "payment_method") {
       // Valor fora do catálogo não pode virar "0 gastos" em silêncio: ou normaliza, ou recusa.
-      const pm = normalizePaymentMethod(value);
-      if (!pm) return null;
-      value = pm;
+      if (!normalizePaymentMethod(value)) return null;
     }
     seen.add(f.field);
     scope[f.field] = value;

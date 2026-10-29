@@ -139,6 +139,23 @@ describe("agrupamento semanal no cartão", () => {
   });
 });
 
+describe("grupo com crédito/estorno (valor negativo)", () => {
+  it("semana com saldo negativo passa no grounding (módulo do valor é evidência)", async () => {
+    const rows = [
+      tx({ amount: 300, occurred_at: "2026-09-02", competence_date: "2026-09-01" }),
+      tx({ amount: 100, occurred_at: "2026-09-16", competence_date: "2026-09-01" }),
+      tx({ amount: 1.46, occurred_at: "2026-09-10", competence_date: "2026-09-01", movement_kind: "refund", type: "income", description: "Estorno IOF" }),
+    ];
+    const { out, fulfillment } = await runTurn(true, {
+      text: "gasto por semana no cartão Nubank em setembro", operation: "sum", group_by: ["week"],
+      filters: [{ field: "card", entity: s("Nubank") }], rows,
+    });
+    expect(String(out.deterministic_text)).toContain("1,46");
+    expect((out as any).grounding?.violations ?? []).toEqual([]);
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
 describe("rótulos de estabelecimento com números e datas", () => {
   const CARD_ROWS = [
     tx({ amount: 582.67, description: "Ingresso Anitta - Parcela 2", category_id: "cat-lazer" }),

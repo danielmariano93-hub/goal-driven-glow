@@ -11,7 +11,7 @@
 // buraco estrutural: "existe caminho executável para esta combinação?".
 import { describe, expect, it } from "vitest";
 import { mappingForQuery } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter.ts";
-import { genericAggregateMapping } from "../../supabase/functions/_shared/agent/core/GenericAggregateEligibility.ts";
+import { genericAggregateMapping, normalizePaymentMethod } from "../../supabase/functions/_shared/agent/core/GenericAggregateEligibility.ts";
 import { executionPlanTelemetry } from "../../supabase/functions/_shared/agent/core/ExecutionPlanTelemetry.ts";
 
 const period = { from: "2026-09-01", to: "2026-09-30", label: "setembro" };
@@ -134,9 +134,11 @@ describe("elegibilidade do executor genérico (limites que preservam a verdade)"
   it("forma de pagamento é normalizada; valor fora do catálogo é recusado (nunca vira R$ 0)", () => {
     const base = { operation: "sum", group_by: ["week"] };
     const args = (v: string) => genericAggregateMapping(q({ ...base, filters: [f("payment_method", v)] }), ir)?.args as any;
-    expect(args("cartão").payment_method).toBe("credit_card");
-    expect(args("Cartão de Crédito").payment_method).toBe("credit_card");
-    expect(args("conta").payment_method).toBe("account");
+    // O valor pedido segue intacto (a checagem pedido-vs-executado o compara); o motor normaliza.
+    expect(args("cartão").payment_method).toBe("cartão");
+    expect(args("Cartão de Crédito").payment_method).toBe("Cartão de Crédito");
+    expect(normalizePaymentMethod("Cartão de Crédito")).toBe("credit_card");
+    expect(normalizePaymentMethod("conta")).toBe("account");
     expect(args("dinheiro vivo")).toBeUndefined();
   });
 

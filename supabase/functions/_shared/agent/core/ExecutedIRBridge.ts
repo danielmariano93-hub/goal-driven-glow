@@ -208,7 +208,12 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
   return {
     // A engine fala "expense"/"income"; o contrato fala `expense_amount`.
     metric: r.metric === "income" ? "income_amount" : r.metric === "expense" ? "expense_amount" : String(r.metric ?? requested.metric),
-    filters: filtersFromRecord(r.filters),
+    // "Por cartão"/"por conta" fixa a origem (payment_method) só para não misturar
+    // "Sem cartão" no ranking: é a dimensão, não um filtro que o usuário pediu.
+    filters: filtersFromRecord(r.filters).filter((f) =>
+      !(f.field === "payment_method"
+        && ["card", "account"].includes(String(r.group_by ?? ""))
+        && !(requested.filters ?? []).some((q) => q.field === "payment_method"))),
     time: {
       aspect: requested.time.aspect,
       from: period.from ? String(period.from) : null,
