@@ -52,7 +52,8 @@ export type FlagName =
   | "relationship_memory_v1"
   | "compound_turns_v1"
   | "advisor_reasoning_v1"
-  | "v3_first_authority_v1";
+  | "v3_first_authority_v1"
+  | "generic_aggregate_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -94,6 +95,7 @@ const DEFAULTS: Record<FlagName, boolean> = {
   compound_turns_v1: false,
   advisor_reasoning_v1: false,
   v3_first_authority_v1: false,
+  generic_aggregate_v1: false,
 };
 
 const ROLLOUT_FLAGS = new Set<FlagName>([
@@ -119,6 +121,7 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "compound_turns_v1",
   "advisor_reasoning_v1",
   "v3_first_authority_v1",
+  "generic_aggregate_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;

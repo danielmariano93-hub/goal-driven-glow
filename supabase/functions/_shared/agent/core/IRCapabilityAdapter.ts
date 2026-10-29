@@ -4,6 +4,7 @@
 // Nunca descartar filtro silenciosamente.
 import type { CapabilityDecision } from "./CapabilityRouter.ts";
 import type { FinancialFilter, FinancialQuery, FinancialQueryIR } from "./FinancialQueryIR.ts";
+import { genericAggregateMapping } from "./GenericAggregateEligibility.ts";
 
 type Mapping = {
   tool: string;
@@ -355,9 +356,12 @@ export type IRQueryMapping = Mapping;
 
 export function mappingForQuery(
   q: FinancialQuery,
-  ir: Pick<FinancialQueryIR, "period" | "comparison_period">,
+  ir: Pick<FinancialQueryIR, "period" | "comparison_period"> & { execution_options?: { generic_aggregate?: boolean } },
 ): IRQueryMapping | null {
-  return mapQuery(q, ir as FinancialQueryIR);
+  const dedicated = mapQuery(q, ir as FinancialQueryIR);
+  if (dedicated) return dedicated;
+  // Executor genérico: só onde NÃO há motor dedicado e só com a opção ligada.
+  return ir.execution_options?.generic_aggregate ? genericAggregateMapping(q, ir) : null;
 }
 
 export function mappingsFromIR(

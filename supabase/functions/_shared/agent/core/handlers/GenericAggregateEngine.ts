@@ -45,6 +45,8 @@ function resolveByName(rows: Array<{ id: string; name: string }>, wanted: string
 
 export type SpendingAggregateResult = AggResult & {
   engine: typeof SPENDING_AGGREGATE_ENGINE;
+  /** Mesma janela de `window`, no nome que a evidência do gate procura. */
+  period: { from: string; to: string };
   scope_labels: { category: string | null; card: string | null; account: string | null };
   headline: string;
   executed_ir: Record<string, unknown>;
@@ -144,6 +146,7 @@ export async function runSpendingAggregate(
   return {
     ...result,
     engine: SPENDING_AGGREGATE_ENGINE,
+    period: { from: args.from, to: args.to },
     scope_labels: { category: categoryLabel, card: cardLabel, account: accountLabel },
     headline: "",
     executed_ir: {

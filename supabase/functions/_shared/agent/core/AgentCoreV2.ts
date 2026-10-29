@@ -1207,6 +1207,7 @@ async function executeContract(
     investigation_enabled: authoritativeInvestigationEnabled,
     preservation_enforced: true,
     typical_monthly_enabled: true,
+    generic_aggregate_enabled: await isEnabled("generic_aggregate_v1", input.user_id).catch(() => false),
     authoritative_contract: true,
     failure_reply: PROTECTED_ENGINE_FAILURE_REPLY,
   }, {
