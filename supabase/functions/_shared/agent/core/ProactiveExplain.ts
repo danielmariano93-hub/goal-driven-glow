@@ -177,6 +177,7 @@ export function explainProactiveBody(recent: RecentProactive): string {
   const lines = [`Falei isso em ${sent}:`, "", recent.body];
   const support = signalLines(recent.facts);
   if (support.length) lines.push("", "O que sustenta o aviso:", ...support);
+  else lines.push("", "Não guardei mais detalhes desse aviso além do texto acima. Se quiser conferir algum número ou período, me diga qual que eu busco.");
   return lines.join("\n").trim();
 }
 

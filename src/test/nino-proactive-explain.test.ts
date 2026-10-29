@@ -88,6 +88,26 @@ describe("aviso recente como assunto do seguimento", () => {
     expect(bad.violations.join(",")).toContain("number_not_in_evidence");
   });
 
+  it("explicação não inventa 'negativo' quando o aviso não fala disso", () => {
+    const input: any = {
+      kind: "explain", channel: "whatsapp", user_text: "me explica melhor", history: [],
+      deterministic_body: "Falei isso: Você gastou R$ 774,00 a mais do que recebeu na semana.",
+      evidence: [{ proactive_message: { text: "Você gastou R$ 774,00 a mais do que recebeu na semana." } }],
+    };
+    const bad = guardComposedReply({ text: "Foram R$ 774,00 a mais do que entrou, o que deixa o caixa negativo. Quer detalhar?", input });
+    expect(bad.violations).toContain("topic_not_in_notice:negative");
+    const ok = guardComposedReply({ text: "Foram R$ 774,00 a mais do que entrou na semana. Quer detalhar?", input });
+    expect(ok.violations).not.toContain("topic_not_in_notice:negative");
+  });
+
+  it("sem fatos gravados, o corpo diz com honestidade o que não tem", () => {
+    const body = explainProactiveBody({
+      id: "1", kind: "weekly_report", suggestion_kind: null, sent_at: "2026-10-29T12:00:00Z", minutes_ago: 5,
+      title: "x", body: "Você gastou R$ 774 a mais.", facts: null,
+    });
+    expect(body).toContain("Não guardei mais detalhes");
+  });
+
   it("o interpretador pode emitir explain_message e a ponte o mantém", () => {
     const spec: any = {
       version: "nino_turn_spec.v3", kind: "task", response_intent: "execute", act: "follow_up",

@@ -762,12 +762,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       kind: composeKind,
       channel: input.channel === "app" ? "app" : input.channel === "simulator" ? "simulator" : "whatsapp",
       user_text: input.text,
-      history: history.map((turn: any) => ({ role: turn.role === "user" ? "user" : "assistant", content: String(turn.content ?? "") })),
-      relationship_context: durableUserContext,
+      // Explicar um aviso é falar SÓ do aviso: memória de relacionamento e conversas antigas faziam o
+      // Nino atribuir "caixa negativo" a avisos que nunca falaram disso.
+      history: (composeKind === "explain" ? history.slice(-2) : history).map((turn: any) => ({ role: turn.role === "user" ? "user" : "assistant", content: String(turn.content ?? "") })),
+      relationship_context: composeKind === "explain" ? null : durableUserContext,
       deterministic_body: merged.composable_body,
       evidence: merged.evidence,
       allow_offer: suggestionsAllowed(durableUserContext),
-      capture_memory: memoryEnabled,
+      capture_memory: composeKind === "explain" ? false : memoryEnabled,
       today: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }),
     }).catch((error) => {
       console.warn("[AgentCoreV2] composer failed", String((error as Error)?.message ?? error).slice(0, 160));
