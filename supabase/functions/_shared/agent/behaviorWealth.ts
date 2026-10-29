@@ -169,6 +169,22 @@ export function selectBehaviorWealthStage(input: StageInput): {
   };
 }
 
+/**
+ * Estágio para ACONSELHAR. Conciliação pendente bloqueia recomendação PATRIMONIAL (aporte, meta), não o
+ * conselho de proteger o caixa ou aliviar dívida: esses nascem de agenda e saldo, que não dependem da
+ * ponte. Antes todo "o que você sugere?" virava "corrija a verdade financeira primeiro" e a pessoa
+ * ficava sem rumo. Nesse caso o conselho sai com ressalva explícita.
+ */
+export function selectStageForAdvice(input: StageInput): { stage: BehaviorWealthStage; reason: string; truth_caveat: boolean } {
+  const base = selectBehaviorWealthStage(input);
+  if (base.stage !== "repair_truth") return { ...base, truth_caveat: false };
+  const protective = selectBehaviorWealthStage({ ...input, truth_blocked: false });
+  if (protective.stage === "stabilize_cash" || protective.stage === "reduce_debt_pressure") {
+    return { ...protective, truth_caveat: true };
+  }
+  return { ...base, truth_caveat: false };
+}
+
 export async function computeNextBestAction(
   sb: SupabaseClient,
   userId: string,
@@ -227,7 +243,7 @@ export async function computeNextBestAction(
     num((snapshot as any)?.estimated_fixed_income) + num((snapshot as any)?.confirmed_future_income),
   ));
 
-  const stage = selectBehaviorWealthStage({
+  const stageInput: StageInput = {
     truth_blocked: truthBlocked,
     available_today: num((snapshot as any)?.available_today),
     projected_month_end_available: num((snapshot as any)?.projected_month_end_available),
@@ -235,7 +251,10 @@ export async function computeNextBestAction(
     monthly_debt_installments: monthlyDebtInstallments,
     has_active_goal: Boolean(goalPlan),
     sustainable_monthly_saving: sustainable,
-  });
+  };
+  const advice = selectStageForAdvice(stageInput);
+  const stage = { stage: advice.stage, reason: advice.reason };
+  const truthCaveat = advice.truth_caveat;
 
   const behaviorContext = ((behaviorResp.data as any[]) ?? []).map((row) => ({
     kind: String(row.kind ?? "behavior"),
@@ -362,7 +381,13 @@ export async function computeNextBestAction(
     }
   }
 
-  const confidence = truthBlocked
+  if (truthCaveat) {
+    headline = `${headline} Ressalva: a conciliação dos seus dados ainda tem pendência, então trate esses valores como estimativa; recomendações de aporte ou meta ficam para depois de resolvermos isso.`;
+  }
+
+  const confidence = truthCaveat
+    ? 0.75
+    : truthBlocked
     ? 0.98
     : wealthResp.ok
       ? confidenceFromWealth((wealth as any)?.confidence)

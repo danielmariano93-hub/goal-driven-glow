@@ -27,7 +27,9 @@ function formatDebtStatus(result: any): string | null {
     return `• ${name}: ${BRL.format(outstanding)}`;
   }).join("\n");
   const more = rows.length > 8 ? `\n• +${rows.length - 8} outra(s)` : "";
-  return `Você tem ${count} dívida(s) ativa(s), com saldo total de ${BRL.format(total)}.${visible ? `\n\n${visible}${more}` : ""}`;
+  const monthly = Number(facts.monthly_installments_total);
+  const monthlyLine = Number.isFinite(monthly) && monthly > 0 ? ` As parcelas somam ${BRL.format(monthly)} por mês.` : "";
+  return `Você tem ${count} dívida(s) ativa(s), com saldo total de ${BRL.format(total)}.${monthlyLine}${visible ? `\n\n${visible}${more}` : ""}`;
 }
 
 /** Patrimônio líquido: o total e de onde ele vem (tudo sai do resultado da engine). */
@@ -77,6 +79,27 @@ import { formatSpendingAggregate } from "./handlers/GenericAggregateFormat.ts";
 
 const dm = (iso: string) => { const [, mo, d] = String(iso).slice(0, 10).split("-"); return mo && d ? `${d}/${mo}` : String(iso); };
 
+function formatFinancialSources(result: any): string | null {
+  const cards: any[] = Array.isArray(result?.cards) ? result.cards : null as any;
+  const accounts: any[] = Array.isArray(result?.accounts) ? result.accounts : null as any;
+  if (!cards || !accounts) return null;
+  const lines: string[] = [];
+  if (cards.length) {
+    lines.push(`*Cartões de crédito* (${cards.length}):`);
+    for (const c of cards) {
+      const bits = [c.closing_day ? `fecha dia ${c.closing_day}` : null, c.due_day ? `vence dia ${c.due_day}` : null,
+        Number.isFinite(Number(c.total_limit)) && Number(c.total_limit) > 0 ? `limite ${BRL.format(Number(c.total_limit))}` : null].filter(Boolean);
+      lines.push(`• ${c.name}${bits.length ? ` — ${bits.join(", ")}` : ""}`);
+    }
+  } else lines.push("Você não tem cartão de crédito cadastrado.");
+  lines.push("");
+  if (accounts.length) {
+    lines.push(`*Contas* (${accounts.length}):`);
+    for (const a of accounts) lines.push(`• ${a.name}`);
+  } else lines.push("Você não tem conta bancária cadastrada.");
+  return lines.join("\n");
+}
+
 function formatCashProjection(result: any): string | null {
   const available = Number(result?.available_today);
   if (!Number.isFinite(available) || !Array.isArray(result?.days)) return null;
@@ -119,6 +142,7 @@ const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_debt_status: formatDebtStatus,
   forecast_month_close: formatForecastMonthClose,
   explain_cash_projection: formatCashProjection,
+  list_financial_sources: formatFinancialSources,
   compare_periods: formatPeriodComparisonEnhanced,
 };
 

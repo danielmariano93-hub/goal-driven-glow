@@ -1854,13 +1854,17 @@ export async function plan_installment_decision(ctx: ToolContext, args: {
   };
 }
 
-async function loadTxAndCategories(ctx: ToolContext, from: string, to: string) {
+async function loadTxAndCategories(ctx: ToolContext, from: string, to: string, opts: { byCompetence?: boolean } = {}) {
+  // `byCompetence`: parcela de compra antiga cobrada na fatura do período entra no período (comparações
+  // mensais). As séries por dia seguem a data da compra e continuam com a janela simples.
   const [txs, categoriesResult] = await Promise.all([
-    fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
-      from,
-      to,
-    }),
+    opts.byCompetence
+      ? loadTransactionsForCompetenceWindow(ctx.sb, ctx.user_id, from, to, SPENDING_REPORT_COLUMNS)
+      : fetchTransactions(ctx, {
+        select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
+        from,
+        to,
+      }),
     ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
   ]);
   if (categoriesResult.error) throw new Error(`categories_query_failed:${categoriesResult.error.message}`);
@@ -1888,7 +1892,7 @@ export async function compare_periods(ctx: ToolContext, args: {
   // carrega janela unificada
   const from = period_a.from < period_b.from ? period_a.from : period_b.from;
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
-  const { txs, names } = await loadTxAndCategories(ctx, from, to);
+  const { txs, names } = await loadTxAndCategories(ctx, from, to, { byCompetence: true });
   const gate = reconciliationGate(txs as any);
   if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCompare({
@@ -1922,7 +1926,7 @@ export async function compare_to_monthly_average(ctx: ToolContext, args: {
   const months = Math.max(2, Math.min(24, Math.trunc(Number(args?.months ?? 3))));
   if (!target?.from || !target?.to) return { ok: false, error: "target_period_required" };
   const earliest = monthRange(shiftMonth(target.from, -months)).from;
-  const { txs, names } = await loadTxAndCategories(ctx, earliest, target.to);
+  const { txs, names } = await loadTxAndCategories(ctx, earliest, target.to, { byCompetence: true });
   const gate = reconciliationGate(txs as any);
   if (!gate.ok) {
     const g = gate as { ok: false; error: string; violations: unknown };
@@ -2442,6 +2446,31 @@ export async function explain_cash_projection(ctx: ToolContext): Promise<ToolRes
   }
 }
 const CASH_PROJECTION_DAYS = 30;
+
+/**
+ * `list_financial_sources` — "quais cartões eu tenho?", "quais contas eu tenho?": o cadastro ativo,
+ * sem saldos (o saldo vem do snapshot). Resultado em objeto para o plano executado declarar o que rodou.
+ */
+export async function list_financial_sources(ctx: ToolContext): Promise<ToolResult> {
+  const [cards, accounts] = await Promise.all([
+    ctx.sb.from("credit_cards").select("name,brand,closing_day,due_day,total_limit")
+      .eq("user_id", ctx.user_id).eq("active", true).order("name"),
+    ctx.sb.from("accounts").select("name,type").eq("user_id", ctx.user_id).eq("active", true).order("name"),
+  ]);
+  if (cards.error || accounts.error) return { ok: false, error: cards.error?.message ?? accounts.error?.message ?? "sources_query_failed" };
+  return {
+    ok: true,
+    result: {
+      point: (cards.data ?? []).length + (accounts.data ?? []).length,
+      cards: (cards.data ?? []).map((c: any) => ({
+        name: String(c.name), brand: c.brand ?? null,
+        closing_day: c.closing_day ?? null, due_day: c.due_day ?? null,
+        total_limit: c.total_limit == null ? null : Number(c.total_limit),
+      })),
+      accounts: (accounts.data ?? []).map((a: any) => ({ name: String(a.name), type: a.type ?? null })),
+    },
+  };
+}
 
 // ---------- Registro ----------
 
@@ -3916,6 +3945,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Agenda canônica de compromissos dos próximos dias: faturas, parcelas, dívidas e recorrências com data e valor. Use para 'o que vence agora', 'quais contas estão chegando'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: get_commitments_agenda,
+  },
+  {
+    name: "list_financial_sources",
+    description: "Cadastro ativo de cartões de crédito e contas bancárias do usuário (nomes, fechamento, vencimento, limite). Use para 'quais cartões eu tenho', 'quais contas eu tenho'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: list_financial_sources,
   },
   {
     name: "explain_cash_projection",

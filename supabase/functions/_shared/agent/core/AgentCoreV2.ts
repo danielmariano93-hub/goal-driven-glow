@@ -33,6 +33,7 @@ import { parseBankNotification } from "./BankNotificationParser.ts";
 import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastLog.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
+import { isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import {
   explainProactiveBody, loadRecentProactive, NO_RECENT_PROACTIVE_REPLY, proactiveContextBlock, type RecentProactive,
@@ -619,6 +620,22 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const narrowContract = v3AuthorityEnabled
     ? groundedFollowupContract
     : (groundedFollowupContract ?? resolveNarrowDeterministicTurn(brainText));
+  // Mesma chamada do interpretador, usada só nas novas tentativas (`nino_self_repair.v1`).
+  const interpretTurn = (extra: { repair_hint?: string | null } = {}) => interpretConversationTurn({
+    text: brainText,
+    history,
+    memory,
+    workflow,
+    user_context: userContext,
+    recent_proactive: proactiveContextBlock(recentProactive),
+    ...extra,
+    // Sem modelo explícito: o interpretador semântico usa NINO_SEMANTIC_PRIMARY_MODEL
+    // (benchmark real: qwen3.6-27b). Fixar aqui sobrescrevia a configuração.
+    model: null,
+    sb,
+    user_id: input.user_id,
+    run_id: null,
+  } as any) as Promise<any>;
   let brain: {
     contract: CanonicalConversationTurnContract | null;
     telemetry: {
@@ -664,6 +681,24 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   // confirmation-gated write into "não consegui processar". Ambiguous language
   // still returns null from the compiler and keeps the honest technical reply.
   // (Only reachable when the compiler did not already run before V3.)
+  // Falha transitória do provedor (ex.: structured_call_gateway_400): uma nova tentativa idêntica antes
+  // de qualquer recuperação. Só quando não houve contrato.
+  let interpreterRetried = false;
+  if (!narrowContract && !brain.contract && brain.telemetry.ok === false && isTransientInterpreterFailure(brain.telemetry.error)) {
+    interpreterRetried = true;
+    const second = await interpretTurn().catch(() => null);
+    if (second?.contract) {
+      brain = {
+        ...second,
+        telemetry: {
+          ...second.telemetry,
+          llm_calls: Number(brain.telemetry.llm_calls ?? 0) + Number(second.telemetry?.llm_calls ?? 0),
+          tokens_in: Number(brain.telemetry.tokens_in ?? 0) + Number(second.telemetry?.tokens_in ?? 0),
+          tokens_out: Number(brain.telemetry.tokens_out ?? 0) + Number(second.telemetry?.tokens_out ?? 0),
+        },
+      };
+    }
+  }
   let semanticProviderRecovery: string | null = null;
   const providerFailure = isProviderCapacityFailure(brain.telemetry.error)
     || isProviderStructuredFailure(brain.telemetry.error)
@@ -732,6 +767,10 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
 
   const steps: CanonicalConversationTurnContract[] = [contract, ...(brain.additional_contracts ?? [])];
   const executions: TurnExecution[] = [];
+  const selfRepair: {
+    attempted: boolean; accepted: boolean; reason: string | null; second_error: string | null;
+    llm_calls: number; tokens_in: number; tokens_out: number;
+  } = { attempted: false, accepted: false, reason: null, second_error: null, llm_calls: 0, tokens_in: 0, tokens_out: 0 };
   for (const [index, step] of steps.entries()) {
     const stepContract = index === 0 ? step : applyImplicitPeriodToClarification(step, brainText);
     if (index > 0) {
@@ -745,7 +784,35 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       }
       executions.push(await executeContract({ ...ctx, groundedReference: groundedStep.reference }, stepContract));
     } else {
-      executions.push(await executeContract(ctx, stepContract));
+      let execution = await executeContract(ctx, stepContract);
+      // Segunda tentativa limitada (`nino_self_repair.v1`): só leitura de plano único que falhou por
+      // não ter motor / não confirmar o pedido. A nova leitura passa pelos mesmos gates; se também
+      // falhar, a pessoa recebe o resultado da primeira.
+      if (steps.length === 1 && !selfRepair.attempted && isRepairableFailure(execution)) {
+        selfRepair.attempted = true;
+        selfRepair.reason = String(execution.error ?? "").slice(0, 120);
+        try {
+          const retry = await interpretTurn({ repair_hint: selfRepairHint(String(execution.error ?? "")) });
+          const retryContract = retry?.contract && !retry.additional_contracts?.length
+            ? applyImplicitPeriodToClarification(retry.contract, brainText)
+            : null;
+          selfRepair.llm_calls = Number(retry?.telemetry?.llm_calls ?? 0);
+          selfRepair.tokens_in = Number(retry?.telemetry?.tokens_in ?? 0);
+          selfRepair.tokens_out = Number(retry?.telemetry?.tokens_out ?? 0);
+          if (retryContract && retryContract.mode !== "write") {
+            const second = await executeContract(ctx, retryContract);
+            selfRepair.second_error = second.error ? String(second.error).slice(0, 120) : null;
+            // Aceita só execução sem erro. Conversa honesta (recusa útil) também conta, desde que não seja erro.
+            if (!second.error && second.reply_kind !== "question") {
+              execution = second;
+              selfRepair.accepted = true;
+            }
+          }
+        } catch (error) {
+          selfRepair.second_error = String((error as Error)?.message ?? error).slice(0, 120);
+        }
+      }
+      executions.push(execution);
     }
     // A clarification stops the plan: the remaining steps depend on the answer.
     if (executions[executions.length - 1].reply_kind === "question") break;
@@ -818,9 +885,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   return await finishV2({
     sb, input, contract: merged.contract, reply: finalReply, reply_kind: merged.reply_kind,
     path: merged.path, started_at: started,
-    tokens_in: brain.telemetry.tokens_in + (composition?.telemetry.tokens_in ?? 0),
-    tokens_out: brain.telemetry.tokens_out + (composition?.telemetry.tokens_out ?? 0),
-    llm_calls: Number(brain.telemetry.llm_calls ?? 0) + (composition?.telemetry.llm_calls ?? 0),
+    tokens_in: brain.telemetry.tokens_in + (composition?.telemetry.tokens_in ?? 0) + selfRepair.tokens_in,
+    tokens_out: brain.telemetry.tokens_out + (composition?.telemetry.tokens_out ?? 0) + selfRepair.tokens_out,
+    llm_calls: Number(brain.telemetry.llm_calls ?? 0) + (composition?.telemetry.llm_calls ?? 0) + selfRepair.llm_calls,
     model: brain.telemetry.model, provider: brain.telemetry.provider,
     draft_id: merged.draft_id, result: merged.result, session_id,
     tools: merged.tools, tool_calls: merged.tool_calls,
@@ -831,6 +898,8 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     diagnostics: {
       ...(merged.diagnostics ?? {}),
       ...(semanticProviderRecovery ? { semantic_provider_recovery: semanticProviderRecovery } : {}),
+      ...(interpreterRetried ? { interpreter_retried: true } : {}),
+      ...(selfRepair.attempted ? { self_repair: { version: SELF_REPAIR_VERSION, ...selfRepair } } : {}),
       // Motivo do interpretador (ex.: v3_bridge_rejected:temporal_expression_unresolved:…):
       // sem ele, um "qual período?" indevido não deixa rastro para diagnosticar.
       ...(brain.telemetry.error ? { brain_error: String(brain.telemetry.error).slice(0, 300) } : {}),

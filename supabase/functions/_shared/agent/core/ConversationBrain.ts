@@ -53,6 +53,8 @@ export type ConversationBrainInput = {
   conversation_id?: string | null;
   /** Último aviso/relatório do Nino, quando foi a última mensagem enviada (`nino_proactive_explain.v1`). */
   recent_proactive?: Record<string, unknown> | null;
+  /** Segunda tentativa (`nino_self_repair.v1`): por que a primeira leitura falhou e o que é executável. */
+  repair_hint?: string | null;
   /** Used only by controlled evaluation paths; product routing picks the provider centrally. */
   provider_override?: AiProviderConfig | null;
 };

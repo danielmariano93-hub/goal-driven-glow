@@ -55,6 +55,7 @@ function typedContextText(input: AuthorityInput): string {
     ],
     relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
     recent_proactive_message: input.recent_proactive ?? null,
+    repair_hint: input.repair_hint ?? null,
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
       conversation_summary: memory.conversation_summary ?? null,

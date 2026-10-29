@@ -5,6 +5,7 @@ import {
   behavioralMetricAmount,
   buildRefundAttribution,
   effectiveCategoryId,
+  reportingCompetenceDate,
   type TransactionRow,
 } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
@@ -48,7 +49,9 @@ function sumInPeriod(
   let rows = 0;
   const daySet = new Set<string>();
   for (const t of txs) {
-    const d = t.occurred_at.slice(0, 10);
+    // Mês é competência (regra da Home): compra no cartão pertence ao mês da fatura, não ao da compra.
+    // Antes a comparação usava a data da compra e dava números diferentes de "quanto gastei em X".
+    const d = reportingCompetenceDate(t as any);
     if (d < from || d > to) continue;
     const amt = behavioralMetricAmount(t, metric);
     if (amt === 0) continue;

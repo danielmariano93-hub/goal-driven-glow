@@ -35,7 +35,7 @@ const MONEY_FIELDS = [
   "net_worth", "projected_total", "total_expense", "total_income", "delta",
 ];
 const FACT_MONEY_FIELDS = [
-  "total_outstanding", "overdue_amount", "due_soon_amount", "monthly_committed",
+  "total_outstanding", "monthly_installments_total", "overdue_amount", "due_soon_amount", "monthly_committed",
   "structural_monthly", "flexible_monthly", "headroom_monthly", "total_monthly_saving",
 ];
 const FACT_COUNT_FIELDS = [
@@ -75,7 +75,7 @@ function addEngineEnvelopeFacts(
 export const STATE_ENGINES = new Set([
   "get_financial_snapshot", "get_goals_overview", "get_net_worth",
   "get_debt_status", "get_future_installments", "assess_financial_health", "get_account_balance",
-  "forecast_month_close", "explain_cash_projection",
+  "forecast_month_close", "explain_cash_projection", "list_financial_sources",
 ]);
 const STATE_CLAIM_LIMIT = 600;
 
