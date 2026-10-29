@@ -78,3 +78,31 @@ describe("projeção de caixa explicada", () => {
     expect(out.deterministic_text).toContain("Parcela Réveillon- Cartão");
   });
 });
+
+describe("lista da projeção e nomes de dados", () => {
+  const day = (n: number, balance: number) => ({
+    date: `2026-11-${String(n).padStart(2, "0")}`, inflow: 0, outflow: 10, balance,
+    items: [{ name: `Item ${n}`, kind: "expense", amount: 10, source: "recurring", estimated: false }],
+  });
+
+  it("mostra os primeiros dias (os mais próximos), não os últimos", () => {
+    const days = Array.from({ length: 14 }, (_, i) => day(i + 1, 100 - i * 10));
+    const text = semanticBlockText("explain_cash_projection", {
+      available_today: 200, horizon_days: 30, first_negative_date: "2026-11-14", lowest_date: "2026-11-14",
+      lowest_balance: -30, days: days.map((d, i) => ({ ...d, balance: 100 - i * 20 })),
+    })!;
+    expect(text).toContain("Item 1 ");
+    expect(text).toContain("Item 14");
+    expect(text).toContain("omitidos");
+  });
+
+  it("nome de estabelecimento com termo de fornecedor nos dados não é apagado", async () => {
+    const { humanizeReply } = await import("../../supabase/functions/_shared/agent/core/ReplyHumanizer");
+    const reply = "• 03/11: − ChatGPT / OpenAI R$ 103,40 (estimado)";
+    expect(humanizeReply(reply, "ChatGPT / OpenAI 103.4")).toContain("ChatGPT / OpenAI");
+    // sem o termo nos dados, a barreira continua removendo
+    expect(humanizeReply("Fui criado pelo Google para ajudar.", "")).not.toMatch(/google/i);
+    // atribuição de autoria é apagada mesmo que o termo exista nos dados
+    expect(humanizeReply("Fui criado pelo Google para ajudar.", "Google 10.00")).not.toMatch(/criado pelo google/i);
+  });
+});

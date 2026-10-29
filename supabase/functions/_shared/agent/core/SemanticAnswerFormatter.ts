@@ -92,10 +92,14 @@ function formatCashProjection(result: any): string | null {
     return `${lines[0]} Não há entradas nem compromissos pendentes nos próximos ${Number(result.horizon_days) || 30} dias.`;
   }
   lines.push("", "Dia a dia:");
-  for (const d of upto.slice(-8)) {
+  // Do primeiro dia em diante: os compromissos mais próximos são justamente os que o usuário
+  // quer conferir. Passando de 12 dias, o resto vira uma linha de resumo (sem sumir o dia crítico).
+  const shown = upto.length > 12 ? [...upto.slice(0, 11), upto[upto.length - 1]] : upto;
+  for (const d of shown) {
     const parts = (d.items ?? []).map((i: any) => `${i.kind === "income" ? "+" : "−"} ${i.name} ${BRL.format(Number(i.amount))}${i.estimated ? " (estimado)" : ""}`);
     lines.push(`• *${dm(d.date)}*: ${parts.join("; ")} → saldo ${BRL.format(Number(d.balance))}`);
   }
+  if (shown.length < upto.length) lines.push(`(${upto.length - shown.length} dias intermediários omitidos; o saldo acima já os inclui.)`);
   if (upto.some((d) => (d.items ?? []).some((i: any) => i.estimated))) {
     lines.push("", "Itens “estimado” vêm de recorrência ou entrada prevista, não de valor confirmado.");
   }

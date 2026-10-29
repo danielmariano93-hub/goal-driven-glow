@@ -104,7 +104,7 @@ function normalizeShort(text: string): string {
 }
 
 function safeReply(text: string, dataText = ""): string {
-  return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo."), "AI_TEMPORARY_UNAVAILABLE", dataText);
+  return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo.", dataText), "AI_TEMPORARY_UNAVAILABLE", dataText);
 }
 
 /**
