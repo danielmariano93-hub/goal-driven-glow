@@ -57,10 +57,33 @@ function repairGrammar(text: string): string {
 }
 
 
-function stripInternalNames(text: string): string {
+/**
+ * Palavras de fornecedor que aparecem nos DADOS da pessoa (um estabelecimento "ChatGPT / OpenAI",
+ * uma assinatura "Claude") não são vazamento: são o nome do lançamento. Ficam protegidas contra a
+ * remoção solta; a oração que atribui autoria ("criado pelo Google") continua sendo apagada.
+ */
+function dataVendorWords(dataText: string): string[] {
+  const found = new Set<string>();
+  for (const m of String(dataText ?? "").matchAll(new RegExp(String.raw`\b${VENDOR_WORD}\b`, "gi"))) found.add(m[0].toLowerCase());
+  return [...found];
+}
+
+function stripInternalNames(text: string, dataText = ""): string {
   let out = text;
   for (const rx of INTERNAL_TOKENS) out = out.replace(rx, "");
-  for (const rx of VENDOR_CLAUSES) out = out.replace(rx, "");
+  const protectedWords = dataVendorWords(dataText);
+  const marks = new Map<string, string>();
+  const [attribution, modelOf, loose] = [VENDOR_CLAUSES[0], VENDOR_CLAUSES[1], VENDOR_CLAUSES[2]];
+  out = out.replace(attribution, "").replace(modelOf, "");
+  if (protectedWords.length) {
+    out = out.replace(new RegExp(String.raw`\b(?:${protectedWords.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\b`, "gi"), (hit) => {
+      const key = `\u0001${marks.size}\u0002`;
+      marks.set(key, hit);
+      return key;
+    });
+  }
+  out = out.replace(loose, "");
+  for (const [key, hit] of marks) out = out.split(key).join(hit);
   out = out
     // "motor X;" / "motor X," / "(motor X)" viram nada
     .replace(/\(?\s*,?\s*motor(?:es)?\s*[:=]?\s*([;,.)]|$)/gim, "$1");
@@ -202,10 +225,10 @@ export function stripSelfVocative(text: string): string {
     .replace(/^\s*nino[,!]\s+/gim, "");
 }
 
-export function humanizeReply(raw: string | null | undefined): string {
+export function humanizeReply(raw: string | null | undefined, dataText = ""): string {
   const text = String(raw ?? "");
   if (!text.trim()) return text;
-  let out = lightenLayout(stripSelfVocative(stripInternalNames(text)));
+  let out = lightenLayout(stripSelfVocative(stripInternalNames(text, dataText)));
   // Guarda final: se a remoção ainda deixou frase quebrada, repara de novo.
   if (findBrokenPhrases(out).length) out = lightenLayout(repairGrammar(out));
   return addEmojiAccent(out);
