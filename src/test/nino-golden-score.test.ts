@@ -59,3 +59,14 @@ describe("corretor do conjunto dourado ao vivo", () => {
     expect(summarize([{ verdict: "CORRECT" }, { verdict: "WRONG" }]).wrong).toBe(1);
   });
 });
+
+describe("integridade do conjunto dourado", () => {
+  it("ids únicos e toda chave de gabarito segue as famílias do golden-truth.sql", () => {
+    const ids = GOLDEN.map((c: any) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const c of GOLDEN as any[]) {
+      expect(c.turns.length).toBeGreaterThan(0);
+      for (const key of c.expect?.numbers ?? []) expect(key).toMatch(/^(exp|inc):\d{4}-\d{2}$|^cat:\d{4}-\d{2}:.+$|^debt:(total|installments)$/);
+    }
+  });
+});
