@@ -3,7 +3,7 @@
 // alerta de caixa aponta o item que realmente causa o negativo.
 import { describe, expect, it } from "vitest";
 import {
-  explainProactiveBody, loadRecentProactive, proactiveContextBlock, sanitizeProactiveFacts,
+  explainProactiveBody, loadRecentProactive, OUTBOUND_RECEIVED_STATUSES, proactiveContextBlock, sanitizeProactiveFacts,
 } from "../../supabase/functions/_shared/agent/core/ProactiveExplain";
 import { guardComposedReply } from "../../supabase/functions/_shared/agent/v3/ConversationalComposerV3";
 import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
@@ -13,10 +13,11 @@ import { composeFinancialSituations } from "../../supabase/functions/_shared/pro
 
 const NOW = Date.parse("2026-10-29T12:30:00Z");
 
-function sbWithLatest(row: any | null) {
+function sbWithLatest(row: any | null | any[]) {
+  const rows = Array.isArray(row) ? row : row ? [row] : [];
   const q: any = {
     select: () => q, eq: () => q, gte: () => q, in: () => q, order: () => q,
-    limit: () => Promise.resolve({ data: row ? [row] : [], error: null }),
+    limit: () => Promise.resolve({ data: rows, error: null }),
   };
   return { from: () => q } as any;
 }
@@ -41,6 +42,22 @@ describe("aviso recente como assunto do seguimento", () => {
     expect((await loadRecentProactive(sbWithLatest(cashRow), "u", NOW))?.suggestion_kind).toBe("upcoming_cash_pressure");
     expect(await loadRecentProactive(sbWithLatest({ ...cashRow, kind: "agent" }), "u", NOW)).toBeNull();
     expect(await loadRecentProactive(sbWithLatest(null), "u", NOW)).toBeNull();
+  });
+
+  it("só filtra por status que existem no enum do banco (msg_status)", () => {
+    // Um valor inexistente faz o banco recusar a consulta inteira e o aviso nunca é achado.
+    const MSG_STATUS = ["queued", "processing", "sent", "delivered", "read", "failed", "dead"];
+    for (const status of OUTBOUND_RECEIVED_STATUSES) expect(MSG_STATUS).toContain(status);
+  });
+
+  it("o espelho in-app e a notificação do aviso não escondem o aviso", async () => {
+    const mirror = { ...cashRow, id: "m2", kind: "agent", surface: "app_assessor", created_at: "2026-10-29T12:17:10.500Z" };
+    const notification = { ...cashRow, id: "m3", kind: "notification", surface: "app_notification", created_at: "2026-10-29T12:17:11Z" };
+    const found = await loadRecentProactive(sbWithLatest([notification, mirror, cashRow]), "u", NOW);
+    expect(found?.id).toBe("m1");
+    // resposta do Nino depois do aviso (texto diferente): o aviso deixa de ser o assunto
+    const reply = { ...cashRow, id: "m4", kind: "agent", body: "Claro! Seu saldo hoje é R$ 6.172,05.", created_at: "2026-10-29T12:20:00Z" };
+    expect(await loadRecentProactive(sbWithLatest([reply, cashRow]), "u", NOW)).toBeNull();
   });
 
   it("fatos gravados perdem ids e campos internos", () => {
@@ -69,6 +86,26 @@ describe("aviso recente como assunto do seguimento", () => {
     expect(ok.violations.filter((v) => v.startsWith("number_not_in_evidence"))).toEqual([]);
     const bad = guardComposedReply({ text: "O caixa chega a R$ 749,23 negativo e você precisa guardar R$ 1.234,56.", input });
     expect(bad.violations.join(",")).toContain("number_not_in_evidence");
+  });
+
+  it("explicação não inventa 'negativo' quando o aviso não fala disso", () => {
+    const input: any = {
+      kind: "explain", channel: "whatsapp", user_text: "me explica melhor", history: [],
+      deterministic_body: "Falei isso: Você gastou R$ 774,00 a mais do que recebeu na semana.",
+      evidence: [{ proactive_message: { text: "Você gastou R$ 774,00 a mais do que recebeu na semana." } }],
+    };
+    const bad = guardComposedReply({ text: "Foram R$ 774,00 a mais do que entrou, o que deixa o caixa negativo. Quer detalhar?", input });
+    expect(bad.violations).toContain("topic_not_in_notice:negative");
+    const ok = guardComposedReply({ text: "Foram R$ 774,00 a mais do que entrou na semana. Quer detalhar?", input });
+    expect(ok.violations).not.toContain("topic_not_in_notice:negative");
+  });
+
+  it("sem fatos gravados, o corpo diz com honestidade o que não tem", () => {
+    const body = explainProactiveBody({
+      id: "1", kind: "weekly_report", suggestion_kind: null, sent_at: "2026-10-29T12:00:00Z", minutes_ago: 5,
+      title: "x", body: "Você gastou R$ 774 a mais.", facts: null,
+    });
+    expect(body).toContain("Não guardei mais detalhes");
   });
 
   it("o interpretador pode emitir explain_message e a ponte o mantém", () => {
