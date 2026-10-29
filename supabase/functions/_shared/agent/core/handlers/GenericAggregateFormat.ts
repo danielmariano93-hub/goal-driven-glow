@@ -11,7 +11,8 @@ function scopeText(r: SpendingAggregateResult): string {
   const parts: string[] = [];
   if (r.scope_labels.category) parts.push(`em ${r.scope_labels.category}`);
   if (r.scope.merchant) parts.push(`em ${r.scope.merchant}`);
-  if (r.scope_labels.card) parts.push(`no cartão ${r.scope_labels.card}`);
+  // O nome do cartão já costuma começar com "Cartão" ("Cartão Itaú").
+  if (r.scope_labels.card) parts.push(/^cart[aã]o\b/i.test(r.scope_labels.card) ? `no ${r.scope_labels.card}` : `no cartão ${r.scope_labels.card}`);
   if (r.scope_labels.account) parts.push(`na conta ${r.scope_labels.account}`);
   if (r.scope.payment_method) {
     parts.push(r.scope.payment_method === "credit_card" ? "no crédito" : r.scope.payment_method === "account" ? "em conta" : `via ${r.scope.payment_method}`);

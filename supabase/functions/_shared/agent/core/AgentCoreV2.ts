@@ -1456,6 +1456,14 @@ async function executeContract(
       mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],
       validation_errors: semantic.validation?.errors ?? [],
       plan: executionPlanTelemetry(semantic.ir_v2),
+      // Por que um turno executável não virou resposta: códigos dos gates, sem texto do usuário.
+      gates: {
+        errors: (semantic.errors ?? []).slice(0, 6).map((e) => String(e).slice(0, 80)),
+        grounding: (semantic.grounding?.violations ?? []).slice(0, 6)
+          .map((v) => `${v.kind}:${String(v.detail ?? v.status).slice(0, 60)}`),
+        preservation: (semantic.preservation?.mismatches ?? []).slice(0, 6)
+          .map((m) => `${m.slot}:${m.reason}`.slice(0, 80)),
+      },
       unsupported_queries: semantic.validation?.unsupported_queries ?? [],
       engines: semantic.engines,
       successful_execution: successfulSemanticExecution,

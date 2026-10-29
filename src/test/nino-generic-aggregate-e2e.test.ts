@@ -53,15 +53,15 @@ const ROWS = [
   tx({ amount: 70, description: "UBER TRIP", category_id: "cat-transp" }),
 ];
 
-async function runTurn(generic: boolean) {
-  const text = "meus gastos no Thales por categoria em setembro";
+async function runTurn(generic: boolean, spec: { text?: string; group_by?: string[]; filters?: any[]; operation?: string; rows?: any[] } = {}) {
+  const text = spec.text ?? "meus gastos no Thales por categoria em setembro";
   const turn = {
     version: "nino_turn_spec.v3", kind: "task", response_intent: "execute", act: "new_request",
     canonical_request: text, inherit_topic: false, references: [],
     tasks: [{
       kind: "financial_query", family: "financial.query", metric: "expense_amount",
-      operation: "breakdown", group_by: ["category"],
-      filters: [{ field: "merchant", entity: s("Thales") }],
+      operation: spec.operation ?? "breakdown", group_by: spec.group_by ?? ["category"],
+      filters: spec.filters ?? [{ field: "merchant", entity: s("Thales") }],
       periods: [s("setembro")], limit: null, comparison: null,
     }],
   };
@@ -74,7 +74,7 @@ async function runTurn(generic: boolean) {
   });
   if (!compiled?.ir) throw new Error("compile_failed");
   const calls: string[] = [];
-  const sb = fakeSb(ROWS);
+  const sb = fakeSb(spec.rows ?? ROWS);
   const out = await runSemanticTurn({
     text, acts: ["read_financial"] as never,
     constraints: { period: true, dimension: true, entity: true },
@@ -118,6 +118,28 @@ describe("executor genérico ponta a ponta", () => {
     expect(text).toContain("*Lazer*");
     expect(text).toContain("*Transporte*");
     expect(out.preservation?.compatible).toBe(true);
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
+
+describe("rótulos de estabelecimento com números e datas", () => {
+  const CARD_ROWS = [
+    tx({ amount: 582.67, description: "Ingresso Anitta - Parcela 2", category_id: "cat-lazer" }),
+    tx({ amount: 507, description: "MEP* Eventos Jamil 2026", category_id: "cat-lazer" }),
+    tx({ amount: 134.2, description: "JIM.COM", category_id: "cat-lazer" }),
+    tx({ amount: 169.29, description: "Lovable", category_id: "cat-lazer" }),
+  ];
+  it("agrupar por estabelecimento no cartão passa nos gates mesmo com números no nome", async () => {
+    const { out, fulfillment, calls } = await runTurn(true, {
+      text: "gastos por estabelecimento no cartão Nubank em setembro",
+      operation: "breakdown", group_by: ["merchant"],
+      filters: [{ field: "card", entity: s("Nubank") }],
+      rows: CARD_ROWS,
+    });
+    expect(calls).toEqual(["spending_aggregate"]);
+    // eslint-disable-next-line no-console
+    console.log("DBG", JSON.stringify({ status: out.status, errors: out.errors, grounding: (out as any).grounding?.violations, ful: fulfillment.violations, text: out.deterministic_text }));
     expect(fulfillment.ok).toBe(true);
   });
 });
