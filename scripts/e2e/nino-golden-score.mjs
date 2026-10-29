@@ -80,7 +80,8 @@ export function score(testCase, reply, truth = {}) {
     const text = String(reply ?? "");
     const ok = (e.text ?? []).every((t) => text.toLowerCase().includes(String(t).toLowerCase()));
     if (ok) return { verdict: "CORRECT", why: "trouxe o esperado" };
-    return { verdict: c.refusal || c.clarify ? "MISS" : "WRONG", why: "faltou o conteúdo esperado" };
+    // Sem o conteúdo esperado e sem valor inventado: é uma lacuna (MISS), não um erro.
+    return { verdict: c.money.length && !c.refusal && !c.clarify ? "WRONG" : "MISS", why: "faltou o conteúdo esperado" };
   }
 
   if (kind === "refuse") {

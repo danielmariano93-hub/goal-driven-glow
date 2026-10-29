@@ -58,3 +58,10 @@ describe("conselho com conciliação pendente", () => {
     expect(selectStageForAdvice({ ...base, truth_blocked: false })).toMatchObject({ stage: "reduce_debt_pressure", truth_caveat: false });
   });
 });
+
+import { buildCashHorizon } from "../../supabase/functions/_shared/proactive/cashHorizon";
+describe("regressões da medição real", () => {
+  it("o conjunto não depende de valores reais e o horizonte de caixa segue puro", () => {
+    expect(buildCashHorizon({ today: "2026-10-29", availableToday: 100, incomeEvents: [], commitments: [] })).toEqual([]);
+  });
+});

@@ -20,7 +20,7 @@ import {
 } from "../engine/facts.ts";
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
-import { loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
+import { COMPETENCE_WINDOW_PADDING_DAYS, loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
 import { shift, today } from "../finance-core/ninoClock.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
@@ -1854,6 +1854,20 @@ export async function plan_installment_decision(ctx: ToolContext, args: {
   };
 }
 
+/**
+ * O gate de reconciliação confere pares de transferência e ciclos de cartão: precisa ver o MESMO conjunto
+ * de lançamentos que a janela por data da compra trazia. A janela por competência acrescenta linhas fora
+ * dela (parcelas antigas), cujos pares não foram carregados, e o gate acusava falha que não existe.
+ */
+function reconciliationRows<T extends { occurred_at?: string | null }>(rows: T[], from: string, to: string): T[] {
+  const shift = (ymd: string, days: number) => {
+    const d = new Date(`${ymd}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10);
+  };
+  const lo = shift(from, -COMPETENCE_WINDOW_PADDING_DAYS);
+  const hi = shift(to, COMPETENCE_WINDOW_PADDING_DAYS);
+  return rows.filter((r) => { const d = String(r.occurred_at ?? "").slice(0, 10); return d >= lo && d <= hi; });
+}
+
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string, opts: { byCompetence?: boolean } = {}) {
   // `byCompetence`: parcela de compra antiga cobrada na fatura do período entra no período (comparações
   // mensais). As séries por dia seguem a data da compra e continuam com a janela simples.
@@ -1893,7 +1907,7 @@ export async function compare_periods(ctx: ToolContext, args: {
   const from = period_a.from < period_b.from ? period_a.from : period_b.from;
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
   const { txs, names } = await loadTxAndCategories(ctx, from, to, { byCompetence: true });
-  const gate = reconciliationGate(txs as any);
+  const gate = reconciliationGate(reconciliationRows(txs, from, to) as any);
   if (!gate.ok) { const g = gate as { ok: false; error: string; violations: unknown }; return { ok: false, error: g.error, violations: g.violations }; }
   const result = computeCompare({
     txs: txs as any, categoryNames: names, metric, period_a, period_b,
@@ -1927,7 +1941,7 @@ export async function compare_to_monthly_average(ctx: ToolContext, args: {
   if (!target?.from || !target?.to) return { ok: false, error: "target_period_required" };
   const earliest = monthRange(shiftMonth(target.from, -months)).from;
   const { txs, names } = await loadTxAndCategories(ctx, earliest, target.to, { byCompetence: true });
-  const gate = reconciliationGate(txs as any);
+  const gate = reconciliationGate(reconciliationRows(txs, earliest, target.to) as any);
   if (!gate.ok) {
     const g = gate as { ok: false; error: string; violations: unknown };
     return { ok: false, error: g.error, violations: g.violations };

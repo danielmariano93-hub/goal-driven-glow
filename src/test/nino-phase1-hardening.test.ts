@@ -47,13 +47,16 @@ describe("Nino Phase 1 hardening", () => {
     expect(aspect.n).toBe(6);
   });
 
-  it("does not let the scoped monthly handler steal an overall trend", () => {
+  it("série mensal sem filtro também é do handler determinístico (total de cada mês)", () => {
+    // Antes a série geral era reservada ao motor de trajetória, que devolve médias e ponto de virada; os
+    // totais de cada mês ficavam fora da evidência e a trava de números barrava "evolução dos gastos".
+    // "Estou melhorando?" é financial_health, não série.
     const base: any = {
       id: "q1", metric: "expense_amount", filters: [],
       time: { aspect: "trend", from: "2026-04-01", to: "2026-09-26", n: 6, exclude_partial: false, label: "6 meses" },
       grain: "month", reduce: "none", group_by: ["month"], limit: null, depends_on: [], legacy_operation: "trend",
     };
-    expect(isMonthlySeriesShape(base)).toBe(false);
+    expect(isMonthlySeriesShape(base)).toBe(true);
     expect(isMonthlySeriesShape({
       ...base,
       filters: [{ field: "category", op: "eq", value: "Lazer" }],
