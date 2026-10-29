@@ -95,6 +95,7 @@ export const ADVISORY_OPERATIONS_V3 = [
   "decision",
   "period_review",
   "spending_goal_plan",
+  "explain_message",
 ] as const;
 export type AdvisoryOperationV3 = typeof ADVISORY_OPERATIONS_V3[number];
 

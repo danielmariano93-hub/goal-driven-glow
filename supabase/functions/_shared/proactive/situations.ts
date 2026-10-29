@@ -93,6 +93,24 @@ function situation(input: {
   };
 }
 
+/**
+ * Quem leva o caixa ao negativo é o que vence NA data crítica, não o bloco de compromissos "dos
+ * próximos 10 dias". Quando o negativo está além dessa janela, o bloco ainda cabe no caixa e dizer
+ * que "o peso vem" dele apontava para o item errado.
+ */
+function cashShortfallBody(cashNegative: FinancialSignal, cluster: FinancialSignal | null | undefined): string {
+  const date = dateBR(cashNegative.date);
+  const base = `Somando o que já está agendado, o saldo projetado chega a ${brl(cashNegative.amount)} negativo em ${date}`;
+  const withinCluster = (cashNegative.days_until ?? 99) <= 10;
+  if (cluster && withinCluster) return `${base}. O peso vem de ${lowerFirst(cluster.label)}.`;
+  const labels = Array.isArray((cashNegative.evidence as any)?.labels)
+    ? ((cashNegative.evidence as any).labels as unknown[]).map((l) => String(l)).filter(Boolean).slice(0, 2)
+    : [];
+  const cause = labels.length ? `, quando vence ${labels.join(" e ")}` : "";
+  const before = cluster ? ` Antes disso, ${lowerFirst(cluster.label)} ainda cabem no caixa.` : "";
+  return `${base}${cause}.${before}`;
+}
+
 export function composeFinancialSituations(
   signals: FinancialSignal[],
   ctx: MultiFinanceProactiveContext,
@@ -134,7 +152,7 @@ export function composeFinancialSituations(
       communication_kind: "upcoming_cash_pressure",
       severity: "critical",
       title: `Caixa fica negativo em ${dateBR(cashNegative.date)}`,
-      body: `Somando o que já está agendado, o saldo projetado chega a ${brl(cashNegative.amount)} negativo em ${dateBR(cashNegative.date)}.${cluster ? ` O peso vem de ${lowerFirst(cluster.label)}.` : ""}`,
+      body: cashShortfallBody(cashNegative, cluster),
       primary_domain: "cash",
       signals: group,
       impact_amount: cashNegative.amount,

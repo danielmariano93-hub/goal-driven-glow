@@ -30,7 +30,7 @@ export function humanizeStatusCodes(text: string): string {
 export const COMPOSER_VERSION = "nino_conversational_composer.v1";
 export const COMPOSER_DEADLINE_MS = 10_000;
 
-export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery" | "review" | "layout";
+export type ComposeKind = "conversation" | "answer" | "advisory" | "decision" | "compound" | "recovery" | "review" | "layout" | "explain";
 
 export type ComposeHistoryTurn = { role: "user" | "assistant"; content: string };
 
@@ -158,6 +158,7 @@ const KIND_GUIDANCE: Record<ComposeKind, string> = {
   recovery: "Você NÃO conseguiu calcular ou consultar com segurança o que foi pedido (o RASCUNHO explica). Diga isso com honestidade e leveza, SEM citar nenhum valor, número ou data. Responda a parte humana da mensagem (se ele pediu para você lembrar de algo, use a MEMÓRIA DE RELACIONAMENTO) e sugira, em uma frase, como ele pode pedir o dado de forma direta.",
   review: "O usuário pediu um balanço/resumo do período. O resumo completo, já diagramado, será enviado LOGO DEPOIS da sua mensagem. Escreva SOMENTE a abertura: 1 ou 2 frases curtas com a leitura mais importante do período (o que foi fora do normal, se o mês está no azul ou apertado, o alerta principal), no tom de um assessor que conhece a pessoa. Não repita a lista de números, não use lista, não faça pergunta nem oferta (o resumo já termina com a sugestão). Pode citar no máximo um valor dos FATOS.",
   layout: "O usuário pediu um dado em formato de série/lista (mês a mês, dia a dia). A resposta completa, já diagramada com todos os pontos, será enviada LOGO DEPOIS da sua mensagem. Escreva SOMENTE a abertura: 1 ou 2 frases curtas com a leitura mais útil da série (pico, tendência, mês/dia fora do padrão). Não repita a lista, não faça pergunta nem oferta. Pode citar no máximo um valor dos FATOS.",
+  explain: "O usuário respondeu a um AVISO/RELATÓRIO que você mesmo enviou e quer entendê-lo. O RASCUNHO traz o que você disse e os fatos que sustentam. Responda à pergunta dele em linguagem simples: (1) em 1-2 frases, o motivo do aviso usando os itens e valores dos FATOS (qual item pesa, em que data, se é estimado ou confirmado); (2) UMA sugestão concreta e proporcional ao que os fatos mostram (ex.: conferir um item estimado, adiantar uma entrada, remanejar uma data, revisar uma meta) — sem inventar números, sem prometer resultado e sem exigir que ele faça algo. Se os fatos não bastam para explicar algum ponto, diga isso com honestidade em vez de supor. Termine com no máximo UMA pergunta curta oferecendo detalhar ou simular.",
   compound: "O usuário fez mais de um pedido na mesma mensagem. Responda cada parte na ordem, conectando-as numa conversa só (por exemplo: o dado e, em seguida, o conselho que decorre dele).",
 };
 

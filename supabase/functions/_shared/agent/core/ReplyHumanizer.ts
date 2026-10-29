@@ -68,8 +68,11 @@ function dataVendorWords(dataText: string): string[] {
   return [...found];
 }
 
+/** Marcador de modelo não preenchido ("{usuário}", "{nome}"): nunca chega à pessoa. */
+const UNFILLED_PLACEHOLDER = /,?\s*\*?\{[\p{L}_ ]{2,24}\}\*?/gu;
+
 function stripInternalNames(text: string, dataText = ""): string {
-  let out = text;
+  let out = text.replace(UNFILLED_PLACEHOLDER, "");
   for (const rx of INTERNAL_TOKENS) out = out.replace(rx, "");
   const protectedWords = dataVendorWords(dataText);
   const marks = new Map<string, string>();
