@@ -148,6 +148,16 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const days = Math.max(1, Math.min(730, Number(rollingDays[1])));
     return rolling(days, today, `últimos ${days} dias`, rollingDays[0]);
   }
+  // Janela à frente ("nos próximos 10 dias"): de hoje até hoje+N-1. Sem isso a pergunta
+  // virava "qual período?" mesmo com a janela dita por extenso.
+  const forwardDays = t.match(/\bproximos?\s+(\d{1,3})\s+dias\b/);
+  if (forwardDays) {
+    const days = Math.max(1, Math.min(365, Number(forwardDays[1])));
+    return {
+      from: today, to: shift(today, days - 1), label: `próximos ${days} dias`, matched: forwardDays[0],
+      complete: false, kind: "range",
+    };
+  }
   if (/\b(comeco|inicio) do mes\b/.test(t)) {
     return {
       from: `${year}-${String(month).padStart(2, "0")}-01`, to: shift(`${year}-${String(month).padStart(2, "0")}-01`, 9),

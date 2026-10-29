@@ -60,7 +60,10 @@ export async function buildMultiFinanceProactiveContext(
   const debtObligations = await loadDebtObligations(sb, userId, snapshot.today);
 
   const agenda = (snapshot as any).commitment_agenda ?? { items: [] };
-  const commitments = (agenda.items ?? []) as any[];
+  // Só o que ainda vai sair: compromisso pago já saiu do saldo de hoje e não pode ser
+  // descontado de novo na projeção de caixa (mesma regra do snapshot).
+  const commitments = ((agenda.pending_items ?? agenda.items ?? []) as any[])
+    .filter((item) => item.payment_status !== "paid");
   const monthlyIncome = Math.max(
     num(snapshot.current_month_income),
     num(snapshot.estimated_fixed_income) + num(snapshot.confirmed_future_income),

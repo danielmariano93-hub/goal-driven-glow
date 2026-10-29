@@ -75,6 +75,33 @@ function formatFutureInstallments(result: any): string | null {
 
 import { formatSpendingAggregate } from "./handlers/GenericAggregateFormat.ts";
 
+const dm = (iso: string) => { const [, mo, d] = String(iso).slice(0, 10).split("-"); return mo && d ? `${d}/${mo}` : String(iso); };
+
+function formatCashProjection(result: any): string | null {
+  const available = Number(result?.available_today);
+  if (!Number.isFinite(available) || !Array.isArray(result?.days)) return null;
+  const days: any[] = result.days;
+  const neg = result.first_negative_date ? days.find((d) => d.date === result.first_negative_date) : null;
+  const upto = neg ? days.filter((d) => d.date <= neg.date) : days.slice(0, 6);
+  const lines: string[] = [`Seu saldo disponível hoje é *${BRL.format(available)}*.`];
+  if (neg) {
+    lines.push(`Somando as entradas previstas e os compromissos pendentes, o caixa fica em *${BRL.format(neg.balance)}* em *${dm(neg.date)}*.`);
+  } else if (days.length) {
+    lines.push(`Nos próximos ${Number(result.horizon_days) || 30} dias o caixa não fica negativo; o menor saldo projetado é *${BRL.format(Number(result.lowest_balance))}* em ${dm(result.lowest_date)}.`);
+  } else {
+    return `${lines[0]} Não há entradas nem compromissos pendentes nos próximos ${Number(result.horizon_days) || 30} dias.`;
+  }
+  lines.push("", "Dia a dia:");
+  for (const d of upto.slice(-8)) {
+    const parts = (d.items ?? []).map((i: any) => `${i.kind === "income" ? "+" : "−"} ${i.name} ${BRL.format(Number(i.amount))}${i.estimated ? " (estimado)" : ""}`);
+    lines.push(`• *${dm(d.date)}*: ${parts.join("; ")} → saldo ${BRL.format(Number(d.balance))}`);
+  }
+  if (upto.some((d) => (d.items ?? []).some((i: any) => i.estimated))) {
+    lines.push("", "Itens “estimado” vêm de recorrência ou entrada prevista, não de valor confirmado.");
+  }
+  return lines.join("\n");
+}
+
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_net_worth: formatNetWorth,
   get_account_balance: formatAccountBalance,
@@ -87,6 +114,7 @@ const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_goals_overview: formatGoalsOverview,
   get_debt_status: formatDebtStatus,
   forecast_month_close: formatForecastMonthClose,
+  explain_cash_projection: formatCashProjection,
   compare_periods: formatPeriodComparisonEnhanced,
 };
 

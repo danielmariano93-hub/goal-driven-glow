@@ -2382,6 +2382,67 @@ export async function get_commitments_agenda(ctx: ToolContext): Promise<ToolResu
   }
 }
 
+/**
+ * `explain_cash_projection` — a MESMA conta do alerta "caixa fica negativo":
+ * saldo disponível hoje + entradas previstas − compromissos pendentes, dia a dia,
+ * com o nome e o valor de cada item. Compromisso já pago não entra (o dinheiro já
+ * saiu do saldo de hoje).
+ */
+export async function explain_cash_projection(ctx: ToolContext): Promise<ToolResult> {
+  try {
+    const snap = await computeAgentSnapshot(ctx.sb, ctx.user_id);
+    const today = String(snap.today);
+    const limit = new Date(Date.parse(`${today}T12:00:00Z`) + CASH_PROJECTION_DAYS * 86_400_000).toISOString().slice(0, 10);
+    type Entry = { name: string; kind: "income" | "expense"; amount: number; source: string; estimated: boolean };
+    const byDate = new Map<string, Entry[]>();
+    const push = (date: string, entry: Entry) => {
+      const d = String(date).slice(0, 10);
+      if (d < today || d > limit) return;
+      byDate.set(d, [...(byDate.get(d) ?? []), entry]);
+    };
+    for (const e of snap.estimated_income_events ?? []) {
+      push(e.date, { name: String(e.label ?? "Entrada prevista"), kind: "income", amount: Math.abs(Number(e.amount) || 0), source: String(e.source ?? "income_event"), estimated: true });
+    }
+    for (const i of snap.commitment_agenda.pending_items ?? []) {
+      push(i.date, { name: String(i.name ?? "Compromisso"), kind: i.type === "income" ? "income" : "expense", amount: Math.abs(Number(i.amount) || 0), source: String(i.source), estimated: !!i.estimated });
+    }
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    let balance = r2(Number(snap.available_today) || 0);
+    const days = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, entries]) => {
+      const inflow = r2(entries.filter((e) => e.kind === "income").reduce((t, e) => t + e.amount, 0));
+      const outflow = r2(entries.filter((e) => e.kind === "expense").reduce((t, e) => t + e.amount, 0));
+      balance = r2(balance + inflow - outflow);
+      return { date, inflow, outflow, balance, items: entries.sort((a, b) => b.amount - a.amount) };
+    });
+    const firstNegative = days.find((d) => d.balance < 0) ?? null;
+    const lowest = days.reduce<typeof days[number] | null>((m, d) => (!m || d.balance < m.balance ? d : m), null);
+    return {
+      ok: true,
+      result: {
+        as_of: today,
+        horizon_days: CASH_PROJECTION_DAYS,
+        available_today: r2(Number(snap.available_today) || 0),
+        projected_month_end_available: r2(Number(snap.projected_month_end_available) || 0),
+        month_end: String(snap.month_end),
+        first_negative_date: firstNegative?.date ?? null,
+        first_negative_balance: firstNegative?.balance ?? null,
+        lowest_date: lowest?.date ?? null,
+        lowest_balance: lowest?.balance ?? null,
+        days,
+        point: r2(Number(snap.available_today) || 0),
+        provenance: makeProvenance({
+          from: today, to: limit, row_count: days.length,
+          formula_version: snap.formula_version,
+          confidence: days.some((d) => d.items.some((i) => i.estimated)) ? "medium" : "high",
+        }),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+const CASH_PROJECTION_DAYS = 30;
+
 // ---------- Registro ----------
 
 export type ToolSpec = {
@@ -3855,6 +3916,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Agenda canônica de compromissos dos próximos dias: faturas, parcelas, dívidas e recorrências com data e valor. Use para 'o que vence agora', 'quais contas estão chegando'.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     execute: get_commitments_agenda,
+  },
+  {
+    name: "explain_cash_projection",
+    description: "Explica a projeção de caixa dia a dia: saldo de hoje, entradas previstas e cada compromisso pendente (nome, data, valor) até o primeiro dia negativo. Use para 'por que o caixa fica negativo', 'quais lançamentos futuros pesam', 'me explica esse alerta de caixa'.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    execute: explain_cash_projection,
   },
 
 ];
