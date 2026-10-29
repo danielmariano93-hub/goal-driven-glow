@@ -149,6 +149,8 @@ export type SemanticPipelineInput = {
   preservation_enforced?: boolean;
   /** `typical_monthly_v1`: handler determinístico de gasto típico mensal. */
   typical_monthly_enabled?: boolean;
+  /** `generic_aggregate_v1`: executor genérico para queries sem motor dedicado. */
+  generic_aggregate_enabled?: boolean;
   /**
    * A semântica já veio de ConversationTurnContract v2. Neste modo a pipeline
    * pode traduzir/validar/executar, mas não roda outro classificador lexical.
@@ -323,6 +325,9 @@ export async function runSemanticTurn(
     }
   }
 
+  if (irV2 && input.generic_aggregate_enabled) {
+    irV2 = { ...irV2, execution_options: { ...irV2.execution_options, generic_aggregate: true } };
+  }
   let validation = irV2 ? validateFinancialPlan(irV2) : null;
   let status = deriveSemanticStatus({ ir: irV2, validation });
 
@@ -619,7 +624,11 @@ export async function runSemanticTurn(
           },
         });
         if (revised?.telemetry) deps.recordStage(revised.telemetry, "investigation_replan");
-        return revised?.ir ? normalizeToV2(revised.ir, { acts: input.acts, topic_id: topic.topic_id }) : null;
+        if (!revised?.ir) return null;
+        const replanned = normalizeToV2(revised.ir, { acts: input.acts, topic_id: topic.topic_id });
+        return input.generic_aggregate_enabled
+          ? { ...replanned, execution_options: { generic_aggregate: true } }
+          : replanned;
       },
     });
     execution = outcome.execution;

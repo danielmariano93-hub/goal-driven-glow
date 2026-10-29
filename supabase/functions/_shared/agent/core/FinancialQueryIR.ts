@@ -326,6 +326,11 @@ export type FinancialQueryIRv2 = {
   comparison_period: CanonicalPeriod | null;
   source: FinancialQueryIR["source"];
   unsupported_reason: string | null;
+  /**
+   * Opções de EXECUÇÃO do turno (não de interpretação). `generic_aggregate`
+   * liga o executor genérico para queries sem motor dedicado.
+   */
+  execution_options?: { generic_aggregate?: boolean };
 };
 
 const CLAIM_TYPES = new Set<string>(EVIDENCE_CLAIM_TYPES);

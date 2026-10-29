@@ -11,18 +11,24 @@
 // buraco estrutural: "existe caminho executável para esta combinação?".
 import { describe, expect, it } from "vitest";
 import { mappingForQuery } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter.ts";
+import { genericAggregateMapping } from "../../supabase/functions/_shared/agent/core/GenericAggregateEligibility.ts";
 import { executionPlanTelemetry } from "../../supabase/functions/_shared/agent/core/ExecutionPlanTelemetry.ts";
 
 const period = { from: "2026-09-01", to: "2026-09-30", label: "setembro" };
 const comparison = { from: "2026-08-01", to: "2026-08-31" };
 const ir = { period, comparison_period: comparison } as any;
+const irGeneric = { ...ir, execution_options: { generic_aggregate: true } } as any;
 const f = (field: string, value: string) => ({ field, op: "eq", value });
 const q = (over: Record<string, unknown>) => ({
   id: "q1", metric: "expense_amount", operation: "sum", group_by: [], filters: [],
   limit: null, depends_on: [], ...over,
 } as any);
 
-type Case = { ask: string; query: any; family: string; status: "mapped" | "gap" };
+type Case = {
+  ask: string; query: any; family: string; status: "mapped" | "gap";
+  /** Status com `generic_aggregate_v1` ligada; omitido = igual ao padrão. */
+  withGeneric?: "mapped" | "gap";
+};
 
 export const GOLDEN: Case[] = [
   { ask: "quanto gastei em lazer em setembro?", family: "total_categoria", status: "mapped",
@@ -46,25 +52,26 @@ export const GOLDEN: Case[] = [
   { ask: "lazer neste mês comparado com o mês anterior", family: "comparar_categoria", status: "mapped",
     query: q({ operation: "compare", filters: [f("category", "Lazer")] }) },
   // --- lacunas conhecidas (linha de base) ---
-  { ask: "quanto gasto por mês com assinaturas?", family: "soma_mensal_sem_filtro_estab", status: "gap",
+  { ask: "quanto gasto por mês com assinaturas?", family: "soma_mensal_sem_filtro_estab", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["month"], filters: [f("category", "Assinaturas")] }) },
-  { ask: "em que dia da semana gasto mais?", family: "dia_da_semana", status: "gap",
+  { ask: "em que dia da semana gasto mais?", family: "dia_da_semana", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["weekday"] }) },
-  { ask: "meus gastos no Thales por categoria", family: "estab_agrupado_categoria", status: "gap",
+  { ask: "meus gastos no Thales por categoria", family: "estab_agrupado_categoria", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["category"], filters: [f("merchant", "Thales")] }) },
-  { ask: "gastos no Uber por cartão", family: "estab_agrupado_cartao", status: "gap",
+  { ask: "gastos no Uber por cartão", family: "estab_agrupado_cartao", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["card"], filters: [f("merchant", "Uber")] }) },
-  { ask: "quanto gastei no Thales no cartão Nubank?", family: "estab_x_cartao", status: "gap",
+  { ask: "quanto gastei no Thales no cartão Nubank?", family: "estab_x_cartao", status: "gap", withGeneric: "mapped",
     query: q({ filters: [f("merchant", "Thales"), f("card", "Nubank")] }) },
-  { ask: "gastos por estabelecimento no cartão Nubank", family: "estab_agrupado_filtro_cartao", status: "gap",
+  { ask: "gastos por estabelecimento no cartão Nubank", family: "estab_agrupado_filtro_cartao", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["merchant"], filters: [f("card", "Nubank")] }) },
   { ask: "gasto mensal por categoria", family: "dois_agrupamentos", status: "gap",
     query: q({ operation: "breakdown", group_by: ["month", "category"] }) },
-  { ask: "total de lazer por semana no cartão Nubank", family: "serie_semanal_cartao", status: "gap",
+  { ask: "total de lazer por semana no cartão Nubank", family: "serie_semanal_cartao", status: "gap", withGeneric: "mapped",
     query: q({ operation: "trend", group_by: ["week"], filters: [f("category", "Lazer"), f("card", "Nubank")] }) },
 ];
 
 const statusOf = (c: Case) => (mappingForQuery(c.query, ir) ? "mapped" : "gap");
+const statusWithGeneric = (c: Case) => (mappingForQuery(c.query, irGeneric) ? "mapped" : "gap");
 
 describe("conjunto dourado de cobertura (offline)", () => {
   for (const c of GOLDEN) {
@@ -73,9 +80,16 @@ describe("conjunto dourado de cobertura (offline)", () => {
     });
   }
 
+  for (const c of GOLDEN) {
+    it(`com executor genérico: ${c.family} → ${c.withGeneric ?? c.status}`, () => {
+      expect(statusWithGeneric(c)).toBe(c.withGeneric ?? c.status);
+    });
+  }
+
   it("relatório da linha de base", () => {
     const mapped = GOLDEN.filter((c) => statusOf(c) === "mapped").length;
-    console.log(`[cobertura dourada] ${mapped}/${GOLDEN.length} casos com motor`);
+    const withGeneric = GOLDEN.filter((c) => statusWithGeneric(c) === "mapped").length;
+    console.log(`[cobertura dourada] ${mapped}/${GOLDEN.length} com motor dedicado; ${withGeneric}/${GOLDEN.length} com executor genérico`);
     expect(GOLDEN.length).toBeGreaterThanOrEqual(18);
   });
 });
@@ -94,5 +108,41 @@ describe("telemetria do plano (`nino_coverage_telemetry.v1`)", () => {
 
   it("sem IR devolve null", () => {
     expect(executionPlanTelemetry(null)).toBeNull();
+  });
+});
+
+describe("elegibilidade do executor genérico (limites que preservam a verdade)", () => {
+  const generic = (query: any) => genericAggregateMapping(query, ir)?.tool;
+  const dedicatedOnly = (query: any) => mappingForQuery(query, ir)?.tool;
+
+  it("com a flag desligada nunca usa o executor genérico", () => {
+    expect(dedicatedOnly(q({ operation: "breakdown", group_by: ["weekday"] }))).toBeUndefined();
+  });
+
+  it("motor dedicado tem prioridade sobre o genérico", () => {
+    expect(mappingForQuery(q({ filters: [f("category", "Lazer")] }), irGeneric)?.tool).not.toBe("spending_aggregate");
+  });
+
+  it("tendência sem dimensão de tempo é recusada (seria um total)", () => {
+    expect(generic(q({ operation: "trend", filters: [f("merchant", "Thales"), f("card", "Nubank")] }))).toBeUndefined();
+  });
+
+  it("ranking e detalhamento sem dimensão são recusados", () => {
+    expect(generic(q({ operation: "rank", filters: [f("merchant", "Thales"), f("card", "Nubank")] }))).toBeUndefined();
+  });
+
+  it("filtro repetido, operador diferente de eq e dimensão já fixada por filtro são recusados", () => {
+    expect(generic(q({ filters: [f("merchant", "A"), f("merchant", "B")] }))).toBeUndefined();
+    expect(generic(q({ filters: [{ field: "merchant", op: "neq", value: "A" }, f("card", "Nubank")] }))).toBeUndefined();
+    expect(generic(q({ operation: "breakdown", group_by: ["card"], filters: [f("card", "Nubank"), f("merchant", "Uber")] }))).toBeUndefined();
+  });
+
+  it("receita por categoria é recusada (categoria é só de despesa)", () => {
+    expect(generic(q({ metric: "income_amount", operation: "breakdown", group_by: ["category"], filters: [f("merchant", "Empresa")] }))).toBeUndefined();
+  });
+
+  it("série diária em janela longa demais é recusada", () => {
+    const longIr = { ...irGeneric, period: { from: "2026-01-01", to: "2026-09-30", label: "ano" } };
+    expect(mappingForQuery(q({ operation: "sum", group_by: ["day"], filters: [f("card", "Nubank")] }), longIr)).toBeNull();
   });
 });

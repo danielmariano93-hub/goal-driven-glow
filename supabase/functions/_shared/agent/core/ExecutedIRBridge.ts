@@ -171,6 +171,35 @@ function fromMerchantProfile(requested: FinancialQueryV3, result: unknown): Exec
   };
 }
 
+/**
+ * Agregação genérica (`nino_generic_aggregate.v1`): filtros, dimensão e janela
+ * vêm do que o motor APLICOU; aspecto/grão/redução seguem o pedido porque o
+ * motor só soma na janela dada (a elegibilidade já barra tendência sem série).
+ */
+function fromSpendingAggregate(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (r.engine !== "spending_aggregate" || !Array.isArray(r.groups)) return null;
+  const e = (r.executed_ir ?? {}) as Record<string, unknown>;
+  const time = (e.time ?? {}) as Record<string, unknown>;
+  return {
+    metric: String(e.metric ?? requested.metric),
+    filters: Array.isArray(e.filters) ? e.filters as FinancialFilter[] : [],
+    time: {
+      aspect: requested.time.aspect,
+      from: time.from ? String(time.from) : null,
+      to: time.to ? String(time.to) : null,
+      n: requested.time.n,
+      exclude_partial: requested.time.exclude_partial,
+    },
+    grain: requested.grain,
+    reduce: requested.reduce,
+    group_by: Array.isArray(e.group_by) ? e.group_by.map(String) : [],
+    comparison_baseline: requested.comparison_baseline ?? "period",
+    comparison_baseline_window: requested.comparison_baseline_window ?? null,
+    partial: false,
+  };
+}
+
 /** Derivação estrutural de `spending_report` (analyze_spending). */
 function fromSpendingReport(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
   const r = (result ?? {}) as Record<string, unknown>;
@@ -254,7 +283,8 @@ export function executedIRFrom(
   requested: FinancialQueryV3,
   result: unknown,
 ): ExecutedIR | null {
-  return declared(result)
+  return fromSpendingAggregate(requested, result)
+    ?? declared(result)
     ?? fromMonthlyAverageComparison(requested, result)
     ?? fromPeriodComparison(requested, result)
     ?? fromMerchantDistribution(requested, result)

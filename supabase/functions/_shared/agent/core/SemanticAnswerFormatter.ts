@@ -73,12 +73,15 @@ function formatFutureInstallments(result: any): string | null {
   return lines.join("\n");
 }
 
+import { formatSpendingAggregate } from "./handlers/GenericAggregateFormat.ts";
+
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_net_worth: formatNetWorth,
   get_account_balance: formatAccountBalance,
   get_future_installments: formatFutureInstallments,
   analyze_spending: formatSpendingAnalysis,
   merchant_distribution: formatMerchantDistribution,
+  spending_aggregate: formatSpendingAggregate,
   compare_to_monthly_average: formatAverageComparisonEnhanced,
   get_financial_snapshot: formatFinancialSnapshot,
   get_goals_overview: formatGoalsOverview,

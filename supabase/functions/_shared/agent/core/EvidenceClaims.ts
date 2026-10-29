@@ -209,6 +209,28 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
     });
   }
 
+  // Agregação genérica (`nino_generic_aggregate.v1`): total, contagem, o que o
+  // limite deixou de fora e cada grupo listado (valor, participação, posição).
+  if (result.engine === "spending_aggregate" && Array.isArray(result.groups)) {
+    const omitted = (result.omitted ?? {}) as Record<string, unknown>;
+    const omittedTotal = num(omitted.total);
+    if (omittedTotal != null && omittedTotal > 0) claims.push({ id: seq(), ...base, type: "money", value: omittedTotal, label: "omitted_total", rank: null });
+    const txTotal = num(result.transaction_count);
+    if (txTotal != null) claims.push({ id: seq(), ...base, type: "count", value: txTotal, label: "transaction_count", rank: null });
+    (result.groups as Array<Record<string, unknown>>).forEach((row, index) => {
+      const name = typeof row.label === "string" ? row.label : null;
+      if (!name) return;
+      const amount = num(row.total);
+      claims.push({ id: seq(), ...base, type: "rank", value: amount, label: name, rank: index + 1 });
+      claims.push({ id: seq(), ...base, type: "entity", value: amount, label: name, rank: index + 1 });
+      if (amount != null) claims.push({ id: seq(), ...base, type: "money", value: amount, label: name, rank: index + 1 });
+      const share = num(row.share);
+      if (share != null) claims.push({ id: seq(), ...base, type: "percentage", value: share, label: name, rank: index + 1 });
+      const count = num(row.transaction_count);
+      if (count != null) claims.push({ id: seq(), ...base, type: "count", value: count, label: name, rank: index + 1 });
+    });
+  }
+
   const rows = isComparison || isMerchantDistribution ? [] : Array.isArray(result.top) ? result.top
     : Array.isArray(result.rows) ? result.rows
     : Array.isArray(result.breakdown) ? result.breakdown
