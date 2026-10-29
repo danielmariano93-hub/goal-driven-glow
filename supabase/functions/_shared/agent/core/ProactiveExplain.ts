@@ -20,6 +20,8 @@ export const PROACTIVE_OUTBOUND_KINDS = [
 ] as const;
 
 const WINDOW_HOURS = 48;
+/** Valores do enum `msg_status` que significam "a pessoa recebeu": `accepted` NÃO existe no banco. */
+export const OUTBOUND_RECEIVED_STATUSES = ["sent", "delivered", "read"] as const;
 const BODY_LIMIT = 1500;
 const FACTS_LIMIT = 3500;
 
@@ -102,7 +104,7 @@ export async function loadRecentProactive(
     .select("id,kind,body,metadata,created_at,status,surface")
     .eq("user_id", userId)
     .gte("created_at", since)
-    .in("status", ["sent", "accepted", "delivered", "read"])
+    .in("status", [...OUTBOUND_RECEIVED_STATUSES])
     .order("created_at", { ascending: false })
     .limit(12);
   if (error || !data?.length) return null;

@@ -3,7 +3,7 @@
 // alerta de caixa aponta o item que realmente causa o negativo.
 import { describe, expect, it } from "vitest";
 import {
-  explainProactiveBody, loadRecentProactive, proactiveContextBlock, sanitizeProactiveFacts,
+  explainProactiveBody, loadRecentProactive, OUTBOUND_RECEIVED_STATUSES, proactiveContextBlock, sanitizeProactiveFacts,
 } from "../../supabase/functions/_shared/agent/core/ProactiveExplain";
 import { guardComposedReply } from "../../supabase/functions/_shared/agent/v3/ConversationalComposerV3";
 import { bridgeTurnSpecV3ToRuntime } from "../../supabase/functions/_shared/agent/v3/V3RuntimeBridge";
@@ -42,6 +42,12 @@ describe("aviso recente como assunto do seguimento", () => {
     expect((await loadRecentProactive(sbWithLatest(cashRow), "u", NOW))?.suggestion_kind).toBe("upcoming_cash_pressure");
     expect(await loadRecentProactive(sbWithLatest({ ...cashRow, kind: "agent" }), "u", NOW)).toBeNull();
     expect(await loadRecentProactive(sbWithLatest(null), "u", NOW)).toBeNull();
+  });
+
+  it("só filtra por status que existem no enum do banco (msg_status)", () => {
+    // Um valor inexistente faz o banco recusar a consulta inteira e o aviso nunca é achado.
+    const MSG_STATUS = ["queued", "processing", "sent", "delivered", "read", "failed", "dead"];
+    for (const status of OUTBOUND_RECEIVED_STATUSES) expect(MSG_STATUS).toContain(status);
   });
 
   it("o espelho in-app e a notificação do aviso não escondem o aviso", async () => {
