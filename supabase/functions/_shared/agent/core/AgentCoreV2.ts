@@ -49,6 +49,7 @@ import {
 } from "./handlers/MonthlySeriesHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
 import { executionPlanTelemetry } from "./ExecutionPlanTelemetry.ts";
+import { inheritedScopeNote, type ScopeFilter } from "./InheritedScopeNote.ts";
 import { estimateCost } from "./Observability.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
@@ -774,6 +775,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     }
   }
 
+  // ---- Transparência de escopo herdado -------------------------------------
+  // Recorte usado na resposta que não está na frase atual veio da conversa anterior:
+  // a pessoa precisa saber disso e como sair (nunca em silêncio).
+  if (merged.reply_kind === "info" && !merged.error) {
+    const note = inheritedScopeNote(brainText, (merged.diagnostics?.scope_filters ?? []) as ScopeFilter[]);
+    if (note) finalReply = `${finalReply}\n\n${note}`;
+  }
+
   // ---- Relationship memory -------------------------------------------------
   const todayCivil = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   let rememberedNotes = 0;
@@ -1381,7 +1390,11 @@ async function executeContract(
     ?? semantic.canonical_fallback?.honest_reply
     ?? "Entendi a pergunta, mas não consegui fechar uma resposta segura com os dados disponíveis.";
   let replyKind: HandleTurnResult["reply_kind"] = semantic.status === "clarification_required" ? "question" : "info";
-  const fulfillmentBlocked = !!fulfillment && !fulfillment.ok && !!semantic.turn;
+  // Entidade inexistente (cartão, categoria, conta): a recusa honesta com as opções reais
+  // JÁ é a resposta e não carrega número algum. Não há execução para comparar com o
+  // pedido, então o gate de cumprimento a trocava por uma frase genérica.
+  const honestDomainFailure = semantic.telemetry?.executed_by === "honest_domain_failure";
+  const fulfillmentBlocked = !!fulfillment && !fulfillment.ok && !!semantic.turn && !honestDomainFailure;
   if (fulfillmentBlocked) {
     reply = PROTECTED_ENGINE_FAILURE_REPLY;
     replyKind = "info";
@@ -1439,11 +1452,12 @@ async function executeContract(
     layout_tail: laidOut ? reply : null,
     compose_kind: laidOut
       ? "layout"
-      : replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
+      // A recusa de domínio traz as opções reais do banco: o compositor não a reescreve.
+      : replyKind === "info" && !fulfillmentBlocked && !honestDomainFailure && successfulSemanticExecution && !!semantic.turn
       ? "answer"
       // Honest failure (blocked, unsupported, no data): keep it honest but
       // human, answering the conversational part without any amount.
-      : replyKind === "info" && (fulfillmentBlocked || !successfulSemanticExecution)
+      : replyKind === "info" && !honestDomainFailure && (fulfillmentBlocked || !successfulSemanticExecution)
         ? "recovery"
         : null,
     evidence: [...toolCalls.filter((call) => call.ok).map((call) => call.result), ...extraEvidence],
@@ -1470,6 +1484,10 @@ async function executeContract(
       mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],
       validation_errors: semantic.validation?.errors ?? [],
       plan: executionPlanTelemetry(semantic.ir_v2),
+      // Recorte que a resposta usou (campo e valor), para a transparência de escopo herdado.
+      scope_filters: successfulSemanticExecution
+        ? (semantic.ir_v2?.queries ?? []).flatMap((q) => (q.filters ?? []).map((f) => ({ field: f.field, value: String(f.value) })))
+        : [],
       // Por que um turno executável não virou resposta: códigos dos gates, sem texto do usuário.
       gates: {
         errors: (semantic.errors ?? []).slice(0, 6).map((e) => String(e).slice(0, 80)),
