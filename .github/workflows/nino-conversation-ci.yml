@@ -74,6 +74,7 @@ jobs:
           src/test/nino-single-semantic-authority-v3.test.ts
           src/test/nino-lifecycle-hardening-v3.test.ts
           src/test/nino-human-conversation-v1.test.ts
+          src/test/nino-coverage-golden.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
