@@ -89,7 +89,9 @@ export function assertInvariants(txs: TransactionRow[]): ReconciliationResult {
     );
     if (cycleTxs.length === 0) continue; // sem contexto suficiente
     const sum = cycleTxs.reduce((s, t) => s + Number(t.amount), 0);
-    const diff = Math.abs(sum - Number(p.amount));
+    // Pagamento PARCIAL de fatura é legítimo (paga-se R$ 300 de R$ 4.000). O que não fecha é pagar MAIS
+    // do que as compras do ciclo somam. Exigir igualdade acusava falha em toda fatura paga em partes.
+    const diff = Number(p.amount) - sum;
     if (diff > 0.01) {
       violations.push({
         kind: "card_cycle_mismatch",

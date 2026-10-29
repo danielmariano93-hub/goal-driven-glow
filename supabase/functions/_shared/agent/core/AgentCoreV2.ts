@@ -18,7 +18,7 @@ import { resolveSession } from "./SessionManager.ts";
 import { loadConversationMemory, saveConversationMemory, type ConversationMemory } from "./ConversationMemory.ts";
 import { loadWorkflow } from "./WriteWorkflowManager.ts";
 import {
-  dialogueActsFromContract, interpretConversationTurn, isProviderCapacityFailure, isProviderStructuredFailure,
+  dialogueActsFromContract, interpretConversationTurn, isProviderCapacityFailure, isProviderStructuredFailure, withoutStaleScope,
 } from "./ConversationAuthority.ts";
 import {
   comparisonPeriodExpressions, normalizeConversationTurnContract, normalizePeriodExpressions,
@@ -568,13 +568,14 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       ? topicRepo.findByMessageId(input.reply_context.quoted_message_id).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const memory = rawMemory
-    ? { ...rawMemory, references: advanceReferences(rawMemory.references ?? []) }
-    : rawMemory;
-
   const history = input.channel === "app"
     ? loadedHistory
     : withoutCurrentTurn(loadedHistory, input.text);
+  // O recorte da memória (categoria/estabelecimento) só vale se a conversa atual ainda o cita: a memória é
+  // por pessoa e sobrevive a conversas e dias ("e em agosto?" herdava a categoria de outra conversa).
+  const memory = rawMemory
+    ? withoutStaleScope({ ...rawMemory, references: advanceReferences(rawMemory.references ?? []) }, history)
+    : rawMemory;
 
   const continuation = resolveContinuation({
     text: input.text,

@@ -53,11 +53,14 @@ function staleScope(memory: AuthorityInput["memory"], history: AuthorityInput["h
   return !labels.some((label) => recent.includes(label));
 }
 
+/** Memória sem o recorte antigo (categoria/estabelecimento que a conversa atual já não cita). */
+export function withoutStaleScope<M extends AuthorityInput["memory"]>(memory: M, history: AuthorityInput["history"]): M {
+  if (!memory || !staleScope(memory, history)) return memory;
+  return { ...memory, active_category: null, active_merchant: null, last_tool_context: null, last_analysis: null, references: [] } as M;
+}
+
 function typedContextText(input: AuthorityInput): string {
-  const stale = staleScope(input.memory, input.history);
-  const memory = stale && input.memory
-    ? { ...input.memory, active_category: null, active_merchant: null, last_tool_context: null, last_analysis: null, references: [] }
-    : input.memory;
+  const memory = withoutStaleScope(input.memory, input.history);
   const workflow = input.workflow;
   const trustedPeriod = trustedActivePeriod(memory);
   const context = {

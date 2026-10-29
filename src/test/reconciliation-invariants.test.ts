@@ -68,6 +68,15 @@ describe("reconciliation invariants", () => {
     expect(r.violations.some(v => v.kind === "card_cycle_mismatch")).toBe(true);
   });
 
+  it("pagamento PARCIAL de fatura não é inconsistência (só pagar mais que o ciclo)", () => {
+    const txs = [
+      tx({ payment_method: "credit_card", credit_card_id: "c1", amount: 4000, competence_date: "2026-07-15" }),
+      tx({ movement_kind: "card_payment", settles_card_id: "c1", amount: 300, competence_date: "2026-07-15" }),
+      tx({ movement_kind: "card_payment", settles_card_id: "c1", amount: 50, competence_date: "2026-07-15" }),
+    ];
+    expect(assertInvariants(txs).violations.some(v => v.kind === "card_cycle_mismatch")).toBe(false);
+  });
+
   it("reembolso maior que original é bloqueado", () => {
     const original = tx({ id: "orig", amount: 100 });
     const refund = tx({ movement_kind: "refund", amount: 150, type: "income", refunds_transaction_id: "orig" });
