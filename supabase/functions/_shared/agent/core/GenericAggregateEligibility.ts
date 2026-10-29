@@ -21,6 +21,17 @@ function daysBetween(from: string, to: string): number {
   return Math.round((b - a) / 86_400_000) + 1;
 }
 
+const CREDIT_WORDS = /^(credit_card|cartao|cartao de credito|credito|cartao credito|credit card|no cartao|no credito)$/;
+const ACCOUNT_WORDS = /^(account|conta|conta corrente|debito|cartao de debito|pix)$/;
+
+/** Forma de pagamento do catálogo (`credit_card` | `account`) ou null. */
+export function normalizePaymentMethod(raw: string): "credit_card" | "account" | null {
+  const t = String(raw ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+  if (CREDIT_WORDS.test(t)) return "credit_card";
+  if (ACCOUNT_WORDS.test(t)) return "account";
+  return null;
+}
+
 export type GenericMapping = {
   tool: typeof GENERIC_AGGREGATE_TOOL;
   capability: "financial_analysis";
@@ -43,8 +54,14 @@ export function genericAggregateMapping(
   const scope: Record<string, string> = {};
   for (const f of q.filters) {
     if (f.op !== "eq" || !FILTER_FIELDS.has(f.field) || seen.has(f.field)) return null;
-    const value = String(f.value ?? "").trim();
+    let value = String(f.value ?? "").trim();
     if (!value) return null;
+    if (f.field === "payment_method") {
+      // Valor fora do catálogo não pode virar "0 gastos" em silêncio: ou normaliza, ou recusa.
+      const pm = normalizePaymentMethod(value);
+      if (!pm) return null;
+      value = pm;
+    }
     seen.add(f.field);
     scope[f.field] = value;
   }

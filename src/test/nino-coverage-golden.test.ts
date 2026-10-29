@@ -131,6 +131,15 @@ describe("elegibilidade do executor genérico (limites que preservam a verdade)"
     expect(generic(q({ operation: "trend", group_by: ["weekday"], filters: [f("merchant", "Uber")] }))).toBe("spending_aggregate");
   });
 
+  it("forma de pagamento é normalizada; valor fora do catálogo é recusado (nunca vira R$ 0)", () => {
+    const base = { operation: "sum", group_by: ["week"] };
+    const args = (v: string) => genericAggregateMapping(q({ ...base, filters: [f("payment_method", v)] }), ir)?.args as any;
+    expect(args("cartão").payment_method).toBe("credit_card");
+    expect(args("Cartão de Crédito").payment_method).toBe("credit_card");
+    expect(args("conta").payment_method).toBe("account");
+    expect(args("dinheiro vivo")).toBeUndefined();
+  });
+
   it("ranking e detalhamento sem dimensão são recusados", () => {
     expect(generic(q({ operation: "rank", filters: [f("merchant", "Thales"), f("card", "Nubank")] }))).toBeUndefined();
   });

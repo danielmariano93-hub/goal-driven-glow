@@ -123,6 +123,22 @@ describe("executor genérico ponta a ponta", () => {
 });
 
 
+describe("agrupamento semanal no cartão", () => {
+  it("semanas por data da compra passam nos gates", async () => {
+    const rows = [
+      tx({ amount: 100, occurred_at: "2026-09-02", competence_date: "2026-09-01" }),
+      tx({ amount: 50, occurred_at: "2026-09-10", competence_date: "2026-09-01" }),
+      tx({ amount: 25.5, occurred_at: "2026-09-11", competence_date: "2026-09-01" }),
+      tx({ amount: 363.42, occurred_at: "2026-04-30", competence_date: "2026-09-01" }),
+    ];
+    const { out, fulfillment } = await runTurn(true, {
+      text: "gasto por semana no cartão Nubank em setembro", operation: "sum", group_by: ["week"],
+      filters: [{ field: "card", entity: s("Nubank") }], rows,
+    });
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
 describe("rótulos de estabelecimento com números e datas", () => {
   const CARD_ROWS = [
     tx({ amount: 582.67, description: "Ingresso Anitta - Parcela 2", category_id: "cat-lazer" }),
@@ -138,8 +154,6 @@ describe("rótulos de estabelecimento com números e datas", () => {
       rows: CARD_ROWS,
     });
     expect(calls).toEqual(["spending_aggregate"]);
-    // eslint-disable-next-line no-console
-    console.log("DBG", JSON.stringify({ status: out.status, errors: out.errors, grounding: (out as any).grounding?.violations, ful: fulfillment.violations, text: out.deterministic_text }));
     expect(fulfillment.ok).toBe(true);
   });
 });

@@ -102,8 +102,22 @@ function normalizeShort(text: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
-function safeReply(text: string): string {
-  return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo."));
+function safeReply(text: string, dataText = ""): string {
+  return sanitizeUserFacingText(humanizeReply(String(text ?? "").trim() || "Certo."), "AI_TEMPORARY_UNAVAILABLE", dataText);
+}
+
+/**
+ * Texto dos dados do usuário que sustentam a resposta. Estabelecimento chamado
+ * "Lovable", "OpenAI" ou "Claude Code" é conteúdo da evidência, não vazamento de
+ * infraestrutura: sem isso, qualquer lista que o citasse virava "tente de novo".
+ */
+function evidenceDataText(toolCalls: Array<{ result?: unknown }> | undefined, result: unknown): string {
+  try {
+    const parts = [...(toolCalls ?? []).map((c) => c?.result), result].filter((v) => v != null);
+    return JSON.stringify(parts).slice(0, 300_000).toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function runtimeFailureContract(reply: string): CanonicalConversationTurnContract {
@@ -310,7 +324,7 @@ async function finishV2(args: {
   comparison_period?: { from: string; to: string } | null;
   diagnostics?: Record<string, unknown> | null;
 }): Promise<HandleTurnResult> {
-  const body = safeReply(args.reply);
+  const body = safeReply(args.reply, evidenceDataText(args.tool_calls, args.result));
 
   let nextReferences = args.memory?.references ?? [];
   if (args.contract.act === "repair") nextReferences = invalidateReferences(nextReferences);
@@ -1460,7 +1474,7 @@ async function executeContract(
       gates: {
         errors: (semantic.errors ?? []).slice(0, 6).map((e) => String(e).slice(0, 80)),
         grounding: (semantic.grounding?.violations ?? []).slice(0, 6)
-          .map((v) => `${v.kind}:${String(v.detail ?? v.status).slice(0, 60)}`),
+          .map((v) => `${v.kind}:${String(v.detail ?? v.status).slice(0, 60)}${["money", "percentage", "count"].includes(String(v.kind)) ? `:${String(v.token).slice(0, 24)}` : ""}`),
         preservation: (semantic.preservation?.mismatches ?? []).slice(0, 6)
           .map((m) => `${m.slot}:${m.reason}`.slice(0, 80)),
       },

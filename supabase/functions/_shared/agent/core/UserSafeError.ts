@@ -63,10 +63,24 @@ export const INTERNAL_PROCESS_LEAK_PATTERNS: readonly RegExp[] = [
   /\b[a-z][a-z0-9_.-]{2,}_[a-z0-9_.-]{2,}\b/i,
 ];
 
-export function leaksInfrastructure(text: string): boolean {
+/**
+ * `dataText`: texto dos DADOS do usuário que sustentam a resposta (evidência).
+ * Um termo que aparece nos dados — por exemplo o estabelecimento "Lovable" ou
+ * "Claude Code" numa assinatura — é conteúdo, não vazamento de infraestrutura.
+ * Só vale para o termo exato que aparece na evidência; o resto continua barrado.
+ */
+export function leaksInfrastructure(text: string, dataText = ""): boolean {
   const t = String(text ?? "");
   if (!t.trim()) return false;
-  return [...INFRA_LEAK_PATTERNS, ...INTERNAL_PROCESS_LEAK_PATTERNS].some((rx) => rx.test(t));
+  const data = String(dataText ?? "").toLowerCase();
+  return [...INFRA_LEAK_PATTERNS, ...INTERNAL_PROCESS_LEAK_PATTERNS].some((rx) => {
+    if (!data) return rx.test(t);
+    const global = new RegExp(rx.source, rx.flags.includes("g") ? rx.flags : `${rx.flags}g`);
+    for (const m of t.matchAll(global)) {
+      if (!data.includes(m[0].toLowerCase())) return true;
+    }
+    return false;
+  });
 }
 
 /** Classifica qualquer erro técnico em uma categoria segura para o usuário. */
@@ -97,8 +111,9 @@ export function userSafeMessage(e: unknown): string {
 export function sanitizeUserFacingText(
   text: string,
   fallback: UserSafeErrorCode = "AI_TEMPORARY_UNAVAILABLE",
+  dataText = "",
 ): string {
   const t = String(text ?? "");
-  if (!leaksInfrastructure(t)) return t;
+  if (!leaksInfrastructure(t, dataText)) return t;
   return USER_SAFE_MESSAGES[fallback];
 }
