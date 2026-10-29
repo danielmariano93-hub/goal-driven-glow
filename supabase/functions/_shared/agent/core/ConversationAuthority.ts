@@ -46,6 +46,7 @@ function typedContextText(input: AuthorityInput): string {
     precedence_policy: [
       "current_turn",
       "quoted_turn",
+      "recent_proactive_message",
       "pending_workflow",
       "active_reference",
       "evidence_backed_state",
@@ -53,6 +54,7 @@ function typedContextText(input: AuthorityInput): string {
       "relationship_memory",
     ],
     relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
+    recent_proactive_message: input.recent_proactive ?? null,
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
       conversation_summary: memory.conversation_summary ?? null,

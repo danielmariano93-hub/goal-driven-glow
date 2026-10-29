@@ -34,6 +34,9 @@ import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastL
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
+import {
+  explainProactiveBody, loadRecentProactive, NO_RECENT_PROACTIVE_REPLY, proactiveContextBlock, type RecentProactive,
+} from "./ProactiveExplain.ts";
 import { runtimeContext } from "./RuntimeContract.ts";
 import { buildTurnPlan } from "./ConversationOrchestrator.ts";
 import { runSemanticTurn } from "./SemanticTurnPipeline.ts";
@@ -595,6 +598,9 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     : null;
   const userContext = topicContextText(durableUserContext, topicResolution);
 
+  // Último aviso do Nino, se foi a última coisa que ele disse: é o assunto de um seguimento curto.
+  const recentProactive = await loadRecentProactive(sb, input.user_id).catch(() => null);
+
   const v3FirstEnabled = v3AuthorityEnabled
     && await isEnabled("v3_first_authority_v1", input.user_id).catch(() => false);
 
@@ -642,6 +648,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
       memory,
       workflow,
       user_context: userContext,
+      recent_proactive: proactiveContextBlock(recentProactive),
       // Sem modelo explícito: o interpretador semântico usa NINO_SEMANTIC_PRIMARY_MODEL
       // (benchmark real: qwen3.6-27b). Fixar aqui sobrescrevia a configuração.
       model: null,
@@ -720,7 +727,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const ctx: ContractExecutionContext = {
     sb, input, brainText, memory, groundedReference: groundedTurn.reference,
     semanticResolutionPath, brainOk: brain.telemetry.ok !== false, fromClosedCompiler: !!narrowContract || !!semanticProviderRecovery,
-    durableUserContext, session_id, evidenceCache, advisorEnabled,
+    durableUserContext, session_id, evidenceCache, advisorEnabled, recentProactive,
   };
 
   const steps: CanonicalConversationTurnContract[] = [contract, ...(brain.additional_contracts ?? [])];
@@ -867,6 +874,7 @@ type ContractExecutionContext = {
   session_id: string | undefined;
   evidenceCache: ReturnType<typeof createTurnEvidenceCache>;
   advisorEnabled: boolean;
+  recentProactive: RecentProactive | null;
 };
 
 type ToolCallRecord = { tool_name: string; args?: any; result?: any; ok: boolean };
@@ -929,7 +937,9 @@ function mergeExecutions(executions: TurnExecution[]): TurnExecution & {
     ? null
     : composable.every((execution) => execution.compose_kind === "recovery")
       ? "recovery"
-      : composable.some((execution) => execution.compose_kind === "decision") ? "decision" : "compound";
+      : composable.every((execution) => execution.compose_kind === "explain")
+        ? "explain"
+        : composable.some((execution) => execution.compose_kind === "decision") ? "decision" : "compound";
   return {
     contract: (lastRead ?? primary).contract,
     reply,
@@ -1063,6 +1073,26 @@ async function executeContract(
   // Grounded advice over the user's owned evidence, used when a legacy
   // advisory engine cannot answer (instead of the misleading generic failure).
   const groundedAdvice = () => runAdvisor({ ...contract, advisory_kind: "decision", advisory_params: contract.advisory_params ?? null });
+
+  // Seguimento de um aviso do Nino ("me explica melhor", "por quê?", "e o que eu faço?"): o
+  // assunto é a mensagem que ele acabou de mandar. Corpo = texto + fatos gravados; o compositor
+  // explica e sugere o próximo passo, e a trava de números só aceita valores do aviso/fatos.
+  if (contract.domain === "advisory" && contract.advisory_kind === "explain_message") {
+    const recent = ctx.recentProactive;
+    if (!recent) {
+      return {
+        contract, reply: NO_RECENT_PROACTIVE_REPLY, reply_kind: "question",
+        path: "deterministic_fallback", compose_kind: null, evidence: [], error: "no_recent_proactive_message",
+      };
+    }
+    return {
+      contract, reply: explainProactiveBody(recent), reply_kind: "info", path: "deterministic_tool",
+      compose_kind: "explain",
+      evidence: [{ proactive_message: { kind: recent.kind, suggestion_kind: recent.suggestion_kind, text: recent.body, facts: recent.facts } }],
+      tools: [], tool_calls: [],
+      diagnostics: { proactive_explain: { version: "nino_proactive_explain.v1", kind: recent.kind, suggestion_kind: recent.suggestion_kind } },
+    };
+  }
 
   // Period review: "como foi meu mês?" — a laid-out balance, not one number.
   if (contract.domain === "advisory" && contract.advisory_kind === "period_review") {
