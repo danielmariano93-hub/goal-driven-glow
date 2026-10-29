@@ -123,6 +123,8 @@ function dimensionValue(
   row: TransactionRow,
   ctx: {
     competence: string;
+    /** Data da compra: dia/semana/dia da semana descrevem COMPORTAMENTO, não a data da fatura. */
+    purchaseDate: string;
     categoryId: string | null;
     merchantLabel: string | null;
     lookups: AggLookups;
@@ -161,17 +163,17 @@ function dimensionValue(
       return { key: k, label: k };
     }
     case "week": {
-      const k = weekStartMonday(ctx.competence);
+      const k = weekStartMonday(ctx.purchaseDate);
       return { key: k, label: `semana de ${k.slice(8, 10)}/${k.slice(5, 7)}` };
     }
     case "day":
-      return { key: ctx.competence.slice(0, 10), label: ctx.competence.slice(0, 10) };
+      return { key: ctx.purchaseDate, label: ctx.purchaseDate };
     case "quarter": {
       const k = quarterKey(ctx.competence);
       return { key: k, label: k };
     }
     case "weekday": {
-      const i = weekdayIndex(ctx.competence);
+      const i = weekdayIndex(ctx.purchaseDate);
       return { key: String(i), label: WEEKDAYS[i] };
     }
   }
@@ -218,7 +220,7 @@ export function aggregate(input: AggInput): AggResult {
       merchantLabel = resolved?.label ?? null;
     }
 
-    const parts = groupBy.map((dim) => dimensionValue(dim, row, { competence, categoryId, merchantLabel, lookups: input.lookups }));
+    const parts = groupBy.map((dim) => dimensionValue(dim, row, { competence, purchaseDate: String(row.occurred_at).slice(0, 10), categoryId, merchantLabel, lookups: input.lookups }));
     const bucketKey = parts.map((p) => p.key).join("|");
     let bucket = buckets.get(bucketKey);
     if (!bucket) {

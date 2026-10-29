@@ -11,7 +11,8 @@ function scopeText(r: SpendingAggregateResult): string {
   const parts: string[] = [];
   if (r.scope_labels.category) parts.push(`em ${r.scope_labels.category}`);
   if (r.scope.merchant) parts.push(`em ${r.scope.merchant}`);
-  if (r.scope_labels.card) parts.push(`no cartão ${r.scope_labels.card}`);
+  // O nome do cartão já costuma começar com "Cartão" ("Cartão Itaú").
+  if (r.scope_labels.card) parts.push(/^cart[aã]o\b/i.test(r.scope_labels.card) ? `no ${r.scope_labels.card}` : `no cartão ${r.scope_labels.card}`);
   if (r.scope_labels.account) parts.push(`na conta ${r.scope_labels.account}`);
   if (r.scope.payment_method) {
     parts.push(r.scope.payment_method === "credit_card" ? "no crédito" : r.scope.payment_method === "account" ? "em conta" : `via ${r.scope.payment_method}`);
@@ -38,7 +39,9 @@ export function formatSpendingAggregate(r: SpendingAggregateResult): string {
   }
   const lines = [head, ""];
   for (const g of r.groups) {
-    const pct = g.share != null ? ` · ${PCT.format(g.share)}%` : "";
+    // Participação só faz sentido para parte positiva do todo; estorno/crédito
+    // (total negativo) faria "108%" e "-8%".
+    const pct = g.share != null && g.total > 0 && g.share <= 100 && r.total > 0 ? ` · ${PCT.format(g.share)}%` : "";
     const n = g.transaction_count > 1 ? ` · ${g.transaction_count} lançamentos` : "";
     lines.push(`• *${g.label}* — ${BRL.format(g.total)}${pct}${n}`);
   }

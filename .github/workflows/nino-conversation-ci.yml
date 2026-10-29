@@ -78,6 +78,8 @@ jobs:
           src/test/nino-generic-aggregate.test.ts
           src/test/nino-spending-aggregate-runtime.test.ts
           src/test/nino-generic-aggregate-e2e.test.ts
+          src/test/nino-period-month-range.test.ts
+          src/test/nino-safe-reply-data-terms.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos

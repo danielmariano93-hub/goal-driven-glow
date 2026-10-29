@@ -4,12 +4,13 @@
 // Mesma leitura paginada, mesma janela de competência e mesmos estornos do
 // coletor das séries (`collectScopedSpend`).
 // deno-lint-ignore-file no-explicit-any
-import { fetchAllPages } from "../../../derived/pagedSelect.ts";
 import type { TransactionRow } from "../../../finance-core/facts.ts";
 import {
   aggregate, AGG_DIMENSIONS, MAX_AGG_DIMENSIONS, type AggDimension, type AggResult,
 } from "./GenericAggregate.ts";
 import { loadAliases, loadReferencedOriginals, TX_COLUMNS } from "./MonthlySeriesHandler.ts";
+import { loadTransactionsForCompetenceWindow } from "./TransactionWindowLoader.ts";
+import { normalizePaymentMethod } from "../GenericAggregateEligibility.ts";
 import { resolveCategoryIdsByName } from "./TypicalMonthlyHandler.ts";
 
 export const SPENDING_AGGREGATE_ENGINE = "spending_aggregate";
@@ -62,6 +63,10 @@ export async function runSpendingAggregate(
     (AGG_DIMENSIONS as readonly string[]).includes(g)).slice(0, MAX_AGG_DIMENSIONS);
   if ((args.group_by ?? []).length !== groupBy.length) throw new Error("spending_aggregate_dimension_unsupported");
 
+  // Forma de pagamento: aceita o catálogo e sinônimos; valor desconhecido é erro, nunca "0 gastos".
+  const paymentMethod = args.payment_method ? normalizePaymentMethod(args.payment_method) : null;
+  if (args.payment_method && !paymentMethod) throw new Error("payment_method_not_found");
+
   const [cards, accounts, categories] = await Promise.all([
     sb.from("credit_cards").select("id,name").eq("user_id", user_id),
     sb.from("accounts").select("id,name").eq("user_id", user_id),
@@ -101,15 +106,7 @@ export async function runSpendingAggregate(
     accountIds = r.ids; accountLabel = r.labels[0];
   }
 
-  const rows = await fetchAllPages<any>((from, to) =>
-    sb.from("transactions").select(TX_COLUMNS)
-      .eq("user_id", user_id)
-      .eq("status", "confirmed")
-      .gte("occurred_at", shiftDays(args.from, -45))
-      .lte("occurred_at", shiftDays(args.to, 45))
-      .order("occurred_at", { ascending: true })
-      .range(from, to),
-  { source: "spending_aggregate" });
+  const rows = await loadTransactionsForCompetenceWindow(sb, user_id, args.from, args.to, TX_COLUMNS);
   const [aliases, referenced] = await Promise.all([
     loadAliases(sb, user_id),
     loadReferencedOriginals(sb, user_id, rows),
@@ -130,18 +127,18 @@ export async function runSpendingAggregate(
       merchant: args.merchant ?? null,
       card_ids: cardIds,
       account_ids: accountIds,
-      payment_method: args.payment_method ?? null,
+      payment_method: paymentMethod,
     },
   });
 
   // Filtros e dimensões REALMENTE aplicados, nos mesmos nomes do pedido: é o
   // que a checagem pedido-vs-executado compara.
   const filters: Array<{ field: string; op: "eq"; value: string }> = [];
-  if (categoryLabel) filters.push({ field: "category", op: "eq", value: categoryLabel });
+  if (categoryLabel) filters.push({ field: "category", op: "eq", value: String(args.category ?? categoryLabel) });
   if (result.scope.merchant) filters.push({ field: "merchant", op: "eq", value: result.scope.merchant });
-  if (cardLabel) filters.push({ field: "card", op: "eq", value: cardLabel });
-  if (accountLabel) filters.push({ field: "account", op: "eq", value: accountLabel });
-  if (result.scope.payment_method) filters.push({ field: "payment_method", op: "eq", value: result.scope.payment_method });
+  if (cardLabel) filters.push({ field: "card", op: "eq", value: String(args.card ?? cardLabel) });
+  if (accountLabel) filters.push({ field: "account", op: "eq", value: String(args.account ?? accountLabel) });
+  if (paymentMethod) filters.push({ field: "payment_method", op: "eq", value: String(args.payment_method) });
 
   return {
     ...result,

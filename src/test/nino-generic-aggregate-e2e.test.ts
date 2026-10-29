@@ -53,15 +53,15 @@ const ROWS = [
   tx({ amount: 70, description: "UBER TRIP", category_id: "cat-transp" }),
 ];
 
-async function runTurn(generic: boolean) {
-  const text = "meus gastos no Thales por categoria em setembro";
+async function runTurn(generic: boolean, spec: { text?: string; group_by?: string[]; filters?: any[]; operation?: string; rows?: any[] } = {}) {
+  const text = spec.text ?? "meus gastos no Thales por categoria em setembro";
   const turn = {
     version: "nino_turn_spec.v3", kind: "task", response_intent: "execute", act: "new_request",
     canonical_request: text, inherit_topic: false, references: [],
     tasks: [{
       kind: "financial_query", family: "financial.query", metric: "expense_amount",
-      operation: "breakdown", group_by: ["category"],
-      filters: [{ field: "merchant", entity: s("Thales") }],
+      operation: spec.operation ?? "breakdown", group_by: spec.group_by ?? ["category"],
+      filters: spec.filters ?? [{ field: "merchant", entity: s("Thales") }],
       periods: [s("setembro")], limit: null, comparison: null,
     }],
   };
@@ -74,7 +74,7 @@ async function runTurn(generic: boolean) {
   });
   if (!compiled?.ir) throw new Error("compile_failed");
   const calls: string[] = [];
-  const sb = fakeSb(ROWS);
+  const sb = fakeSb(spec.rows ?? ROWS);
   const out = await runSemanticTurn({
     text, acts: ["read_financial"] as never,
     constraints: { period: true, dimension: true, entity: true },
@@ -118,6 +118,59 @@ describe("executor genérico ponta a ponta", () => {
     expect(text).toContain("*Lazer*");
     expect(text).toContain("*Transporte*");
     expect(out.preservation?.compatible).toBe(true);
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
+
+describe("agrupamento semanal no cartão", () => {
+  it("semanas por data da compra passam nos gates", async () => {
+    const rows = [
+      tx({ amount: 100, occurred_at: "2026-09-02", competence_date: "2026-09-01" }),
+      tx({ amount: 50, occurred_at: "2026-09-10", competence_date: "2026-09-01" }),
+      tx({ amount: 25.5, occurred_at: "2026-09-11", competence_date: "2026-09-01" }),
+      tx({ amount: 363.42, occurred_at: "2026-04-30", competence_date: "2026-09-01" }),
+    ];
+    const { out, fulfillment } = await runTurn(true, {
+      text: "gasto por semana no cartão Nubank em setembro", operation: "sum", group_by: ["week"],
+      filters: [{ field: "card", entity: s("Nubank") }], rows,
+    });
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
+describe("grupo com crédito/estorno (valor negativo)", () => {
+  it("semana com saldo negativo passa no grounding (módulo do valor é evidência)", async () => {
+    const rows = [
+      tx({ amount: 300, occurred_at: "2026-09-02", competence_date: "2026-09-01" }),
+      tx({ amount: 100, occurred_at: "2026-09-16", competence_date: "2026-09-01" }),
+      tx({ amount: 1.46, occurred_at: "2026-09-10", competence_date: "2026-09-01", movement_kind: "refund", type: "income", description: "Estorno IOF" }),
+    ];
+    const { out, fulfillment } = await runTurn(true, {
+      text: "gasto por semana no cartão Nubank em setembro", operation: "sum", group_by: ["week"],
+      filters: [{ field: "card", entity: s("Nubank") }], rows,
+    });
+    expect(String(out.deterministic_text)).toContain("1,46");
+    expect((out as any).grounding?.violations ?? []).toEqual([]);
+    expect(fulfillment.ok).toBe(true);
+  });
+});
+
+describe("rótulos de estabelecimento com números e datas", () => {
+  const CARD_ROWS = [
+    tx({ amount: 582.67, description: "Ingresso Anitta - Parcela 2", category_id: "cat-lazer" }),
+    tx({ amount: 507, description: "MEP* Eventos Jamil 2026", category_id: "cat-lazer" }),
+    tx({ amount: 134.2, description: "JIM.COM", category_id: "cat-lazer" }),
+    tx({ amount: 169.29, description: "Lovable", category_id: "cat-lazer" }),
+  ];
+  it("agrupar por estabelecimento no cartão passa nos gates mesmo com números no nome", async () => {
+    const { out, fulfillment, calls } = await runTurn(true, {
+      text: "gastos por estabelecimento no cartão Nubank em setembro",
+      operation: "breakdown", group_by: ["merchant"],
+      filters: [{ field: "card", entity: s("Nubank") }],
+      rows: CARD_ROWS,
+    });
+    expect(calls).toEqual(["spending_aggregate"]);
     expect(fulfillment.ok).toBe(true);
   });
 });

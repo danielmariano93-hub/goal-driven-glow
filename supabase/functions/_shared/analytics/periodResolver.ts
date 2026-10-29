@@ -155,6 +155,31 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     };
   }
 
+  // Intervalo de meses nomeados ("de junho a setembro", "entre julho e setembro de 2026").
+  // Antes só o primeiro mês era lido e a janela virava "junho" — número errado em silêncio.
+  const monthAlt = MONTH_LABELS.join("|");
+  // Conector "e" só vale depois de "entre": "julho e setembro" são DOIS meses, não um intervalo.
+  const monthRange = t.match(new RegExp(
+    `\\b(${monthAlt})(?:\\s+de)?(?:\\s+(20\\d{2}))?\\s+(?:a|ate|ao)\\s+(${monthAlt})(?:\\s+de)?(?:\\s+(20\\d{2}))?\\b`,
+  )) ?? t.match(new RegExp(
+    `\\bentre\\s+(${monthAlt})(?:\\s+de)?(?:\\s+(20\\d{2}))?\\s+e\\s+(${monthAlt})(?:\\s+de)?(?:\\s+(20\\d{2}))?\\b`,
+  ));
+  if (monthRange) {
+    const m1 = MONTHS[monthRange[1]];
+    const m2 = MONTHS[monthRange[3]];
+    const y2 = Number(monthRange[4] ?? 0) || (m2 > month ? year - 1 : year);
+    const y1 = Number(monthRange[2] ?? 0) || (m1 > m2 ? y2 - 1 : y2);
+    if (y1 * 12 + m1 < y2 * 12 + m2) {
+      const first = `${y1}-${String(m1).padStart(2, "0")}-01`;
+      const last = `${y2}-${String(m2).padStart(2, "0")}-${String(lastDayOfMonth(y2, m2)).padStart(2, "0")}`;
+      const to = last > today && first <= today ? today : last;
+      return {
+        from: first, to, label: `${monthRange[1]} a ${monthRange[3]}`, matched: monthRange[0],
+        complete: to === last, kind: "range",
+      };
+    }
+  }
+
   const namedMonth = MONTH_LABELS.find((name) => new RegExp(`\\b${name}\\b`).test(t));
   if (namedMonth) {
     const m = MONTHS[namedMonth];
@@ -306,6 +331,18 @@ export function resolveTimeAspectPt(text: string, now: Date = new Date()): Resol
       aspect: "projection", from: p.from, to: p.to, n: null, exclude_partial: false,
       grain: "none", reduce: "sum", label: "fechamento deste mês", matched: "",
       assumption: "Projeção do fechamento deste mês.", ambiguous: false,
+    };
+  }
+
+  // Janela EXPLÍCITA de vários meses + "por mês": decomposição em buckets mensais
+  // dessa janela (série), não a estatística habitual dos últimos 6 meses.
+  if (explicitPeriod && explicitPeriod.kind === "range"
+    && explicitPeriod.from.slice(0, 7) !== explicitPeriod.to.slice(0, 7)
+    && (MONTHLY_RATE_RX.test(t) || HABITUAL_RX.test(t))) {
+    return {
+      aspect: "trend", from: explicitPeriod.from, to: explicitPeriod.to, n: null, exclude_partial: false,
+      grain: "month", reduce: "none", label: explicitPeriod.label, matched: explicitPeriod.matched ?? "",
+      assumption: null, ambiguous: false,
     };
   }
 

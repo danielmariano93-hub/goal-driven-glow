@@ -21,6 +21,17 @@ function daysBetween(from: string, to: string): number {
   return Math.round((b - a) / 86_400_000) + 1;
 }
 
+const CREDIT_WORDS = /^(credit_card|cartao|cartao de credito|credito|cartao credito|credit card|no cartao|no credito)$/;
+const ACCOUNT_WORDS = /^(account|conta|conta corrente|debito|cartao de debito|pix)$/;
+
+/** Forma de pagamento do catálogo (`credit_card` | `account`) ou null. */
+export function normalizePaymentMethod(raw: string): "credit_card" | "account" | null {
+  const t = String(raw ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+  if (CREDIT_WORDS.test(t)) return "credit_card";
+  if (ACCOUNT_WORDS.test(t)) return "account";
+  return null;
+}
+
 export type GenericMapping = {
   tool: typeof GENERIC_AGGREGATE_TOOL;
   capability: "financial_analysis";
@@ -45,6 +56,10 @@ export function genericAggregateMapping(
     if (f.op !== "eq" || !FILTER_FIELDS.has(f.field) || seen.has(f.field)) return null;
     const value = String(f.value ?? "").trim();
     if (!value) return null;
+    if (f.field === "payment_method") {
+      // Valor fora do catálogo não pode virar "0 gastos" em silêncio: ou normaliza, ou recusa.
+      if (!normalizePaymentMethod(value)) return null;
+    }
     seen.add(f.field);
     scope[f.field] = value;
   }
@@ -63,7 +78,9 @@ export function genericAggregateMapping(
   const limit = timeSeries ? null : (q.limit ?? (q.operation === "rank" ? DEFAULT_RANK_LIMIT : null));
   // Tendência só existe como série: sem dimensão de tempo o motor devolveria um
   // total e a resposta seria de outra pergunta.
-  if (q.operation === "trend" && !(group && ["day", "week", "month", "quarter"].includes(group))) return null;
+  // "Por dia da semana" chega às vezes como `trend`: o padrão por dia da semana é o
+  // próprio detalhamento por dia da semana, então vale como série de 7 pontos.
+  if (q.operation === "trend" && !(group && ["day", "week", "month", "quarter", "weekday"].includes(group))) return null;
   // Sem agrupamento só há total: pedir ranking/detalhamento sem dimensão é outra pergunta.
   if (!group && (q.operation === "rank" || q.operation === "breakdown")) return null;
 
