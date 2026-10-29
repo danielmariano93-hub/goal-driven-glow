@@ -48,6 +48,8 @@ import {
   loadMonthlySpendingSeries, monthlySeriesExecutedIR, monthlySpendingSeriesText,
 } from "./handlers/MonthlySeriesHandler.ts";
 import { MAX_IR_QUERIES, type DialogueActLabel } from "./FinancialQueryIR.ts";
+import { executionPlanTelemetry } from "./ExecutionPlanTelemetry.ts";
+import { estimateCost } from "./Observability.ts";
 import { PROTECTED_ENGINE_FAILURE_REPLY } from "./ProtectedAnalyticalRouting.ts";
 import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate.ts";
@@ -254,6 +256,11 @@ async function recordV2Run(args: {
       tokens_in: args.tokens_in,
       tokens_out: args.tokens_out,
       llm_calls: Math.max(0, Number(args.llm_calls ?? 0) || 0),
+      // Custo estimado do turno (`nino_coverage_telemetry.v1`): turno sem chamada
+      // de modelo custa zero; antes o campo ficava nulo em todo turno do Nino.
+      estimated_cost_usd: Number(args.llm_calls ?? 0) > 0
+        ? estimateCost(String(args.model ?? BRAIN_MODEL), args.tokens_in, args.tokens_out)
+        : 0,
       latency_ms: Date.now() - args.started_at,
       error_sanitized: args.error ?? null,
       error_masked: args.error ?? null,
@@ -1447,6 +1454,7 @@ async function executeContract(
       executed_by: semantic.telemetry?.executed_by ?? null,
       mapped_tools: semantic.validation?.mapped.map((item) => item.tool) ?? [],
       validation_errors: semantic.validation?.errors ?? [],
+      plan: executionPlanTelemetry(semantic.ir_v2),
       unsupported_queries: semantic.validation?.unsupported_queries ?? [],
       engines: semantic.engines,
       successful_execution: successfulSemanticExecution,
