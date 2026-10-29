@@ -13,10 +13,11 @@ import { composeFinancialSituations } from "../../supabase/functions/_shared/pro
 
 const NOW = Date.parse("2026-10-29T12:30:00Z");
 
-function sbWithLatest(row: any | null) {
+function sbWithLatest(row: any | null | any[]) {
+  const rows = Array.isArray(row) ? row : row ? [row] : [];
   const q: any = {
     select: () => q, eq: () => q, gte: () => q, in: () => q, order: () => q,
-    limit: () => Promise.resolve({ data: row ? [row] : [], error: null }),
+    limit: () => Promise.resolve({ data: rows, error: null }),
   };
   return { from: () => q } as any;
 }
@@ -41,6 +42,16 @@ describe("aviso recente como assunto do seguimento", () => {
     expect((await loadRecentProactive(sbWithLatest(cashRow), "u", NOW))?.suggestion_kind).toBe("upcoming_cash_pressure");
     expect(await loadRecentProactive(sbWithLatest({ ...cashRow, kind: "agent" }), "u", NOW)).toBeNull();
     expect(await loadRecentProactive(sbWithLatest(null), "u", NOW)).toBeNull();
+  });
+
+  it("o espelho in-app e a notificação do aviso não escondem o aviso", async () => {
+    const mirror = { ...cashRow, id: "m2", kind: "agent", surface: "app_assessor", created_at: "2026-10-29T12:17:10.500Z" };
+    const notification = { ...cashRow, id: "m3", kind: "notification", surface: "app_notification", created_at: "2026-10-29T12:17:11Z" };
+    const found = await loadRecentProactive(sbWithLatest([notification, mirror, cashRow]), "u", NOW);
+    expect(found?.id).toBe("m1");
+    // resposta do Nino depois do aviso (texto diferente): o aviso deixa de ser o assunto
+    const reply = { ...cashRow, id: "m4", kind: "agent", body: "Claro! Seu saldo hoje é R$ 6.172,05.", created_at: "2026-10-29T12:20:00Z" };
+    expect(await loadRecentProactive(sbWithLatest([reply, cashRow]), "u", NOW)).toBeNull();
   });
 
   it("fatos gravados perdem ids e campos internos", () => {

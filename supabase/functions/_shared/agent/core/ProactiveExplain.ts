@@ -82,9 +82,15 @@ function titleFrom(body: string): string {
   return first.replace(/^[*_📅💰🎯📊⚠️💛🔎\s]+|[*_]+$/g, "").slice(0, 140);
 }
 
+const norm = (text: unknown) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 120).toLowerCase();
+
 /**
  * O aviso mais recente, SÓ se for a última mensagem que o Nino enviou: se houve conversa depois,
  * "me explica melhor" fala da conversa, não do aviso antigo.
+ *
+ * Cada aviso gera também um espelho in-app (`kind=agent`, `channel=inapp`) e uma notificação
+ * (`kind=notification`) com o mesmo texto; eles podem ficar "mais recentes" que o aviso por
+ * milissegundos. A notificação é ignorada e o espelho conta como o próprio aviso.
  */
 export async function loadRecentProactive(
   sb: SupabaseClient,
@@ -93,15 +99,24 @@ export async function loadRecentProactive(
 ): Promise<RecentProactive | null> {
   const since = new Date(nowMs - WINDOW_HOURS * 3_600_000).toISOString();
   const { data, error } = await sb.from("outbound_messages")
-    .select("id,kind,body,metadata,created_at,status")
+    .select("id,kind,body,metadata,created_at,status,surface")
     .eq("user_id", userId)
     .gte("created_at", since)
     .in("status", ["sent", "accepted", "delivered", "read"])
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(12);
   if (error || !data?.length) return null;
-  const row: any = data[0];
-  if (!(PROACTIVE_OUTBOUND_KINDS as readonly string[]).includes(String(row.kind))) return null;
+  const rows = (data as any[]).filter((r) => String(r.kind) !== "notification" && String(r.surface ?? "") !== "app_notification");
+  const last = rows[0];
+  if (!last) return null;
+  const isProactive = (r: any) => (PROACTIVE_OUTBOUND_KINDS as readonly string[]).includes(String(r.kind));
+  let row: any = isProactive(last) ? last : null;
+  if (!row && String(last.kind) === "agent") {
+    const lastAt = new Date(last.created_at).getTime();
+    row = rows.find((r) => isProactive(r) && norm(r.body) === norm(last.body)
+      && Math.abs(new Date(r.created_at).getTime() - lastAt) <= 120_000) ?? null;
+  }
+  if (!row) return null;
   const body = String(row.body ?? "").trim();
   if (!body) return null;
   const sentAt = new Date(row.created_at).getTime();
