@@ -1865,7 +1865,20 @@ function reconciliationRows<T extends { occurred_at?: string | null }>(rows: T[]
   };
   const lo = shift(from, -COMPETENCE_WINDOW_PADDING_DAYS);
   const hi = shift(to, COMPETENCE_WINDOW_PADDING_DAYS);
-  return rows.filter((r) => { const d = String(r.occurred_at ?? "").slice(0, 10); return d >= lo && d <= hi; });
+  const firstCycle = from.slice(0, 7);
+  const lastCycle = to.slice(0, 7);
+  return rows.filter((r) => {
+    const d = String(r.occurred_at ?? "").slice(0, 10);
+    if (d < lo || d > hi) return false;
+    // Pagamento de fatura de um ciclo que só aparece em parte da janela: a soma das compras ficaria
+    // incompleta e acusaria divergência falsa. A conciliação desse ciclo é checada na janela dele.
+    const x = r as any;
+    if (x.movement_kind === "card_payment" && x.settles_card_id) {
+      const cycle = String(x.competence_date ?? x.occurred_at ?? "").slice(0, 7);
+      if (cycle && (cycle < firstCycle || cycle > lastCycle)) return false;
+    }
+    return true;
+  });
 }
 
 async function loadTxAndCategories(ctx: ToolContext, from: string, to: string, opts: { byCompetence?: boolean } = {}) {

@@ -25,10 +25,16 @@ async function call(body) {
   const text = await res.text();
   try { return { status: res.status, ...JSON.parse(text) }; } catch { return { status: res.status, raw: text.slice(0, 300) }; }
 }
-let phoneSeq = Number(process.env.PHONE_BASE ?? 1000);
+// Telefone de teste único por conversa (a tabela exige): base aleatória e, se já existir, tenta o próximo.
+let phoneSeq = Number(process.env.PHONE_BASE ?? 1000 + Math.floor(Math.random() * 8000));
 async function newConversation() {
-  const phone = `+55119999${String(phoneSeq++ % 10000).padStart(4, "0")}`;
-  return { ...(await call({ action: "new", phone })), phone };
+  let last = null;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const phone = `+55119999${String(phoneSeq++ % 10000).padStart(4, "0")}`;
+    last = { ...(await call({ action: "new", phone })), phone };
+    if (last.conversation_id || !String(last.error ?? "").includes("23505")) return last;
+  }
+  return last;
 }
 
 async function runCase(testCase) {
