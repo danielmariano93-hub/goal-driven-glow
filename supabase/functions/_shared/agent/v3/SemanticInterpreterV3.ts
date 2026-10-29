@@ -595,7 +595,7 @@ export async function interpretSemanticTurnV3(
       return fail("semantic_interpreter_v3_json_invalid", structured.provider);
     }
     const turn = normalizeSemanticInterpreterV3Output(parsed);
-    if (!turn) { console.warn("[DEBUGRAW]", String(structured.arguments).slice(0, 1800)); return fail("semantic_interpreter_v3_contract_invalid", structured.provider); }
+    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);
     const invariant = verifySemanticInvariantsV3(turn);
     if (!invariant.ok) return fail("semantic_interpreter_v3_invariant_failed", structured.provider, invariant.violations);
 
