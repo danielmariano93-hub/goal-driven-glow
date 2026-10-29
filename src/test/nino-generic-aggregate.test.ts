@@ -53,6 +53,17 @@ describe("aggregate", () => {
     expect(mc.groups[0].key).toEqual({ month: "2026-09", category: "Lazer" });
   });
 
+  it("dia da semana e semana seguem a data da COMPRA; mês segue a competência (fatura)", () => {
+    // Compra num sábado (12/09), cobrada na fatura de 01/10 (uma quinta-feira).
+    const card = tx({ amount: 80, occurred_at: "2026-09-12", competence_date: "2026-10-01" });
+    const wd = aggregate({ ...base, from: "2026-10-01", to: "2026-10-31", rows: [card], group_by: ["weekday"] });
+    expect(wd.groups.map((g) => g.label)).toEqual(["sábado"]);
+    const wk = aggregate({ ...base, from: "2026-10-01", to: "2026-10-31", rows: [card], group_by: ["week"] });
+    expect(wk.groups[0].label).toBe("semana de 07/09");
+    const mo = aggregate({ ...base, from: "2026-10-01", to: "2026-10-31", rows: [card], group_by: ["month"] });
+    expect(mo.groups[0].label).toBe("2026-10");
+  });
+
   it("estorno vai para a categoria e o estabelecimento do original", () => {
     const orig = tx({ id: "orig", amount: 100, description: "THALES BAR" });
     const refund = tx({
