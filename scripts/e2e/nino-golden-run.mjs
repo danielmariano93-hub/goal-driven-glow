@@ -32,7 +32,12 @@ async function newConversation() {
 }
 
 async function runCase(testCase) {
-  const conv = await newConversation();
+  // A função de teste pode estar aquecendo nas primeiras chamadas: tenta abrir a conversa algumas vezes.
+  let conv = await newConversation();
+  for (let attempt = 0; attempt < 3 && !conv.conversation_id; attempt++) {
+    await new Promise((x) => setTimeout(x, 3000));
+    conv = await newConversation();
+  }
   let last = null;
   const replies = [];
   for (const text of testCase.turns) {
