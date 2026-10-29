@@ -73,8 +73,10 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     if (metric === "expense"
       && group === "month"
       && ["sum", "trend"].includes(q.operation)
-      && (monthlyCategory || merchant)
       && onlyFilters(q, ["category", "merchant"])) {
+      // Sem filtro também é série factual ("gastos mês a mês"): o motor longitudinal responde
+      // "estou melhorando?" com médias e virada, não com o total de cada mês, e a trava de números
+      // o barrava (valores fora da evidência).
       return {
         tool: "spending_timeseries_monthly",
         capability: "financial_analysis",
@@ -286,6 +288,12 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
   }
 
+  // "Quais cartões eu tenho?", "quais contas eu tenho?": cadastro ativo.
+  if (q.metric === "balance" && q.operation === "breakdown" && !q.filters.length
+    && q.group_by.length === 1 && ["card", "account"].includes(q.group_by[0])) {
+    return { tool: "list_financial_sources", capability: "financial_snapshot", execution: "deterministic", args: {} };
+  }
+
   // "Por que o caixa fica negativo?", "quais lançamentos futuros pesam?": projeção de
   // caixa dia a dia, a mesma conta do alerta proativo.
   if (q.metric === "balance" && q.operation === "forecast" && !q.filters.length && !q.group_by.length) {
@@ -408,6 +416,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount + forecast (fechamento do mês)",
   "expense_amount + explain (exige período de comparação)",
   "balance | net_worth | debt_balance | goal_progress | future_installments + value|sum",
+  "balance + breakdown group card|account (cadastro: 'quais cartões/contas eu tenho?')",
   "balance + forecast (projeção de caixa: saldo de hoje, entradas e compromissos dia a dia; 'por que o caixa fica negativo?')",
   "financial_health + value|sum|trend|compare|explain (veredito holístico: 'estou melhorando ou piorando?')",
 ];

@@ -20,9 +20,11 @@ describe("ontologia executável", () => {
     }
   });
 
-  it("tendência mês a mês usa o motor longitudinal", () => {
+  it("tendência mês a mês sem filtro usa a série mensal (total de cada mês), não a trajetória", () => {
+    // O motor longitudinal devolve médias e ponto de virada; os totais de cada mês que ele citava
+    // ficavam fora da evidência e a trava de números barrava a resposta ("evolução dos meus gastos").
     const m = mappingForQuery(q({ operation: "trend", group_by: ["month"] }), ir as any);
-    expect(m?.tool).toBe("analyze_longitudinal_trajectory");
+    expect(m?.tool).toBe("spending_timeseries_monthly");
   });
 
   it("tendência com filtro de categoria usa comparação canônica", () => {

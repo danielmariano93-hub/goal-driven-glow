@@ -89,7 +89,7 @@ const GROUPS = {
     "get_next_best_action", "get_change_commitment_status",
     "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
-    "explain_cash_projection",
+    "explain_cash_projection", "list_financial_sources",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
   leaks: [
@@ -120,7 +120,7 @@ const GROUPS = {
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
     "get_debt_status", "analyze_merchants", "find_savings_opportunities",
     "get_net_worth", "list_investments", "get_future_installments",
-    "list_recurring_rules", "get_commitments_agenda", "explain_cash_projection",
+    "list_recurring_rules", "get_commitments_agenda", "explain_cash_projection", "list_financial_sources",
   ],
   // Núcleo de análise: cobre comparação, tendência, fechamento e explicação.
   analysisCore: [

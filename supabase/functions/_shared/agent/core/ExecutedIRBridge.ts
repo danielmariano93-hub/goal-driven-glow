@@ -279,7 +279,8 @@ function fromStateEngine(requested: FinancialQueryV3, result: unknown): Executed
     },
     grain: requested.grain,
     reduce: requested.reduce,
-    group_by: [],
+    // Cadastro ("quais cartões/contas eu tenho?"): a engine entrega as duas listas, então a dimensão pedida foi atendida.
+    group_by: Array.isArray(r.cards) && Array.isArray(r.accounts) ? [...(requested.group_by ?? [])] : [],
     partial: false,
   };
 }

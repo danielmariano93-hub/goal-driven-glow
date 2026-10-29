@@ -106,3 +106,22 @@ describe("lista da projeção e nomes de dados", () => {
     expect(humanizeReply("Fui criado pelo Google para ajudar.", "Google 10.00")).not.toMatch(/criado pelo google/i);
   });
 });
+
+describe("cadastro de cartões e contas", () => {
+  it("balance + breakdown por cartão/conta mapeia o cadastro", async () => {
+    const { mappingForQuery } = await import("../../supabase/functions/_shared/agent/core/IRCapabilityAdapter");
+    const q = (group: string) => ({ id: "q1", metric: "balance", operation: "breakdown", group_by: [group], filters: [], limit: null, depends_on: [] } as any);
+    expect(mappingForQuery(q("card"), {} as any)?.tool).toBe("list_financial_sources");
+    expect(mappingForQuery(q("account"), {} as any)?.tool).toBe("list_financial_sources");
+  });
+
+  it("o texto lista nomes, fechamento, vencimento e limite", () => {
+    const text = semanticBlockText("list_financial_sources", {
+      cards: [{ name: "Cartão Itaú", closing_day: 24, due_day: 1, total_limit: 9000 }],
+      accounts: [{ name: "Banco Itau" }],
+    })!;
+    expect(text).toContain("Cartão Itaú");
+    expect(text).toContain("fecha dia 24");
+    expect(text).toContain("Banco Itau");
+  });
+});

@@ -357,9 +357,8 @@ export function isMonthlySeriesShape(q: FinancialQueryV3): boolean {
   const filtersSupported = [...filterFields].every((field) => field === "category" || field === "merchant");
   const groupSupported = (q.group_by?.length ?? 0) === 0
     || (q.group_by.length === 1 && q.group_by[0] === "month");
-  const hasScopedFilter = filterFields.has("category") || filterFields.has("merchant");
+  // Sem filtro também é série factual ("gastos mês a mês"): o total de cada mês, auditado pelo mesmo handler.
   return q.metric === "expense_amount"
-    && hasScopedFilter
     && q.grain === "month"
     && q.time.aspect === "trend"
     && (q.reduce === "none" || q.reduce === "sum")

@@ -38,8 +38,29 @@ function historyText(history: AuthorityInput["history"]): string {
  * Structured context supplied to the semantic authority. The precedence policy
  * is explicit so the model never has to infer which memory source wins.
  */
+const plain = (text: unknown) => String(text ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+/**
+ * Recorte (categoria/estabelecimento) da memória só vale se ainda está "em vista": citado nas últimas
+ * mensagens desta conversa. A memória é por pessoa e sobrevive a conversas e a dias; sem esta guarda,
+ * "e em agosto?" depois de "quanto gastei em setembro?" herdava a categoria de uma conversa antiga
+ * (resposta com valor de outra pergunta).
+ */
+function staleScope(memory: AuthorityInput["memory"], history: AuthorityInput["history"]): boolean {
+  const labels = [memory?.active_category, memory?.active_merchant].map((v) => plain(v).trim()).filter(Boolean);
+  if (!labels.length) return false;
+  const recent = plain((history ?? []).slice(-4).map((turn) => String(turn.content ?? "")).join(" "));
+  return !labels.some((label) => recent.includes(label));
+}
+
+/** Memória sem o recorte antigo (categoria/estabelecimento que a conversa atual já não cita). */
+export function withoutStaleScope<M extends AuthorityInput["memory"]>(memory: M, history: AuthorityInput["history"]): M {
+  if (!memory || !staleScope(memory, history)) return memory;
+  return { ...memory, active_category: null, active_merchant: null, last_tool_context: null, last_analysis: null, references: [] } as M;
+}
+
 function typedContextText(input: AuthorityInput): string {
-  const memory = input.memory;
+  const memory = withoutStaleScope(input.memory, input.history);
   const workflow = input.workflow;
   const trustedPeriod = trustedActivePeriod(memory);
   const context = {
@@ -55,6 +76,7 @@ function typedContextText(input: AuthorityInput): string {
     ],
     relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
     recent_proactive_message: input.recent_proactive ?? null,
+    repair_hint: input.repair_hint ?? null,
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
       conversation_summary: memory.conversation_summary ?? null,

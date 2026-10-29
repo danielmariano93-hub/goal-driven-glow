@@ -59,7 +59,19 @@ export async function get_debt_status(
   if (!execution.ok) return execution;
 
   const wanted = normalizeEntity(args?.debt_name);
-  if (!wanted) return execution;
+  if (!wanted) {
+    // "Quanto pago de parcela por mês?": soma das parcelas das dívidas ativas, calculada aqui e
+    // entregue como fato (a resposta nunca soma sozinha).
+    const result = execution.result as any;
+    const rows = Array.isArray(result?.breakdown) ? result.breakdown : [];
+    const monthly = Math.round(rows
+      .filter((row: any) => row?.situation !== "quitada")
+      .reduce((sum: number, row: any) => sum + Number(row?.installment_amount ?? 0), 0) * 100) / 100;
+    if (monthly > 0 && result?.facts) {
+      return { ok: true, result: { ...result, facts: { ...result.facts, monthly_installments_total: monthly } } } as any;
+    }
+    return execution;
+  }
 
   const result = execution.result as any;
   const items = Array.isArray(result?.breakdown) ? result.breakdown : [];
