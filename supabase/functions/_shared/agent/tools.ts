@@ -1732,7 +1732,7 @@ import {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance, assess_financial_health,
-  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan, spending_aggregate,
 } from "./engineTools.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 import { goalNameMatches } from "./core/GoalNameMatch.ts";
@@ -1744,7 +1744,7 @@ export {
   analyze_cost_structure, detect_spending_anomalies, find_savings_opportunities,
   analyze_financial_evolution, get_debt_status,
   compare_financial_metric, assess_financial_performance, assess_financial_health,
-  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan,
+  analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan, spending_aggregate,
 };
 
 /**
@@ -3536,6 +3536,24 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: merchant_distribution,
+  },
+  {
+    name: "spending_aggregate",
+    description: "AGREGAÇÃO determinística de gasto/receita com filtros combináveis (categoria, estabelecimento, cartão, conta, forma de pagamento) e até 2 agrupamentos (categoria, estabelecimento, cartão, conta, forma de pagamento, mês, semana, dia, trimestre, dia da semana). Use quando o pedido combina recortes que nenhuma outra ferramenta cobre, por exemplo 'gastos no Thales por categoria' ou 'em que dia da semana gasto mais'. Nunca calcule valor ou percentual por conta própria.",
+    parameters: {
+      type: "object",
+      properties: {
+        metric: { type: "string", enum: ["expense", "income"] },
+        from: optionalStr, to: optionalStr,
+        group_by: { type: "array", items: { type: "string" } },
+        category: optionalStr, merchant: optionalStr, card: optionalStr, account: optionalStr,
+        payment_method: optionalStr,
+        limit: { type: "integer" },
+      },
+      required: ["from", "to"],
+      additionalProperties: false,
+    },
+    execute: spending_aggregate,
   },
   {
     name: "merchant_profile",

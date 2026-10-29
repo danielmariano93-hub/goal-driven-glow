@@ -83,7 +83,7 @@ const GROUPS = {
   analysis: [
     "analyze_spending", "compare_periods", "forecast_month_close", "explain_spending_change",
     "get_spending_highlights", "get_financial_snapshot", "get_weekday_spending_pattern",
-    "explain_behavior_change", "analyze_merchants", "merchant_profile",
+    "explain_behavior_change", "analyze_merchants", "merchant_profile", "spending_aggregate",
     "analyze_financial_evolution", "detect_spending_anomalies",
     "analyze_longitudinal_trajectory", "analyze_wealth_opportunity", "build_financial_plan",
     "get_next_best_action", "get_change_commitment_status",

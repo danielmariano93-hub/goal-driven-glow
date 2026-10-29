@@ -35,6 +35,8 @@ import { buildMerchantResolver, type MerchantAliasRow } from "../finance-core/me
 import { previousWindow, shiftDays, type EnginePeriod } from "../finance-core/engineEnvelope.ts";
 import { withAnswerFormat, brl, formatDatePt } from "./answerFormat.ts";
 import { todaySaoPaulo } from "./parser.ts";
+import { runSpendingAggregate, type SpendingAggregateArgs } from "./core/handlers/GenericAggregateEngine.ts";
+import { spendingAggregateHeadline } from "./core/handlers/GenericAggregateFormat.ts";
 
 const ENGINE_TX_SELECT = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,"
   + "payment_method,credit_card_id,settles_card_id,movement_kind,posted_at,posted_at_source,"
@@ -1143,5 +1145,22 @@ export function assess_financial_health(
         confidence_label: known.length >= 5 ? "alta" : known.length >= 3 ? "média" : "baixa",
       },
     };
+  });
+}
+
+
+/**
+ * Agregação genérica (`nino_generic_aggregate.v1`): filtros combináveis e até
+ * duas dimensões, com as mesmas regras contábeis das séries. Cobre as
+ * combinações que não têm motor dedicado.
+ */
+export function spending_aggregate(
+  ctx: EngineToolContext,
+  args: SpendingAggregateArgs,
+): Promise<EngineToolResult> {
+  return guard(async () => {
+    const result = await runSpendingAggregate(ctx.sb, ctx.user_id, args ?? ({} as SpendingAggregateArgs));
+    const headline = spendingAggregateHeadline(result);
+    return { ...result, headline, answer_format: { headline } };
   });
 }

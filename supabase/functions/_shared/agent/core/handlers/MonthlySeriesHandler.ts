@@ -21,7 +21,7 @@ import type { FinancialQueryV3 } from "../FinancialIRv3.ts";
 import type { ExecutedIR } from "../SemanticPreservation.ts";
 import { monthsInWindow } from "./TypicalMonthlyHandler.ts";
 
-const TX_COLUMNS = [
+export const TX_COLUMNS = [
   "id", "account_id", "category_id", "type", "status", "amount", "occurred_at",
   "description", "transfer_group_id", "payment_method", "credit_card_id",
   "settles_card_id", "movement_kind", "posted_at", "posted_at_source",
@@ -61,7 +61,7 @@ function lastDayOfMonth(ymd: string): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
 }
 
-async function loadAliases(sb: any, userId: string): Promise<MerchantAliasRow[]> {
+export async function loadAliases(sb: any, userId: string): Promise<MerchantAliasRow[]> {
   const { data, error } = await sb.from("merchant_aliases")
     .select("alias_key,friendly_name,hits")
     .eq("user_id", userId);
@@ -73,7 +73,7 @@ async function loadAliases(sb: any, userId: string): Promise<MerchantAliasRow[]>
   }));
 }
 
-async function loadReferencedOriginals(sb: any, userId: string, rows: any[]): Promise<any[]> {
+export async function loadReferencedOriginals(sb: any, userId: string, rows: any[]): Promise<any[]> {
   const present = new Set(rows.map((row) => String(row.id)));
   const missing = [...new Set(rows
     .map((row) => String(row.refund_of_transaction_id ?? ""))
