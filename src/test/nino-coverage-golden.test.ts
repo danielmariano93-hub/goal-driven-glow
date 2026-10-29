@@ -127,6 +127,10 @@ describe("elegibilidade do executor genérico (limites que preservam a verdade)"
     expect(generic(q({ operation: "trend", filters: [f("merchant", "Thales"), f("card", "Nubank")] }))).toBeUndefined();
   });
 
+  it("'por dia da semana' emitido como tendência executa como detalhamento semanal", () => {
+    expect(generic(q({ operation: "trend", group_by: ["weekday"], filters: [f("merchant", "Uber")] }))).toBe("spending_aggregate");
+  });
+
   it("ranking e detalhamento sem dimensão são recusados", () => {
     expect(generic(q({ operation: "rank", filters: [f("merchant", "Thales"), f("card", "Nubank")] }))).toBeUndefined();
   });

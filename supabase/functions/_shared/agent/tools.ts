@@ -13,12 +13,14 @@ import { readPriorityFeed } from "../proactive/priorityFeed.ts";
 import {
   behavioralMetricAmount,
   buildRefundAttribution,
+  reportingCompetenceDate,
   effectiveCategoryId,
   isRealMonthlyMovement,
   type TransactionRow,
 } from "../engine/facts.ts";
 
 import { computeAgentSnapshot } from "../engine/metrics.ts";
+import { loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
 import { shift, today } from "../finance-core/ninoClock.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
@@ -167,6 +169,8 @@ export async function list_recent_transactions(ctx: ToolContext, args: { limit?:
   return { ok: true, result: data ?? [] };
 }
 
+const SPENDING_REPORT_COLUMNS = "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id,competence_date,economic_competence_date,installment_anticipated";
+
 export async function analyze_spending(ctx: ToolContext, args: {
   days?: number;
   from?: string;
@@ -209,12 +213,10 @@ export async function analyze_spending(ctx: ToolContext, args: {
   if (args?.account && !accountFilter) return { ok: false, error: "account_not_found" };
 
   const [data, categoriesResult, cardsResult, accountsResult] = await Promise.all([
-    fetchTransactions(ctx, {
-      select: "id,account_id,category_id,type,status,amount,occurred_at,description,transfer_group_id,payment_method,credit_card_id,settles_card_id,movement_kind,refund_of_transaction_id",
-      from,
-      to,
-      paymentMethod: args?.payment_method,
-    }),
+    // Competência de relatório (fatura do cartão), não data da compra: compra de
+    // julho cobrada na fatura de setembro é gasto de setembro (mesma regra da Home).
+    loadTransactionsForCompetenceWindow(ctx.sb, ctx.user_id, from, to, SPENDING_REPORT_COLUMNS)
+      .then((all) => all.filter((r: any) => !args?.payment_method || String(r.payment_method ?? "") === args.payment_method)),
     ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`).is("archived_at", null),
     groupBy === "card"
       ? ctx.sb.from("credit_cards").select("id,name").eq("user_id", ctx.user_id)
@@ -250,6 +252,8 @@ export async function analyze_spending(ctx: ToolContext, args: {
   let metricRows = 0;
 
   for (const row of rows) {
+    const competence = reportingCompetenceDate(row as any);
+    if (competence < from || competence > to) continue;
     const expenseAmount = behavioralMetricAmount(row as any, "expense");
     const incomeAmount = behavioralMetricAmount(row as any, "income");
     const effectiveCategory = effectiveCategoryId(row as any, refundAttribution);
@@ -275,7 +279,10 @@ export async function analyze_spending(ctx: ToolContext, args: {
         ? String(row.account_id ? (accountNames.get(row.account_id) ?? "Conta não identificada") : "Sem conta")
         : category;
     byGroup.set(groupName, (byGroup.get(groupName) ?? 0) + metricAmount);
-    byDay.set(row.occurred_at, (byDay.get(row.occurred_at) ?? 0) + metricAmount);
+    // Gráfico diário: dia da compra quando cai na janela; parcela de compra antiga
+    // fica no dia da competência (senão o "dia mais caro" cairia fora do período).
+    const dayKey = row.occurred_at >= from && row.occurred_at <= to ? row.occurred_at : competence;
+    byDay.set(dayKey, (byDay.get(dayKey) ?? 0) + metricAmount);
     metricRows += 1;
   }
 

@@ -2,6 +2,7 @@
 // Executor genérico no runtime (`nino_generic_aggregate.v1`): ferramenta,
 // texto determinístico, evidência e checagem pedido-vs-executado.
 import { describe, expect, it } from "vitest";
+import { analyze_spending } from "../../supabase/functions/_shared/agent/tools.ts";
 import { spending_aggregate } from "../../supabase/functions/_shared/agent/engineToolsImpl.ts";
 import { semanticBlockText } from "../../supabase/functions/_shared/agent/core/SemanticAnswerFormatter.ts";
 import { executedIRFrom } from "../../supabase/functions/_shared/agent/core/ExecutedIRBridge.ts";
@@ -101,5 +102,72 @@ describe("spending_aggregate (runtime)", () => {
     };
     const pres = planPreservation([{ requested, executed: executedIRFrom(requested, out.result) }]);
     expect(pres.compatible).toBe(false);
+  });
+});
+
+// Regressão do piloto (29/10): parcela de cartão de compra ANTIGA tem occurred_at
+// fora da folga de ±45 dias, mas competência dentro da janela. A leitura recortava
+// só por occurred_at e a parcela sumia do total.
+function filteringSb(rows: any[]) {
+  const base = fakeSb(rows);
+  return {
+    from: (table: string) => {
+      if (table !== "transactions") return base.from(table);
+      const preds: Array<(r: any) => boolean> = [];
+      const q: any = {
+        select: () => q, eq: (c: string, v: any) => (preds.push((r) => r[c] === v), q),
+        gte: (c: string, v: string) => (preds.push((r) => r[c] != null && String(r[c]).slice(0, 10) >= v), q),
+        lte: (c: string, v: string) => (preds.push((r) => r[c] != null && String(r[c]).slice(0, 10) <= v), q),
+        order: () => q, in: () => q, or: () => q, is: () => q,
+        range: (a: number, b: number) => Promise.resolve({ data: rows.filter((r) => preds.every((p) => p(r))).slice(a, b + 1), error: null }),
+        then: (res: any) => Promise.resolve({ data: rows.filter((r) => preds.every((p) => p(r))), error: null }).then(res),
+      };
+      return q;
+    },
+  };
+}
+
+describe("janela por competência (parcela de compra antiga)", () => {
+  it("conta a parcela cuja compra é anterior à folga de 45 dias", async () => {
+    const installment = tx({ user_id: "u1", amount: 363.42, description: "JIM.COM", occurred_at: "2026-04-30", competence_date: "2026-09-01", category_id: "cat-lazer" });
+    const recent = tx({ user_id: "u1", amount: 100, description: "THALES BAR", occurred_at: "2026-09-10", competence_date: "2026-09-01" });
+    const out: any = await spending_aggregate(
+      { sb: filteringSb([installment, recent]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30" },
+    );
+    expect(out.ok).toBe(true);
+    expect(out.result.total).toBe(463.42);
+    expect(out.result.transaction_count).toBe(2);
+  });
+
+  it("não conta parcela de competência fora da janela", async () => {
+    const other = tx({ user_id: "u1", amount: 50, occurred_at: "2026-04-30", competence_date: "2026-05-01" });
+    const out: any = await spending_aggregate(
+      { sb: filteringSb([other]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30" },
+    );
+    expect(out.result.total).toBe(0);
+  });
+});
+
+describe("analyze_spending usa competência (regra da Home)", () => {
+  it("compra de julho cobrada na fatura de setembro é gasto de setembro", async () => {
+    const eventim = tx({ user_id: "u1", amount: 220.48, description: "Eventim", occurred_at: "2026-07-26", competence_date: "2026-09-01", category_id: "cat-lazer" });
+    const bar = tx({ user_id: "u1", amount: 16, description: "Fakku Bar", occurred_at: "2026-09-25", payment_method: "account", credit_card_id: null, category_id: "cat-lazer" });
+    const out: any = await analyze_spending(
+      { sb: filteringSb([eventim, bar]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30", view: "total", category: "Lazer" },
+    );
+    expect(out.ok).toBe(true);
+    expect(out.result.total_metric).toBe(236.48);
+  });
+
+  it("compra de setembro cobrada na fatura de outubro NÃO é gasto de setembro", async () => {
+    const next = tx({ user_id: "u1", amount: 90, occurred_at: "2026-09-28", competence_date: "2026-10-01" });
+    const out: any = await analyze_spending(
+      { sb: filteringSb([next]), user_id: "u1" } as any,
+      { from: "2026-09-01", to: "2026-09-30", view: "total" },
+    );
+    expect(out.result.total_metric).toBe(0);
   });
 });

@@ -63,7 +63,9 @@ export function genericAggregateMapping(
   const limit = timeSeries ? null : (q.limit ?? (q.operation === "rank" ? DEFAULT_RANK_LIMIT : null));
   // Tendência só existe como série: sem dimensão de tempo o motor devolveria um
   // total e a resposta seria de outra pergunta.
-  if (q.operation === "trend" && !(group && ["day", "week", "month", "quarter"].includes(group))) return null;
+  // "Por dia da semana" chega às vezes como `trend`: o padrão por dia da semana é o
+  // próprio detalhamento por dia da semana, então vale como série de 7 pontos.
+  if (q.operation === "trend" && !(group && ["day", "week", "month", "quarter", "weekday"].includes(group))) return null;
   // Sem agrupamento só há total: pedir ranking/detalhamento sem dimensão é outra pergunta.
   if (!group && (q.operation === "rank" || q.operation === "breakdown")) return null;
 

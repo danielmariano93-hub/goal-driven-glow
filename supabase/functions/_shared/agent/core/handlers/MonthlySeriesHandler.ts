@@ -3,7 +3,6 @@
 // filters, reporting competence, refunds and merchant identity. The LLM never
 // calculates the monthly values; it only receives these audited facts.
 // deno-lint-ignore-file no-explicit-any
-import { fetchAllPages } from "../../../derived/pagedSelect.ts";
 import {
   behavioralMetricAmount,
   buildRefundAttribution,
@@ -20,6 +19,7 @@ import {
 import type { FinancialQueryV3 } from "../FinancialIRv3.ts";
 import type { ExecutedIR } from "../SemanticPreservation.ts";
 import { monthsInWindow } from "./TypicalMonthlyHandler.ts";
+import { loadTransactionsForCompetenceWindow } from "./TransactionWindowLoader.ts";
 
 export const TX_COLUMNS = [
   "id", "account_id", "category_id", "type", "status", "amount", "occurred_at",
@@ -107,17 +107,7 @@ export async function collectScopedSpend(
   sb: any,
   args: ScopedSpendArgs,
 ): Promise<Array<{ date: string; amount: number }>> {
-  const loadFrom = shiftDays(args.from, -45);
-  const loadTo = shiftDays(args.to, 45);
-  const rows = await fetchAllPages<any>((from, to) =>
-    sb.from("transactions").select(TX_COLUMNS)
-      .eq("user_id", args.user_id)
-      .eq("status", "confirmed")
-      .gte("occurred_at", loadFrom)
-      .lte("occurred_at", loadTo)
-      .order("occurred_at", { ascending: true })
-      .range(from, to),
-  { source: "scoped_spending_series" });
+  const rows = await loadTransactionsForCompetenceWindow(sb, args.user_id, args.from, args.to, TX_COLUMNS);
 
   const [aliases, referenced] = await Promise.all([
     loadAliases(sb, args.user_id),
