@@ -286,6 +286,12 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
   }
 
+  // "Por que o caixa fica negativo?", "quais lançamentos futuros pesam?": projeção de
+  // caixa dia a dia, a mesma conta do alerta proativo.
+  if (q.metric === "balance" && q.operation === "forecast" && !q.filters.length && !q.group_by.length) {
+    return { tool: "explain_cash_projection", capability: "financial_snapshot", execution: "deterministic", args: {} };
+  }
+
   if (q.filters.length || q.group_by.length || !["value", "sum"].includes(q.operation)) return null;
   if (q.metric === "balance") {
     return { tool: "get_financial_snapshot", capability: "financial_snapshot", execution: "deterministic", args: {} };
@@ -402,6 +408,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "expense_amount + forecast (fechamento do mês)",
   "expense_amount + explain (exige período de comparação)",
   "balance | net_worth | debt_balance | goal_progress | future_installments + value|sum",
+  "balance + forecast (projeção de caixa: saldo de hoje, entradas e compromissos dia a dia; 'por que o caixa fica negativo?')",
   "financial_health + value|sum|trend|compare|explain (veredito holístico: 'estou melhorando ou piorando?')",
 ];
 

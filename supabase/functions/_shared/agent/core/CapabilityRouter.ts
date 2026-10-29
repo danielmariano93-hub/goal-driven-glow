@@ -89,6 +89,7 @@ const GROUPS = {
     "get_next_best_action", "get_change_commitment_status",
     "compare_financial_metric", "assess_financial_performance", "assess_financial_health",
     "get_net_worth", "list_investments", "get_future_installments", "get_commitments_agenda",
+    "explain_cash_projection",
   ],
   // Motores determinísticos que respondem "para onde meu dinheiro vai".
   leaks: [
@@ -99,7 +100,7 @@ const GROUPS = {
   advisor: [
     "plan_installment_decision", "find_savings_opportunities", "get_financial_snapshot",
     "forecast_month_close", "analyze_cost_structure", "get_debt_status", "run_before_spending",
-    "get_future_installments", "get_commitments_agenda", "get_net_worth",
+    "get_future_installments", "get_commitments_agenda", "get_net_worth", "explain_cash_projection",
   ],
   debts: ["get_debt_status", "list_recent_transactions", "get_financial_snapshot"],
   sharedGoals: [
@@ -119,7 +120,7 @@ const GROUPS = {
     "get_daily_insights", "run_before_spending", "get_weekday_spending_pattern", "analyze_spending",
     "get_debt_status", "analyze_merchants", "find_savings_opportunities",
     "get_net_worth", "list_investments", "get_future_installments",
-    "list_recurring_rules", "get_commitments_agenda",
+    "list_recurring_rules", "get_commitments_agenda", "explain_cash_projection",
   ],
   // Núcleo de análise: cobre comparação, tendência, fechamento e explicação.
   analysisCore: [

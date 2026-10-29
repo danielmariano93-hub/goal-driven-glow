@@ -82,6 +82,7 @@ jobs:
           src/test/nino-safe-reply-data-terms.test.ts
           src/test/nino-domain-failure-reply.test.ts
           src/test/nino-inherited-scope-note.test.ts
+          src/test/nino-cash-projection.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
