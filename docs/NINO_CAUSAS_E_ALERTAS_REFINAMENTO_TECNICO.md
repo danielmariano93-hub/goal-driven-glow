@@ -48,7 +48,7 @@ Valem para tudo daqui para frente (também registradas em `GUIA_DESENVOLVIMENTO_
 |---|---|---|---|
 | Base de datas | `occurred_at` (compra) | competência (fatura) | O guia (seção 4) manda usar competência; o SQL não segue. |
 | Renda "normal" | média dos últimos 90 dias ÷ 3 | mediana dos meses fechados + regularidade | Para renda irregular (CV ≈ 0,67 na conta do dono) as duas divergem muito. |
-| Compromissos ÷ renda | recorrências + parcelas + **fatura aberta** ÷ renda média; alerta em 60% / 85% | parcelas normalizadas ÷ renda típica; atenção em 35%, crítico em 50% | Exemplos do banco mostram "102% da renda média" no SQL; o Mapa mostra **25,8%** para o dono. Mesmo rótulo, números diferentes. |
+| Compromissos ÷ renda | recorrências + parcelas de dívida + **fatura aberta de cartão** ÷ renda média (90 dias ÷ 3); alerta em 60% / 85% | parcelas de dívida normalizadas ÷ renda típica (mediana); atenção em 35%, crítico em 50% | Na conta do dono, em 27/10, o SQL deu **102,38%** (R$ 11.292,84 ÷ R$ 11.030,19): recorrências R$ 309,94 + parcelas de dívida R$ 3.732,90 + fatura aberta de cartão (~R$ 7,2 mil, **derivado por subtração**: a linha foi sobrescrita no mesmo dia). O Mapa deu **25,8%** (só dívidas ÷ renda típica). A fatura é consumo já feito e entrou como compromisso: o 102% foi **artefato da fórmula**, não fato sobre as finanças do dono. |
 | Causa por categoria | blocos `spending_pace_change` e `category_shift` **desligados** (`if false`); só a categoria nº 1 | sem equivalente | Existem situações antigas gravadas, mas o motor atual não as gera. |
 | Meta / dívida | só **uma** meta e **uma** dívida (a de maior prioridade/saldo) | todas | A Home pode mostrar "meta Dízimo pede mais que sua sobra" com **R$ 1,00** restante (visto na conta do dono). |
 
@@ -60,7 +60,7 @@ Rotinas por minuto ou quase:
 |---|---|---|
 | `split-message-pipeline-1m` | 1.440 | ~300 ms médios; **acumulado 6.296 s**; chama Edge Function sem checar fila |
 | `finance-current-snapshot-worker-1m` | 1.440 | chama Edge Function **sem `EXISTS`**; ~122 mil chamadas `net.http_post` no acumulado |
-| `whatsapp-send-dispatch-1m` | 1.440 | |
+| `whatsapp-send-dispatch-1m` | 1.440 | já tem a guarda `EXISTS` na fila [verificado]; custo ~29 ms |
 | `documents-cleanup-2m` | 720 | |
 | `ops-alerts-5m` | 288 | **~4,2 s por execução** (3.400 s acumulados) |
 | `nino-intelligence` (diagnóstico) | 33 | ~4,2 s médios, até 18 s |
@@ -68,6 +68,9 @@ Rotinas por minuto ou quase:
 Outros pontos:
 - Consulta de Realtime (WAL): **574 mil chamadas, 6.079 s** acumulados. Cada cliente conectado paga esse custo.
 - Crescimento do diagnóstico, **sem política de retenção encontrada** (só limpeza de backtest e uma limpeza pontual de eventos): `nino_diagnosis_snapshots` com 24.277 linhas (51 MB) para 12 usuários em 86 dias; `financial_situation_evidence` 53.373 linhas (27 MB); `financial_situation_events` 3.448 linhas (19 MB). **[derivado]** cerca de 8 MB por usuário em 86 dias; sem retenção, 10 mil usuários dariam da ordem de **80 GB só nessas três tabelas**. O tick incremental feito hoje reduz as gravações, mas a retenção continua faltando.
+- **A evidência é o maior desperdício [verificado]:** 51.571 das 53.373 linhas (96,6%) são cópia exata da linha anterior da mesma situação (500 a 2.000 linhas por situação). A trava anti-duplicação (`nino_diag_evidence_dedupe_guard`) existe no repositório (migração `20260917130000`) mas **não existe em produção**. A evidência segue crescendo 1,3 a 1,7 mil linhas por dia com 12 usuários.
+- **O banco e o repositório divergem [verificado]:** 473 migrações aplicadas contra 499 arquivos; os carimbos de versão diferem, então a comparação é por conteúdo. A migração de "Free readiness" (trava de evidência, dedupe de eventos, snapshot idempotente) não está aplicada. Falta uma reconciliação completa por conteúdo.
+- **Dependência escondida [verificado]:** o painel de saúde (`admin_platform_status`) marca um job como "atrasado" após 30 min sem batimento (`job_heartbeats`). Cortar as chamadas ociosas de um poller sem manter um batimento barato causaria falso alarme.
 - Um incidente já ocorreu: a fila de categorização reescrevia 1.111 linhas por minuto (52 milhões de atualizações). Corrigido (PR #340), mas é o padrão que as regras R2 e R6 previnem.
 
 ### 2.4 Guardas que já existem e devemos reaproveitar [verificado]
@@ -76,6 +79,37 @@ Outros pontos:
 - Realtime só em `financial_ledger_versions`.
 - `check-performance-architecture.mjs`, `check-agent-dependents.mjs`, `check-tx-selects.mjs`, teste de paridade do `finance-core`.
 - Janelas de ledger limitadas (3 meses para trás, 1 para frente por padrão).
+
+### 2.5 Fatura de cartão: natureza e metodologia [verificado nos dados do dono]
+
+**Pergunta:** a fatura é compromisso fixo? **Resposta:** não como um todo, e também não é só variável. É **mista**.
+
+Metodologia (3 testes): (1) natureza do custo (fixo, variável, misto); (2) compromisso = obrigação já contratada, paga independentemente de decisões futuras (a mesma lógica do "comprometimento de renda" como serviço da dívida; critério de conhecimento geral, não verificado aqui); (3) substância sobre forma e competência contra caixa: a fatura é o meio de pagamento, o que importa é o conteúdo; contar a fatura e as compras é dupla contagem.
+
+Composição das faturas do dono por mês de competência (transações de cartão):
+
+| Mês | À vista | Parcelas | Parcelas antecipadas | Total | % parcelas |
+|---|---|---|---|---|---|
+| Jul | 3.582,19 | 2.107,52 | – | 5.689,71 | 37% |
+| Ago | 1.500,03 | 2.888,68 | – | 4.388,71 | 66% |
+| Set | 2.228,83 | 3.398,52 | – | 5.627,35 | 60% |
+| Out | 689,79 | 4.536,41 | 4.252,02 | 9.478,22 | 48% (45% antecipadas) |
+
+Cronograma de parcelas futuras (`credit_card_installments`, alimentado pelas faturas enviadas; a antecipação aparece como parcela **cancelada** nos meses futuros):
+
+| Mês | Agendadas | Canceladas |
+|---|---|---|
+| Nov | R$ 1.661,98 (19) | R$ 1.755,11 (4) |
+| Dez | R$ 686,38 (9) | R$ 949,12 (2) |
+| Jan | R$ 411,15 (5) | R$ 949,12 (2) |
+| Fev | R$ 49,52 (2) | R$ 949,12 (2) |
+| Mar | – | R$ 949,12 (2) |
+
+**Definição proposta:** compromissos conhecidos de um mês = recorrências + parcelas de dívida + **parcelas de cartão agendadas (não canceladas)** do cronograma. A fatura em aberto é item de **caixa e calendário**, decomposta por conteúdo, nunca somada como compromisso. Antecipação é liquidação que reduz compromissos futuros. Em outubro, com parcelas de cartão, os compromissos do dono foram R$ 8.579,25 (**77,8%** da renda média), não 102% nem 37%.
+
+**Correção:** uma estimativa anterior (cerca de R$ 2,6 mil/mês por mais 5 meses, saldo de R$ 6,9 mil) foi **retirada**: ignorava antecipações e quitações; vale o cronograma acima.
+
+**Pontos abertos:** (a) a cobertura depende das faturas enviadas (fatura não importada = parcela futura ausente); a definição deve declarar a confiança; (b) em novembro há 4 parcelas canceladas (R$ 1.755,11) mas só 2 lançamentos marcados como antecipados (R$ 1.053,92): reconciliar antes de contar com o número.
 
 ## 3. Matriz de risco de regressão
 
@@ -105,8 +139,8 @@ Outros pontos:
 
 | Fase | Entrega | Critério de saída | Reversão |
 |---|---|---|---|
-| **F0** | Medição de base e redução de custo óbvia (guarda `EXISTS` nos pollers, retenção do diagnóstico) | Execuções de Edge Function ociosas caem; nenhum job falha; custo medido antes/depois | Reverter migração |
-| **F1** | Definições únicas + modo sombra do diagnóstico novo | Relatório de diferenças dos 12 usuários explicado; testes de paridade SQL↔TS com gabarito SQL independente | Flag desligada |
+| **F0** | Guarda `EXISTS` nos pollers do snapshot e dos lembretes da divisão (com batimento barato), trava de evidência duplicada, retenção de 90 dias e compactação única da evidência. Migrações `20261030120000` a `120300` (A e B aplicadas; C e D pendentes) | Chamadas ociosas caem; nenhum job falha nem aparece "atrasado"; evidência deixa de crescer; custo medido antes/depois | Restaurar as funções anteriores e `cron.alter_job` |
+| **F1** | Definições únicas (compromissos a partir do cronograma de parcelas, sem a fatura aberta) + modo sombra do diagnóstico novo | Relatório de diferenças dos 12 usuários explicado; testes de paridade SQL↔TS com gabarito SQL independente | Flag desligada |
 | **F2** | `causeLedger` + casos de ouro (a piora real da conta do dono: julho, agosto, outubro) | Decomposição fecha com o gabarito; resíduo declarado; zero causa inventada | Campo opcional ignorado |
 | **F3** | Home: "Por que está assim?" e "O que vem pela frente", atrás de flag | `check-performance-architecture` verde; sem consulta nova; tempo de abertura igual ou menor | Flag |
 | **F4** | Revisão de qualidade dos alertas | Alertas sem ação possível removidos; dedup com diagnóstico; contagem por tipo antes/depois | Flag |
@@ -119,15 +153,15 @@ Ordenado por retorno/esforço:
 2. Retenção das tabelas do diagnóstico (snapshots, evidência, eventos).
 3. `ops-alerts-5m` a ~4 s por execução: investigar e/ou reduzir frequência.
 4. Custo do Realtime (WAL, 574 mil chamadas): conferir se só o canal esperado está inscrito.
-5. `whatsapp-send-dispatch-1m`, `documents-cleanup-2m`: mesma guarda `EXISTS`.
+5. `documents-cleanup-2m`: avaliar a guarda `EXISTS` (`whatsapp-send-dispatch-1m` já a tem).
 
 **Extensão proposta do CI:** `check-cost-budget` (em `check-performance-architecture`): falha se houver job com agenda menor que 1 h sem guarda `EXISTS`, ou tabela nova com crescimento sem retenção declarada.
 
 ## 7. Decisões que dependem do dono do produto
 1. A "casa" do livro de causas é a Home (com ponte para o Mapa) ou o Mapa?
 2. Retenção do histórico fino do diagnóstico: 90 dias é aceitável?
-3. Podemos executar o F0 (guardas `EXISTS` e retenção) antes do restante, já que reduz custo sem mudar comportamento visível?
+3. ~~Podemos executar o F0?~~ Autorizado e em andamento (partes A e B aplicadas).
 4. O usuário típico do Nino tem renda irregular como a do dono? (Define a base de "renda normal".)
 
 ## 8. O que não foi verificado
-Telas renderizadas; o comportamento do Mapa para outros usuários (só a conta do dono tem flag); custo real do `home-snapshot` por abertura; se o gate estrutural está ativo na conta do dono; a extrapolação para 10 mil usuários é aritmética simples, sem teste de carga.
+Reconciliação completa entre as 499 migrações do repositório e as 473 aplicadas (só uma divergência foi confirmada por conteúdo); de onde o Nino lê parcelas futuras além de `credit_card_installments`; o valor exato da fatura em 27/10 (linha sobrescrita). Telas renderizadas; o comportamento do Mapa para outros usuários (só a conta do dono tem flag); custo real do `home-snapshot` por abertura; se o gate estrutural está ativo na conta do dono; a extrapolação para 10 mil usuários é aritmética simples, sem teste de carga.
