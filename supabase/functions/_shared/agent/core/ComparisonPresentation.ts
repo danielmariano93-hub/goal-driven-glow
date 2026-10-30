@@ -169,7 +169,11 @@ export function comparisonHeader(result: any): string | null {
   const labelB = comparisonPeriodLabel(result?.period_b);
   const labelA = comparisonPeriodLabel(result?.period_a);
   if (!labelA || !labelB) return null;
-  const lines = [`Comparando *${labelB}*: ${money(result?.total_b)}, com *${labelA}*: ${money(result?.total_a)}.`];
+  const lines = result?.requested_group_by === "merchant"
+    // O motor de estabelecimentos tem as próprias regras de consumo/estorno: o total é "o considerado nesta
+    // lista", não o gasto do mês da Home, e a resposta não o apresenta como tal.
+    ? [`Por estabelecimento, *${labelB}*: ${money(result?.total_b)} considerados, contra *${labelA}*: ${money(result?.total_a)}.`]
+    : [`Comparando *${labelB}*: ${money(result?.total_b)}, com *${labelA}*: ${money(result?.total_a)}.`];
   if (result?.requested_group_by === "merchant") {
     const cov = [result?.coverage_a, result?.coverage_b].map(Number).filter(Number.isFinite);
     if (cov.length && Math.min(...cov) < 0.99) {

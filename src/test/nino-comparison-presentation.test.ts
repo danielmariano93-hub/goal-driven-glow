@@ -118,6 +118,7 @@ describe("comparação por estabelecimento", () => {
       by_group: [{ name: "Uber", total_a: 100, total_b: 50, delta_abs: -50, delta_pct: -0.5 }],
       period_a: { from: "2026-09-01", to: "2026-09-30", partial: false }, period_b: { from: "2026-10-01", to: "2026-10-31", partial: false },
     });
+    expect(text).toMatch(/Por estabelecimento, \*outubro de 2026\*: R\$\s90,00 considerados/);
     expect(text).toMatch(/Diminuíram: .*Uber/);
     expect(text).toMatch(/estabelecimentos reconhecidos \(90%/);
     expect(text).not.toMatch(/categoria/i);
