@@ -44,3 +44,25 @@ describe("comparação nomeia os períodos e não deixa trocar os valores", () =
     expect(guardComposedReply({ text: "Aqui está a comparação entre outubro e setembro, com o detalhe logo abaixo.", input }).ok).toBe(true);
   });
 });
+
+import { computeCompare } from "../../supabase/functions/_shared/analytics/compare";
+
+describe("variação percentual com base zerada ou só de estorno", () => {
+  it("não inventa 0% quando a base é negativa ou zero e o valor mudou", () => {
+    const names = new Map([["c1", "Rolê"], ["c2", "Pets"]]);
+    const tx = (id: string, cat: string, amount: number, type: string, at: string, extra: Record<string, unknown> = {}) => ({
+      id, category_id: cat, amount, type, status: "confirmed", occurred_at: at, account_id: "a", movement_kind: "transaction",
+      transfer_group_id: null, payment_method: "pix", credit_card_id: null, settles_card_id: null, ...extra,
+    });
+    const result = computeCompare({
+      txs: [
+        tx("1", "c2", 61.47, "expense", "2026-10-05T12:00:00Z"),
+        tx("2", "c1", 100, "expense", "2026-10-06T12:00:00Z"),
+      ] as any,
+      categoryNames: names, metric: "expense",
+      period_a: { from: "2026-09-01", to: "2026-09-30" }, period_b: { from: "2026-10-01", to: "2026-10-31" },
+      group_by: "category", category_scope: [],
+    });
+    for (const row of result.by_group) expect(row.delta_pct).toBeNull();
+  });
+});

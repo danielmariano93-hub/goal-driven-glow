@@ -116,7 +116,8 @@ export function computeCompare(input: CompareInput): CompareResult {
     const ta = round2(A.byCat.get(name) ?? 0);
     const tb = round2(B.byCat.get(name) ?? 0);
     const da = round2(tb - ta);
-    const dp = ta > 0 ? da / ta : (tb > 0 ? null : 0);
+    // Base zerada ou negativa (só estorno) não tem variação percentual: 0% seria dado falso.
+    const dp = ta > 0 ? da / ta : (Math.abs(da) < 0.005 ? 0 : null);
     return { name, total_a: ta, total_b: tb, delta_abs: da, delta_pct: dp === null ? null : round4(dp) };
   }).sort((x, y) => Math.abs(y.delta_abs) - Math.abs(x.delta_abs));
 
@@ -287,7 +288,7 @@ export function computeCompareToMonthlyAverage(
     const baselineMean = round2(baselineMeanRaw);
     const targetValue = round2(targetValueRaw);
     const delta = round2(targetValue - baselineMean);
-    const pct = baselineMean > 0 ? delta / baselineMean : (targetValue > 0 ? null : 0);
+    const pct = baselineMean > 0 ? delta / baselineMean : (Math.abs(delta) < 0.005 ? 0 : null);
     return {
       name,
       total_a: baselineMean,
