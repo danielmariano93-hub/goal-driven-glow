@@ -248,6 +248,20 @@ function humanSemanticClarification(
   return { contract, telemetry: fallbackTelemetry(telemetry, reason) };
 }
 
+/** Quebra pedida que o Nino não guarda: a expressão dita, ou null. */
+export function unavailableDimensionOf(turn: { kind?: string; tasks?: unknown[] }): string | null {
+  if (turn?.kind !== "task") return null;
+  for (const task of (turn.tasks ?? []) as Array<{ kind?: string; unavailable_dimension?: string | null }>) {
+    if (task?.kind === "financial_query" && task.unavailable_dimension) return task.unavailable_dimension;
+  }
+  return null;
+}
+
+export function unavailableDimensionReply(expression: string): string {
+  const said = String(expression).replace(/[*_`]/g, "").slice(0, 60);
+  return `Não guardo "${said}" nas suas transações, então não consigo quebrar por isso sem inventar. Posso mostrar por dia, dia da semana, semana, mês, categoria, estabelecimento, cartão ou conta. Qual você prefere?`;
+}
+
 export async function interpretConversationTurn(input: AuthorityInput): Promise<ConversationBrainOutcome> {
   // Resposta curta a uma pergunta de CONTA ("Itaú") preenche o slot pendente do rascunho,
   // sem nova interpretação: o modelo podia ler "Itaú" como uma escrita nova e as duas leituras divergiam.
@@ -286,6 +300,10 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   });
 
   if (semantic.turn) {
+    const missing = unavailableDimensionOf(semantic.turn);
+    if (missing) {
+      return humanSemanticClarification(input, "v3_dimension_unavailable", semantic.telemetry, unavailableDimensionReply(missing));
+    }
     const compoundEnabled = input.user_id
       ? await isEnabled("compound_turns_v1", input.user_id).catch(() => false)
       : false;

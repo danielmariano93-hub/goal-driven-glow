@@ -85,8 +85,10 @@ const referenceSchema = {
 const financialTaskPayloadSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["metric", "operation", "group_by", "filters", "periods", "limit", "comparison"],
+  required: ["metric", "operation", "group_by", "filters", "periods", "limit", "comparison", "unavailable_dimension"],
   properties: {
+    // Quebra pedida que NÃO existe em group_by (ex.: hora do dia): a expressão dita, para o Nino recusar com honestidade.
+    unavailable_dimension: { anyOf: [{ type: "string" }, { type: "null" }] },
     metric: {
       type: "string",
       enum: ["expense_amount", "income_amount", "balance", "net_worth", "debt_balance", "future_installments", "financial_health"],
@@ -290,6 +292,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 35l. "Quanto sobra até o fim do mês?", "como vou fechar o mês?", "projeção do mês", "vou terminar o mês no azul?" = financial_query metric=expense_amount operation=forecast, filters=[], group_by=[], periods=["este mês"]. Nunca peça esclarecimento.
 35m. Caixa/saldo FUTURO e alertas de caixa: "por que o caixa fica negativo?", "me explica melhor" logo depois de um aviso de "caixa fica negativo" ou "saldo projetado", "quais lançamentos futuros pesam?", "o que vence nos próximos dias e vai me deixar no vermelho?", "como vai ficar meu saldo até dia 10?" = financial_query metric=balance operation=forecast, filters=[], group_by=[], periods=[] (NÃO coloque "próximos 10 dias" como período: a projeção já cobre os próximos dias). Se o turno anterior do Nino foi um alerta proativo e a pessoa pede para explicar, é este caso: nunca pergunte "qual período ou item".
 35r. Cadastro: "quais cartões eu tenho?", "quais contas eu tenho?", "lista meus cartões" = financial_query metric=balance, operation=breakdown, group_by=[card] (ou [account]), filters=[], periods=[]. Para os dois juntos use group_by=[account] numa query e [card] em outra.
+35s. DIMENSÃO QUE NÃO EXISTE: group_by só aceita category, merchant, card, account, month, weekday, day, week, quarter. Se a pessoa pedir quebra/ranking por OUTRA dimensão (hora do dia, tamanho do gasto, banco emissor, qualquer coisa fora dessa lista), NÃO escolha a mais parecida: group_by=[] e unavailable_dimension=a expressão dita. Só use unavailable_dimension para dimensão de quebra ausente do schema, nunca para período, filtro ou métrica.
 35p. Parcelas de DÍVIDAS ("quanto pago de parcela de dívida por mês?", "quanto pago por mês de dívidas?", "minhas parcelas das dívidas") = financial_query metric=debt_balance, operation=value (o resultado traz o total devido e a soma das parcelas mensais). future_installments é SÓ para parcelas de COMPRAS no cartão ("parcelas futuras no cartão").
 35q. Pedido sobre dados de OUTRA pessoa (nome de terceiro: "o saldo do João", "os gastos da minha esposa na conta dela") = kind=conversation com direct_reply curto e sem número: só consigo mostrar os dados da própria pessoa que está falando comigo. NUNCA responda com os dados dela como se fossem do terceiro.
 35o. Se o contexto traz repair_hint, esta é a SEGUNDA tentativa: a primeira leitura da mesma mensagem não pôde ser executada. Reformule a mesma intenção só com combinações executáveis (metric/operation/group_by/filters que existam), mantendo os mesmos filtros e períodos ditos; se não houver reformulação executável, kind=conversation com resposta honesta (o que não dá e o que dá). Nunca troque o assunto nem invente dado.
@@ -401,6 +404,9 @@ function normalizeFinancial(raw: any): FinancialQueryTaskV3 | null {
     periods: periodList,
     limit: raw.limit == null ? null : Number(raw.limit),
     comparison,
+    unavailable_dimension: typeof raw.unavailable_dimension === "string" && raw.unavailable_dimension.trim()
+      ? raw.unavailable_dimension.trim().slice(0, 60)
+      : null,
   } as FinancialQueryTaskV3;
 }
 
