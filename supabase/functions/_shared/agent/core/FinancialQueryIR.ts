@@ -126,8 +126,9 @@ export function validateFinancialIR(value: unknown): string[] {
         errors.push("q0_filter_invalid");
         break;
       }
-      if (seen.has(f.field)) errors.push("q0_duplicate_filter");
-      seen.add(f.field);
+      const key = f.field === "category" ? `category:${f.value.trim().toLowerCase()}` : f.field;
+      if (seen.has(key)) errors.push("q0_duplicate_filter");
+      seen.add(key);
     }
   }
   if (q.limit != null && (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > 20)) {
@@ -467,8 +468,10 @@ export function validateFinancialIRv2(value: unknown): string[] {
           errors.push(`${id}_filter_invalid`);
           break;
         }
-        if (seen.has(f.field)) errors.push(`${id}_duplicate_filter`);
-        seen.add(f.field);
+        // Várias categorias distintas são um recorte (OR), só mapeado na comparação.
+        const key = f.field === "category" ? `category:${f.value.trim().toLowerCase()}` : f.field;
+        if (seen.has(key)) errors.push(`${id}_duplicate_filter`);
+        seen.add(key);
       }
     }
     if (q.limit != null && (!Number.isInteger(q.limit) || q.limit < 1 || q.limit > 20)) {
