@@ -168,8 +168,27 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
       // qualquer filtro e criava um falso "unsupported" para perguntas como
       // "compare Lazer com o período anterior". A ontologia deve refletir a
       // capacidade REAL do engine, não uma restrição histórica do adaptador.
-      if ((group && group !== "category") || !onlyFilters(q, ["category"])) return null;
+      if ((group && group !== "category" && group !== "merchant") || !onlyFilters(q, ["category"])) return null;
       const categories = categoryValues(q);
+      if (group === "merchant") {
+        // Comparação por estabelecimento: só gasto, base por período e no máximo UMA categoria de recorte.
+        if (metric !== "expense" || categories.length > 1 || !ir.comparison_period
+          || q.comparison_baseline === "mean_previous_complete_months") return null;
+        return {
+          tool: "compare_periods",
+          capability: "financial_comparison",
+          execution: "llm_scoped",
+          args: {
+            metric,
+            group_by: "merchant",
+            comparison_direction: q.comparison_direction ?? "any",
+            limit: q.limit ?? null,
+            period_a: { from: ir.comparison_period.from, to: ir.comparison_period.to },
+            period_b: { from: period.from, to: period.to },
+            ...(categories.length ? { category_scope: categories } : {}),
+          },
+        };
+      }
       const categoryScope = categories.length ? categories : undefined;
       if (q.comparison_baseline === "mean_previous_complete_months") {
         const months = Number(q.comparison_baseline_window);

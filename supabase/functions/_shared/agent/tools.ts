@@ -1741,6 +1741,7 @@ import {
   compare_financial_metric, assess_financial_performance, assess_financial_health,
   analyze_longitudinal_trajectory, analyze_wealth_opportunity, build_financial_plan, spending_aggregate,
 } from "./engineTools.ts";
+import { merchantPeriodComparison } from "./engineToolsImpl.ts";
 import { planInstallmentDecision } from "./core/AdvisorConsult.ts";
 import { goalNameMatches } from "./core/GoalNameMatch.ts";
 import { loadBehaviorHabitsReading, OBSERVED_RUNTIME_VERSION } from "../behavioral/observedRuntime.ts";
@@ -1903,7 +1904,7 @@ async function loadTxAndCategories(ctx: ToolContext, from: string, to: string, o
 
 export async function compare_periods(ctx: ToolContext, args: {
   metric?: "expense" | "income";
-  group_by?: "category" | "none";
+  group_by?: "category" | "merchant" | "none";
   comparison_direction?: ComparisonDirection;
   limit?: number | null;
   period_a?: { from: string; to: string };
@@ -1916,6 +1917,29 @@ export async function compare_periods(ctx: ToolContext, args: {
   const period_a = args?.period_a ?? { from: prev.from, to: prev.to };
   const period_b = args?.period_b ?? { from: cur.from, to: today };
   const metric = (args?.metric ?? "expense") as "expense" | "income";
+  if (args?.group_by === "merchant") {
+    // Estabelecimentos: motor de distribuição por estabelecimento, uma vez por período. Só gasto e no máximo
+    // uma categoria de recorte; o resto não tem motor e volta como "sem execução" (recusa honesta).
+    if (metric !== "expense" || (args.category_scope?.length ?? 0) > 1) return { ok: false, error: "merchant_comparison_unsupported_scope" };
+    try {
+      const result = await merchantPeriodComparison(ctx as any, {
+        period_a, period_b, category_name: args.category_scope?.[0] ?? null,
+      });
+      return {
+        ok: true,
+        result: {
+          ...result,
+          requested_group_by: "merchant",
+          requested_comparison_direction: args?.comparison_direction ?? "any",
+          requested_limit: args?.limit ?? null,
+          period_a: { from: period_a.from, to: period_a.to, partial: period_a.to > today },
+          period_b: { from: period_b.from, to: period_b.to, partial: period_b.to > today },
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: String((error as Error)?.message ?? error).slice(0, 160) };
+    }
+  }
   // carrega janela unificada
   const from = period_a.from < period_b.from ? period_a.from : period_b.from;
   const to = period_a.to > period_b.to ? period_a.to : period_b.to;
@@ -3431,7 +3455,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
       type: "object",
       properties: {
         metric: { type: "string", enum: ["expense", "income"] },
-        group_by: { type: "string", enum: ["category", "none"] },
+        group_by: { type: "string", enum: ["category", "merchant", "none"] },
         comparison_direction: { type: "string", enum: [...COMPARISON_DIRECTIONS] },
         limit: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
         period_a: periodSchema,

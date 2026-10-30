@@ -66,3 +66,82 @@ describe("variação percentual com base zerada ou só de estorno", () => {
     for (const row of result.by_group) expect(row.delta_pct).toBeNull();
   });
 });
+
+import { mappingForQuery } from "../../supabase/functions/_shared/agent/core/IRCapabilityAdapter";
+import { merchantPeriodComparison } from "../../supabase/functions/_shared/agent/engineToolsImpl";
+
+describe("comparação por estabelecimento", () => {
+  const ir = { period: { from: "2026-10-01", to: "2026-10-29" }, comparison_period: { from: "2026-09-01", to: "2026-09-30" } } as any;
+  const q = (over: Record<string, unknown> = {}) => ({
+    id: "q1", metric: "expense_amount", operation: "compare", group_by: ["merchant"], filters: [], limit: null, depends_on: [],
+    comparison_baseline: "period", ...over,
+  } as any);
+
+  it("mapeia para compare_periods por estabelecimento, com no máximo uma categoria de recorte", () => {
+    const m = mappingForQuery(q({ filters: [{ field: "category", op: "eq", value: "Transporte" }] }), ir);
+    expect(m?.tool).toBe("compare_periods");
+    expect(m?.args).toMatchObject({ group_by: "merchant", category_scope: ["Transporte"], period_a: { from: "2026-09-01" }, period_b: { from: "2026-10-01" } });
+    const two = mappingForQuery(q({ filters: ["Transporte", "Lazer"].map((value) => ({ field: "category", op: "eq", value })) }), ir);
+    expect(two).toBeNull();
+    expect(mappingForQuery(q({ comparison_baseline: "mean_previous_complete_months", comparison_baseline_window: 3 }), ir)).toBeNull();
+    expect(mappingForQuery(q({ metric: "income_amount" }), ir)).toBeNull();
+  });
+
+  it("soma por estabelecimento nos dois períodos e declara o escopo", async () => {
+    const tx = (id: string, desc: string, amount: number, at: string) => ({
+      id, account_id: "a", category_id: "c1", type: "expense", status: "confirmed", amount, occurred_at: at, description: desc,
+      transfer_group_id: null, payment_method: "pix", credit_card_id: null, settles_card_id: null, movement_kind: "transaction",
+      competence_date: null, refund_of_transaction_id: null,
+    });
+    const rows = [
+      tx("1", "Uber", 100, "2026-09-05T12:00:00Z"), tx("2", "Uber", 50, "2026-10-05T12:00:00Z"),
+      tx("3", "99", 40, "2026-10-06T12:00:00Z"),
+    ];
+    const builder = (data: unknown): any => new Proxy({}, { get: (_t, prop) => prop === "then" ? (res: (v: unknown) => void) => res({ data, error: null }) : () => builder(data) });
+    const sb = { from: (table: string) => builder(table === "transactions" ? rows : table === "categories" ? [{ id: "c1", name: "Transporte" }] : []) };
+    const out: any = await merchantPeriodComparison({ sb, user_id: "u" } as any, {
+      period_a: { from: "2026-09-01", to: "2026-09-30" }, period_b: { from: "2026-10-01", to: "2026-10-29" }, category_name: "Transporte",
+    });
+    expect(out.total_a).toBe(100);
+    expect(out.total_b).toBe(90);
+    expect(out.delta_abs).toBe(-10);
+    const uber = out.by_group.find((r: any) => /uber/i.test(r.name));
+    expect(uber).toMatchObject({ total_a: 100, total_b: 50, delta_abs: -50 });
+    const ninetyNine = out.by_group.find((r: any) => /99/.test(r.name));
+    expect(ninetyNine).toMatchObject({ total_a: 0, total_b: 40, delta_pct: null });
+    expect(out.applied_reference_scope).toEqual({ target: "category", entity_labels: ["Transporte"] });
+  });
+
+  it("a apresentação fala de estabelecimentos, não de categorias", () => {
+    const text = formatPeriodComparisonEnhanced({
+      total_a: 100, total_b: 90, delta_abs: -10, delta_pct: -0.1, requested_group_by: "merchant", coverage_a: 0.9, coverage_b: 1,
+      by_group: [{ name: "Uber", total_a: 100, total_b: 50, delta_abs: -50, delta_pct: -0.5 }],
+      period_a: { from: "2026-09-01", to: "2026-09-30", partial: false }, period_b: { from: "2026-10-01", to: "2026-10-31", partial: false },
+    });
+    expect(text).toMatch(/Por estabelecimento, \*outubro de 2026\*: R\$\s90,00 considerados/);
+    expect(text).toMatch(/Diminuíram: .*Uber/);
+    expect(text).toMatch(/estabelecimentos reconhecidos \(90%/);
+    expect(text).not.toMatch(/categoria/i);
+  });
+});
+
+import { buildEvidenceClaims } from "../../supabase/functions/_shared/agent/core/EvidenceClaims";
+
+describe("evidência da comparação por estabelecimento", () => {
+  it("cada valor exibido por estabelecimento vira afirmação rastreável", () => {
+    const ir: any = { period: { from: "2026-10-01", to: "2026-10-29" }, comparison_period: { from: "2026-09-01", to: "2026-09-30" }, queries: [{ id: "q1" }] };
+    const execution: any = {
+      outcomes: [{
+        query_id: "q1", engine: "compare_periods", status: "ok",
+        result: {
+          total_a: 100, total_b: 90, delta_abs: -10, delta_pct: -0.1, requested_group_by: "merchant",
+          by_group: [{ name: "Uber", total_a: 100, total_b: 50, delta_abs: -50, delta_pct: -0.5 }],
+        },
+      }],
+    };
+    const labels = buildEvidenceClaims(ir, execution).claims.map((c) => c.label);
+    expect(labels).toContain("Uber:total_a");
+    expect(labels).toContain("Uber:total_b");
+    expect(labels).toContain("Uber:delta_abs");
+  });
+});

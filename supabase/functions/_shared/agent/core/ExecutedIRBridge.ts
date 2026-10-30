@@ -74,7 +74,8 @@ function fromPeriodComparison(requested: FinancialQueryV3, result: unknown): Exe
   const r = (result ?? {}) as Record<string, unknown>;
   if (r.total_a == null || r.total_b == null || !Array.isArray(r.by_group)) return null;
   if (requested.legacy_operation !== "compare") return null;
-  const requestedGroup = String(r.requested_group_by ?? "none") === "category" ? ["category"] : [];
+  const groupEcho = String(r.requested_group_by ?? "none");
+  const requestedGroup = groupEcho === "category" ? ["category"] : groupEcho === "merchant" ? ["merchant"] : [];
   return {
     metric: requested.metric,
     filters: filtersFromAppliedReferenceScope(requested, result),

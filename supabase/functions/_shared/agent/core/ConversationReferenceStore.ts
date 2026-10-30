@@ -213,6 +213,8 @@ function targetFromCall(call: any): ReferenceObject["target"] | null {
   }
   if (tool === "get_debt_status" || tool.includes("debt")) return "debt";
 
+  // Comparação por estabelecimento: as linhas exibidas são estabelecimentos, mesmo com a categoria como recorte.
+  if (String(call?.result?.requested_group_by ?? "").toLowerCase() === "merchant") return "merchant";
   const appliedTarget = String(call?.result?.applied_reference_scope?.target ?? "").toLowerCase();
   if (["category", "merchant", "card", "account", "goal", "debt"].includes(appliedTarget)) {
     return appliedTarget as ReferenceObject["target"];
