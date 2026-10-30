@@ -220,6 +220,68 @@ export function merchant_distribution(
   });
 }
 
+/**
+ * Comparação de estabelecimentos entre dois períodos (`compare_merchant_periods.v1`): roda a MESMA
+ * distribuição por estabelecimento em cada período (mesmos números de "principais estabelecimentos") e
+ * devolve no formato de `compare_periods` (a = base, b = alvo), para a apresentação e as travas serem as mesmas.
+ */
+export async function merchantPeriodComparison(
+  ctx: EngineToolContext,
+  args: {
+    period_a: { from: string; to: string };
+    period_b: { from: string; to: string };
+    category_name?: string | null;
+    limit?: number | null;
+  },
+): Promise<Record<string, unknown>> {
+  const from = args.period_a.from < args.period_b.from ? args.period_a.from : args.period_b.from;
+  const to = args.period_a.to > args.period_b.to ? args.period_a.to : args.period_b.to;
+  const [txs, aliases, categoryId, names] = await Promise.all([
+    loadEngineTransactions(ctx, from, to),
+    loadAliases(ctx),
+    resolveCategoryId(ctx, { category_name: args.category_name ?? undefined }),
+    loadCategoryNames(ctx),
+  ]);
+  if (args.category_name && !categoryId) throw new Error("category_not_found");
+  const categoryName = categoryId ? (names[categoryId] ?? args.category_name ?? null) : null;
+  const run = (period: { from: string; to: string }) => merchantDistribution({
+    txs: txs as any, period, aliases, categoryId, categoryName, limit: 500,
+  });
+  const a = run(args.period_a);
+  const b = run(args.period_b);
+  const labels = new Set<string>([...a.merchants.map((m) => m.merchant), ...b.merchants.map((m) => m.merchant)]);
+  const amountOf = (dist: typeof a, label: string) => dist.merchants.find((m) => m.merchant === label)?.amount ?? 0;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const rows = [...labels].map((name) => {
+    const ta = r2(amountOf(a, name));
+    const tb = r2(amountOf(b, name));
+    const delta = r2(tb - ta);
+    // Base zerada ou negativa não tem variação percentual (0% seria dado falso).
+    const pct = ta > 0 ? Math.round((delta / ta) * 10_000) / 10_000 : (Math.abs(delta) < 0.005 ? 0 : null);
+    return { name, total_a: ta, total_b: tb, delta_abs: delta, delta_pct: pct };
+  }).sort((x, y) => Math.abs(y.delta_abs) - Math.abs(x.delta_abs));
+  const shown = rows.slice(0, 15);
+  const totalA = r2(a.category_total);
+  const totalB = r2(b.category_total);
+  const delta = r2(totalB - totalA);
+  return {
+    metric: "expense",
+    engine: "compare_merchant_periods",
+    total_a: totalA,
+    total_b: totalB,
+    delta_abs: delta,
+    delta_pct: totalA > 0 ? Math.round((delta / totalA) * 10_000) / 10_000 : null,
+    by_group: shown,
+    by_group_total: rows.length,
+    comparable: true,
+    // Parte do total sem estabelecimento reconhecido: a resposta declara que só cobre o identificado.
+    coverage_a: a.coverage,
+    coverage_b: b.coverage,
+    applied_reference_scope: categoryName ? { target: "category", entity_labels: [categoryName] } : null,
+    formula_version: "compare_merchant_periods.v1",
+  };
+}
+
 /** Headline canônica da distribuição — declara escopo e cobertura. */
 export function distributionHeadline(dist: {
   category: { name: string | null };

@@ -170,6 +170,12 @@ export function comparisonHeader(result: any): string | null {
   const labelA = comparisonPeriodLabel(result?.period_a);
   if (!labelA || !labelB) return null;
   const lines = [`Comparando *${labelB}*: ${money(result?.total_b)}, com *${labelA}*: ${money(result?.total_a)}.`];
+  if (result?.requested_group_by === "merchant") {
+    const cov = [result?.coverage_a, result?.coverage_b].map(Number).filter(Number.isFinite);
+    if (cov.length && Math.min(...cov) < 0.99) {
+      lines.push(`Obs.: só entram estabelecimentos reconhecidos (${Math.round(Math.min(...cov) * 100)}% do total no período com menos cobertura); o restante não aparece na lista.`);
+    }
+  }
   const open = [result?.period_b?.partial ? labelB : null, result?.period_a?.partial ? labelA : null].filter(Boolean);
   if (open.length) lines.push(`⚠️ ${open.join(" e ")} ainda não terminou: o total cobre só os dias até hoje.`);
   return lines.join("\n");
@@ -188,7 +194,8 @@ function formatPeriodComparisonBody(result: any): string {
   const totalRatio = result?.delta_pct != null
     ? Number(result.delta_pct)
     : totalA > 0 ? delta / totalA : null;
-  const byCategory = result?.requested_group_by === "category";
+  const isMerchant = result?.requested_group_by === "merchant";
+  const byCategory = result?.requested_group_by === "category" || isMerchant;
   const rows: any[] = Array.isArray(result?.by_group) ? result.by_group : [];
   const requestedDirection = ["increase", "decrease", "both", "any"].includes(String(result?.requested_comparison_direction ?? "any"))
     ? String(result.requested_comparison_direction ?? "any")
@@ -207,25 +214,25 @@ function formatPeriodComparisonBody(result: any): string {
 
     if (requestedDirection === "increase") {
       const selected = limited(increases);
-      if (!selected.length) return "Nenhuma dessas categorias aumentou nesse comparativo.";
-      if (requestedLimit === 1) return `A categoria que mais aumentou foi ${detailed(selected[0], "increase")}`;
+      if (!selected.length) return isMerchant ? "Nenhum desses estabelecimentos aumentou nesse comparativo." : "Nenhuma dessas categorias aumentou nesse comparativo.";
+      if (requestedLimit === 1) return `${isMerchant ? "O estabelecimento" : "A categoria"} que mais aumentou foi ${detailed(selected[0], "increase")}`;
       return `Aumentaram: ${selected.map((row) => compact(row, "increase")).join("; ")}.`;
     }
     if (requestedDirection === "decrease") {
       const selected = limited(decreases);
-      if (!selected.length) return "Nenhuma dessas categorias diminuiu nesse comparativo.";
-      if (requestedLimit === 1) return `A categoria que mais diminuiu foi ${detailed(selected[0], "decrease")}`;
+      if (!selected.length) return isMerchant ? "Nenhum desses estabelecimentos diminuiu nesse comparativo." : "Nenhuma dessas categorias diminuiu nesse comparativo.";
+      if (requestedLimit === 1) return `${isMerchant ? "O estabelecimento" : "A categoria"} que mais diminuiu foi ${detailed(selected[0], "decrease")}`;
       return `Diminuíram: ${selected.map((row) => compact(row, "decrease")).join("; ")}.`;
     }
     if (requestedDirection === "any" && requestedLimit === 1) {
       const changed = rows.filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005).slice().sort((a, b) => Math.abs(Number(b.delta_abs ?? 0)) - Math.abs(Number(a.delta_abs ?? 0)));
       const top = changed[0];
-      if (!top) return "Essas categorias ficaram praticamente estáveis nesse comparativo.";
+      if (!top) return isMerchant ? "Esses estabelecimentos ficaram praticamente estáveis nesse comparativo." : "Essas categorias ficaram praticamente estáveis nesse comparativo.";
       return `A maior variação foi em ${detailed(top, Number(top.delta_abs) > 0 ? "increase" : "decrease")}`;
     }
     const selectedIncreases = limited(increases);
     const selectedDecreases = limited(decreases);
-    if (!selectedIncreases.length && !selectedDecreases.length) return "Essas categorias ficaram praticamente estáveis nesse comparativo.";
+    if (!selectedIncreases.length && !selectedDecreases.length) return isMerchant ? "Esses estabelecimentos ficaram praticamente estáveis nesse comparativo." : "Essas categorias ficaram praticamente estáveis nesse comparativo.";
     return [
       selectedIncreases.length ? `Aumentaram: ${selectedIncreases.map((row) => compact(row, "increase")).join("; ")}.` : "Aumentaram: nenhuma.",
       selectedDecreases.length ? `Diminuíram: ${selectedDecreases.map((row) => compact(row, "decrease")).join("; ")}.` : "Diminuíram: nenhuma.",
