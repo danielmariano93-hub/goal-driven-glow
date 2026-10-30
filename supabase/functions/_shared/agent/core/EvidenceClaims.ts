@@ -143,7 +143,12 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       claims.push({ id: seq(), ...base, type: "percentage", value: Math.abs(totalDeltaPct) * 100, label: "delta_pct", rank: null });
     }
 
-    const categoryMode = String(result.requested_group_by ?? "none") === "category";
+    for (const [label, raw] of [["coverage_a", result.coverage_a], ["coverage_b", result.coverage_b]] as const) {
+      const cov = num(raw);
+      if (cov != null) claims.push({ id: seq(), ...base, type: "percentage", value: Math.round(cov * 100), label, rank: null });
+    }
+    // Linhas por categoria OU por estabelecimento: cada valor exibido precisa estar na evidência.
+    const categoryMode = ["category", "merchant"].includes(String(result.requested_group_by ?? "none"));
     if (categoryMode) {
       const changed = (result.by_group as Array<Record<string, unknown>>)
         .filter((row) => Math.abs(Number(row?.delta_abs ?? 0)) > 0.005).slice();

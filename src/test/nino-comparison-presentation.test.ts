@@ -123,3 +123,24 @@ describe("comparação por estabelecimento", () => {
     expect(text).not.toMatch(/categoria/i);
   });
 });
+
+import { buildEvidenceClaims } from "../../supabase/functions/_shared/agent/core/EvidenceClaims";
+
+describe("evidência da comparação por estabelecimento", () => {
+  it("cada valor exibido por estabelecimento vira afirmação rastreável", () => {
+    const ir: any = { period: { from: "2026-10-01", to: "2026-10-29" }, comparison_period: { from: "2026-09-01", to: "2026-09-30" }, queries: [{ id: "q1" }] };
+    const execution: any = {
+      outcomes: [{
+        query_id: "q1", engine: "compare_periods", status: "ok",
+        result: {
+          total_a: 100, total_b: 90, delta_abs: -10, delta_pct: -0.1, requested_group_by: "merchant",
+          by_group: [{ name: "Uber", total_a: 100, total_b: 50, delta_abs: -50, delta_pct: -0.5 }],
+        },
+      }],
+    };
+    const labels = buildEvidenceClaims(ir, execution).claims.map((c) => c.label);
+    expect(labels).toContain("Uber:total_a");
+    expect(labels).toContain("Uber:total_b");
+    expect(labels).toContain("Uber:delta_abs");
+  });
+});
