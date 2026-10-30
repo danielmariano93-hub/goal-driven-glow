@@ -145,7 +145,43 @@ export function formatAverageComparisonEnhanced(result: any): string {
   return [semantics.compareHeading, "", ...selected.map(line)].join("\n");
 }
 
+const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const ymd = (iso: unknown) => String(iso ?? "").slice(0, 10);
+const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** "outubro de 2026" para mês fechado ou aberto; "01/10 a 15/10" para o resto. */
+export function comparisonPeriodLabel(period: { from?: unknown; to?: unknown } | null | undefined): string | null {
+  const from = ymd(period?.from);
+  const to = ymd(period?.to);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const lastDay = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)), 0)).getUTCDate();
+  if (from.slice(0, 7) === to.slice(0, 7) && from.endsWith("-01") && Number(to.slice(8, 10)) === lastDay) {
+    return `${MONTHS_PT[Number(from.slice(5, 7)) - 1]} de ${from.slice(0, 4)}`;
+  }
+  return `${dm(from)} a ${dm(to)}`;
+}
+
+/**
+ * Cabeçalho que NOMEIA os dois períodos e seus totais (b = alvo, a = base) e avisa quando um está aberto.
+ * Sem ele, "de X para Y" não diz qual é qual e o texto reescrito trocava os meses.
+ */
+export function comparisonHeader(result: any): string | null {
+  const labelB = comparisonPeriodLabel(result?.period_b);
+  const labelA = comparisonPeriodLabel(result?.period_a);
+  if (!labelA || !labelB) return null;
+  const lines = [`Comparando *${labelB}*: ${money(result?.total_b)}, com *${labelA}*: ${money(result?.total_a)}.`];
+  const open = [result?.period_b?.partial ? labelB : null, result?.period_a?.partial ? labelA : null].filter(Boolean);
+  if (open.length) lines.push(`⚠️ ${open.join(" e ")} ainda não terminou: o total cobre só os dias até hoje.`);
+  return lines.join("\n");
+}
+
 export function formatPeriodComparisonEnhanced(result: any): string {
+  const header = comparisonHeader(result);
+  const body = formatPeriodComparisonBody(result);
+  return header ? `${header}\n\n${body}` : body;
+}
+
+function formatPeriodComparisonBody(result: any): string {
   const totalA = Number(result?.total_a ?? 0);
   const totalB = Number(result?.total_b ?? 0);
   const delta = Number(result?.delta_abs ?? (totalB - totalA));

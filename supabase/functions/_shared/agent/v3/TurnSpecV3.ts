@@ -204,8 +204,12 @@ export function validateTurnSpecV3(turn: TurnSpecV3): TurnSpecValidationV3 {
     for (const [index, task] of turn.tasks.entries()) {
       if (task.kind === "financial_query") {
         if (task.group_by.length > 1) errors.push(`task_${index}_too_many_group_by`);
-        const filterFields = task.filters.map((filter) => filter.field);
-        if (unique(filterFields).length !== filterFields.length) errors.push(`task_${index}_duplicate_filter`);
+        // Várias categorias = um recorte "dessas categorias" (OR, hoje só na comparação); os outros
+        // campos continuam aceitando um valor só. Valor repetido não conta como recorte novo.
+        const filterKeys = task.filters.map((filter) => filter.field === "category"
+          ? `category:${String(filter.entity?.value ?? "").trim().toLowerCase()}`
+          : filter.field);
+        if (unique(filterKeys).length !== filterKeys.length) errors.push(`task_${index}_duplicate_filter`);
         if (task.limit != null && (!Number.isInteger(task.limit) || task.limit < 1 || task.limit > 20)) {
           errors.push(`task_${index}_limit_invalid`);
         }

@@ -86,7 +86,9 @@ jobs:
           src/test/nino-proactive-explain.test.ts
           src/test/nino-self-repair.test.ts
           src/test/nino-golden-score.test.ts \
-          src/test/nino-dimension-unavailable.test.ts
+          src/test/nino-dimension-unavailable.test.ts \
+          src/test/nino-contract-invalid.test.ts \
+          src/test/nino-comparison-presentation.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos

@@ -1936,6 +1936,10 @@ export async function compare_periods(ctx: ToolContext, args: {
       requested_group_by: args?.group_by ?? "none",
       requested_comparison_direction: args?.comparison_direction ?? "any",
       requested_limit: args?.limit ?? null,
+      // Quais períodos são "a" (base) e "b" (alvo), e se algum ainda está aberto: sem isso a resposta
+      // dizia "de X para Y" sem nomear os meses e comparava um mês parcial com um fechado em silêncio.
+      period_a: { from: period_a.from, to: period_a.to, partial: period_a.to > today },
+      period_b: { from: period_b.from, to: period_b.to, partial: period_b.to > today },
     },
   };
 }

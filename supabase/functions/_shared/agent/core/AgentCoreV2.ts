@@ -33,7 +33,7 @@ import { parseBankNotification } from "./BankNotificationParser.ts";
 import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastLog.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
-import { isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
+import { contractRepairHint, isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import {
   explainProactiveBody, loadRecentProactive, NO_RECENT_PROACTIVE_REPLY, proactiveContextBlock, type RecentProactive,
@@ -687,7 +687,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   let interpreterRetried = false;
   if (!narrowContract && !brain.contract && brain.telemetry.ok === false && isTransientInterpreterFailure(brain.telemetry.error)) {
     interpreterRetried = true;
-    const second = await interpretTurn().catch(() => null);
+    const second = await interpretTurn({ repair_hint: contractRepairHint(brain.telemetry.error) }).catch(() => null);
     if (second?.contract) {
       brain = {
         ...second,
@@ -1545,7 +1545,9 @@ async function executeContract(
   // Série (mês a mês, dia a dia) e ranking com leitura: o conteúdo diagramado
   // vai inteiro; a voz escreve só a abertura. Antes o compositor resumia a
   // série e a lista de meses sumia ("quero mês a mês" pedido de novo).
-  const SERIES_ENGINES = new Set(["spending_timeseries_monthly", SCOPED_SERIES_ENGINE]);
+  // Comparação entre períodos entra aqui: o corpo determinístico nomeia cada mês com seu total, e o
+  // compositor reescrevia os números trocando os meses de lugar ("outubro R$ 18 mil" sendo setembro).
+  const SERIES_ENGINES = new Set(["spending_timeseries_monthly", SCOPED_SERIES_ENGINE, "compare_periods", "compare_to_monthly_average"]);
   const laidOut = replyKind === "info" && !fulfillmentBlocked && successfulSemanticExecution && !!semantic.turn
     && (extraEvidence.length > 0 || (toolCalls.length === 1 && SERIES_ENGINES.has(toolCalls[0].tool_name)));
   return {

@@ -341,6 +341,10 @@ export function guardComposedReply(args: {
   } else if (input.kind === "review" || input.kind === "layout") {
     if (text.length > 420) push("too_long");
     if (/\?\s*$/.test(text)) push("review_opening_asks");
+    // Comparação: o corpo já diz qual valor é de qual período; uma abertura com valores podia trocá-los.
+    const comparisonEvidence = (input.evidence ?? []).some((item: any) =>
+      item && typeof item === "object" && Number.isFinite(Number(item.total_a)) && Number.isFinite(Number(item.total_b)) && Array.isArray(item.by_group));
+    if (comparisonEvidence && citedNumbers(text).some((n) => n.kind === "money")) push("comparison_opening_cites_money");
   } else if (input.kind !== "conversation" && input.kind !== "recovery") {
     // Advice, simulations, decisions and compound turns may lead with the most
     // relevant result (e.g. the saving, not the baseline), but must still be

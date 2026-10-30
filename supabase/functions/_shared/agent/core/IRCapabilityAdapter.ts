@@ -17,6 +17,18 @@ function filter(q: FinancialQuery, field: FinancialFilter["field"]): string | nu
   return q.filters.find((f) => f.field === field && f.op === "eq")?.value?.trim() || null;
 }
 
+/** Todas as categorias do recorte, sem repetição (recorte de várias categorias = OR). */
+function categoryValues(q: FinancialQuery): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const f of q.filters) {
+    if (f.field !== "category" || f.op !== "eq") continue;
+    const value = String(f.value ?? "").trim();
+    if (value && !seen.has(value.toLowerCase())) { seen.add(value.toLowerCase()); out.push(value); }
+  }
+  return out;
+}
+
 function onlyFilters(q: FinancialQuery, allowed: FinancialFilter["field"][]): boolean {
   return q.filters.every((f) => allowed.includes(f.field) && f.op === "eq");
 }
@@ -157,8 +169,8 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
       // "compare Lazer com o período anterior". A ontologia deve refletir a
       // capacidade REAL do engine, não uma restrição histórica do adaptador.
       if ((group && group !== "category") || !onlyFilters(q, ["category"])) return null;
-      const category = filter(q, "category");
-      const categoryScope = category ? [category] : undefined;
+      const categories = categoryValues(q);
+      const categoryScope = categories.length ? categories : undefined;
       if (q.comparison_baseline === "mean_previous_complete_months") {
         const months = Number(q.comparison_baseline_window);
         if (!Number.isInteger(months) || months < 2 || months > 24) return null;
@@ -372,6 +384,9 @@ export function mappingForQuery(
   q: FinancialQuery,
   ir: Pick<FinancialQueryIR, "period" | "comparison_period"> & { execution_options?: { generic_aggregate?: boolean } },
 ): IRQueryMapping | null {
+  // Mais de uma categoria só existe na comparação; nos outros motores o recorte usaria só a primeira
+  // e a resposta seria de outra pergunta. Sem mapeamento, vira recusa/autocorreção, nunca número errado.
+  if (categoryValues(q).length > 1 && q.operation !== "compare") return null;
   const dedicated = mapQuery(q, ir as FinancialQueryIR);
   if (dedicated) return dedicated;
   // Executor genérico: só onde NÃO há motor dedicado e só com a opção ligada.
