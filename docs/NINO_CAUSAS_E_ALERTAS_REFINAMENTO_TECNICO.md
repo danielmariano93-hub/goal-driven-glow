@@ -167,9 +167,15 @@ Função `nino_commitments_shadow(user, data)` (migração `20261030140000`, som
 Leitura:
 - **Só o dono tem cartão com cronograma**; para os outros, v1 = v2 (diferença zero). Cobertura declarada: `none` ou `from_uploaded_statements`.
 - **O número antigo oscila com o pagamento da fatura** (v1 do dono: 102% com a fatura aberta de R$ 9,5 mil; 30% hoje, depois de paga). O v2 não oscila por pagamento: depende do cronograma. Por isso v2 é a definição estável.
-- **Reconciliação pendente (novembro):** 4 parcelas canceladas (R$ 1.755,11) contra 2 lançamentos marcados como antecipados (R$ 1.053,92). O v2 não conta as canceladas; a diferença de R$ 701,19 não está explicada e **não** deve ser usada como número de produto antes da conciliação.
+- **Reconciliação de novembro [fechada, 30/10]:** as 4 parcelas canceladas (R$ 1.755,11) são Airbnb (R$ 949,12; cancelamento real, confirmado pelo usuário na fatura de outubro) e Turbi (R$ 805,99; antecipação, segundo o usuário; aparece cancelada também em set. e out.). Os "2 lançamentos antecipados" (R$ 1.053,92) são outro conjunto: lançamentos do JIM.COM marcados em `installment_anticipated`. Os R$ 701,19 de "diferença" eram a comparação de conjuntos sem relação, não uma divergência. O v2 não conta canceladas, então o número não muda.
+- **Inconsistência de modelagem das antecipações [decisão para o F2]:** antecipar o Turbi cancelou a série no cronograma; antecipar o JIM.COM só marcou os lançamentos (o cronograma mantém 1 parcela agendada em nov. e 1 em dez., R$ 134,19). Falta uma regra única de como antecipação aparece no cronograma.
 - **Limitação declarada:** parcelas do mês corrente "pagas" ou "antecipadas" não entram em `v2 mês` (só `scheduled`/`billed`); `v2 próx. mês` é a medida de antecipação (compromisso futuro). Antecipações não têm marca própria no cronograma.
 - **Nenhuma mensagem, Home ou diagnóstico mudou.** A troca é por flag, após aceite deste relatório.
+
+### 5.3 F2 — livro de causas v1 (módulo puro) [30/10]
+`src/lib/engine/causeLedger.ts` (espelho em `_shared/finance-core`, com teste de paridade): recebe lançamentos já classificados por natureza (fixa, parcela de cartão, variável, pontual, antecipação, desconhecida) e devolve a decomposição da variação do caixa livre contra o normal do próprio usuário (mediana de 3+ meses; média com menos). A soma dos efeitos fecha com a variação; o que não tem natureza conhecida vira **resíduo declarado**; variação pequena (< max(R$ 100, 5% do caixa-base, 3% da renda)) devolve "estável" e não nomeia causa. Antecipação é timing (calendário), nunca comportamento. Gabaritos no CI: identidade contábil, renda extraordinária no histórico (caso real do dono: jul 7,7k, ago 8,5k, set 24,4k, out 8,3k, que com média daria "queda de 38%" e com mediana dá estável), queda real de renda, antecipação, variação pequena, resíduo, poucos meses.
+- **Ainda não feito (declarado):** a montagem das entradas a partir do ledger canônico real (classificar fixa/variável/pontual) e o gabarito SQL independente da conta do dono; um SQL ingênuo sobre `transactions` mistura transferências e aportes (renda de R$ 34 mil em junho) e **não** serve de gabarito. Isso é o F2b, antes de qualquer card na Home.
+- Nada o chama ainda; custo: zero consulta, zero rotina.
 
 ## 6. Backlog de custo já medido (fora do escopo, mas a regra manda registrar)
 

@@ -66,5 +66,6 @@ export * from "./mapaEvidencePack.ts";
 export * from "./subscriptions.ts";
 export * from "./recurringDetection.ts";
 export * from "./mapaReading.ts";
+export * from "./causeLedger.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
 export { daysInclusive, formatRangeShort } from "./spendingRhythm.ts";
