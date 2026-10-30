@@ -153,6 +153,24 @@ Cronograma de parcelas futuras (`credit_card_installments`, alimentado pelas fat
 - **Não reclamado:** o tamanho físico da tabela de evidência ficou em 30 MB (o espaço é reaproveitado pelo autovacuum; `VACUUM FULL` trava a tabela e não foi executado).
 - **Achado novo:** o batimento de `whatsapp-send` está em 12:06 (mais de 30 min), porque a guarda existente nunca grava batimento em repouso; o painel de saúde tende a mostrar "atrasado" para esse job sem haver falha. Correção proposta, de baixo risco: o mesmo batimento barato dos lembretes.
 
+### 5.2 Resultado do F1 em modo sombra [verificado em produção, 30/10]
+Função `nino_commitments_shadow(user, data)` (migração `20261030140000`, somente leitura, sem cron, só `service_role`, **ninguém a chama ainda**). Relatório dos usuários com transações confirmadas (**6**, não 12: os demais não têm lançamentos):
+
+| Usuário | Renda base 90d | Recorr. | Dívida | Fatura aberta (info) | Parcelas mês (abertas) | Parcelas próx. mês | Canceladas próx. mês | v1 (atual) | v2 mês | v2 próx. mês |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 088920ce (dono) | 13.737 | 310 | 3.733 | 130 | 623 | 1.662 | 1.755 | 30,4% | 34,0% | 41,5% |
+| f1e57e57 | 4.333 | 0 | 620 | 0 | 0 | 0 | 0 | 14,3% | 14,3% | 14,3% |
+| 46f5d632 | 3.333 | 0 | 300 | 0 | 0 | 0 | 0 | 9,0% | 9,0% | 9,0% |
+| ed265223 | 83 | 0 | 0 | 0 | 0 | 0 | 0 | 0% | 0% | 0% |
+| 9055e466, 7f18c7ba | 0 | 0 | 0 | 0 | 0 | 0 | 0 | sem renda | sem renda | sem renda |
+
+Leitura:
+- **Só o dono tem cartão com cronograma**; para os outros, v1 = v2 (diferença zero). Cobertura declarada: `none` ou `from_uploaded_statements`.
+- **O número antigo oscila com o pagamento da fatura** (v1 do dono: 102% com a fatura aberta de R$ 9,5 mil; 30% hoje, depois de paga). O v2 não oscila por pagamento: depende do cronograma. Por isso v2 é a definição estável.
+- **Reconciliação pendente (novembro):** 4 parcelas canceladas (R$ 1.755,11) contra 2 lançamentos marcados como antecipados (R$ 1.053,92). O v2 não conta as canceladas; a diferença de R$ 701,19 não está explicada e **não** deve ser usada como número de produto antes da conciliação.
+- **Limitação declarada:** parcelas do mês corrente "pagas" ou "antecipadas" não entram em `v2 mês` (só `scheduled`/`billed`); `v2 próx. mês` é a medida de antecipação (compromisso futuro). Antecipações não têm marca própria no cronograma.
+- **Nenhuma mensagem, Home ou diagnóstico mudou.** A troca é por flag, após aceite deste relatório.
+
 ## 6. Backlog de custo já medido (fora do escopo, mas a regra manda registrar)
 
 Ordenado por retorno/esforço:
