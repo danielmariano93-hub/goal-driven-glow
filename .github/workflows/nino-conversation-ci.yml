@@ -67,6 +67,7 @@ jobs:
           src/test/nino-comparison-presentation.test.ts \
           src/test/nino-f0-custo.test.ts
           src/test/nino-f1-compromissos-sombra.test.ts
+          src/test/cause-ledger.test.ts
           src/test/nino-v2-goals-overview-safety.test.ts
           src/test/nino-runtime-v3-foundation.test.ts
           src/test/nino-runtime-v3-interpreter.test.ts
@@ -93,6 +94,7 @@ jobs:
           src/test/nino-comparison-presentation.test.ts \
           src/test/nino-f0-custo.test.ts
           src/test/nino-f1-compromissos-sombra.test.ts
+          src/test/cause-ledger.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado
       # ainda importa AgentCore/tools legados que já possuem dívida de tipos
