@@ -34,6 +34,8 @@ import { computeAdvisorDecision } from "../finance-core/advisorRelevance.ts";
 import { buildMerchantResolver, type MerchantAliasRow } from "../finance-core/merchant.ts";
 import { previousWindow, shiftDays, type EnginePeriod } from "../finance-core/engineEnvelope.ts";
 import { withAnswerFormat, brl, formatDatePt } from "./answerFormat.ts";
+import { loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
+import { reportingCompetenceDate } from "../finance-core/facts.ts";
 import { todaySaoPaulo } from "./parser.ts";
 import { runSpendingAggregate, type SpendingAggregateArgs } from "./core/handlers/GenericAggregateEngine.ts";
 import { spendingAggregateHeadline } from "./core/handlers/GenericAggregateFormat.ts";
@@ -236,12 +238,15 @@ export async function merchantPeriodComparison(
 ): Promise<Record<string, unknown>> {
   const from = args.period_a.from < args.period_b.from ? args.period_a.from : args.period_b.from;
   const to = args.period_a.to > args.period_b.to ? args.period_a.to : args.period_b.to;
-  const [txs, aliases, categoryId, names] = await Promise.all([
-    loadEngineTransactions(ctx, from, to),
+  const [rawTxs, aliases, categoryId, names] = await Promise.all([
+    // Mesma regra da Home e de `compare_periods`: compra no cartão pertence ao mês da fatura. Sem isso o total de
+    // "setembro" por estabelecimento diferia do total de "setembro" por categoria na mesma conversa.
+    loadTransactionsForCompetenceWindow(ctx.sb, ctx.user_id, from, to, `${ENGINE_TX_SELECT},economic_competence_date`),
     loadAliases(ctx),
     resolveCategoryId(ctx, { category_name: args.category_name ?? undefined }),
     loadCategoryNames(ctx),
   ]);
+  const txs = rawTxs.map((t: any) => ({ ...t, amount: Number(t.amount), occurred_at: reportingCompetenceDate(t) }));
   if (args.category_name && !categoryId) throw new Error("category_not_found");
   const categoryName = categoryId ? (names[categoryId] ?? args.category_name ?? null) : null;
   const run = (period: { from: string; to: string }) => merchantDistribution({
