@@ -139,12 +139,19 @@ Cronograma de parcelas futuras (`credit_card_installments`, alimentado pelas fat
 
 | Fase | Entrega | Critério de saída | Reversão |
 |---|---|---|---|
-| **F0** | Guarda `EXISTS` nos pollers do snapshot e dos lembretes da divisão (com batimento barato), trava de evidência duplicada, retenção de 90 dias e compactação única da evidência. Migrações `20261030120000` a `120300` (A e B aplicadas; C e D pendentes) | Chamadas ociosas caem; nenhum job falha nem aparece "atrasado"; evidência deixa de crescer; custo medido antes/depois | Restaurar as funções anteriores e `cron.alter_job` |
+| **F0** | Guarda `EXISTS` nos pollers do snapshot e dos lembretes da divisão (com batimento barato), trava de evidência duplicada, retenção de 90 dias e compactação única da evidência. Migrações `20261030120000` a `120300` (A a D **aplicadas em produção em 30/10**) | Chamadas ociosas caem; nenhum job falha nem aparece "atrasado"; evidência deixa de crescer; custo medido antes/depois | Restaurar as funções anteriores e `cron.alter_job` |
 | **F1** | Definições únicas (compromissos a partir do cronograma de parcelas, sem a fatura aberta) + modo sombra do diagnóstico novo | Relatório de diferenças dos 12 usuários explicado; testes de paridade SQL↔TS com gabarito SQL independente | Flag desligada |
 | **F2** | `causeLedger` + casos de ouro (a piora real da conta do dono: julho, agosto, outubro) | Decomposição fecha com o gabarito; resíduo declarado; zero causa inventada | Campo opcional ignorado |
 | **F3** | Home: "Por que está assim?" e "O que vem pela frente", atrás de flag | `check-performance-architecture` verde; sem consulta nova; tempo de abertura igual ou menor | Flag |
 | **F4** | Revisão de qualidade dos alertas | Alertas sem ação possível removidos; dedup com diagnóstico; contagem por tipo antes/depois | Flag |
 | **F5** | Abertura gradual da flag | Zero resposta errada nos casos de ouro; custo por usuário dentro do orçamento | Flag |
+
+### 5.1 Resultado medido do F0 [verificado em produção, 30/10]
+- **Evidência do diagnóstico:** 53.373 → **1.802** linhas (51.571 removidas, exatamente as duplicatas previstas); as 108 situações mantêm evidência. Dois recálculos completos do diagnóstico da conta do dono (8 situações detectadas em cada) gravaram **0** linhas novas (antes, uma por situação por avaliação). Nenhuma mensagem foi criada.
+- **Pollers por minuto:** 20 de 20 execuções com sucesso após a mudança; worker do snapshot ~38 ms (antes ~67 ms); batimento dos lembretes da divisão fresco (renovado a cada ≤10 min); 80 lembretes pendentes, 0 vencidos (guarda coerente).
+- **Retenção:** job `nino-diagnosis-retention-daily` (04:35 UTC) criado; hoje nada é apagado (dado mais antigo tem 86 dias).
+- **Não reclamado:** o tamanho físico da tabela de evidência ficou em 30 MB (o espaço é reaproveitado pelo autovacuum; `VACUUM FULL` trava a tabela e não foi executado).
+- **Achado novo:** o batimento de `whatsapp-send` está em 12:06 (mais de 30 min), porque a guarda existente nunca grava batimento em repouso; o painel de saúde tende a mostrar "atrasado" para esse job sem haver falha. Correção proposta, de baixo risco: o mesmo batimento barato dos lembretes.
 
 ## 6. Backlog de custo já medido (fora do escopo, mas a regra manda registrar)
 
@@ -160,7 +167,7 @@ Ordenado por retorno/esforço:
 ## 7. Decisões que dependem do dono do produto
 1. A "casa" do livro de causas é a Home (com ponte para o Mapa) ou o Mapa?
 2. Retenção do histórico fino do diagnóstico: 90 dias é aceitável?
-3. ~~Podemos executar o F0?~~ Autorizado e em andamento (partes A e B aplicadas).
+3. ~~Podemos executar o F0?~~ Autorizado e concluído (resultados na seção 5.1).
 4. O usuário típico do Nino tem renda irregular como a do dono? (Define a base de "renda normal".)
 
 ## 8. O que não foi verificado
