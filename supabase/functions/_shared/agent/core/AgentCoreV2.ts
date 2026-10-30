@@ -33,7 +33,7 @@ import { parseBankNotification } from "./BankNotificationParser.ts";
 import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastLog.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
-import { isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
+import { contractRepairHint, isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
 import { humanizeReply } from "./ReplyHumanizer.ts";
 import {
   explainProactiveBody, loadRecentProactive, NO_RECENT_PROACTIVE_REPLY, proactiveContextBlock, type RecentProactive,
@@ -687,7 +687,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   let interpreterRetried = false;
   if (!narrowContract && !brain.contract && brain.telemetry.ok === false && isTransientInterpreterFailure(brain.telemetry.error)) {
     interpreterRetried = true;
-    const second = await interpretTurn().catch(() => null);
+    const second = await interpretTurn({ repair_hint: contractRepairHint(brain.telemetry.error) }).catch(() => null);
     if (second?.contract) {
       brain = {
         ...second,

@@ -311,6 +311,14 @@ PRINCÍPIOS OBRIGATÓRIOS:
 - resumo do mês: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"period_review","periods":[{"value":"este mês","source":"current_turn","source_span":"meu mês atual"}],"scenario":null,"options":[]}}
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 
+// Motivo da última recusa do normalizador: sem ele, "contract_invalid" não diz o que o modelo errou e a
+// nova tentativa repete a mesma saída. Só nomes de campo, nunca texto da pessoa.
+let normalizeFailure: string | null = null;
+function invalid(reason: string): null {
+  if (!normalizeFailure) normalizeFailure = reason;
+  return null;
+}
+
 function sourced(raw: any): { value: string; source: any; source_span: string | null } | null {
   if (!raw || typeof raw !== "object") return null;
   const value = String(raw.value ?? "").trim();
@@ -358,40 +366,42 @@ function references(raw: any): SemanticReferenceV3[] | null {
 }
 
 function normalizeFinancial(raw: any): FinancialQueryTaskV3 | null {
-  if (!raw || typeof raw !== "object") return null;
+  if (!raw || typeof raw !== "object") return invalid("financial_not_object");
   const filterList: EntityFilterV3[] = [];
-  if (!Array.isArray(raw.filters)) return null;
+  if (!Array.isArray(raw.filters)) return invalid("financial.filters_not_array");
   for (const filter of raw.filters) {
     const entity = sourced(filter?.entity);
     const field = String(filter?.field ?? "");
-    if (!entity || !["category", "merchant", "card", "account", "payment_method"].includes(field)) return null;
+    if (!entity || !["category", "merchant", "card", "account", "payment_method"].includes(field)) return invalid(`financial.filters.${field || "field"}_invalid`);
     filterList.push({ field: field as EntityFilterV3["field"], entity: entity as any });
   }
   const periodList = periods(raw.periods);
-  if (!periodList) return null;
+  if (!periodList) return invalid("financial.periods_invalid");
 
   let comparison: FinancialQueryTaskV3["comparison"] = null;
   if (raw.comparison != null) {
     const c = raw.comparison;
     const target = c.target == null ? null : sourced(c.target);
-    if (c.target != null && !target) return null;
+    if (c.target != null && !target) return invalid("comparison.target_invalid");
     if (c.baseline_kind === "period") {
       const baselinePeriod = c.baseline_period == null ? null : sourced(c.baseline_period);
-      if (c.baseline_period != null && !baselinePeriod) return null;
-      if (c.baseline_months != null) return null;
+      if (c.baseline_period != null && !baselinePeriod) return invalid("comparison.baseline_period_invalid");
+      // baseline_months não pertence a uma base por período: o campo é obrigatório no esquema e o modelo o
+      // preenche à toa. Descartar é seguro (a base é o período); rejeitar derrubava a pergunta toda.
       comparison = {
         direction: c.direction,
         baseline: { kind: "period", period: baselinePeriod as PeriodExpressionV3 | null },
         target: target as PeriodExpressionV3 | null,
       };
     } else if (c.baseline_kind === "mean_previous_complete_months") {
-      if (c.baseline_period != null || !Number.isInteger(c.baseline_months)) return null;
+      if (!Number.isInteger(c.baseline_months)) return invalid("comparison.baseline_months_required_for_mean");
+      // Idem: baseline_period não pertence à média histórica; a média por N meses é a base.
       comparison = {
         direction: c.direction,
         baseline: { kind: "mean_previous_complete_months", months: Number(c.baseline_months) },
         target: target as PeriodExpressionV3 | null,
       };
-    } else return null;
+    } else return invalid("comparison.baseline_kind_unknown");
   }
 
   return {
@@ -480,10 +490,20 @@ function normalizeTask(raw: any): SemanticTaskV3 | null {
 }
 
 export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 | null {
+  normalizeFailure = null;
+  const turn = normalizeTurn(raw);
+  if (!turn) invalid("turn_shape");
+  return turn;
+}
+
+/** Por que a última saída foi recusada (nomes de campo apenas). */
+export function lastNormalizeFailure(): string | null { return normalizeFailure; }
+
+function normalizeTurn(raw: unknown): TurnSpecV3 | null {
   const value = raw as any;
-  if (!value || value.version !== TURN_SPEC_V3) return null;
+  if (!value || value.version !== TURN_SPEC_V3) return invalid("version");
   const parsedReferences = references(value.references);
-  if (!parsedReferences) return null;
+  if (!parsedReferences) return invalid("references_invalid");
   const common = {
     version: TURN_SPEC_V3,
     act: value.act,
@@ -494,7 +514,7 @@ export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 |
 
   let turn: TurnSpecV3 | null = null;
   if (value.kind === "conversation") {
-    if (!String(value.direct_reply ?? "").trim() || value.clarification_question != null || (value.tasks ?? []).length) return null;
+    if (!String(value.direct_reply ?? "").trim() || value.clarification_question != null || (value.tasks ?? []).length) return invalid("conversation_shape");
     turn = {
       ...common,
       kind: "conversation",
@@ -502,7 +522,7 @@ export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 |
       direct_reply: String(value.direct_reply).trim(),
     };
   } else if (value.kind === "clarification") {
-    if (!String(value.clarification_question ?? "").trim() || value.direct_reply != null || (value.tasks ?? []).length) return null;
+    if (!String(value.clarification_question ?? "").trim() || value.direct_reply != null || (value.tasks ?? []).length) return invalid("clarification_shape");
     turn = {
       ...common,
       kind: "clarification",
@@ -514,7 +534,7 @@ export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 |
     const taskList: SemanticTaskV3[] = [];
     for (const item of value.tasks) {
       const task = normalizeTask(item);
-      if (!task) return null;
+      if (!task) return invalid("task_item_invalid");
       taskList.push(task);
     }
     turn = {
@@ -524,9 +544,11 @@ export function normalizeSemanticInterpreterV3Output(raw: unknown): TurnSpecV3 |
       tasks: taskList as [SemanticTaskV3, ...SemanticTaskV3[]],
     };
   }
-  if (!turn) return null;
-  if (!validateTurnSpecV3(turn).ok) return null;
-  if (!verifySemanticInvariantsV3(turn).ok) return null;
+  if (!turn) return invalid("turn_kind_unknown");
+  const structural = validateTurnSpecV3(turn);
+  if (!structural.ok) return invalid(`validate:${structural.errors?.[0] ?? "invalid"}`);
+  const invariants = verifySemanticInvariantsV3(turn);
+  if (!invariants.ok) return invalid(`invariant:${invariants.violations?.[0] ?? "invalid"}`);
   return turn;
 }
 
@@ -601,7 +623,7 @@ export async function interpretSemanticTurnV3(
       return fail("semantic_interpreter_v3_json_invalid", structured.provider);
     }
     const turn = normalizeSemanticInterpreterV3Output(parsed);
-    if (!turn) return fail("semantic_interpreter_v3_contract_invalid", structured.provider);
+    if (!turn) return fail(`semantic_interpreter_v3_contract_invalid:${lastNormalizeFailure() ?? "unknown"}`.slice(0, 120), structured.provider);
     const invariant = verifySemanticInvariantsV3(turn);
     if (!invariant.ok) return fail("semantic_interpreter_v3_invariant_failed", structured.provider, invariant.violations);
 

@@ -46,6 +46,19 @@ export function selfRepairHint(error: string): string {
   ].join("\n");
 }
 
+/**
+ * Saída do interpretador rejeitada pelo validador (`contract_invalid:<campo>`): repetir o mesmo pedido a
+ * temperatura 0 devolve a mesma saída. A nova tentativa diz qual campo falhou. null se não for este caso.
+ */
+export function contractRepairHint(error: string | null | undefined): string | null {
+  const m = /contract_invalid:([\w.:\-]{1,100})/.exec(String(error ?? ""));
+  if (!m) return null;
+  return [
+    `Sua saída anterior foi rejeitada pelo validador do esquema: ${m[1]}.`,
+    "Emita de novo o JSON completo do esquema corrigindo exatamente isso: campos que não se aplicam à escolha feita ficam null; uma base de comparação por período usa baseline_period e baseline_months=null; uma média usa baseline_months e baseline_period=null.",
+  ].join("\n");
+}
+
 /** Falha transitória do provedor do interpretador (vale uma nova tentativa idêntica). */
 export function isTransientInterpreterFailure(error: string | null | undefined): boolean {
   return /structured_call_gateway_4\d\d|structured_call_gateway_5\d\d|semantic_tiers_unavailable|rate.?limit|429|timeout|temporarily/i
