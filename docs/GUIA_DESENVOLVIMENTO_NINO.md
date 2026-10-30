@@ -210,3 +210,23 @@ caso real que motivou a mudança. Nunca pule, desabilite ou "quarentene" teste p
 - Migração para a API oficial da Meta no WhatsApp: depende de decisões do usuário (número, CNPJ/site, nome de exibição).
 - Subcategorias reais (`parent_id` não existe em `categories`); hoje o 2º nível é o estabelecimento.
 - O agente conversacional não responde "como estou?" com o veredito dos Relatórios.
+
+---
+
+## 11. Custo e escala (regras permanentes)
+
+Incidentes reais de consumo já aconteceram (uma fila reescrevendo 1.111 linhas por minuto gerou 52 milhões de
+atualizações e esgotou o orçamento de E/S do projeto). Por isso, **todo trabalho novo** respeita estas regras. A versão
+completa, com as checagens, está em `docs/NINO_CAUSAS_E_ALERTAS_REFINAMENTO_TECNICO.md` (seção 1).
+
+1. **Nada recorrente com frequência menor que 1 hora** sem aprovação. Reagir em minutos = gatilho → fila → worker.
+2. **Poller O(1) quando ocioso**: checar `EXISTS` na fila no SQL antes de chamar Edge Function.
+3. **Declare o custo por usuário ativo por dia** (linhas lidas/escritas, ms) e a conta para 10 mil usuários no PR.
+4. **Cache por versão** (`financial_ledger_versions` + deploy) é o padrão; materialização periódica é exceção.
+5. **Incremental**: recalcule só quem mudou; pular é o caminho comum.
+6. **Escrita mínima**: nunca regrave linha sem mudança; não grave snapshot idêntico ao anterior.
+7. **Toda tabela que cresce declara retenção** antes do merge.
+8. **Sem LLM em caminho recorrente**; LLM só reativo, com cache por hash da evidência.
+9. **Realtime só em tabela de baixo volume.**
+10. **Aditivo e reversível**: migração só acrescenta, contrato versionado, flag, modo sombra, rollback = desligar a flag.
+11. **Uma definição por conceito**, nascida em `finance-core` e com paridade testada.
