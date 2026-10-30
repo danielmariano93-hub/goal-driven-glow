@@ -76,6 +76,8 @@ export type FinancialQueryTaskV3 = {
   periods: PeriodExpressionV3[];
   limit: number | null;
   comparison: ComparisonSpecV3 | null;
+  /** Quebra pedida que o modelo de dados não tem (ex.: hora do dia). Nunca vira outra dimensão em silêncio. */
+  unavailable_dimension?: string | null;
 };
 
 export type GoalQueryTaskV3 = {
