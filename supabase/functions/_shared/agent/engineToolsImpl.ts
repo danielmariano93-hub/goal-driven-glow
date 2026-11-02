@@ -72,6 +72,21 @@ async function loadEngineTransactions(
   throw new Error(`transactions_query_exceeded_${MAX_ROWS}_rows`);
 }
 
+/**
+ * Lançamentos para as ferramentas de ESTABELECIMENTO (`merchant_competence_load.v1`).
+ *
+ * Mesma regra de `analyze_spending`/`compare_periods`: compra de cartão pertence ao mês da fatura e parcela antecipada
+ * ao mês em que venceria. Antes, estabelecimento recortava por `occurred_at` (data da compra) e, no mesmo mês, dava
+ * R$ 0 para "JIM.COM em novembro" quando Serviços em novembro somava R$ 1.053,92 (pilha de parcelas antecipadas).
+ * Devolve as linhas com `occurred_at` = data de competência, que é o campo que os motores de estabelecimento recortam.
+ */
+async function loadMerchantTransactions(ctx: EngineToolContext, from: string, to: string): Promise<any[]> {
+  const raw = await loadTransactionsForCompetenceWindow(
+    ctx.sb, ctx.user_id, from, to, `${ENGINE_TX_SELECT},economic_competence_date`,
+  );
+  return raw.map((t: any) => ({ ...t, amount: Number(t.amount), occurred_at: reportingCompetenceDate(t) }));
+}
+
 async function loadCategoryNames(ctx: EngineToolContext): Promise<Record<string, string>> {
   const { data, error } = await ctx.sb.from("categories")
     .select("id,name")
@@ -157,7 +172,7 @@ export function analyze_merchants(
     const period = periodFromArgs(args ?? {}, 30);
     const comparison = previousWindow(period);
     const [txs, aliases, categoryId] = await Promise.all([
-      loadEngineTransactions(ctx, comparison.from, period.to),
+      loadMerchantTransactions(ctx, comparison.from, period.to),
       loadAliases(ctx),
       resolveCategoryId(ctx, args ?? {}),
     ]);
@@ -196,7 +211,7 @@ export function merchant_distribution(
   return guard(async () => {
     const period = periodFromArgs(args ?? {}, 30);
     const [txs, aliases, categoryId, names] = await Promise.all([
-      loadEngineTransactions(ctx, period.from, period.to),
+      loadMerchantTransactions(ctx, period.from, period.to),
       loadAliases(ctx),
       resolveCategoryId(ctx, args ?? {}),
       loadCategoryNames(ctx),
@@ -331,7 +346,7 @@ export function merchant_profile(
     const period = periodFromArgs(args ?? ({} as any), 90);
     const comparison = previousWindow(period);
     const [txs, aliases, categoryId, categoryNames] = await Promise.all([
-      loadEngineTransactions(ctx, comparison.from, period.to),
+      loadMerchantTransactions(ctx, comparison.from, period.to),
       loadAliases(ctx),
       resolveCategoryId(ctx, args ?? {}),
       loadCategoryNames(ctx),

@@ -200,6 +200,10 @@ function claimsFromOutcome(outcome: SemanticQueryOutcome, seq: () => string): Ev
       const remainder = Math.max(0, categoryTotal - listed);
       if (remainder > 0.005) claims.push({ id: seq(), ...base, type: "money", value: remainder, label: "listed_remainder", rank: null });
     }
+    // Ausência é evidência válida: categoria sem gasto no recorte responde "não encontrei", não bloqueia.
+    if (merchantRows.length === 0 && (categoryTotal ?? 0) === 0) {
+      claims.push({ id: seq(), ...base, type: "absence", value: 0, label: "sem_dados_no_recorte", rank: null });
+    }
     merchantRows.slice().sort((a, b) => Number(b.amount ?? 0) - Number(a.amount ?? 0)).forEach((row, index) => {
       const name = typeof row.merchant === "string" ? row.merchant : null;
       if (!name) return;
