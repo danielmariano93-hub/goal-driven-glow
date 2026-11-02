@@ -6,7 +6,7 @@ import { useCategories, useAccounts, useInvestments } from "@/lib/db/finance";
 import { InvestmentLinkPicker } from "@/components/investments/InvestmentLinkPicker";
 import { useCreditCards } from "@/lib/db/creditCards";
 import { toast } from "sonner";
-import { Loader2, ArrowLeft, Trash2, Save } from "lucide-react";
+import { Loader2, ArrowLeft, Trash2, Save, CheckCircle2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CategorySelect } from "@/components/CategorySelect";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
@@ -27,6 +27,7 @@ type Tx = {
   purchase_group_id: string | null;
   transfer_group_id: string | null;
   version: number;
+  status?: string | null;
   notes: string | null;
   purchase_date?: string | null;
   competence_date?: string | null;
@@ -223,6 +224,29 @@ export default function LancamentoDetalhe() {
     nav("/app/lancamentos");
   }
 
+  // Lançamento planejado (ex.: aluguel do dia 30) só entra nos saldos e relatórios depois de confirmado.
+  async function confirmPlanned() {
+    if (!tx) return;
+    const parsedAmount = Number(String(amount).replace(",", "."));
+    setSaving(true);
+    const { data, error } = await supabase.rpc("transaction_confirm_planned" as any, {
+      p_id: tx.id,
+      p_expected_version: tx.version,
+      p_occurred_at: occurredAt || null,
+      p_amount: Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : null,
+    });
+    setSaving(false);
+    const r = data as { ok?: boolean; error?: string } | null;
+    if (error || !r?.ok) {
+      if (r?.error === "conflict") return toast.error("Este lançamento foi alterado em outro lugar. Recarregue e tente de novo.");
+      if (r?.error === "not_planned") return toast.message("Este lançamento já está confirmado.");
+      return toast.error("Não consegui confirmar agora. Tente novamente em instantes.");
+    }
+    toast.success("Lançamento confirmado ✅");
+    await invalidateFinancialQueries(qc);
+    nav("/app/lancamentos");
+  }
+
   async function del() {
     if (!tx) return;
     if (tx.shared_expense_id) {
@@ -264,6 +288,17 @@ export default function LancamentoDetalhe() {
       </header>
 
       <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        {tx.status === "planned" && !isTransfer && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs" data-testid="planned-confirm">
+            <p className="font-semibold">Este lançamento está planejado</p>
+            <p className="mt-1 text-muted-foreground">
+              Ele ainda não entrou nos saldos nem nos relatórios. Se já aconteceu, ajuste a data e o valor abaixo, se precisar, e confirme.
+            </p>
+            <button onClick={confirmPlanned} disabled={saving} className="btn-brand mt-2 inline-flex items-center justify-center gap-1.5 disabled:opacity-50">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 size={14} />} Confirmar lançamento
+            </button>
+          </div>
+        )}
         {tx.shared_expense_id && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs">
             <p className="font-semibold">{tx.split_transaction_role === "reimbursement" ? "Recebimento da Divisão do Rolê" : "Este lançamento faz parte de uma Divisão do Rolê."}</p>
