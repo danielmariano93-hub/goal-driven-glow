@@ -61,3 +61,24 @@ describe("categoria sem gasto no recorte responde ausência, não bloqueia", () 
     expect(checkCompleteness({ ir, execution, claims }).complete).toBe(true);
   });
 });
+
+import { annotateCategories } from "../../supabase/functions/_shared/agent/v3/PeriodReviewV3";
+
+describe("peso por categoria nunca passa de 100%", () => {
+  it("total líquido de reembolso sem categoria (R$ 1.000,49) não infla o peso (era 105%)", () => {
+    const notes = annotateCategories({
+      categories: [{ name: "Serviços", value: 1053.92 }, { name: "Assinaturas", value: 129.9 }, { name: "Lazer", value: 108 }] as any,
+      total: 1000.49, income_categories: [], ceilings: [], donation_goal_names: [],
+    });
+    expect(notes.map((n) => n.share_pct)).toEqual([82, 10, 8]);
+    expect(notes.reduce((s, n) => s + n.share_pct, 0)).toBeLessThanOrEqual(100);
+  });
+
+  it("sem reembolso o peso continua sobre o total", () => {
+    const notes = annotateCategories({
+      categories: [{ name: "A", value: 60 }, { name: "B", value: 40 }] as any, total: 100,
+      income_categories: [], ceilings: [], donation_goal_names: [],
+    });
+    expect(notes.map((n) => n.share_pct)).toEqual([60, 40]);
+  });
+});

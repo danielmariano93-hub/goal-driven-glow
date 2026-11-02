@@ -158,6 +158,10 @@ export function annotateCategories(args: {
     incomeByKey.set(key, (incomeByKey.get(key) ?? 0) + Number(item.value || 0));
   }
   const ceilingByKey = new Map(args.ceilings.map((c) => [categoryKey(c.category), c]));
+  // O valor de cada categoria é bruto; `total` pode vir líquido de reembolso sem categoria (ex.: rateio do rolê).
+  // Dividir bruto por líquido dava 105%. O peso é sempre sobre o gasto bruto listado, então nunca passa de 100%.
+  const grossListed = args.categories.reduce((sum, item) => sum + Math.max(0, Number(item.value) || 0), 0);
+  const shareBase = grossListed > 0 ? Math.max(args.total, grossListed) : args.total;
   return args.categories
     .filter((item) => Number(item.value) > 0)
     .slice(0, args.limit ?? 3)
@@ -168,7 +172,7 @@ export function annotateCategories(args: {
       return {
         name: item.name,
         value: round2(item.value),
-        share_pct: args.total > 0 ? Math.round((item.value / args.total) * 100) : 0,
+        share_pct: shareBase > 0 ? Math.round((item.value / shareBase) * 100) : 0,
         commitment: isCommitment(item.name, args.donation_goal_names),
         reimbursed: reimbursed > 0 ? round2(reimbursed) : null,
         net_after_reimbursement: reimbursed > 0 ? round2(item.value - reimbursed) : null,
