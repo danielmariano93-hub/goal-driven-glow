@@ -122,3 +122,22 @@ describe("fatura importada parcial (em revisão)", () => {
     expect(text).toMatch(/em revisão.*R\$\s129,90/);
   });
 });
+
+describe("fatura já paga", () => {
+  it("paga com valor importado: mostra o total da fatura (não zero) e que já foi paga", async () => {
+    const out = await get_card_invoice(ctx({
+      credit_cards: CARDS,
+      credit_card_statements: [{ id: "s1", credit_card_id: "c1", competence_month: "2026-10-01", due_date: "2026-11-01", stated_total: 4579.9, paid_amount: 4579.9, outstanding_amount: 0, status: "paid" }],
+    }), { month: "2026-10", card: "Nubank" });
+    expect(semanticBlockText("get_card_invoice", (out as any).result)).toMatch(/\*R\$\s4\.579,90\* \(fatura oficial, já paga\)/);
+  });
+  it("paga mas com valor zero no cadastro: diz que não tem o valor, em vez de 'R$ 0,00'", async () => {
+    const out = await get_card_invoice(ctx({
+      credit_cards: CARDS,
+      credit_card_statements: [{ id: "s1", credit_card_id: "c1", competence_month: "2026-10-01", due_date: "2026-11-01", stated_total: 0, paid_amount: 0, outstanding_amount: 0, status: "paid" }],
+    }), { month: "2026-10", card: "Nubank" });
+    const text = semanticBlockText("get_card_invoice", (out as any).result)!;
+    expect(text).toContain("consta como paga, mas sem o valor importado");
+    expect(text).not.toMatch(/R\$\s0,00/);
+  });
+});

@@ -146,11 +146,12 @@ function formatCardInvoice(result: any): string | null {
   if (result.card_filter && result.card_filter.applied === false) return `Não encontrei um cartão chamado “${result.card_filter.requested}”. Me diga o nome como aparece em Cartões.`;
   const rows: any[] = result.cards ?? [];
   const known = rows.filter((r) => r.source !== "unavailable" && r.source !== "none");
+  if (!known.length && rows.some((r) => r.paid_without_amount)) return `A fatura de ${label} consta como paga, mas sem o valor importado, então não consigo informar quanto foi. Se você importar a fatura, eu passo a mostrar o total.`;
   if (!known.length) return `Ainda não tenho compras nem parcelas lançadas na fatura de ${label}.`;
   const how = (r: any) => r.source === "official" ? "fatura oficial"
     : r.needs_review ? `fatura importada em revisão: o documento lido traz ${BRL.format(Number(r.imported_amount))}; pelas compras e parcelas já lançadas a estimativa é essa`
     : "estimativa com as compras e parcelas já lançadas";
-  const due = (r: any) => r.due_date ? `, vence em ${dm(r.due_date)}` : "";
+  const due = (r: any) => r.settled ? ", já paga" : r.due_date ? `, vence em ${dm(r.due_date)}` : "";
   if (known.length === 1) {
     const r = known[0];
     return `A fatura de ${label}${rows.length > 1 || result.card_filter ? ` do ${r.card}` : ""} está em *${BRL.format(Number(r.amount))}* (${how(r)}${due(r)}).`;

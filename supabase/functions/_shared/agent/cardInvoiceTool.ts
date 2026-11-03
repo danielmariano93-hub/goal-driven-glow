@@ -78,14 +78,20 @@ export async function get_card_invoice(ctx: ToolContext, args?: { month?: string
     const imported = round2(Number(fig?.amount ?? 0));
     const estimate = reconstructed ? round2(Number(reconstructed[String(c.id)]?.currentStatement?.amount ?? 0)) : null;
     const partial = fig?.source === "partial";
+    // Fatura já paga: o "a pagar" é 0, mas a pergunta é quanto FOI a fatura. Sem valor importado, não há total a informar.
+    const settled = ["paid", "settled", "closed_paid"].includes(String(fig?.status ?? "").toLowerCase());
+    const statedTotal = round2(Number(fig?.statedTotal ?? 0));
+    const paidNoAmount = settled && statedTotal <= 0.005;
     return {
+      settled,
+      paid_without_amount: paidNoAmount,
       card: String(c.name),
       // Parcial: o valor importado sozinho subestima; mostramos o maior entre ele e a reconstrução.
-      amount: partial && estimate !== null ? Math.max(imported, estimate) : imported,
+      amount: partial && estimate !== null ? Math.max(imported, estimate) : settled && !paidNoAmount ? statedTotal : imported,
       imported_amount: partial ? imported : null,
       estimate_from_entries: partial ? estimate : null,
       needs_review: partial,
-      source: fig?.source ?? "unavailable",
+      source: paidNoAmount ? "unavailable" : (fig?.source ?? "unavailable"),
       status: fig?.status ?? null,
       due_date: statement?.due_date ? String(statement.due_date).slice(0, 10) : null,
       paid_amount: round2(Number(fig?.paidAmount ?? 0)),
