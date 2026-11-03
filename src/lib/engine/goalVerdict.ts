@@ -64,6 +64,8 @@ export interface GoalVerdict {
   outside_goals: { before_avg: number; after_avg: number; change_pct: number; change_month: number; months_before: number; months_after: number } | null;
   /** Frase neutra sobre o que está fora das metas (null quando praticamente igual). */
   outside_line: string | null;
+  /** Evolução com meta × sem meta (mesma janela): negativo = o gasto caiu. `reading` resume quem evoluiu melhor. */
+  comparison: { with_pct: number; outside_pct: number; reading: "melhor" | "pior" | "parecido" } | null;
   /** Variação do gasto de categorias SEM meta no mesmo período (contexto). */
   control_change_pct: number | null;
   caveats: string[];
@@ -168,7 +170,7 @@ export function buildGoalVerdict(args: {
       ...base, verdict: "cedo", badge: "Cedo demais", headline: "Ainda é cedo para dizer.",
       summary: `Para saber se as metas funcionam, preciso de pelo menos 2 meses fechados com meta (hoje: ${months}). Quando fechar o próximo mês, eu comparo com o que você gastava antes.`,
       confidence: "baixa", confidence_note: "Poucos meses para concluir.",
-      net_monthly: null, baseline_monthly: null, net_pct: null, total_avoided: null, outside_line: null, caveats,
+      net_monthly: null, baseline_monthly: null, net_pct: null, total_avoided: null, outside_line: null, comparison: null, caveats,
     };
   }
 
@@ -222,14 +224,22 @@ export function buildGoalVerdict(args: {
     summary = "O gasto nas categorias com meta está praticamente igual ao de antes das metas.";
   }
 
+  // Com meta × sem meta: a mesma pergunta ("o gasto subiu ou caiu?") feita nos dois grupos, na mesma janela.
+  const sgn = (v: number) => `${v < 0 ? "−" : "+"}${pct(v)}`;
   let outside_line: string | null = null;
-  if (outside && Math.abs(outside.change_pct) >= 0.03) {
-    outside_line = outside.change_pct > 0
-      ? `Fora das metas, o seu gasto subiu ${pct(outside.change_pct)} (${brl(Math.abs(outside.change_month))} por mês). Sem meta, sem freio: veja abaixo onde faz sentido criar a próxima.`
-      : `Fora das metas, o seu gasto também caiu ${pct(outside.change_pct)} (${brl(Math.abs(outside.change_month))} por mês).`;
+  let comparison: GoalVerdict["comparison"] = null;
+  if (outside) {
+    const gap = outside.change_pct - netPct; // positivo: onde há meta evoluiu melhor
+    const reading = gap >= 0.10 ? "melhor" : gap <= -0.10 ? "pior" : "parecido";
+    comparison = { with_pct: netPct, outside_pct: outside.change_pct, reading };
+    outside_line = reading === "melhor"
+      ? `Onde há meta o gasto evoluiu melhor do que onde não há (${sgn(netPct)} contra ${sgn(outside.change_pct)}). É um sinal de que a meta ajuda, mas as categorias são diferentes: não prova causa.`
+      : reading === "pior"
+        ? `Onde não há meta o gasto evoluiu melhor (${sgn(outside.change_pct)} contra ${sgn(netPct)}). Por enquanto, a meta não se destaca do resto.`
+        : `O gasto evoluiu parecido dentro e fora das metas (${sgn(netPct)} e ${sgn(outside.change_pct)}): o efeito das metas não se destaca do resto.`;
   }
 
-  return { ...base, verdict, badge: `${helped} de ${measured.length} funcionaram`, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, outside_line, caveats };
+  return { ...base, verdict, badge: `${helped} de ${measured.length} funcionaram`, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, outside_line, comparison, caveats };
 }
 
 /** Gasto de categorias de consumo livre SEM meta: 3 meses antes da 1ª meta × meses fechados desde então. */

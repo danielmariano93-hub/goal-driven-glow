@@ -248,6 +248,12 @@ export function GoalHistoryPanel({ series }: { series: GoalSeries }) {
         </div>
       </div>
 
+      {series.baseline != null ? (
+        <p className="mt-3 text-[12px] leading-4 text-muted-foreground" data-testid="history-criterion">
+          Referência de {formatBRL(series.baseline)} por mês: o gasto de antes da meta. “Desde o início” compara a média dos meses fechados com meta com ela.
+        </p>
+      ) : null}
+
       <div className="mt-4"><HistoryChart series={series} /></div>
 
       <ul className="mt-4 divide-y divide-border text-[12px]" aria-label="Mês a mês">

@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { buildGoalHistory } from "@/lib/engine/goalHistory";
 import { buildSpendingLedger, type SpendingLedgerTx } from "@/lib/engine/spendingGoals";
 import { GoalCandidatesCard, GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
-import { GoalScoreboard } from "@/components/metas/GoalHistoryViews";
+import { GoalHistoryPanel, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 
 const T = "c-t", V = "c-v";
 let n = 0;
@@ -42,11 +42,12 @@ describe("tela de metas: veredito literal", () => {
   it("fora das metas aparece como contexto neutro", () => {
     const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 1500, "2026-10": 1500 }, { "2026-06": 500, "2026-07": 500, "2026-08": 500, "2026-09": 900, "2026-10": 900 });
     render(<GoalVerdictCard verdict={h.verdict!} />);
-    expect(screen.getByText(/Fora das metas, o seu gasto subiu/)).toBeTruthy();
+    expect(screen.getByTestId("goal-vs-outside").textContent).toMatch(/Com meta.*−\d+%.*Sem meta.*\+\d+%/);
+    expect(screen.getByText(/Onde há meta o gasto evoluiu melhor/)).toBeTruthy();
   });
   it("cedo: não inventa número", () => {
     const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-10": 1500 }, { "2026-06": 700 });
-    render(<GoalVerdictCard verdict={{ ...h.verdict!, verdict: "cedo", badge: "Cedo demais", net_monthly: null, total_avoided: null, outside_line: null, headline: "Ainda é cedo para dizer.", summary: "Preciso de pelo menos 2 meses fechados." }} />);
+    render(<GoalVerdictCard verdict={{ ...h.verdict!, verdict: "cedo", badge: "Cedo demais", net_monthly: null, total_avoided: null, outside_line: null, comparison: null, headline: "Ainda é cedo para dizer.", summary: "Preciso de pelo menos 2 meses fechados." }} />);
     expect(screen.getByText(/Preciso de pelo menos 2 meses/)).toBeTruthy();
     expect(screen.queryByText(/desde set/)).toBeNull();
   });
@@ -88,5 +89,13 @@ describe("placar: histórico de ciclos", () => {
     expect(screen.getByText("vs antes")).toBeTruthy();
     expect(screen.getByText("−17%")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /histórico importado/ })).toBeNull(); // agosto (ciclo guardado) conta sozinho
+  });
+});
+
+describe("painel da meta: critério escrito", () => {
+  it("diz de onde vem a referência e o que é 'desde o início'", () => {
+    const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 1500, "2026-10": 1500 }, { "2026-06": 700 });
+    render(<GoalHistoryPanel series={h.series[0]!} />);
+    expect(screen.getByTestId("history-criterion").textContent).toMatch(/Referência de R\$\s?2\.000,00 por mês: o gasto de antes da meta.*média dos meses fechados com meta/);
   });
 });
