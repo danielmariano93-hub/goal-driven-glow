@@ -7,7 +7,7 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { formatBRL } from "@/lib/engine/facts";
 import { invalidateFinancialQueries } from "@/lib/db/invalidation";
 import { notifyError, notifySuccess, humanizeError } from "@/lib/ui/feedback";
-import { parseCounterpartyGroups, type CounterpartyGroup } from "@/lib/categories/counterparties";
+import { parseCounterpartyGroups, visibleCounterpartyGroups, type CounterpartyGroup } from "@/lib/categories/counterparties";
 
 /**
  * nino_counterparty_categorize.v1 — "os 11 Pix para a Pamela são de quê?".
@@ -31,7 +31,7 @@ export function CounterpartyCategorizer() {
   const [choice, setChoice] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
-  const items = (groups.data ?? []).filter((group) => group.transactions >= 2);
+  const items = visibleCounterpartyGroups(groups.data ?? []);
   if (!items.length) return null;
 
   const apply = async (group: CounterpartyGroup) => {
@@ -66,7 +66,7 @@ export function CounterpartyCategorizer() {
         <Users size={16} className="mt-0.5 text-primary" aria-hidden="true" />
         <div>
           <p className="text-sm font-semibold">Organizar por favorecido</p>
-          <p className="text-xs text-muted-foreground">Escolha uma vez e todos os lançamentos desse nome ficam categorizados, inclusive os próximos.</p>
+          <p className="text-xs text-muted-foreground">Escolha uma vez e todos os lançamentos desse nome ficam categorizados, inclusive os próximos. Pix para pessoa só entra nos gastos quando tem uma categoria de consumo.</p>
         </div>
       </header>
       <ul className="divide-y divide-border">

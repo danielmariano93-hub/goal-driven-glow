@@ -41,3 +41,12 @@ export function parseCounterpartyGroups(raw: unknown): CounterpartyGroup[] {
     }];
   });
 }
+
+/**
+ * Quais grupos entram em "Organizar por favorecido": favorecidos com 2+ lançamentos (uma escolha resolve vários) e
+ * QUALQUER Pix/transferência a pessoa, mesmo isolado — Pix sem categoria fica neutro (não entra nos gastos), então
+ * não pode ficar invisível. Um estabelecimento isolado segue pela sugestão de categoria do próprio lançamento.
+ */
+export function visibleCounterpartyGroups(groups: CounterpartyGroup[]): CounterpartyGroup[] {
+  return groups.filter((g) => g.transactions >= 2 || PIX_PREFIX.test(String(g.label ?? "").trim()));
+}

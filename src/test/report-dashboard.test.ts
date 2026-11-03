@@ -78,7 +78,9 @@ describe("painel: totais, variação e para onde vai o dinheiro", () => {
     expect(d.highlights[0].title).toContain("Lazer subiu");
     expect(d.highlights[0].action?.label).toBe("Criar meta de Lazer");
     expect(d.projection).toMatchObject({ daysElapsed: 15, daysInMonth: 31 });
-    expect(d.projection?.expense).toBeCloseTo(6630 / 15 * 31, 0);
+    // `month_projection.v2`: aluguel, mercado e lazer pontuais não são multiplicados por 31/15 (antes dava R$ 13.702).
+    expect(d.projection?.expense).toBeCloseTo(6630, 0);
+    expect(d.projection?.early).toBe(false);
   });
 
   it("série diária alinhada ao período anterior", () => {
