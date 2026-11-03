@@ -104,3 +104,21 @@ describe("parcelas que faltam num estabelecimento", () => {
     expect(capabilityFromFinancialIR(q).capability?.tool_args).toEqual({ months: 24, merchant: "JIM.COM" });
   });
 });
+
+describe("fatura importada parcial (em revisão)", () => {
+  it("não passa o valor parcial como total: mostra o importado e a estimativa pelas parcelas", async () => {
+    const out = await get_card_invoice(ctx({
+      credit_cards: CARDS,
+      credit_card_statements: [{ id: "s1", credit_card_id: "c1", competence_month: "2026-11-01", due_date: "2026-11-01", stated_total: 129.9, paid_amount: 0, outstanding_amount: 129.9, status: "needs_review" }],
+      credit_card_installments: [
+        { id: "i1", credit_card_id: "c1", competence_month: "2026-11-01", amount: 1000, status: "scheduled" },
+        { id: "i2", credit_card_id: "c1", competence_month: "2026-11-01", amount: 661.98, status: "scheduled" },
+      ],
+    }), { month: "2026-11", card: "Nubank" });
+    const r = (out as any).result.cards[0];
+    expect(r).toMatchObject({ needs_review: true, imported_amount: 129.9, estimate_from_entries: 1661.98, amount: 1661.98 });
+    const text = semanticBlockText("get_card_invoice", (out as any).result)!;
+    expect(text).toMatch(/\*R\$\s1\.661,98\*/);
+    expect(text).toMatch(/em revisão.*R\$\s129,90/);
+  });
+});

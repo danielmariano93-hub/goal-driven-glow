@@ -147,7 +147,9 @@ function formatCardInvoice(result: any): string | null {
   const rows: any[] = result.cards ?? [];
   const known = rows.filter((r) => r.source !== "unavailable" && r.source !== "none");
   if (!known.length) return `Ainda não tenho compras nem parcelas lançadas na fatura de ${label}.`;
-  const how = (r: any) => r.source === "official" ? "fatura oficial" : "estimativa com as compras e parcelas já lançadas";
+  const how = (r: any) => r.source === "official" ? "fatura oficial"
+    : r.needs_review ? `fatura importada em revisão: o documento lido traz ${BRL.format(Number(r.imported_amount))}; pelas compras e parcelas já lançadas a estimativa é essa`
+    : "estimativa com as compras e parcelas já lançadas";
   const due = (r: any) => r.due_date ? `, vence em ${dm(r.due_date)}` : "";
   if (known.length === 1) {
     const r = known[0];

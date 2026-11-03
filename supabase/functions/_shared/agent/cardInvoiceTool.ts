@@ -57,12 +57,34 @@ export async function get_card_invoice(ctx: ToolContext, args?: { month?: string
     todayISO: today,
   });
 
+  // Fatura importada PARCIAL (em revisão): o documento lido não cobre tudo. A estimativa por compras da
+  // competência + parcelas contratadas mostra o que o valor importado ainda não inclui.
+  const partialCardIds = new Set(cards.filter((c) => exposures[String(c.id)]?.currentStatement?.source === "partial").map((c) => String(c.id)));
+  const reconstructed = partialCardIds.size
+    ? computeCardExposure({
+      cardIds: cards.map((c) => String(c.id)),
+      statements: statements.filter((s) => !(partialCardIds.has(s.credit_card_id) && String(s.competence_month).slice(0, 7) === ym)),
+      installments: ((instRes.data ?? []) as any[]).map((i) => ({ ...i, amount: Number(i.amount) })) as CardInstallmentRow[],
+      txs: cardTxs.map((t: any) => ({ ...t, amount: Number(t.amount) })) as CardTxRow[],
+      currentYM: ym,
+      cards: cards.map((c) => ({ id: c.id, name: c.name, closing_day: c.closing_day, due_day: c.due_day })),
+      todayISO: today,
+    })
+    : null;
+
   const rows = cards.map((c) => {
     const fig = exposures[String(c.id)]?.currentStatement;
     const statement = statements.find((s) => s.credit_card_id === c.id && String(s.competence_month).slice(0, 7) === ym);
+    const imported = round2(Number(fig?.amount ?? 0));
+    const estimate = reconstructed ? round2(Number(reconstructed[String(c.id)]?.currentStatement?.amount ?? 0)) : null;
+    const partial = fig?.source === "partial";
     return {
       card: String(c.name),
-      amount: round2(Number(fig?.amount ?? 0)),
+      // Parcial: o valor importado sozinho subestima; mostramos o maior entre ele e a reconstrução.
+      amount: partial && estimate !== null ? Math.max(imported, estimate) : imported,
+      imported_amount: partial ? imported : null,
+      estimate_from_entries: partial ? estimate : null,
+      needs_review: partial,
       source: fig?.source ?? "unavailable",
       status: fig?.status ?? null,
       due_date: statement?.due_date ? String(statement.due_date).slice(0, 10) : null,
