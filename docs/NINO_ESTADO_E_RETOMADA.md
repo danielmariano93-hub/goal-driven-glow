@@ -17,7 +17,7 @@ Duas frentes, ambas com a `main` atualizada (PRs #339 a #347 mesclados, CI verde
 |---|---|
 | F0 custo/escala (pollers só com trabalho, trava de evidência, retenção 90 dias) | **Feito e verificado em produção** (#340, #345) |
 | F1 definições únicas, modo sombra | **Feito** (#346): `nino_commitments_shadow`, ninguém a chama; relatório no doc §5.2 |
-| F2 livro de causas | **Metade feita** (#347): módulo puro `causeLedger.ts` + testes. Falta o F2b |
+| F2 livro de causas | **Feito** (#347 módulo + F2b em 03/11): `causeEntries.ts` monta as entradas do ledger canônico; gabarito SQL independente de maio a novembro bate mês a mês; trava `base_atipica` quando a base tem < 3 meses desiguais |
 | F3 cards da Home ("Por que está assim?", "O que vem pela frente") | Não iniciado |
 | F4 qualidade dos alertas | Não iniciado |
 | F5 abertura gradual por flag | Não iniciado |
@@ -43,7 +43,7 @@ Duas frentes, ambas com a `main` atualizada (PRs #339 a #347 mesclados, CI verde
 - **Ainda não feito:** vazamento na tela do Ticket (hoje só no agente), abertura gradual do menu para outras contas, validação visual da tela e validação real da leitura de print pelo modelo de visão.
 - O dia da semana e o ranking por estabelecimento **exigem gastos lançados**; só com leituras de saldo o Nino calcula ritmo e data de esgotamento.
 
-## 2. Próximo passo exato (F2b)
+## 2. Próximo passo exato (F3: cards na Home atrás de flag, dentro do `home-snapshot`, sem consulta nova; depois F4 alertas e F5 abertura gradual). O F2b está concluído (ver `docs/NINO_CAUSAS_E_ALERTAS_REFINAMENTO_TECNICO.md` §5.4)
 Montar as entradas do `causeLedger` a partir do **ledger canônico** (regras de `isRealMonthlyMovement`, competência, sem transferência/fatura/investimento) classificando cada lançamento em fixa / parcela_cartao / variavel / pontual / antecipacao / desconhecida, e criar o **gabarito SQL independente** da piora da conta do dono (jul, ago, out). Um SQL ingênuo sobre `transactions` NÃO serve (mistura transferências e aportes: mostrou renda de R$ 34 mil em junho). Depois: F3 atrás de flag, sem consulta nova (reaproveitar o `home-snapshot`).
 
 ## 3. Decisões e fatos já fechados
