@@ -624,7 +624,7 @@ export function evaluateCategoryGoal(
     : 0;
 
   const status = statusPriority(goal, today, period, actualSpend, limit, projectedFinalSpend);
-  const message = statusMessage(
+  let message = statusMessage(
     status,
     categoryName ?? "categoria",
     currentOverage,
@@ -636,6 +636,14 @@ export function evaluateCategoryGoal(
     period.start,
     period.end,
   );
+  // Início do período: a projeção vem do histórico, então a frase não pode dizer "no ritmo atual".
+  if (projection.basis === "history" && (status === "on_track" || status === "attention" || status === "at_risk")) {
+    const brlE = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
+    const early = `Ainda é cedo (${elapsedDays} ${elapsedDays === 1 ? "dia" : "dias"}).`;
+    message = projectedOverage > 0
+      ? `${early} Pelo seu histórico (média de ${brlE(projection.historicalMonthlyAvg ?? 0)} por mês), você deve passar do teto em ${brlE(projectedOverage)} se nada mudar.`
+      : `${early} Pelo seu histórico (média de ${brlE(projection.historicalMonthlyAvg ?? 0)} por mês), você deve fechar perto de ${brlE(projectedFinalSpend)}.`;
+  }
 
 
   const utilClamped = Math.min(1, Math.max(0, percentageUsed));

@@ -25,6 +25,7 @@ import {
   effectiveCategoryId,
   buildCarriedInstallmentIds,
   isRealMonthlyMovement,
+  reportingCompetenceDate,
   type TransactionRow,
 } from "./facts";
 import { buildMerchantResolver, type MerchantAliasRow, type MerchantResolver } from "./merchant";
@@ -78,7 +79,17 @@ export interface CategoryProjection {
   variableDailyRate: number;
   /** R$/dia e "corte por dia" só fazem sentido quando true. */
   supportsDailyBudget: boolean;
+  /**
+   * De onde vem o ritmo da parcela variável: do período (`pace`) ou do histórico dos meses fechados (`history`).
+   * Nos primeiros dias o ritmo do período é só 1 ou 2 compras: o histórico é a única base honesta.
+   */
+  basis: "pace" | "history";
+  /** Média mensal dos meses fechados usada quando `basis = history` (senão null). */
+  historicalMonthlyAvg: number | null;
 }
+
+/** Antes disso, 1–2 compras definem o "ritmo" e a natureza da categoria: usa o histórico. */
+export const EARLY_PERIOD_DAYS = 7;
 
 export interface CategoryProjectionInput {
   txs: TransactionRow[];
@@ -251,8 +262,27 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
    */
   const spendDayRatio = elapsed > 0 ? spendDaysInPeriod / elapsed : 0;
 
+  // Início do período: o histórico dos meses fechados define o ritmo (`early_history`), não 1–2 compras.
+  const periodDays = elapsed + remaining;
+  const historyMonths = [-3, -2, -1].map((d) => shiftMonthStart(input.period.start, d).slice(0, 7));
+  const historyTotals = new Map<string, number>();
+  for (const tx of input.txs) {
+    if (String((tx as { status?: string | null }).status ?? "confirmed") !== "confirmed") continue;
+    if (effectiveCategoryId(tx, attribution) !== input.categoryId) continue;
+    if (String((tx as { movement_kind?: string | null }).movement_kind ?? "") === "refund") continue;
+    if (tx.type !== "expense" || !isRealMonthlyMovement(tx) || carriedIds.has(tx.id)) continue;
+    const month = reportingCompetenceDate(tx).slice(0, 7);
+    if (!historyMonths.includes(month)) continue;
+    historyTotals.set(month, (historyTotals.get(month) ?? 0) + Number(tx.amount || 0));
+  }
+  const historyValues = historyMonths.map((m) => historyTotals.get(m) ?? 0).filter((v) => v > 0);
+  const useHistory = elapsed > 0 && elapsed < EARLY_PERIOD_DAYS && remaining > 0 && periodDays > 0 && historyValues.length >= 2;
+  const historicalMonthlyAvg = useHistory ? round2(historyValues.reduce((a, b) => a + b, 0) / historyValues.length) : null;
+
   let method: CategoryProjectionMethod;
-  if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
+  if (useHistory) {
+    method = "flow";
+  } else if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
     method = "insufficient_data";
   } else if (spendDayRatio <= 0.35) {
     method = "commitment";
@@ -266,7 +296,10 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   let commitmentsInProjection = 0;
   let variableDailyRate = 0;
 
-  if (method === "commitment") {
+  if (useHistory) {
+    variableDailyRate = (historicalMonthlyAvg ?? 0) / periodDays;
+    variableProjection = round2(variableDailyRate * remaining);
+  } else if (method === "commitment") {
     commitmentsInProjection = remainingKnownCommitments;
   } else if (method === "hybrid") {
     commitmentsInProjection = remainingKnownCommitments;
@@ -284,7 +317,9 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   const projectedTotal = round2(confirmedSpend + commitmentsInProjection + variableProjection);
 
   let confidence: CategoryProjectionConfidence;
-  if (method === "insufficient_data") {
+  if (useHistory) {
+    confidence = "low";
+  } else if (method === "insufficient_data") {
     confidence = "low";
   } else if (method === "commitment") {
     confidence = series.some((s) => s.occurrences >= 3) ? "high" : "medium";
@@ -312,5 +347,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     spendDaysInPeriod,
     variableDailyRate: round2(variableDailyRate),
     supportsDailyBudget: method === "flow" || method === "hybrid",
+    basis: useHistory ? "history" : "pace",
+    historicalMonthlyAvg,
   };
 }
