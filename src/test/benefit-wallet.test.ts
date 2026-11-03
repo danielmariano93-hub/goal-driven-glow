@@ -152,3 +152,36 @@ describe("Ticket Alimentação — padrões e sugestões", () => {
     expect(cap?.monthly_saving).toBe(150);
   });
 });
+
+describe("Ticket Alimentação — padrão desde os primeiros dias", () => {
+  // 7 dias (27/10 a 02/11): um gasto por dia, a quinta (29/10) concentra mais.
+  const week: BenefitEntry[] = [
+    e("spend", 20, "2026-10-27"), e("spend", 20, "2026-10-28"), e("spend", 60, "2026-10-29"),
+    e("spend", 20, "2026-10-30"), e("spend", 20, "2026-10-31"), e("spend", 20, "2026-11-01"), e("spend", 20, "2026-11-02"),
+  ];
+
+  it("com 7 dias já aponta o dia que mais pesa, com confiança baixa e média pelas ocorrências reais", () => {
+    const p = weekdayPattern(week, "2026-11-03");
+    expect(p.days_observed).toBe(7);
+    expect(p.confidence).toBe("low");
+    expect(p.peak).toMatchObject({ label: "qui", share_pct: 33, avg_per_occurrence: 60, others_avg: 20, ratio: 3 });
+  });
+
+  it("menos de 3 gastos ou 5 dias não inventa padrão", () => {
+    expect(weekdayPattern(week.slice(0, 2), "2026-11-03").peak).toBeNull();
+    expect(weekdayPattern([e("spend", 20, "2026-11-01"), e("spend", 20, "2026-11-02"), e("spend", 20, "2026-11-02")], "2026-11-03").peak).toBeNull();
+  });
+
+  it("a confiança sobe com o histórico", () => {
+    expect(weekdayPattern(week, "2026-11-03").confidence).toBe("low");
+    expect(weekdayPattern([e("spend", 20, "2026-10-14"), ...week], "2026-11-03").confidence).toBe("medium");
+    expect(weekdayPattern([e("spend", 20, "2026-10-01"), ...week], "2026-11-03").confidence).toBe("high");
+  });
+
+  it("dica de teto só com confiança média ou alta (conselho com 1 ocorrência seria chute)", () => {
+    const base = [e("balance_reading", 500, "2026-10-26"), ...week];
+    const s = computeBenefitState({ ...wallet, credit_day: 27 }, base, "2026-11-03");
+    const ids = suggestions(s, weekdayPattern(base, "2026-11-03"), merchantBreakdown(base, s.cycle.start, "2026-11-03")).map((x) => x.id);
+    expect(ids).not.toContain("weekday_cap");
+  });
+});

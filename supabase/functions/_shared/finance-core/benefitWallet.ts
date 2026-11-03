@@ -263,33 +263,51 @@ export function balanceSeries(w: BenefitWalletConfig, entries: BenefitEntry[], t
 
 export const BENEFIT_WEEKDAY_LABELS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"] as const;
 
+/** Quão firme é o padrão: baixa (< 14 dias de histórico), média (< 28) ou alta. */
+export type PatternConfidence = "low" | "medium" | "high";
+
 export interface WeekdayPattern {
   by_weekday: Array<{ weekday: number; label: string; total: number; avg_per_occurrence: number; share_pct: number }>;
   total: number;
-  /** null enquanto não há dados suficientes (menos de 14 dias de histórico ou menos de 6 gastos). */
+  /** Dias observados (do primeiro gasto até hoje, no máximo `weeks` semanas). */
+  days_observed: number;
+  confidence: PatternConfidence;
+  /** null só quando não há o mínimo para dizer algo (menos de 3 gastos ou menos de 5 dias observados). */
   peak: { weekday: number; label: string; share_pct: number; avg_per_occurrence: number; others_avg: number; ratio: number } | null;
 }
 
-/** Gasto por dia da semana nas últimas `weeks` semanas (precisa de gastos lançados, não só leituras de saldo). */
+/**
+ * Gasto por dia da semana nas últimas `weeks` semanas. Mostra o que já existe desde os primeiros dias e diz a
+ * confiança: com pouca base o resultado é uma primeira leitura, não uma conclusão. A média de cada dia divide pelas
+ * ocorrências reais daquele dia da semana na janela observada (e não por um número fixo de semanas).
+ */
 export function weekdayPattern(entries: BenefitEntry[], today: string, weeks = 8): WeekdayPattern {
   const from = benefitAddDays(today, -(weeks * 7 - 1));
   const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on >= from && e.occurred_on <= today);
+  const weekdayOf = (iso: string) => (new Date(parse(iso)).getUTCDay() + 6) % 7;
   const totals = Array.from({ length: 7 }, () => 0);
-  for (const s of spends) totals[(new Date(parse(s.occurred_on)).getUTCDay() + 6) % 7] += s.amount;
+  for (const s of spends) totals[weekdayOf(s.occurred_on)] += s.amount;
   const total = totals.reduce((a, b) => a + b, 0);
+  const firstSpend = spends.reduce((min, e) => (e.occurred_on < min ? e.occurred_on : min), today);
+  // Hoje só entra na conta se já houve gasto hoje (o dia ainda não terminou).
+  const spentToday = spends.some((e) => e.occurred_on === today);
+  const lastDay = spentToday ? today : benefitAddDays(today, -1);
+  const occurrences = Array.from({ length: 7 }, () => 0);
+  for (let d = firstSpend; d <= lastDay; d = benefitAddDays(d, 1)) occurrences[weekdayOf(d)] += 1;
+  const daysObserved = spends.length ? Math.max(1, daysBetween(firstSpend, lastDay) + 1) : 0;
   const by = totals.map((t, i) => ({
     weekday: i,
     label: BENEFIT_WEEKDAY_LABELS[i],
     total: round2(t),
-    avg_per_occurrence: round2(t / weeks),
+    avg_per_occurrence: occurrences[i] > 0 ? round2(t / occurrences[i]) : 0,
     share_pct: total > 0 ? Math.round((t / total) * 100) : 0,
   }));
-  const firstSpend = spends.reduce((min, e) => (e.occurred_on < min ? e.occurred_on : min), today);
-  const enough = spends.length >= 6 && daysBetween(firstSpend, today) >= 13;
+  const confidence: PatternConfidence = daysObserved >= 28 ? "high" : daysObserved >= 14 ? "medium" : "low";
   let peak: WeekdayPattern["peak"] = null;
-  if (enough && total > 0) {
+  if (spends.length >= 3 && daysObserved >= 5 && total > 0) {
     const top = by.reduce((best, d) => (d.total > best.total ? d : best), by[0]);
-    const othersAvg = (total - top.total) / (weeks * 6);
+    const otherOcc = occurrences.reduce((a, b) => a + b, 0) - occurrences[top.weekday];
+    const othersAvg = otherOcc > 0 ? (total - top.total) / otherOcc : 0;
     peak = {
       weekday: top.weekday,
       label: top.label,
@@ -299,7 +317,7 @@ export function weekdayPattern(entries: BenefitEntry[], today: string, weeks = 8
       ratio: othersAvg > 0 ? round2(top.avg_per_occurrence / othersAvg) : 0,
     };
   }
-  return { by_weekday: by, total: round2(total), peak };
+  return { by_weekday: by, total: round2(total), days_observed: daysObserved, confidence, peak };
 }
 
 export interface BenefitMerchantRow {
@@ -344,7 +362,7 @@ const brl = (n: number) => `R$ ${n.toFixed(2).replace(".", ",").replace(/,00$/, 
 export function suggestions(state: BenefitState, pattern: WeekdayPattern, merchants: BenefitMerchantRow[]): Suggestion[] {
   const out: Suggestion[] = [];
   const peak = pattern.peak;
-  if (peak && peak.share_pct >= 25 && peak.ratio >= 1.5 && peak.others_avg > 0) {
+  if (peak && pattern.confidence !== "low" && peak.share_pct >= 25 && peak.ratio >= 1.5 && peak.others_avg > 0) {
     const cap = roundTo5(peak.others_avg * 1.6);
     const saving = Math.max(0, peak.avg_per_occurrence - cap) * 4.3;
     if (saving >= 10) {
