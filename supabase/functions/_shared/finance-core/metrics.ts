@@ -723,7 +723,7 @@ function financialFingerprint(input: FinancialSnapshotInput): string {
     ...input.txs.map((row) => `t:${row.id}:${row.status}:${row.type}:${row.amount}:${row.occurred_at}:${row.posted_at ?? ""}:${row.movement_kind ?? ""}:${row.account_id ?? ""}:${row.credit_card_id ?? ""}:${row.investment_id ?? ""}`),
     ...input.snapshots.map((row) => `s:${row.account_id}:${row.balance_date}:${row.balance}:${row.status ?? ""}`),
     ...input.investments.map((row) => `i:${row.id}:${row.invested_amount}:${row.current_value}:${row.goal_id ?? ""}`),
-    ...input.debts.map((row) => `d:${row.id}:${row.status}:${row.outstanding_balance}:${row.installment_amount ?? ""}:${row.due_day ?? ""}`),
+    ...input.debts.map((row) => `d:${row.id}:${row.status}:${row.outstanding_balance}:${row.installment_amount ?? ""}:${row.due_day ?? ""}:${(row as { first_due_date?: string | null }).first_due_date ?? ""}:${(row as { start_date?: string | null }).start_date ?? ""}:${(row as { installments_paid?: number | null }).installments_paid ?? ""}:${(row as { next_installment_due?: string | null }).next_installment_due ?? ""}`),
     ...(input.cardStatements ?? []).map((row) => `cs:${row.id ?? ""}:${row.credit_card_id}:${row.competence_month}:${row.status ?? ""}:${row.stated_total ?? ""}:${row.paid_amount ?? ""}:${row.outstanding_amount ?? ""}`),
     ...(input.cardInstallments ?? []).map((row) => `ci:${row.id ?? ""}:${row.credit_card_id}:${row.competence_month}:${row.status ?? ""}:${row.amount}:${row.absorbed_by_statement_id ?? ""}`),
     ...(input.goals ?? []).map((row) => `g:${row.id}:${row.status}:${row.target_amount}`),
