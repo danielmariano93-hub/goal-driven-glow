@@ -39,7 +39,8 @@ export type FinancialMetricV3 =
   | "net_worth"
   | "debt_balance"
   | "future_installments"
-  | "financial_health";
+  | "financial_health"
+  | "benefit_balance";
 export type FinancialOperationV3 =
   | "value"
   | "sum"

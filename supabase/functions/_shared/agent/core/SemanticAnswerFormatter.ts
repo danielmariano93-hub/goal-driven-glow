@@ -129,6 +129,38 @@ function formatCashProjection(result: any): string | null {
   return lines.join("\n");
 }
 
+function formatBenefitStatus(result: any): string | null {
+  if (!result || result.engine !== "get_benefit_status") return null;
+  if (result.enabled === false || result.configured === false) return headline(result);
+  const lines: string[] = [];
+  if (result.balance === null || result.needs_reading) {
+    return "Ainda não tenho uma leitura do seu saldo de Ticket Alimentação. Me diga quanto aparece no app do ticket hoje (ex.: “ticket 412,40”) e eu passo a acompanhar.";
+  }
+  const est = result.estimated ? " (estimado a partir da última leitura)" : "";
+  lines.push(`Seu Ticket Alimentação tem *${BRL.format(Number(result.balance))}*${est}.`);
+  const c = result.cycle ?? {};
+  if (c.next) lines.push(`Faltam *${Number(c.days_left)} dias* para o próximo crédito (${dm(c.next)}).`);
+  const p = result.projection;
+  if (p && p.status !== "unknown") {
+    if (p.depletion_date) {
+      lines.push(`No seu ritmo (*${BRL.format(Number(result.rate_per_day))}/dia*), o saldo acaba em *${dm(p.depletion_date)}* e faltam cerca de *${BRL.format(Number(p.shortfall))}* até o crédito.`);
+    } else {
+      lines.push(`No seu ritmo (*${BRL.format(Number(result.rate_per_day))}/dia*), o saldo cobre até o próximo crédito e ainda sobram *${BRL.format(Number(p.leftover))}*.`);
+    }
+  }
+  if (result.ideal_per_day != null) lines.push(`Para fechar o ciclo, o ideal é gastar até *${BRL.format(Number(result.ideal_per_day))}/dia*.`);
+  const sc = result.scenario;
+  if (sc && sc.status) {
+    lines.push(sc.depletion_date
+      ? `Gastando *${BRL.format(Number(sc.per_day))}/dia*, o saldo acaba em *${dm(sc.depletion_date)}* (faltam ${BRL.format(Number(sc.shortfall))}).`
+      : `Gastando *${BRL.format(Number(sc.per_day))}/dia*, o saldo fecha o ciclo e sobram *${BRL.format(Number(sc.leftover))}*.`);
+  }
+  const peak = result.weekday_peak;
+  if (peak) lines.push(`O dia que mais pesa é *${peak.label}*: ${Number(peak.share_pct)}% do gasto, média de ${BRL.format(Number(peak.avg_per_occurrence))}.`);
+  if (result.inconsistent) lines.push("Os lançamentos passaram do saldo lido; vale conferir a leitura do app do ticket.");
+  return lines.join("\n");
+}
+
 const FORMATTERS: Record<string, (result: any) => string | null> = {
   get_net_worth: formatNetWorth,
   get_account_balance: formatAccountBalance,
@@ -143,6 +175,7 @@ const FORMATTERS: Record<string, (result: any) => string | null> = {
   forecast_month_close: formatForecastMonthClose,
   explain_cash_projection: formatCashProjection,
   list_financial_sources: formatFinancialSources,
+  get_benefit_status: formatBenefitStatus,
   compare_periods: formatPeriodComparisonEnhanced,
 };
 
