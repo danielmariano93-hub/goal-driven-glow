@@ -71,20 +71,20 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
   const shown = legend.filter((st) => st !== "unconfirmed" || hasUnconfirmed);
   const pctText = (v: number) => `${v < 0 ? "−" : "+"}${Math.round(Math.abs(v) * 100)}%`;
   return (
-    <section aria-label="Placar das metas" className="mb-4 rounded-2xl border border-border bg-card p-4">
-      <p className="text-sm font-semibold">Placar mês a mês</p>
-      <p className="text-[11px] text-muted-foreground">Cumpriu o teto ou estourou, em cada categoria com meta.</p>
-      <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[340px] border-separate border-spacing-y-1 text-[12px]">
+    <section aria-label="Placar das metas" className="mb-3 rounded-2xl border border-border bg-card p-4">
+      <p className="text-[14px] font-semibold leading-5">Placar mês a mês</p>
+      <p className="text-[12px] leading-4 text-muted-foreground">Cumpriu o teto ou estourou, em cada categoria com meta</p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[320px] border-separate border-spacing-y-0.5 text-[12px]">
           <thead>
             <tr>
-              <th className="pb-1 text-left font-medium text-muted-foreground">Categoria</th>
+              <th className="pb-1 text-left font-normal text-muted-foreground">Categoria</th>
               {history.scoreboard.months.map((m) => (
-                <th key={m} scope="col" className={`pb-1 text-center font-medium ${m === history.current_month ? "text-foreground" : "text-muted-foreground"}`}>
+                <th key={m} scope="col" className={`pb-1 text-center font-normal ${m === history.current_month ? "text-foreground" : "text-muted-foreground"}`}>
                   {monthShort(m)}
                 </th>
               ))}
-              {effects ? <th scope="col" className="pb-1 text-right font-medium text-muted-foreground">vs antes</th> : null}
+              {effects ? <th scope="col" className="pb-1 text-right font-normal text-muted-foreground">vs antes</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -93,8 +93,8 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
               const effect = effects?.[row.category_id];
               return (
                 <tr key={row.category_id}>
-                  <th scope="row" className="max-w-[110px] truncate pr-2 text-left font-semibold">
-                    <button type="button" onClick={() => onOpen?.(series)} className="min-h-9 truncate text-left hover:underline">{row.category_name}</button>
+                  <th scope="row" className="max-w-[110px] truncate pr-2 text-left text-[14px] font-medium">
+                    <button type="button" onClick={() => onOpen?.(series)} className="min-h-8 truncate text-left hover:underline">{row.category_name}</button>
                   </th>
                   {row.cells.map((cell) => {
                     const meta = STATUS_META[cell.status];
@@ -107,19 +107,19 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
                     return (
                       <td key={cell.month} className="text-center">
                         {cell.status === "unconfirmed" && month && onConfirm ? (
-                          <button type="button" title={title} aria-label={title} onClick={() => onConfirm(series, month)} className={`mx-auto grid h-8 w-8 place-items-center rounded-lg ${meta.cell}`}>
-                            <meta.Icon size={14} aria-hidden />
+                          <button type="button" title={title} aria-label={title} onClick={() => onConfirm(series, month)} className={`mx-auto grid h-7 w-7 place-items-center rounded-md ${meta.cell}`}>
+                            <meta.Icon size={12} aria-hidden />
                           </button>
                         ) : (
-                          <span title={title} aria-label={title} className={`mx-auto grid h-7 w-7 place-items-center rounded-lg ${meta.cell}`}>
-                            {cell.status === "no_goal" ? <span className="text-[10px]">·</span> : <meta.Icon size={13} aria-hidden />}
+                          <span title={title} aria-label={title} className={`mx-auto grid h-6 w-6 place-items-center rounded-md ${meta.cell}`}>
+                            {cell.status === "no_goal" ? <span className="text-[10px]">·</span> : <meta.Icon size={12} aria-hidden />}
                           </span>
                         )}
                       </td>
                     );
                   })}
                   {effects ? (
-                    <td className={`whitespace-nowrap pl-1 text-right text-[12px] font-bold ${effect?.status === "ajudou" ? "text-emerald-700" : effect?.status === "nao_ajudou" ? "text-red-700" : "text-muted-foreground"}`}>
+                    <td className={`whitespace-nowrap pl-1 text-right text-[13px] font-medium tabular-nums ${effect?.status === "ajudou" ? "text-emerald-700" : effect?.status === "nao_ajudou" ? "text-red-700" : "text-muted-foreground"}`}>
                       {effect?.change_pct != null ? pctText(effect.change_pct) : "—"}
                     </td>
                   ) : null}
@@ -129,7 +129,7 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
           </tbody>
         </table>
       </div>
-      <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[12px] leading-4 text-muted-foreground">
         {shown.map((s) => {
           const meta = STATUS_META[s];
           return (
@@ -141,7 +141,7 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
         })}
       </ul>
       {effects ? (
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">“vs antes” compara o gasto médio com a média que você tinha antes da meta. Toque numa categoria para ver o mês a mês em valores.</p>
+        <p className="mt-1 text-[12px] leading-4 text-muted-foreground">vs antes: gasto médio frente à média de antes da meta. Toque numa categoria para ver os valores.</p>
       ) : null}
     </section>
   );
