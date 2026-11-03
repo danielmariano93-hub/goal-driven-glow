@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,9 +24,13 @@ function dayLabel(day: string) {
  * Calendário do mês: dias com registro mostram a emoção; dia sem registro é um ponto.
  * Tocar num dia (até hoje) abre o registro retroativo: lembrar de como estava e anotar depois vale.
  */
-export function EmotionMonthCalendar() {
+export function EmotionMonthCalendar({ month: monthProp }: { month?: string } = {}) {
   const today = saoPauloDay(new Date());
-  const [month, setMonth] = useState(monthOf(today));
+  const [month, setMonth] = useState(monthProp && monthProp <= monthOf(today) ? monthProp : monthOf(today));
+  // O mês acompanha o período escolhido na tela; dentro do calendário a pessoa ainda navega livremente.
+  useEffect(() => {
+    if (monthProp && monthProp <= monthOf(today)) setMonth(monthProp);
+  }, [monthProp, today]);
   const [editing, setEditing] = useState<MonthCell | null>(null);
   const { data, isLoading } = useEmotionMonth(month);
   const weeks = useMemo(() => buildMonthCalendar(data ?? [], month, today), [data, month, today]);
@@ -46,7 +50,8 @@ export function EmotionMonthCalendar() {
       </div>
       <div className={`mt-1 grid grid-cols-7 gap-1 ${isLoading ? "opacity-60" : ""}`} role="grid" aria-label={`Humor em ${monthLabel(month)}`}>
         {weeks.flat().map((c) => {
-          if (!c.inMonth) return <span key={c.date} aria-hidden />;
+          // Dia que ainda não chegou não aparece: só dá para registrar até hoje.
+          if (!c.inMonth || c.future) return <span key={c.date} aria-hidden />;
           const label = c.emotion ? `${dayLabel(c.date)}: ${c.emotion.label}` : c.future ? `${dayLabel(c.date)}: ainda não chegou` : `${dayLabel(c.date)}: sem registro. Toque para registrar`;
           return (
             <button

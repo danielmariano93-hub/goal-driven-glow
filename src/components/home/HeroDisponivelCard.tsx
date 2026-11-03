@@ -23,6 +23,11 @@ type Props = {
   onRetry?: () => void;
   /** Só vem preenchido quando o banco e o Nino divergem de fato (discreto). */
   bankGap?: BankBalanceGap | null;
+  /**
+   * Período escolhido já terminou: o card mostra COMO O PERÍODO FECHOU (saldo no último dia e variação),
+   * não a posição de hoje. Sem isso, filtrar outubro mostrava o saldo e o "livre" de novembro.
+   */
+  pastPeriod?: { endLabel: string; closingCash: number; openingCash: number } | null;
 };
 
 export function HeroDisponivelCard(p: Props) {
@@ -30,16 +35,16 @@ export function HeroDisponivelCard(p: Props) {
   return (
     <>
       <section
-        aria-label="Disponível hoje"
+        aria-label={p.pastPeriod ? `Saldo em ${p.pastPeriod.endLabel}` : "Disponível hoje"}
         className={`relative overflow-hidden rounded-[24px] bg-gradient-hero p-5 text-primary-foreground shadow-hero animate-fade-in ${p.error || p.partial ? "min-h-[140px]" : "min-h-[176px]"}`}
       >
         <span className="pointer-events-none absolute -right-12 -top-20 h-44 w-44 rounded-full bg-white/15 blur-3xl" aria-hidden="true" />
         <span className="pointer-events-none absolute -bottom-24 left-8 h-40 w-52 rounded-full bg-fuchsia-400/20 blur-3xl" aria-hidden="true" />
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-             <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">Disponível hoje</p>
-               {p.loading ? <div className="mt-2 h-8 w-44 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-base font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 break-words font-display text-[28px] font-bold leading-8 tabular-nums text-primary-foreground">{formatBRL(p.available)}</p>}
-               <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">Posição de hoje · não muda com o período escolhido</p>
+             <p className="text-xs font-semibold uppercase leading-4 text-primary-foreground/80">{p.pastPeriod ? `Saldo em ${p.pastPeriod.endLabel}` : "Disponível hoje"}</p>
+               {p.loading ? <div className="mt-2 h-8 w-44 animate-pulse rounded-md bg-primary-foreground/15" /> : p.error ? <p className="mt-2 text-base font-bold text-primary-foreground">Não foi possível atualizar seu saldo</p> : <p className="mt-2 break-words font-display text-[28px] font-bold leading-8 tabular-nums text-primary-foreground">{formatBRL(p.pastPeriod ? p.pastPeriod.closingCash : p.available)}</p>}
+               <p className="mt-1 text-xs leading-[18px] text-primary-foreground/80">{p.pastPeriod ? `Como o período fechou · hoje você tem ${formatBRL(p.available)}` : "Posição de hoje · não muda com o período escolhido"}</p>
                {!p.loading && !p.error && p.bankGap ? (
                  <p className="mt-1 text-[11px] leading-4 text-primary-foreground/60" data-testid="bank-gap">
                    No banco {formatBRL(p.bankGap.bank)} · no Nino {formatBRL(p.bankGap.nino)}
@@ -70,6 +75,14 @@ export function HeroDisponivelCard(p: Props) {
             </Button>
           </div>
         ) : (
+           p.pastPeriod ? (
+           <div className="mt-4 border-t border-primary-foreground/20 pt-3" data-testid="hero-past-period">
+             <p className="text-xs leading-4 text-primary-foreground/80">Variação do caixa no período</p>
+             <p className="mt-0.5 font-display text-base font-bold leading-5 tabular-nums text-primary-foreground">
+               {formatBRL(p.pastPeriod.closingCash - p.pastPeriod.openingCash)}
+             </p>
+           </div>
+           ) : (
            <div className="mt-4 flex items-end justify-between gap-3 border-t border-primary-foreground/20 pt-3">
              <div className="min-w-0">
                <p className="text-xs leading-4 text-primary-foreground/80">Livre após compromissos conhecidos</p>
@@ -79,6 +92,7 @@ export function HeroDisponivelCard(p: Props) {
               Ver composição <ArrowRight />
             </Button>
           </div>
+          )
         )}
       </section>
 

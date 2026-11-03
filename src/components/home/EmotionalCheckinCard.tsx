@@ -52,7 +52,10 @@ function ScoreSlider({ label, hint, value, onChange }: { label: string; hint: st
   );
 }
 
-export function EmotionalCheckinCard() {
+const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
+/** `month` (AAAA-MM) acompanha o período da Home: mês já fechado mostra só o calendário daquele mês (registro de memória). */
+export function EmotionalCheckinCard({ month }: { month?: string } = {}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
@@ -150,6 +153,23 @@ export function EmotionalCheckinCard() {
     } finally { setSaving(false); }
   }
 
+  const pastMonth = !!month && month < saoPauloDate().slice(0, 7);
+  if (pastMonth) {
+    const [, mm] = month!.split("-").map(Number);
+    return (
+      <section aria-label="Check-in emocional" data-testid="checkin-past-month" className="rounded-[22px] border border-border bg-card p-4 shadow-card animate-fade-in">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><Heartbeat size={19} weight="bold" /></span>
+          <div>
+            <h3 className="text-sm font-bold text-foreground">Como você estava em {MONTHS_PT[mm! - 1]}?</h3>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Os dias em branco podem ser preenchidos de memória: mais dias, melhor o Nino enxerga seu padrão.</p>
+          </div>
+        </div>
+        <EmotionMonthCalendar month={month} />
+      </section>
+    );
+  }
+
   return (
     <section aria-label="Check-in emocional" className="rounded-[22px] border border-border bg-card p-4 shadow-card animate-fade-in">
       <div className="flex items-start gap-3">
@@ -160,7 +180,7 @@ export function EmotionalCheckinCard() {
         </div>
       </div>
 
-      <EmotionMonthCalendar />
+      <EmotionMonthCalendar month={month} />
 
       {saved && selected ? (
         <div className="mt-3">

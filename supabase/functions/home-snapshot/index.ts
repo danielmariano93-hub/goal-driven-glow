@@ -18,11 +18,11 @@ import { fail } from "../_shared/http.ts";
 import { computeFinancialSnapshot } from "../_shared/finance-core/metrics.ts";
 import { nextOccurrenceFor } from "../_shared/finance-core/index.ts";
 import { applyIntradayBankAnchorAdjustments } from "../_shared/finance-core/intradayCash.ts";
-import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.ts";
+import { TX_COLUMNS, fetchAllTransactions, fetchTransactionsBetween } from "../_shared/derived/txColumns.ts";
 import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 import { today as localToday } from "../_shared/finance-core/ninoClock.ts";
-import { causeLedgerForLastClosedMonth } from "../_shared/finance-core/causeEntries.ts";
+import { buildCauseMonths, causeLedgerForMonth, causeMonthForPeriod, causeReadWindow } from "../_shared/finance-core/causeEntries.ts";
 
 const FN = "home-snapshot";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -329,17 +329,24 @@ Deno.serve(async (req) => {
       today: new Date(`${today}T12:00:00-03:00`),
     } as Any);
 
-    // F3 — "Por que está assim?": livro de causas do último mês fechado, só para quem foi liberado (`cause_ledger_access`).
-    // Zero consulta nova para os demais; para o liberado é uma leitura por PK na falha de cache + CPU em memória sobre
-    // os lançamentos e categorias que o snapshot já carregou.
+    // F3 — "Por que está assim?": livro de causas só para quem foi liberado (`cause_ledger_access`). Zero consulta nova
+    // para os demais. O liberado lê uma janela FIXA de lançamentos do mês explicado (7 meses até o fim dele), nunca a janela
+    // do período da tela — antes, filtrar outubro ou novembro dava bases diferentes e números diferentes para o mesmo mês.
     let causes: Any = null;
     try {
       const access = await sb.from("cause_ledger_access").select("user_id").eq("user_id", userId).maybeSingle();
       if (!access.error && access.data) {
-        causes = causeLedgerForLastClosedMonth(
-          normalizedTxs as Any,
-          ((categories ?? []) as Any[]).map((c) => ({ id: c.id, name: c.name })),
-          today,
+        // Mês e janela de leitura próprios: o resultado de um mês não pode mudar conforme o filtro da tela.
+        const causeMonth = causeMonthForPeriod({ start, end }, today);
+        const win = causeReadWindow(causeMonth);
+        const causeTxs = (await fetchTransactionsBetween(sb, userId, win.from, win.before))
+          .map((t) => ({ ...t, amount: num(t.amount) }));
+        causes = causeLedgerForMonth(
+          buildCauseMonths(
+            causeTxs as Any,
+            ((categories ?? []) as Any[]).map((c) => ({ id: c.id, name: c.name })),
+          ),
+          causeMonth,
         );
       }
     } catch (_e) { causes = null; }

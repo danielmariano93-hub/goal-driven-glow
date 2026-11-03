@@ -40,3 +40,29 @@ export async function fetchAllTransactions(sb: Any, userId: string): Promise<Any
   }
   return rows;
 }
+
+/**
+ * Lançamentos de um intervalo de datas, com paginação obrigatória (limite de 1.000 linhas do PostgREST).
+ * Janela FIXA, independente do período que a tela escolheu — é o que mantém um cálculo por mês igual em qualquer filtro.
+ */
+export async function fetchTransactionsBetween(sb: Any, userId: string, fromDay: string, beforeDay: string): Promise<Any[]> {
+  const PAGE = 1000;
+  const rows: Any[] = [];
+  for (let i = 0; i < 50; i++) {
+    const offset = i * PAGE;
+    const { data, error } = await sb
+      .from("transactions")
+      .select(TX_COLUMNS)
+      .eq("user_id", userId)
+      .gte("occurred_at", fromDay)
+      .lt("occurred_at", beforeDay)
+      .order("occurred_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw Object.assign(new Error(error.message), { source: "transactions" });
+    const chunk = (data ?? []) as Any[];
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+  }
+  return rows;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { readFileSync } from "node:fs";
 
 let rows: Array<Record<string, unknown>> = [];
 const saved: Array<Record<string, unknown>> = [];
@@ -63,5 +64,29 @@ describe("calendário no app", () => {
     render(wrap(<EmotionMonthCalendar />));
     const future = screen.queryAllByRole("button").filter((b) => /ainda não chegou/.test(b.getAttribute("aria-label") ?? ""));
     expect(future.every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+  });
+});
+
+describe("calendário acompanha o período da Home", () => {
+  it("com month=mês passado mostra aquele mês, completo, sem dia bloqueado", () => {
+    rows = [];
+    render(wrap(<EmotionMonthCalendar month="2026-10" />));
+    expect(screen.getByText(/outubro de 2026/i)).toBeTruthy();
+    // outubro/2026 tem 31 dias, todos já passados → 31 botões de dia, nenhum bloqueado
+    const days = screen.getAllByRole("button").filter((b) => /sem registro|:/.test(b.getAttribute("aria-label") ?? ""));
+    expect(days.length).toBe(31);
+    expect(days.every((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
+  });
+  it("dias que ainda não chegaram não aparecem", () => {
+    rows = [];
+    render(wrap(<EmotionMonthCalendar />));
+    expect(screen.queryAllByRole("button").filter((b) => /ainda não chegou/.test(b.getAttribute("aria-label") ?? "")).length).toBe(0);
+  });
+  it("o cartão do check-in troca para o modo 'como você estava em <mês>' quando o período já fechou", () => {
+    const src = readFileSync("src/components/home/EmotionalCheckinCard.tsx", "utf8");
+    expect(src).toContain("checkin-past-month");
+    expect(src).toContain("Como você estava em");
+    const idx = readFileSync("src/pages/Index.tsx", "utf8");
+    expect(idx).toContain("<EmotionalCheckinCard month={periodRange.end.slice(0, 7)} />");
   });
 });
