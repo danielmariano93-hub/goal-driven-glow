@@ -107,3 +107,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Painel da meta mostra a referência e o que é "Desde o início" (média de TODOS os meses fechados com meta contra a referência).
 - Veredito: `comparison` (com meta × sem meta, mesma janela, consumo livre) e `outside_line` com leitura "melhor / parecido / pior" (limiar de 10 p.p.). Não prova causa: categorias diferentes.
 - Decisão: NÃO criar indicador "vs mês que motivou a meta" (viés de regressão à média: o mês de pico motiva a meta e qualquer mês seguinte parece melhora). Maio fica fora de qualquer checagem (importação de bases).
+
+## Projeção da meta nos primeiros dias (early_history)
+- Antes de 7 dias de período, a projeção da meta de categoria usa a média mensal dos 3 meses fechados anteriores (≥2 meses com gasto; parcela antiga de cartão fora), não o gasto atual. `projection.basis = "history"`, confiança baixa; a frase diz "Ainda é cedo (N dias). Pelo seu histórico…", sem "no ritmo atual".
+- Motivo: com 1 compra em 3 dias a categoria caía em "compromisso" e a projeção virava o próprio gasto (Lazer: R$ 108).
+- Pendente (decisão do dono): Pix para pessoa (`external_transfer_out`) com categoria de consumo deve contar como consumo (categorizado por ele ou pelo Nino), exceto categorias de dívida/divisão de rolê. Exige mudar a regra compartilhada (TS `isRealMonthlyMovement`, SQL `is_behavioral_consumption` + `refresh_financial_daily_facts`), paridade e recálculo.
