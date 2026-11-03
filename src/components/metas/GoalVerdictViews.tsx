@@ -17,6 +17,7 @@ const FIGURE_TONE: Record<GoalVerdictKind, string> = {
 const MONTH_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 const sinceText = (ym: string | null) => (ym ? `${MONTH_SHORT[Number(ym.slice(5, 7)) - 1]}/${ym.slice(0, 4)}` : "o início");
 const pct = (v: number) => `${Math.round(Math.abs(v) * 100)}%`;
+const signed = (v: number) => `${v < 0 ? "−" : "+"}${pct(v)}`;
 const CONFIDENCE = { alta: "alta", media: "média", baixa: "baixa" } as const;
 
 export function GoalVerdictCard({ verdict }: { verdict: GoalVerdict }) {
@@ -42,15 +43,22 @@ export function GoalVerdictCard({ verdict }: { verdict: GoalVerdict }) {
         <p className="mt-2 text-[14px] leading-5 text-muted-foreground">{verdict.summary}</p>
       )}
 
-      {verdict.outside_line ? (
-        <p className="mt-3 border-t border-border pt-3 text-[13px] leading-5 text-muted-foreground">{verdict.outside_line}</p>
+      {verdict.comparison && verdict.outside_line ? (
+        <div className="mt-3 border-t border-border pt-3" data-testid="goal-vs-outside">
+          <p className="flex flex-wrap gap-x-4 text-[13px] leading-5 tabular-nums">
+            <span><span className="text-muted-foreground">Com meta </span><strong className="font-medium">{signed(verdict.comparison.with_pct)}</strong></span>
+            <span><span className="text-muted-foreground">Sem meta </span><strong className="font-medium">{signed(verdict.comparison.outside_pct)}</strong></span>
+          </p>
+          <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{verdict.outside_line}</p>
+        </div>
       ) : null}
 
       <details className="mt-3 text-[12px] leading-4 text-muted-foreground">
         <summary className="cursor-pointer text-foreground/80">Como o Nino mede isso</summary>
         <ul className="mt-2 space-y-1.5">
-          <li>Antes é a média que você tinha antes do primeiro mês de meta de cada categoria.</li>
-          <li>Agora é o gasto médio dos meses fechados com meta. Meses importados só contam depois que você confirma.</li>
+          <li>Antes é o gasto médio que você tinha antes do primeiro mês de meta de cada categoria (a média dos 3 meses anteriores, ou o valor guardado quando a meta foi criada).</li>
+          <li>Agora é o gasto médio dos meses fechados com meta, a partir do primeiro mês de meta registrado no histórico.</li>
+          <li>Com meta × sem meta: a mesma conta nas categorias de consumo livre sem meta, na mesma janela. Moradia, dívidas, dízimo, saúde e contas da casa ficam de fora.</li>
           <li>Funcionou: o gasto caiu 10% ou mais frente ao antes. Sem efeito claro: variou menos que isso.</li>
           <li>Evitado é antes menos agora, somando todas as metas, inclusive as que não mexeram. É o mesmo número em toda a tela.</li>
           <li>Confiança pelo número de meses fechados: 1 é indício, 2 é razoável, 3 ou mais é firme.</li>

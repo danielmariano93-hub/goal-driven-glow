@@ -46,7 +46,10 @@ describe("veredito: ter meta está fazendo sentido?", () => {
     // Serviços e Mercado subiram desde as metas
     expect(v.outside_goals).not.toBeNull();
     expect(v.outside_goals!.change_pct).toBeGreaterThan(0.03);
-    expect(v.outside_line).toMatch(/^Fora das metas, o seu gasto subiu \d+% \(R\$.* por mês\)\. Sem meta, sem freio/);
+    expect(v.comparison).not.toBeNull();
+    expect(v.comparison!.outside_pct).toBeGreaterThan(0.03);
+    expect(v.comparison!.reading).toBe("melhor"); // com meta caiu; sem meta subiu
+    expect(v.outside_line).toMatch(/^Onde há meta o gasto evoluiu melhor do que onde não há \(−\d+% contra \+\d+%\)/);
   });
   it("números do caso real", () => {
     expect(v.helped).toBe(3);
@@ -183,6 +186,36 @@ describe("início da meta vem do histórico de ciclos (automático, sem confirma
     expect(goalStartMonth({ created_at: "2026-09-01T01:30:00+00:00", period_type: "this_month" })).toBe("2026-08"); // 31/08 22:30 em SP
     expect(goalStartMonth({ created_at: "2026-09-30T15:54:53+00:00", period_type: "next_month" })).toBe("2026-10");
     expect(goalStartMonth({ created_at: null, period_type: "this_month" })).toBeNull();
+  });
+});
+
+describe("com meta × sem meta: quem evoluiu melhor", () => {
+  const T0 = (outside: Record<string, number>) => [
+    ...monthly(T, { "2026-06": 1000, "2026-07": 1000, "2026-08": 1000, "2026-09": 800, "2026-10": 800 }),
+    ...monthly(V, outside, "JIM"),
+  ];
+  const g = [goal("gt", T, "2026-08-01", 1000)];
+  const run = (outside: Record<string, number>) => hist(g, T0(outside)).verdict!;
+  it("sem meta caiu mais que com meta: a meta não se destaca", () => {
+    const v = run({ "2026-05": 1000, "2026-06": 1000, "2026-07": 1000, "2026-08": 600, "2026-09": 600, "2026-10": 600 });
+    expect(v.comparison!.reading).toBe("pior");
+    expect(v.outside_line).toMatch(/^Onde não há meta o gasto evoluiu melhor/);
+  });
+  it("evolução parecida: o efeito não se destaca do resto", () => {
+    const v = run({ "2026-05": 1000, "2026-06": 1000, "2026-07": 1000, "2026-08": 850, "2026-09": 800, "2026-10": 800 });
+    expect(v.comparison!.reading).toBe("parecido");
+    expect(v.outside_line).toMatch(/^O gasto evoluiu parecido dentro e fora das metas/);
+  });
+  it("sem categorias de comparação, não inventa", () => {
+    expect(hist(g, monthly(T, { "2026-06": 1000, "2026-07": 1000, "2026-08": 1000, "2026-09": 800, "2026-10": 800 })).verdict!.comparison).toBeNull();
+  });
+  it("'desde o início' usa todos os meses fechados com meta (não só os 3 últimos)", () => {
+    const rowsLong = monthly(T, { "2026-01": 1000, "2026-02": 1000, "2026-03": 1000, "2026-04": 500, "2026-05": 500, "2026-06": 500, "2026-07": 500, "2026-08": 500, "2026-09": 500, "2026-10": 500 });
+    const h = hist([goal("gt", T, "2026-04-01", 1000)], rowsLong);
+    expect(h.series[0]!.kpis.change_vs_baseline).toBeCloseTo(-0.5, 2);
+    const rowsMix = monthly(T, { "2026-01": 1000, "2026-02": 1000, "2026-03": 1000, "2026-04": 400, "2026-05": 400, "2026-06": 400, "2026-07": 700, "2026-08": 700, "2026-09": 700, "2026-10": 700 });
+    // média de 7 meses com meta = (3×400 + 4×700)/7 ≈ 571 → −43% (e não −30% dos últimos 3 meses)
+    expect(buildGoalHistory({ today: "2026-11-03", goals: [goal("gt", T, "2026-04-01", 1000)], entries: buildSpendingLedger(rowsMix), categories }).series[0]!.kpis.change_vs_baseline).toBeCloseTo(-0.43, 2);
   });
 });
 

@@ -304,8 +304,8 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     const closed = months.filter((m) => m.status === "met" || m.status === "missed");
     let streak = 0;
     for (let i = closed.length - 1; i >= 0 && closed[i].status === "met"; i -= 1) streak += 1;
-    const recent = closed.slice(-3);
-    const recentAvg = recent.length ? recent.reduce((a, m) => a + m.actual, 0) / recent.length : null;
+    // "Desde o início": todos os meses fechados com meta (mesma conta do veredito).
+    const recentAvg = closed.length ? closed.reduce((a, m) => a + m.actual, 0) / closed.length : null;
     const change = baseline && recentAvg != null ? round2((recentAvg - baseline) / baseline) : null;
     const savings = baseline != null && closed.length ? round2(closed.reduce((a, m) => a + (baseline - m.actual), 0)) : null;
 

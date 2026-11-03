@@ -102,3 +102,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - A referência "antes" congelada vale quando a linha foi criada no primeiro mês de meta (`goalStartMonth`), mesmo com o período renovado depois; senão, média dos 3 meses anteriores.
 - Confiança do veredito = elo mais fraco (menor nº de meses fechados entre as categorias medidas), não a soma categoria × mês.
 - Pendente: data do gasto de compra no cartão ainda é o mês da fatura (`reportingCompetenceDate`); parcelas 2+ de compra antiga já ficam de fora.
+
+## Metas: critério escrito e comparação com × sem meta
+- Painel da meta mostra a referência e o que é "Desde o início" (média de TODOS os meses fechados com meta contra a referência).
+- Veredito: `comparison` (com meta × sem meta, mesma janela, consumo livre) e `outside_line` com leitura "melhor / parecido / pior" (limiar de 10 p.p.). Não prova causa: categorias diferentes.
+- Decisão: NÃO criar indicador "vs mês que motivou a meta" (viés de regressão à média: o mês de pico motiva a meta e qualquer mês seguinte parece melhora). Maio fica fora de qualquer checagem (importação de bases).
