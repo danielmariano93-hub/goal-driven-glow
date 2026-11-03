@@ -9,6 +9,32 @@ import type { ToolContext, ToolResult } from "./tools.ts";
 
 const KINDS = new Set<string>(["credit", "spend", "balance_reading", "adjustment"]);
 
+// Categorias que contam como comida paga do bolso (o Ticket em si fica fora do livro-razão).
+const FOOD_CATEGORY_KEYS = new Set(["restaurante", "restaurantes", "mercado", "supermercado", "delivery", "padaria", "lanche", "lanches", "alimentacao", "ifood"]);
+const foodKey = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+/**
+ * "Vazamento": alimentação paga do bolso no ciclo atual (despesas reais do livro-razão nas categorias de comida,
+ * pela data da compra). O gasto do Ticket nunca está no livro-razão, então nada é contado duas vezes.
+ */
+export async function foodLeakInCycle(ctx: ToolContext, from: string, to: string): Promise<{ amount: number; count: number; categories: string[] } | null> {
+  const cats = await ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`);
+  if (cats.error) return null;
+  const food = new Map(((cats.data ?? []) as Array<Record<string, unknown>>)
+    .filter((c) => FOOD_CATEGORY_KEYS.has(foodKey(c.name))).map((c) => [String(c.id), String(c.name)]));
+  if (!food.size) return { amount: 0, count: 0, categories: [] };
+  const tx = await ctx.sb.from("transactions").select("amount,category_id,occurred_at,movement_kind")
+    .eq("user_id", ctx.user_id).eq("type", "expense").gte("occurred_at", from).lte("occurred_at", to).in("category_id", [...food.keys()]);
+  if (tx.error) return null;
+  const rows = ((tx.data ?? []) as Array<Record<string, unknown>>).filter((r) => (r.movement_kind ?? "transaction") === "transaction");
+  const names = new Set(rows.map((r) => food.get(String(r.category_id))).filter(Boolean) as string[]);
+  return {
+    amount: Math.round(rows.reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100,
+    count: rows.length,
+    categories: [...names].sort(),
+  };
+}
+
 export async function get_benefit_status(ctx: ToolContext, args?: { per_day?: number }): Promise<ToolResult> {
   const today = todaySaoPaulo();
   // Acesso por usuário (mesmo padrão `<feature>_access`): sem liberação o recurso "não existe".
@@ -38,6 +64,7 @@ export async function get_benefit_status(ctx: ToolContext, args?: { per_day?: nu
   const state = computeBenefitState(cfg, entries, today);
   const pattern = weekdayPattern(entries, today);
   const merchants = merchantBreakdown(entries, state.cycle.start, today, 3);
+  const leak = state.balance !== null ? await foodLeakInCycle(ctx, state.cycle.start, today).catch(() => null) : null;
   const perDay = Number(args?.per_day);
   const scenario = state.balance !== null && Number.isFinite(perDay) && perDay > 0 ? { per_day: perDay, ...whatIf(state, perDay) } : null;
   return {
@@ -62,6 +89,7 @@ export async function get_benefit_status(ctx: ToolContext, args?: { per_day?: nu
       weekday_peak: pattern.peak ? { ...pattern.peak, confidence: pattern.confidence, days_observed: pattern.days_observed } : null,
       top_merchants: merchants.map((m) => ({ merchant: m.merchant, total: m.total, share_pct: m.share_pct })),
       scenario,
+      food_outside_ticket: leak,
     },
   };
 }

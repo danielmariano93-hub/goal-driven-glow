@@ -24,6 +24,29 @@ export function detectBenefitPayment(text: string): boolean {
   return !single.includes("\n") && PAYMENT_PHRASE_RX.test(single);
 }
 
+export type BenefitMessageKind = "spend" | "credit" | "reading";
+
+const AMOUNT = String.raw`(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)`;
+const BEN = BENEFIT_WORD;
+const CREDIT_RX = new RegExp(String.raw`\b(?:caiu|entrou|creditou|recebi|cai(?:u|ram))\b[^\n]*\b${BEN}\b|\b${BEN}\b[^\n]*\b(?:caiu|entrou|creditou)\b`, "i");
+const READING_RX = new RegExp(String.raw`^\s*(?:(?:meu\s+)?saldo\s+(?:do\s+|de\s+)?)?(?:o\s+|meu\s+)?${BEN}\s*(?:[:\-]|est[aá]\s+(?:com|em)|tem|[eé]|ta\s+com|t[aá]\s+com)?\s*${AMOUNT}\s*(?:reais)?\s*$|^\s*(?:meu\s+)?saldo\s+(?:do\s+|de\s+)?${BEN}\s*(?:[:\-]|est[aá]\s+(?:em|com)|[eé])?\s*${AMOUNT}\s*$`, "i");
+const QUESTION_RX = /\?|\b(?:se\s+eu|quanto|qual|quando|ser[aá]|simul|e\s+se)\b/i;
+
+/**
+ * Texto livre (sem `!ja`) sobre o Ticket: gasto, crédito ou saldo. Só responde quando o Ticket está
+ * dito de forma inequívoca e há valor; pergunta ou hipótese ("e se eu gastar 40 no ticket?") nunca registra.
+ */
+export function classifyBenefitMessage(text: string): BenefitMessageKind | null {
+  const t = String(text ?? "").trim();
+  if (!t || QUESTION_RX.test(t)) return null;
+  if (!extractSpans(t).amount) return null;
+  if (!new RegExp(String.raw`\b${BEN}\b`, "i").test(t)) return null;
+  if (READING_RX.test(t)) return "reading";
+  if (CREDIT_RX.test(t)) return "credit";
+  if (detectBenefitPayment(t)) return "spend";
+  return null;
+}
+
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
@@ -36,7 +59,8 @@ function merchantOf(text: string): string | null {
 
 export type BenefitFastLogResult = { reply: string; reply_kind: "receipt" | "question" | "info"; recorded: boolean };
 
-export async function recordBenefitFastLog(sb: SupabaseClient, input: { user_id: string; cleanText: string }): Promise<BenefitFastLogResult> {
+export async function recordBenefitFastLog(sb: SupabaseClient, input: { user_id: string; cleanText: string; kind?: BenefitMessageKind }): Promise<BenefitFastLogResult> {
+  const entryKind = input.kind ?? "spend";
   const info = (reply: string): BenefitFastLogResult => ({ reply, reply_kind: "info", recorded: false });
   const spans = extractSpans(input.cleanText);
   const amount = spans.amount;
@@ -51,13 +75,13 @@ export async function recordBenefitFastLog(sb: SupabaseClient, input: { user_id:
   if (!w) return info("Você ainda não cadastrou o Ticket Alimentação. Abra Mais → Ticket Alimentação, cadastre e eu registro esse gasto depois.");
 
   const today = todaySaoPaulo();
-  const day = spans.occurred_at ?? today;
+  const day = entryKind === "spend" ? (spans.occurred_at ?? today) : today;
   const hour = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(input.cleanText);
-  const note = hour ? `${hour[1].padStart(2, "0")}:${hour[2]}` : null;
-  const merchant = merchantOf(input.cleanText);
+  const note = entryKind === "spend" && hour ? `${hour[1].padStart(2, "0")}:${hour[2]}` : null;
+  const merchant = entryKind === "spend" ? merchantOf(input.cleanText) : null;
 
   // Mesma mensagem duas vezes (mesmo valor, dia, estabelecimento e horário) não conta duas vezes.
-  let dup = sb.from("benefit_entries").select("id").eq("wallet_id", w.id).eq("kind", "spend")
+  let dup = sb.from("benefit_entries").select("id").eq("wallet_id", w.id).eq("kind", entryKind === "reading" ? "balance_reading" : entryKind)
     .eq("amount", amount).eq("occurred_on", day);
   dup = merchant ? dup.eq("merchant", merchant) : dup.is("merchant", null);
   dup = note ? dup.eq("note", note) : dup.is("note", null);
@@ -65,7 +89,7 @@ export async function recordBenefitFastLog(sb: SupabaseClient, input: { user_id:
   const duplicated = !dupRes.error && (dupRes.data ?? []).length > 0;
   if (!duplicated) {
     const ins = await sb.from("benefit_entries").insert({
-      wallet_id: w.id, user_id: input.user_id, kind: "spend", amount, occurred_on: day, merchant, note, source: "whatsapp",
+      wallet_id: w.id, user_id: input.user_id, kind: entryKind === "reading" ? "balance_reading" : entryKind, amount, occurred_on: day, merchant, note, source: "whatsapp",
     });
     if (ins.error) return info("Não consegui registrar o gasto no Ticket agora. Tente de novo em instantes.");
   }
@@ -78,10 +102,17 @@ export async function recordBenefitFastLog(sb: SupabaseClient, input: { user_id:
   }));
   const state = computeBenefitState({ monthly_credit: Number(w.monthly_credit), credit_day: Number(w.credit_day), carries_over: w.carries_over === true }, entries, today);
 
-  const head = duplicated ? "Esse gasto no Ticket já estava registrado:" : "Registrei no seu Ticket:";
-  const lines = [`${head} *${brl(amount)}*${merchant ? ` em ${merchant}` : ""} (${dm(day)}).`];
+  const lines: string[] = [];
+  if (entryKind === "spend") {
+    const head = duplicated ? "Esse gasto no Ticket já estava registrado:" : "Registrei no seu Ticket:";
+    lines.push(`${head} *${brl(amount)}*${merchant ? ` em ${merchant}` : ""} (${dm(day)}).`);
+  } else if (entryKind === "credit") {
+    lines.push(`${duplicated ? "Esse crédito do Ticket já estava registrado:" : "Registrei o crédito do Ticket:"} *${brl(amount)}* (${dm(day)}).`);
+  } else {
+    lines.push(`${duplicated ? "Esse saldo do Ticket já estava registrado:" : "Atualizei o saldo do seu Ticket:"} *${brl(amount)}* (${dm(day)}).`);
+  }
   if (state.balance !== null) {
-    lines.push(`Saldo do Ticket: *${brl(state.balance)}*${state.estimated ? " (estimado)" : ""}.`);
+    if (entryKind !== "reading") lines.push(`Saldo do Ticket: *${brl(state.balance)}*${state.estimated ? " (estimado)" : ""}.`);
     const p = state.projection;
     if (p && p.status !== "unknown") {
       lines.push(p.depletion_date

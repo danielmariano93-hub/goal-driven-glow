@@ -157,6 +157,8 @@ function formatBenefitStatus(result: any): string | null {
   }
   const peak = result.weekday_peak;
   if (peak) lines.push(`O dia que mais pesa é *${peak.label}*: ${Number(peak.share_pct)}% do gasto, média de ${BRL.format(Number(peak.avg_per_occurrence))}${peak.confidence === "low" ? ` (primeira leitura, com ${Number(peak.days_observed)} dias de histórico)` : ""}.`);
+  const leak = result.food_outside_ticket;
+  if (leak && Number(leak.amount) > 0) lines.push(`Fora do Ticket, você gastou *${BRL.format(Number(leak.amount))}* com alimentação neste ciclo (${(leak.categories ?? []).join(", ").toLowerCase()}).`);
   if (result.inconsistent) lines.push("Os lançamentos passaram do saldo lido; vale conferir a leitura do app do ticket.");
   return lines.join("\n");
 }

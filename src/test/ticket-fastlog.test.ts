@@ -86,3 +86,27 @@ describe("recordBenefitFastLog", () => {
     expect(inserted).toHaveLength(0);
   });
 });
+
+import { classifyBenefitMessage } from "../../supabase/functions/_shared/agent/benefitFastLog";
+
+describe("classifyBenefitMessage — texto livre sobre o Ticket (sem !ja)", () => {
+  it("gasto, crédito e saldo", () => {
+    expect(classifyBenefitMessage("gastei 45 no mercado com o ticket")).toBe("spend");
+    expect(classifyBenefitMessage("paguei 32,90 no almoço no ticket")).toBe("spend");
+    expect(classifyBenefitMessage("caiu o ticket 900")).toBe("credit");
+    expect(classifyBenefitMessage("entrou 1.227,16 de ticket")).toBe("credit");
+    expect(classifyBenefitMessage("ticket 412,40")).toBe("reading");
+    expect(classifyBenefitMessage("saldo do ticket 412,40")).toBe("reading");
+    expect(classifyBenefitMessage("meu ticket está com 412,40")).toBe("reading");
+  });
+  it("pergunta, hipótese e conversa nunca registram", () => {
+    for (const t of ["quanto tenho de ticket?", "e se eu gastar 40 no ticket?", "se eu gastar 40 no ticket até quando dura", "qual o saldo do ticket", "ticket médio de 45"]) {
+      expect(classifyBenefitMessage(t), t).toBeNull();
+    }
+  });
+  it("sem Ticket, ou sem valor, não é do Ticket", () => {
+    expect(classifyBenefitMessage("gastei 45 no mercado")).toBeNull();
+    expect(classifyBenefitMessage("gastei no mercado com o ticket")).toBeNull();
+    expect(classifyBenefitMessage("gastei 40 no Ticket Cinema")).toBeNull();
+  });
+});

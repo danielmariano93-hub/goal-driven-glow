@@ -13,6 +13,7 @@ import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
 import { ResumoPeriodoCard } from "@/components/home/ResumoPeriodoCard";
 import { HeatmapSemanalCard } from "@/components/home/HeatmapSemanalCard";
+import { HomeTicketCard } from "@/components/home/HomeTicketCard";
 import { useCategoryWeekdayHeatmap } from "@/lib/hooks/useCategoryWeekdayHeatmap";
 
 import { formatPeriodLabel, getPeriod, resolvePeriodRange, setPeriod as savePeriod, type PeriodKind as Period } from "@/lib/ui/periodStore";
@@ -121,6 +122,8 @@ export default function Index() {
         error={availability.rhythm === "unavailable" ? snapshotError : null}
         onRetry={() => void snapshot.refetchCritical()}
       />
+
+      <HomeTicketCard />
 
       <HeatmapSemanalCard data={heatmap.data} loading={heatmap.isLoading} />
 

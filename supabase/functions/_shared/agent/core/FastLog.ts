@@ -83,14 +83,14 @@ export type FastLogOutcome = {
 /** Executa o fluxo direto: rascunho → confirmação, em uma única passada. */
 export async function runFastLog(
   sb: SupabaseClient,
-  input: { user_id: string; conversation_id: string; cleanText: string },
+  input: { user_id: string; conversation_id: string; cleanText: string; benefitKind?: "spend" | "credit" | "reading" },
 ): Promise<FastLogOutcome> {
   const ctx: ToolContext = {
     sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.cleanText,
   };
   // Ticket Alimentação: carteira separada, nunca vira lançamento de conta.
-  if (detectBenefitPayment(input.cleanText)) {
-    const out = await recordBenefitFastLog(sb, { user_id: input.user_id, cleanText: input.cleanText });
+  if (input.benefitKind || detectBenefitPayment(input.cleanText)) {
+    const out = await recordBenefitFastLog(sb, { user_id: input.user_id, cleanText: input.cleanText, kind: input.benefitKind });
     return { handled: true, reply: out.reply, reply_kind: out.reply_kind, tool_calls: [] };
   }
   const spans = extractSpans(input.cleanText);
