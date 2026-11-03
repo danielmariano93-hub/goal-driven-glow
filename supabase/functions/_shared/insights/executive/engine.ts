@@ -33,8 +33,10 @@ export type LedgerEntry = {
   category: string;
   merchant_key: string | null;
   merchant: string | null;
-  /** Dia em que o gasto aparece nos gráficos diários/semanais (data da compra); totais seguem `date`. */
+  /** Dia da compra no cartão (gráficos diários/semanais); totais seguem `date` (fatura). */
   chart_date?: string | null;
+  /** Parcela 2+ de compra de mês anterior: entra no total (fatura), mas não foi gasto de nenhum dia do período. */
+  chart_carried?: boolean;
 };
 
 /** Parcela paga antes do vencimento do cronograma (`installment_anticipation.v1`). */

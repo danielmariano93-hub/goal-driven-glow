@@ -21,8 +21,13 @@ export interface DashEntry {
   category: string;
   merchant_key: string | null;
   merchant: string | null;
-  /** Dia no gráfico diário/semanal (data da compra no cartão). Totais seguem `date`. */
+  /** Dia da compra no cartão (gráfico diário/semanal). Totais seguem `date` (fatura). */
   chart_date?: string | null;
+  /**
+   * Parcela 2+ de compra de mês anterior: entra no total (fatura), mas não foi gasto de nenhum dia do período —
+   * não vira barra do gráfico diário/semanal.
+   */
+  chart_carried?: boolean;
 }
 
 export type CompareMode = "previous" | "year" | "none";
@@ -157,6 +162,15 @@ export interface ReportDashboard {
   previousTotals: Totals | null;
   deltas: { income: Delta; expense: Delta; net: Delta; dailyAvg: Delta; savingsRatePoints: number | null } | null;
   series: SeriesPoint[];
+  /**
+   * Barras (dia da compra) × total (fatura): o que está no total e não nas barras (parcelas e compras de faturas anteriores)
+   * e o que está nas barras e ainda não no total (compras do período que só entram na fatura seguinte).
+   */
+  barsGap: {
+    notInBars: { amount: number; count: number };
+    notInTotal: { amount: number; count: number };
+    previous: { notInBars: number; notInTotal: number } | null;
+  } | null;
   categories: DashCategoryRow[];
   change: {
     previousTotal: number;
@@ -400,17 +414,42 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   // Série. Gráfico diário/semanal mostra QUANDO você gastou (data da compra no cartão);
   // o total do período continua por competência. Cada lançamento entra no período pela
   // competência e só muda de dia dentro dele (nunca sai do período).
-  const chartEntries = (r: DashRange): DashEntry[] => scoped
-    .filter((e) => inRange(e, r))
-    .map((e) => {
-      if (granularity === "month" || !e.chart_date) return e;
-      const day = e.chart_date < r.start ? r.start : e.chart_date > r.end ? r.end : e.chart_date;
-      return { ...e, date: day };
-    });
+  // `report_evolution.v3`: o gráfico diário/semanal responde "quanto gastei neste dia". Cartão = dia da compra;
+  // parcela 2+ de compra antiga não foi gasto de dia nenhum daqui. Já o total do período segue a fatura (competência),
+  // então as duas contas podem diferir — e a diferença é declarada (`barsGap`), nunca escondida num dia qualquer.
+  const dayLevel = granularity !== "month";
+  const chartDayOf = (e: DashEntry): string | null => (e.kind !== "expense" ? e.date : e.chart_carried ? null : (e.chart_date ?? e.date));
+  const chartEntries = (r: DashRange): DashEntry[] => {
+    if (!dayLevel) return scoped.filter((e) => inRange(e, r));
+    const out: DashEntry[] = [];
+    for (const e of scoped) {
+      const day = chartDayOf(e);
+      if (day != null && day >= r.start && day <= r.end) out.push({ ...e, date: day });
+    }
+    return out;
+  };
   const buckets = bucketsOf(period, granularity);
   const prevBuckets = previous ? bucketsOf(previous, granularity) : [];
   const curChart = chartEntries(period);
   const prevChart = previous ? chartEntries(previous) : [];
+  const gapOf = (r: DashRange) => {
+    const notInBars = { amount: 0, count: 0 };
+    const notInTotal = { amount: 0, count: 0 };
+    for (const e of scoped) {
+      if (e.kind !== "expense" || !(e.amount > 0)) continue;
+      const day = chartDayOf(e);
+      const inBars = day != null && day >= r.start && day <= r.end;
+      const inTotal = inRange(e, r);
+      if (inTotal && !inBars) { notInBars.amount += e.amount; notInBars.count += 1; }
+      else if (!inTotal && inBars) { notInTotal.amount += e.amount; notInTotal.count += 1; }
+    }
+    return { notInBars: { amount: round2(notInBars.amount), count: notInBars.count }, notInTotal: { amount: round2(notInTotal.amount), count: notInTotal.count } };
+  };
+  const gapNow = dayLevel ? gapOf(period) : null;
+  const gapPrev = dayLevel && previous ? gapOf(previous) : null;
+  const barsGap = gapNow && (gapNow.notInBars.count > 0 || gapNow.notInTotal.count > 0)
+    ? { ...gapNow, previous: gapPrev ? { notInBars: gapPrev.notInBars.amount, notInTotal: gapPrev.notInTotal.amount } : null }
+    : null;
   const series: SeriesPoint[] = buckets.map((b, i) => {
     const t = totalsOf(curChart, { start: b.from, end: b.to, days: 1 }, 1);
     const pb = prevBuckets[i];
@@ -545,7 +584,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   return {
     version: REPORT_DASHBOARD_VERSION,
     request: req, period, previous, granularity, filtered,
-    totals, previousTotals, deltas, series, categories, change, habits, trend, verdict, highlights, projection,
+    totals, previousTotals, deltas, series, barsGap, categories, change, habits, trend, verdict, highlights, projection,
     filterOptions: { categories: [...optionTotals.values()].filter((o) => o.total > 0).map((o) => ({ ...o, total: round2(o.total) })).sort((a, b) => b.total - a.total) },
     coverage: {
       firstDate: first, monthsOfHistory,

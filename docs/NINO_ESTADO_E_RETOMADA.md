@@ -120,3 +120,9 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Todos os indicadores leem `movement_kind = 'transaction'` (um só ponto: `isRealMonthlyMovement` / `is_behavioral_consumption`); promovido entra em Home, metas, relatórios, ritmo, causas e agente sem mudança de código. Único consumidor explícito de transferência externa: `anticipation/facts.ts` (continua correto). Caixa não muda (a saída de caixa já contava todo Pix).
 - Dados antigos: só o dono foi ajustado (8 Pix: Lazer R$ 614, Transporte R$ 26). Linhas antigas de outros usuários NÃO foram tocadas.
 - Pix sem categoria segue neutro e aparece em "Pix a classificar" (`CounterpartyCategorizer`, grupos com ≥ 2 lançamentos do mesmo favorecido).
+
+## Gráfico "Evolução · quanto saiu": cada barra é o que foi gasto naquele dia (report_evolution.v3)
+- Propósito (decisão do dono): o gráfico diário/semanal mostra QUANDO você gastou. Cartão = dia da compra (nunca fechamento/vencimento); parcela 2+ de compra antiga (`buildCarriedInstallmentIds`, `chart_carried`) não é gasto de dia nenhum do período e fica fora das barras. O total do período segue a fatura (competência).
+- Causa do pico falso (03/11: R$ 1.183,82; "antes" 03/10: R$ 5.556,08): lançamentos de cartão de outro mês eram postos no dia de fechamento (24), que está no futuro, e depois empurrados para o último dia do período ("hoje").
+- Como as duas contas diferem, a diferença é declarada em `ReportDashboard.barsGap` e na nota sob o gráfico: `notInBars` (no total, não nas barras: parcelas e compras de faturas anteriores) e `notInTotal` (nas barras, ainda não no total: compras do período que só entram na fatura seguinte, ex.: compra de 27/10 que vai para a fatura de novembro aparece em OUTUBRO). Barras + notInBars − notInTotal = total.
+- Não mudou: total do período, categorias, projeção (por competência). Granularidade mensal: igual.
