@@ -118,7 +118,7 @@ const COMPARISON_BASELINE_SET = new Set<string>(COMPARISON_BASELINES);
 const FILTER_FIELDS = new Set(["category", "merchant", "card", "account", "payment_method"]);
 
 const POINT_IN_TIME_METRICS = new Set<string>([
-  "balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health",
+  "balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health", "benefit_balance",
 ]);
 
 /** Aspecto + redução implícitos numa operação v1/v2. */

@@ -99,6 +99,9 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   // --- Cartões (compromissos futuros) ---
   { key: "cards.future_installments", label: "Parcelas futuras", domain: "cards", tool: "get_future_installments", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar as parcelas que ainda vão cair" },
 
+  // --- Ticket Alimentação (benefício separado) ---
+  { key: "benefit.status", label: "Ticket Alimentação", domain: "ledger", tool: "get_benefit_status", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar o saldo do Ticket Alimentação e quando ele acaba" },
+
   // --- Recorrências e agenda ---
   { key: "recurring.list", label: "Recorrências ativas", domain: "recurring", tool: "list_recurring_rules", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "listar suas recorrências ativas" },
   { key: "agenda.commitments", label: "Agenda de compromissos", domain: "recurring", tool: "get_commitments_agenda", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar os compromissos que vencem em seguida" },

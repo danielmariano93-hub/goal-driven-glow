@@ -22,6 +22,7 @@ import {
 import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { COMPETENCE_WINDOW_PADDING_DAYS, loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
 import { shift, today } from "../finance-core/ninoClock.ts";
+import { get_benefit_status } from "./benefitTools.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import { computeNextBestAction } from "./behaviorWealth.ts";
@@ -3988,6 +3989,12 @@ export const AGENT_TOOLS: ToolSpec[] = [
       additionalProperties: false,
     },
     execute: get_future_installments,
+  },
+  {
+    name: "get_benefit_status",
+    description: "Ticket Alimentação (benefício separado das contas): saldo, quando acaba, quanto dá para gastar por dia e dia que mais pesa. Use para 'quanto tenho de ticket', 'o ticket dá até o próximo crédito', 'e se eu gastar R$ X por dia'. Nunca use para saldo de conta.",
+    parameters: { type: "object", properties: { per_day: { type: "number", minimum: 0 } }, additionalProperties: false },
+    execute: get_benefit_status,
   },
   {
     name: "list_recurring_rules",

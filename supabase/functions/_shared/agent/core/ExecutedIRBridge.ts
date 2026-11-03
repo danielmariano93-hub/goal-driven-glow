@@ -244,7 +244,7 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
  * aplicou (`category_filter.applied`). Filtro pedido e não aplicado continua
  * falhando fechado (`filter_lost`).
  */
-const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health"]);
+const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health", "benefit_balance"]);
 
 function fromStateEngine(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
   const isForecast = requested.time?.aspect === "projection" && result != null && typeof result === "object"

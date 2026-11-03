@@ -350,6 +350,9 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
   if (q.metric === "financial_health") {
     return { tool: "assess_financial_health", capability: "holistic_assessment", execution: "deterministic", args: {} };
   }
+  if (q.metric === "benefit_balance") {
+    return { tool: "get_benefit_status", capability: "financial_snapshot", execution: "deterministic", args: {} };
+  }
   return null;
 }
 
@@ -453,6 +456,7 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "balance + breakdown group card|account (cadastro: 'quais cartões/contas eu tenho?')",
   "balance + forecast (projeção de caixa: saldo de hoje, entradas e compromissos dia a dia; 'por que o caixa fica negativo?')",
   "financial_health + value|sum|trend|compare|explain (veredito holístico: 'estou melhorando ou piorando?')",
+  "benefit_balance + value|sum (Ticket Alimentação: saldo do benefício, quando acaba, quanto posso gastar por dia)",
 ];
 
 export function executableOntologyText(): string {

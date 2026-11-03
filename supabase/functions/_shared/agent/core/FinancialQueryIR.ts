@@ -10,6 +10,7 @@ export const FINANCIAL_METRICS = [
   "goal_progress",
   "future_installments",
   "financial_health",
+  "benefit_balance",
 ] as const;
 export type FinancialMetric = typeof FINANCIAL_METRICS[number];
 
