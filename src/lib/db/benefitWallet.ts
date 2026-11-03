@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import type { BenefitEntry, BenefitKind, BenefitWalletConfig } from "@/lib/engine/benefitWallet";
+import type { BenefitStatementItem } from "@/lib/engine/benefitStatement";
 
 // Ticket Alimentação (contexto separado do livro-razão). As tabelas ainda não estão nos tipos gerados do Supabase.
 type Row = Record<string, unknown>;
@@ -9,7 +10,7 @@ type Result<T = unknown> = PromiseLike<{ data: T; error: unknown }>;
 // Construtor de consulta mínimo (só o que este arquivo usa).
 type Query = Result<Row[]> & {
   select: (columns: string) => Query & { maybeSingle: () => Result<Row | null>; single: () => Result<Row> };
-  insert: (values: Row) => Result<null> & { select: (columns: string) => { single: () => Result<Row> } };
+  insert: (values: Row | Row[]) => Result<null> & { select: (columns: string) => { single: () => Result<Row> } };
   delete: () => { eq: (column: string, value: string) => Result<null> };
   eq: (column: string, value: unknown) => Query & { maybeSingle: () => Result<Row | null> };
   order: (column: string, opts: { ascending: boolean }) => Query;
@@ -130,6 +131,37 @@ export function useDeleteBenefitEntry(walletId?: string) {
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await db.from("benefit_entries").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.entries(walletId) }),
+  });
+}
+
+export type StatementRead = { recognized: boolean; items: BenefitStatementItem[]; discarded: number };
+
+/** Envia o print para a leitura (só transcreve; não grava nada). */
+export function useReadBenefitStatement() {
+  return useMutation({
+    mutationFn: async (image: string): Promise<StatementRead> => {
+      const { data, error } = await supabase.functions.invoke("benefit-statement-read", { body: { image } });
+      if (error || !data?.ok) throw new Error(error?.message ?? "read_failed");
+      return { recognized: data.recognized === true, items: data.items as BenefitStatementItem[], discarded: Number(data.discarded ?? 0) };
+    },
+  });
+}
+
+/** Grava as linhas que a pessoa confirmou (origem: documento). */
+export function useImportBenefitEntries(walletId?: string) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (items: BenefitStatementItem[]) => {
+      if (!user || !walletId) throw new Error("Sessão expirada");
+      const rows = items.map((it) => ({
+        wallet_id: walletId, user_id: user.id, kind: it.kind, amount: it.amount, occurred_on: it.occurred_on,
+        merchant: it.merchant, note: it.time, source: "document",
+      }));
+      const { error } = await db.from("benefit_entries").insert(rows);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.entries(walletId) }),
