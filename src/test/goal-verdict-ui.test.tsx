@@ -74,21 +74,19 @@ describe("onde ainda não há meta", () => {
   });
 });
 
-describe("placar com meses importados", () => {
-  it("'?' é clicável e abre a confirmação; 'vs antes' vem da mesma conta do resultado", () => {
-    const onConfirm = vi.fn();
+describe("placar: histórico de ciclos", () => {
+  it("sem '?' (ciclos do histórico contam sozinhos) e 'vs antes' vem da mesma conta do resultado", () => {
     const h = buildGoalHistory({
       today: "2026-11-03",
-      goals: [{ id: "g", category_id: T, computed_limit: 1800, baseline_value: 2000, status: "active", period_type: "monthly_recurring", start_date: "2026-09-01", end_date: null }],
+      goals: [{ id: "g", category_id: T, computed_limit: 1800, baseline_value: 2000, status: "active", period_type: "monthly_recurring", start_date: "2026-09-01", end_date: null, created_at: "2026-09-01T10:00:00+00:00" }],
       cycles: [{ id: "cycle:c1", cycle_id: "c1", category_id: T, computed_limit: 900, baseline_value: null, start_date: "2026-08-01", end_date: "2026-08-31", period_type: "custom", status: "active", imported: true, confirmed: null }] as never,
       entries: buildSpendingLedger([...monthly(T, { "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 1500, "2026-10": 1500 })]),
       categories: [{ id: T, name: "Transporte" }],
     });
     const effects = Object.fromEntries(h.verdict!.by_category.map((c) => [c.category_id, { change_pct: c.change_pct, status: c.status }]));
-    render(<GoalScoreboard history={h} effects={effects} onConfirm={onConfirm} />);
+    render(<GoalScoreboard history={h} effects={effects} />);
     expect(screen.getByText("vs antes")).toBeTruthy();
-    expect(screen.getByText("−25%")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /agosto: histórico importado/ }));
-    expect(onConfirm).toHaveBeenCalledWith(expect.objectContaining({ category_id: T }), expect.objectContaining({ status: "unconfirmed", cycle_id: "c1" }));
+    expect(screen.getByText("−17%")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /histórico importado/ })).toBeNull(); // agosto (ciclo guardado) conta sozinho
   });
 });
