@@ -198,6 +198,20 @@ function goalForMonth(goals: HistoryGoalRow[], month: string, current: string): 
   })[0];
 }
 
+/**
+ * Primeiro mês em que a meta VALE, lido do registro de criação (sem confirmação manual):
+ * mês de `created_at` (fuso de São Paulo); meta criada "para o mês seguinte" só vale a partir dele.
+ */
+export function goalStartMonth(g: Pick<HistoryGoalRow, "created_at" | "period_type">): string | null {
+  if (!g.created_at) return null;
+  const raw = String(g.created_at);
+  const d = new Date(raw.length <= 10 ? `${raw}T12:00:00-03:00` : raw);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).formatToParts(d);
+  const ym = `${parts.find((x) => x.type === "year")?.value}-${parts.find((x) => x.type === "month")?.value}`;
+  return g.period_type === "next_month" ? shiftMonth(ym, 1) : ym;
+}
+
 function pct(ratio: number): string {
   return `${Math.round(Math.abs(ratio) * 100)}%`;
 }
@@ -206,15 +220,27 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
   const current = input.today.slice(0, 7);
   const monthsBefore = input.monthsBefore ?? 3;
   const names = new Map(input.categories.map((c) => [c.id, c.name]));
-  // Meses importados em lote (sem meta por trás) só contam depois que o usuário confirma; "não tinha" some dos cálculos.
+  // Regra automática: a meta conta a partir do mês em que foi criada (registro do banco). Meses reconstruídos
+  // (importados em lote) ANTES disso não tinham meta e ficam fora; depois disso entram sem pedir confirmação.
+  // Só "não tinha" marcado pela própria pessoa (confirmed=false) fica de fora.
+  const startFloor = new Map<string, string>();
+  for (const g of input.goals) {
+    const m = goalStartMonth(g);
+    if (!m) continue;
+    const cur = startFloor.get(g.category_id);
+    if (!cur || m < cur) startFloor.set(g.category_id, m);
+  }
   const allCycles = input.cycles ?? [];
-  const isUnconfirmed = (c: HistoryGoalRow) => c.imported === true && c.confirmed == null;
   const isRejected = (c: HistoryGoalRow) => c.confirmed === false;
-  const unconfirmedCycles = allCycles.filter(isUnconfirmed);
   const goals = [
     ...input.goals.map((g) => ({ ...g, source: "goal" as const })),
-    ...allCycles.filter((c) => !isUnconfirmed(c) && !isRejected(c)).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
-  ].filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0);
+    ...allCycles.filter((c) => !isRejected(c)).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
+  ]
+    .filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0)
+    .filter((g) => {
+      const floor = startFloor.get(g.category_id);
+      return !floor || g.start_date.slice(0, 7) >= floor;
+    });
 
   // Gasto e maior estabelecimento por categoria e mês.
   const spend = new Map<string, number>();
@@ -278,7 +304,7 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     const frozenCandidate = [...list]
       .filter((g) => g.baseline_value != null && Number(g.baseline_value) > 0)
       .sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
-    const frozen = frozenCandidate && frozenCandidate.start_date.slice(0, 7) === firstMonth ? frozenCandidate : undefined;
+    const frozen = frozenCandidate && (frozenCandidate.start_date.slice(0, 7) === firstMonth || goalStartMonth(frozenCandidate) === firstMonth) ? frozenCandidate : undefined;
     const beforeValues = months.filter((m) => m.status === "before" && m.actual > 0).map((m) => m.actual);
     const frozenFallback = !frozen && frozenCandidate && !beforeValues.length ? frozenCandidate : undefined;
     const baseline = frozen || frozenFallback
@@ -287,16 +313,6 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
         ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length)
         : null;
 
-    // Mês importado ainda sem confirmação: aparece como "?" no placar e fica fora dos totais.
-    for (const c of unconfirmedCycles.filter((x) => x.category_id === categoryId)) {
-      const ym = c.start_date.slice(0, 7);
-      const idx = months.findIndex((m) => m.month === ym);
-      if (idx >= 0 && (months[idx].status === "before" || months[idx].status === "no_goal")) {
-        months[idx] = { ...months[idx], status: "unconfirmed", limit: round2(Number(c.computed_limit)), cycle_id: c.cycle_id ?? null };
-      } else if (idx < 0 && ym < firstMonth) {
-        months.unshift({ month: ym, status: "unconfirmed", goal_id: null, cycle_id: c.cycle_id ?? null, source: null, limit: round2(Number(c.computed_limit)), actual: actualOf(categoryId, ym), projected: null, difference: null, main_driver: driverOf(categoryId, ym) });
-      }
-    }
     months.sort((a, b) => a.month.localeCompare(b.month));
 
     const closed = months.filter((m) => m.status === "met" || m.status === "missed");

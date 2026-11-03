@@ -183,7 +183,9 @@ export function buildGoalVerdict(args: {
   else if (netPct < -0.03) verdict = "parcial";
   else verdict = "nao";
 
-  let confidence: GoalConfidence = months >= 8 && measured.length >= 3 ? "alta" : months >= 4 ? "media" : "baixa";
+  // A confiança é do elo mais fraco: de nada adianta "3 meses" se duas das metas têm só 1 mês fechado.
+  const minClosed = Math.min(...measured.map((e) => e.closed_months));
+  let confidence: GoalConfidence = minClosed >= 3 && measured.length >= 3 ? "alta" : minClosed >= 2 ? "media" : "baixa";
 
   // O resultado depende de uma categoria só?
   const top = measured[0];
@@ -195,7 +197,10 @@ export function buildGoalVerdict(args: {
     caveats.push(`Seus gastos fora das metas também caíram ${pct(outside.change_pct)} no mesmo período: parte da queda pode não ser da meta.`);
     confidence = downgrade(confidence);
   }
-  if (months < 4) caveats.push("Poucos meses de meta ainda: leia como indício, não como certeza.");
+  const thin = measured.filter((e) => e.closed_months < 3);
+  if (thin.length) {
+    caveats.push(`${thin.map((e) => `${e.category_name} (${e.closed_months} ${e.closed_months === 1 ? "mês" : "meses"})`).join(", ")} ainda com poucos meses de meta: leia como indício, não como certeza.`);
+  }
 
   const confidence_note = confidence === "alta" ? "Base firme: vários meses e várias categorias." : confidence === "media" ? "Base razoável: pode mudar nos próximos meses." : "Base pequena: é um indício, não uma conclusão.";
 

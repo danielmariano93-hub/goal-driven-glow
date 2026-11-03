@@ -96,3 +96,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Skill de design **unslop** (Damir Sokolovsky, CC BY 4.0) incluída em `.claude/skills/unslop/` (só `SKILL.md` e `references/*.md`, com `NOTICE.md`; nenhum script de terceiros). Usada como guia de revisão: auditoria dos sinais, direção e passes (espaço, cor, copy, tipo, detalhes).
 - Tela de Metas: escala 12/14/16/28, pesos 400–600, caixa de frase (sem rótulos em maiúsculas), superfícies neutras (cor só no número-chave e em estados), cartão do resultado em 4 linhas, placar com células de 24px, lista "este mês" compacta (título, barra e uma linha de números; plano e ações em "Detalhes e ações").
 - "12 meses" era a soma categoria × mês. O período agora é o de calendário: "evitado R$ X desde set/2026 (2 meses)" (`since_month`, `calendar_months`).
+
+## Metas: início automático pela criação (goal_start.v1)
+- O primeiro mês de cada categoria é o mês de `created_at` da meta mais antiga (fuso de São Paulo); meta `next_month` vale a partir do mês seguinte. Ciclos reconstruídos (backfill) antes disso não contam; depois, contam sem confirmação. Só `confirmed=false` (pessoa disse "não tinha") fica de fora.
+- Confiança do veredito = elo mais fraco (menor nº de meses fechados entre as categorias medidas), não a soma categoria × mês.
+- Pendente: data do gasto de compra no cartão ainda é o mês da fatura (`reportingCompetenceDate`); parcelas 2+ de compra antiga já ficam de fora.

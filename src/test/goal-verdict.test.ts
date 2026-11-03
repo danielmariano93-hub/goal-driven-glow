@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGoalHistory, type HistoryGoalRow } from "@/lib/engine/goalHistory";
+import { buildGoalHistory, goalStartMonth, type HistoryGoalRow } from "@/lib/engine/goalHistory";
 import { buildSpendingLedger, type SpendingLedgerTx } from "@/lib/engine/spendingGoals";
 
 const T = "c-transp", A = "c-alim", S = "c-assin", L = "c-lazer", V = "c-serv", M = "c-mercado", H = "c-moradia", O = "c-outros";
@@ -64,7 +64,9 @@ describe("veredito: ter meta está fazendo sentido?", () => {
   });
   it("confiança vem do número de meses, não do valor", () => {
     expect(v.closed_goal_months).toBe(6);
-    expect(v.confidence).toBe("media");
+    // a confiança é do elo mais fraco: Assinaturas e Lazer têm só 1 mês fechado
+    expect(v.confidence).toBe("baixa");
+    expect(v.caveats.some((c) => /Assinaturas \(1 mês\).*poucos meses/.test(c))).toBe(true);
     expect(v.by_category.find((c) => c.category_id === S)!.confidence).toBe("baixa"); // 1 mês
     expect(v.by_category.find((c) => c.category_id === A)!.confidence).toBe("media"); // 2 meses
   });
@@ -138,40 +140,57 @@ describe("categorias que merecem uma meta", () => {
   });
 });
 
-describe("meses importados e referência recalculada", () => {
-  // Lazer: meta de setembro apagada/editada (ciclo importado) + meta nova de 30/09 para outubro (referência calculada em jul–set).
+describe("início da meta vem do registro de criação (regra automática)", () => {
+  // Lazer: meta criada em 30/09 "para o mês seguinte" (vale a partir de outubro); o banco tem ciclos reconstruídos de ago/set.
   const lazerRows = monthly(L, { "2026-05": 1000, "2026-06": 1000, "2026-07": 1000, "2026-08": 1000, "2026-09": 1000, "2026-10": 600 });
-  const cycle = (id: string, month: string, confirmed: boolean | null, imported = true) => ({
+  const cycle = (id: string, month: string, confirmed: boolean | null) => ({
     id: `cycle:${id}`, cycle_id: id, category_id: L, computed_limit: 800, baseline_value: null, start_date: `${month}-01`, end_date: `${month}-28`,
-    period_type: "custom", status: "active", imported, confirmed,
+    period_type: "custom", status: "active", imported: true, confirmed,
   });
-  const goalOct = { id: "go", category_id: L, computed_limit: 700, baseline_value: 1500, status: "active", period_type: "this_month", start_date: "2026-10-01", end_date: "2026-10-31", created_at: "2026-09-30" };
-  const run = (cycles: unknown[]) => buildGoalHistory({ today: "2026-11-03", goals: [goalOct], cycles: cycles as never, entries: buildSpendingLedger(lazerRows), categories });
+  const goalNext = { id: "go", category_id: L, computed_limit: 700, baseline_value: 1500, status: "active", period_type: "next_month", start_date: "2026-10-01", end_date: "2026-10-31", created_at: "2026-09-30T18:56:46+00:00" };
+  const run = (g: unknown, cycles: unknown[]) => buildGoalHistory({ today: "2026-11-03", goals: [g] as never, cycles: cycles as never, entries: buildSpendingLedger(lazerRows), categories });
 
-  it("mês importado sem confirmação aparece como '?' e fica fora dos totais", () => {
-    const h = run([cycle("c-ago", "2026-08", null), cycle("c-set", "2026-09", true)]);
-    const s = h.series[0]!;
-    expect(s.months.find((m) => m.month === "2026-08")).toMatchObject({ status: "unconfirmed", cycle_id: "c-ago" });
-    expect(s.months.find((m) => m.month === "2026-09")!.status).toBe("missed"); // 1000 > teto 800, confirmado
-    // só set (confirmado) e out contam: 2 meses fechados
-    expect(s.kpis.closed_months).toBe(2);
-    expect(h.scoreboard.rows[0]!.cells.find((c) => c.month === "2026-08")!.status).toBe("unconfirmed");
+  it("meses reconstruídos ANTES da criação não contam, sem pedir confirmação", () => {
+    const s = run(goalNext, [cycle("c-ago", "2026-08", true), cycle("c-set", "2026-09", null)]).series[0]!;
+    expect(s.first_month).toBe("2026-10");
+    expect(s.kpis.closed_months).toBe(1);
+    expect(s.months.some((m) => m.status === "unconfirmed")).toBe(false);
+    expect(s.baseline).toBe(1500); // referência congelada na criação da primeira meta
   });
-  it("'não tinha' some dos cálculos; 'tinha' entra", () => {
-    const no = run([cycle("c-ago", "2026-08", false), cycle("c-set", "2026-09", true)]).series[0]!;
-    expect(no.months.find((m) => m.month === "2026-08")!.status).not.toBe("unconfirmed");
-    expect(no.kpis.closed_months).toBe(2);
-    const yes = run([cycle("c-ago", "2026-08", true), cycle("c-set", "2026-09", true)]).series[0]!;
-    expect(yes.kpis.closed_months).toBe(3);
-  });
-  it("o 'antes' é recalculado quando a referência guardada nasceu depois do primeiro mês de meta", () => {
-    // 1º mês de meta = set (confirmado); a referência guardada (1.500) é da meta de out, calculada em cima de meses 'durante'.
-    const s = run([cycle("c-set", "2026-09", true)]).series[0]!;
+  it("meta criada 'para este mês' conta o mês de criação; ciclo importado de depois conta sem confirmar", () => {
+    const goalThis = { ...goalNext, period_type: "this_month", start_date: "2026-09-01", end_date: "2026-09-30", created_at: "2026-09-02T12:00:00+00:00" };
+    const s = run(goalThis, [cycle("c-ago", "2026-08", true), cycle("c-out", "2026-10", null)]).series[0]!;
     expect(s.first_month).toBe("2026-09");
-    expect(s.baseline).toBe(1000); // média de jun–ago (3 meses antes de setembro), não 1.500
+    expect(s.months.find((m) => m.month === "2026-10")!.status).toBe("met"); // importado, sem confirmação, conta
+    expect(s.months.find((m) => m.month === "2026-08")!.status).toBe("before");
+  });
+  it("criação perto da meia-noite usa o fuso de São Paulo", () => {
+    expect(goalStartMonth({ created_at: "2026-09-01T01:30:00+00:00", period_type: "this_month" })).toBe("2026-08"); // 31/08 22:30 em SP
+    expect(goalStartMonth({ created_at: "2026-09-30T15:54:53+00:00", period_type: "next_month" })).toBe("2026-10");
+    expect(goalStartMonth({ created_at: null, period_type: "this_month" })).toBeNull();
+  });
+  it("'não tinha' marcado pela pessoa continua fora", () => {
+    const goalOld = { ...goalNext, period_type: "this_month", start_date: "2026-08-01", end_date: "2026-08-31", created_at: "2026-08-02T12:00:00+00:00" };
+    const yes = run(goalOld, [cycle("c-set", "2026-09", true)]).series[0]!;
+    const no = run(goalOld, [cycle("c-set", "2026-09", false)]).series[0]!;
+    expect(yes.months.find((m) => m.month === "2026-09")!.status).toBe("missed");
+    expect(no.months.find((m) => m.month === "2026-09")!.status).not.toBe("missed");
+  });
+  it("categoria cuja meta nasceu em agosto conta desde agosto (ciclo reconstruído do mês de criação)", () => {
+    const goalAug = { ...goalNext, id: "gt", category_id: T, period_type: "this_month", start_date: "2026-09-01", end_date: "2026-09-30", created_at: "2026-08-03T00:45:07+00:00", baseline_value: 1747 };
+    const h = buildGoalHistory({
+      today: "2026-11-03",
+      goals: [goalAug, { ...goalAug, id: "gt2", start_date: "2026-10-01", end_date: "2026-10-31", period_type: "next_month", created_at: "2026-09-30T15:57:10+00:00", baseline_value: 1594 }] as never,
+      cycles: [{ ...cycle("t-ago", "2026-08", true), category_id: T }] as never,
+      entries: buildSpendingLedger(monthly(T, { "2026-05": 1500, "2026-06": 1700, "2026-07": 1650, "2026-08": 1800, "2026-09": 1900, "2026-10": 1500 })), categories,
+    });
+    const s = h.series[0]!;
+    expect(s.first_month).toBe("2026-08");
+    expect(s.baseline).toBe(1747); // a referência da criação (a meta de setembro é a mesma, renovada)
+    expect(s.kpis.closed_months).toBe(3);
   });
   it("sem meses anteriores no ledger, mantém a referência guardada", () => {
-    const h = buildGoalHistory({ today: "2026-11-03", goals: [goalOct], entries: buildSpendingLedger(monthly(L, { "2026-10": 600 })), categories });
+    const h = buildGoalHistory({ today: "2026-11-03", goals: [goalNext as never], entries: buildSpendingLedger(monthly(L, { "2026-10": 600 })), categories });
     expect(h.series[0]!.baseline).toBe(1500);
   });
 });
