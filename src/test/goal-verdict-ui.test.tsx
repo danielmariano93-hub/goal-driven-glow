@@ -24,17 +24,18 @@ describe("tela de metas: veredito literal", () => {
   it("funcionando: selo 'N DE M FUNCIONARAM', número grande, evitado e confiança", () => {
     const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 1500, "2026-10": 1500 }, { "2026-06": 700, "2026-07": 700, "2026-08": 700, "2026-09": 700, "2026-10": 700 });
     render(<GoalVerdictCard verdict={h.verdict!} />);
-    expect(screen.getByText("1 DE 1 FUNCIONARAM")).toBeTruthy();
+    expect(screen.getByText(/1 de 1 funcionaram/)).toBeTruthy();
     expect(screen.getByText("Nas categorias com meta, você está gastando menos.")).toBeTruthy();
     expect(screen.getAllByText(/a menos por mês/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Evitado desde o início/)).toBeTruthy();
-    expect(screen.getByText("Confiança")).toBeTruthy();
+    // período real da medição em meses de calendário (não a soma categoria × mês)
+    expect(screen.getByText(/evitado .* desde set\/2026 \(2 meses\) · confiança/)).toBeTruthy();
+    expect(screen.queryByText(/12 meses/)).toBeNull();
     expect(screen.getByText(/Como o Nino mede isso/)).toBeTruthy();
   });
   it("não funcionou: diz que não reduziu e que gasta a mais", () => {
     const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 2600, "2026-10": 2600 }, { "2026-06": 700, "2026-07": 700, "2026-08": 700, "2026-09": 700, "2026-10": 700 });
     render(<GoalVerdictCard verdict={h.verdict!} />);
-    expect(screen.getByText("0 DE 1 FUNCIONARAM")).toBeTruthy();
+    expect(screen.getByText(/0 de 1 funcionaram/)).toBeTruthy();
     expect(screen.getByText("Por enquanto, as metas não reduziram o gasto.")).toBeTruthy();
     expect(screen.getAllByText(/a mais por mês/).length).toBeGreaterThan(0);
   });
@@ -45,9 +46,9 @@ describe("tela de metas: veredito literal", () => {
   });
   it("cedo: não inventa número", () => {
     const h = history({ "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-10": 1500 }, { "2026-06": 700 });
-    render(<GoalVerdictCard verdict={{ ...h.verdict!, verdict: "cedo", badge: "CEDO DEMAIS", net_monthly: null, total_avoided: null, outside_line: null, headline: "Ainda é cedo para dizer.", summary: "Preciso de pelo menos 2 meses fechados." }} />);
-    expect(screen.getByText("CEDO DEMAIS")).toBeTruthy();
-    expect(screen.queryByText(/Evitado desde o início/)).toBeNull();
+    render(<GoalVerdictCard verdict={{ ...h.verdict!, verdict: "cedo", badge: "Cedo demais", net_monthly: null, total_avoided: null, outside_line: null, headline: "Ainda é cedo para dizer.", summary: "Preciso de pelo menos 2 meses fechados." }} />);
+    expect(screen.getByText(/Preciso de pelo menos 2 meses/)).toBeTruthy();
+    expect(screen.queryByText(/desde set/)).toBeNull();
   });
 });
 

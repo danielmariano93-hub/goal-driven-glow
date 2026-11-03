@@ -240,12 +240,12 @@ export default function Metas() {
       ) : null}
 
       {(tab === "all" || openCatList) && (
-        <div className="mb-4 rounded-2xl border border-border bg-card p-4">
+        <div className="mb-3 rounded-2xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">Metas de gasto · este mês</p>
+            <p className="text-[14px] font-semibold leading-5">Metas de gasto · este mês</p>
             <button
               onClick={() => { setEditingCatGoal(null); setOpenCatGoal(true); }}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-[11px] font-medium"
+              className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border px-3 text-[13px] font-medium"
             >
               <Plus size={12} /> Novo teto
             </button>
@@ -257,10 +257,11 @@ export default function Metas() {
                 : "Defina um teto de gasto e acompanhe seu ritmo em tempo real."}
             </p>
           ) : (
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {currentEvals.map((ev) => (
                 <CategoryGoalCard
                   key={ev.goal.id}
+                  compact
                   evaluation={ev}
                   onEdit={() => { setEditingCatGoal(catGoals?.find((g) => g.id === ev.goal.id) ?? null); setOpenCatGoal(true); }}
                   onDelete={() => { if (confirm("Excluir esta meta?")) delCatGoal.mutate(ev.goal.id, { onSuccess: () => toast.success("Excluída") }); }}

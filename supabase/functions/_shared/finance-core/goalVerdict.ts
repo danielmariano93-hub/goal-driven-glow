@@ -56,8 +56,12 @@ export interface GoalVerdict {
   hurt: number;
   flat: number;
   by_category: GoalCategoryEffect[];
-  /** Texto curto do selo: "3 DE 4 FUNCIONARAM" ou "CEDO DEMAIS". */
+  /** Texto curto do selo: "3 de 4 funcionaram" ou "Cedo demais". */
   badge: string;
+  /** Primeiro mês (AAAA-MM) com meta confirmada e o último mês fechado: o período REAL da medição. */
+  since_month: string | null;
+  /** Meses de calendário entre os dois (não a soma de categoria × mês). */
+  calendar_months: number;
   /** Gasto de categorias de consumo livre SEM meta: antes da 1ª meta × meses fechados desde então (contexto, sem culpa). */
   outside_goals: { before_avg: number; after_avg: number; change_pct: number; change_month: number; months_before: number; months_after: number } | null;
   /** Frase neutra sobre o que está fora das metas (null quando praticamente igual). */
@@ -142,8 +146,17 @@ export function buildGoalVerdict(args: {
   const caveats: string[] = [];
   const outside = outsideGoals(args.entries, args.categories, args.series, args.current);
 
+  // Período real da medição, em meses de calendário (a soma "categoria × mês" não é um período: 4 categorias × 3 meses = 12).
+  const lastClosed = shiftMonth(args.current, -1);
+  const firstCounted = args.series
+    .flatMap((s) => s.months.filter((m) => m.status === "met" || m.status === "missed").map((m) => m.month))
+    .sort()[0] ?? null;
+  const calendarMonths = firstCounted && firstCounted <= lastClosed ? monthRange(firstCounted, lastClosed).length : 0;
+
   const base = {
     version: GOAL_VERDICT_VERSION as typeof GOAL_VERDICT_VERSION,
+    since_month: firstCounted,
+    calendar_months: calendarMonths,
     closed_goal_months: months,
     categories_measured: measured.length,
     helped, hurt, flat,
@@ -154,7 +167,7 @@ export function buildGoalVerdict(args: {
 
   if (!measured.length || months < 2) {
     return {
-      ...base, verdict: "cedo", badge: "CEDO DEMAIS", headline: "Ainda é cedo para dizer.",
+      ...base, verdict: "cedo", badge: "Cedo demais", headline: "Ainda é cedo para dizer.",
       summary: `Para saber se as metas funcionam, preciso de pelo menos 2 meses fechados com meta (hoje: ${months}). Quando fechar o próximo mês, eu comparo com o que você gastava antes.`,
       confidence: "baixa", confidence_note: "Poucos meses para concluir.",
       net_monthly: null, baseline_monthly: null, net_pct: null, total_avoided: null, outside_line: null, caveats,
@@ -188,14 +201,16 @@ export function buildGoalVerdict(args: {
 
   const confidence_note = confidence === "alta" ? "Base firme: vários meses e várias categorias." : confidence === "media" ? "Base razoável: pode mudar nos próximos meses." : "Base pequena: é um indício, não uma conclusão.";
 
+  const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const sinceLabel = firstCounted ? `${MONTHS_PT[Number(firstCounted.slice(5, 7)) - 1]} de ${firstCounted.slice(0, 4)}` : "o início";
   let headline: string;
   let summary: string;
   if (verdict === "sim") {
     headline = "Nas categorias com meta, você está gastando menos.";
-    summary = `Você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos) do que antes de criar as metas, já contando as que quase não mexeram. Desde o início, são ${brl(totalAvoided)} evitados.`;
+    summary = `Você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos) do que antes de criar as metas, já contando as que quase não mexeram. Desde ${sinceLabel}, são ${brl(totalAvoided)} evitados.`;
   } else if (verdict === "parcial") {
     headline = "As metas reduziram o gasto, mas ainda pouco.";
-    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos). Desde o início, são ${brl(totalAvoided)} evitados.`;
+    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos). Desde ${sinceLabel}, são ${brl(totalAvoided)} evitados.`;
   } else if (net < 0 && Math.abs(netPct) >= 0.03) {
     headline = "Por enquanto, as metas não reduziram o gasto.";
     summary = `Nas categorias com meta você está gastando ${brl(-net)} a mais por mês do que antes (${pct(netPct)} a mais). Vale rever os tetos ou o que mudou nessas categorias.`;
@@ -211,7 +226,7 @@ export function buildGoalVerdict(args: {
       : `Fora das metas, o seu gasto também caiu ${pct(outside.change_pct)} (${brl(Math.abs(outside.change_month))} por mês).`;
   }
 
-  return { ...base, verdict, badge: `${helped} DE ${measured.length} FUNCIONARAM`, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, outside_line, caveats };
+  return { ...base, verdict, badge: `${helped} de ${measured.length} funcionaram`, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, outside_line, caveats };
 }
 
 /** Gasto de categorias de consumo livre SEM meta: 3 meses antes da 1ª meta × meses fechados desde então. */

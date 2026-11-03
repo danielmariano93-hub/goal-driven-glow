@@ -91,3 +91,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - A pergunta é POR META (a meta da categoria X funcionou?). O conjunto é o líquido de todas as metas. O que está fora das metas é contexto neutro ("sem meta, sem freio"), nunca causa.
 - Meses importados em lote (`category_spending_goal_cycles.source = 'backfill'`) só contam depois que o usuário confirma (`confirmed`: true = tinha meta, false = não tinha, null = "?" no placar, fora dos totais). Agosto/2026 do dono ficou "?"; setembro de Lazer e Assinaturas foi confirmado por ele.
 - A referência ("antes") só usa o valor guardado quando a meta que o guardou é a do primeiro mês de meta; senão recalcula pelos 3 meses anteriores ao primeiro mês.
+
+### Metas — compactação (skill unslop)
+- Skill de design **unslop** (Damir Sokolovsky, CC BY 4.0) incluída em `.claude/skills/unslop/` (só `SKILL.md` e `references/*.md`, com `NOTICE.md`; nenhum script de terceiros). Usada como guia de revisão: auditoria dos sinais, direção e passes (espaço, cor, copy, tipo, detalhes).
+- Tela de Metas: escala 12/14/16/28, pesos 400–600, caixa de frase (sem rótulos em maiúsculas), superfícies neutras (cor só no número-chave e em estados), cartão do resultado em 4 linhas, placar com células de 24px, lista "este mês" compacta (título, barra e uma linha de números; plano e ações em "Detalhes e ações").
+- "12 meses" era a soma categoria × mês. O período agora é o de calendário: "evitado R$ X desde set/2026 (2 meses)" (`since_month`, `calendar_months`).

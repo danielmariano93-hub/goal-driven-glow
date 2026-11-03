@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Pencil, Trash2, Pause, Play, ChevronRight, SlidersHorizontal } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
@@ -20,6 +20,8 @@ type Props = {
   children?: ReactNode;
   /** Quando falso, o card não navega (usado na própria tela de detalhe). */
   clickable?: boolean;
+  /** Lista compacta: título, barra e uma linha de números; o resto (mensagem, plano e ações) abre sob demanda. */
+  compact?: boolean;
 };
 
 const STATUS_STYLES: Record<CategoryGoalStatus, { label: string; pill: string; bar: string }> = {
@@ -50,14 +52,68 @@ function fmtRule(ev: CategoryGoalEvaluation): string {
   return `Redução de ${Number(ev.goal.reduction_pct ?? 0)}%`;
 }
 
-export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true }: Props) {
+export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true, compact = false }: Props) {
   const navigate = useNavigate();
+  const [more, setMore] = useState(false);
   const s = STATUS_STYLES[evaluation.status];
   const paused = evaluation.status === "paused";
   const barPct = Math.min(1, Math.max(0, evaluation.percentageUsed));
   const overLimit = evaluation.actualSpend > evaluation.targetAmount;
   const open = () => { if (clickable) navigate(`/app/metas/categoria/${evaluation.goal.id}`); };
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+
+  if (compact) {
+    const title = resolveRequiredLabel({ kind: "category_name_missing", surface: "CategoryGoalCard", id: evaluation.goal.category_id, name: evaluation.categoryName, fallback: "Categoria" });
+    const active = evaluation.status !== "scheduled" && evaluation.status !== "paused";
+    return (
+      <li className={`rounded-xl border border-border bg-card p-3 ${paused ? "opacity-70" : ""}`}>
+        <div className="flex items-start justify-between gap-2">
+          <button type="button" onClick={open} aria-label={`Abrir meta de ${title}`} className="min-w-0 flex-1 text-left">
+            <span className="block text-[14px] font-semibold leading-5">{title}</span>
+            <span className="block text-[12px] leading-4 text-muted-foreground">{fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}</span>
+          </button>
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] leading-5 text-muted-foreground">
+            <span aria-hidden className={`h-2 w-2 rounded-full ${s.bar}`} />
+            {s.label}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div className={`h-full transition-[width] ${s.bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
+        </div>
+        <p className="mt-2 text-[13px] leading-5 tabular-nums">
+          <span className="font-medium">{formatBRL(evaluation.actualSpend)}</span>
+          <span className="text-muted-foreground"> de {formatBRL(evaluation.targetAmount)}</span>
+          {active ? (
+            <span className={`text-[12px] ${evaluation.projectedOverage > 0 ? "text-red-700" : "text-muted-foreground"}`}>
+              {" "}· projeção {formatBRL(evaluation.projectedFinalSpend)}
+              {evaluation.projectedOverage > 0 ? `, ${formatBRL(evaluation.projectedOverage)} acima` : `, ${formatBRL(Math.max(0, evaluation.projectedDifference))} de folga`}
+            </span>
+          ) : null}
+        </p>
+        <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="mt-1 min-h-8 text-[12px] text-primary">
+          {more ? "Menos" : "Detalhes e ações"}
+        </button>
+        {more ? (
+          <div className="mt-1 space-y-2 border-t border-border pt-2">
+            <p className="text-[13px] leading-5">{evaluation.message}</p>
+            {evaluation.carriedInstallments > 0 ? (
+              <p data-testid="goal-carried-installments" className="text-[12px] leading-4 text-muted-foreground">
+                Fora da meta: <span className="tabular-nums text-foreground">{formatBRL(evaluation.carriedInstallments)}</span> em {evaluation.carriedInstallmentsCount} {evaluation.carriedInstallmentsCount === 1 ? "parcela" : "parcelas"} de compras anteriores (já comprometido).
+              </p>
+            ) : null}
+            {adjustment ? <AdjustedBadge review={adjustment} /> : null}
+            {children ? <div>{children}</div> : null}
+            <div className="flex flex-wrap gap-2">
+              {onAdjust ? <button onClick={stop(onAdjust)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium text-primary"><SlidersHorizontal size={12} /> Ajustar meta</button> : null}
+              <button onClick={stop(onEdit)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px]"><Pencil size={12} /> Editar</button>
+              <button onClick={stop(onToggleStatus)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px]">{paused ? <><Play size={12} /> Reativar</> : <><Pause size={12} /> Pausar</>}</button>
+              <button onClick={stop(onDelete)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] text-destructive"><Trash2 size={12} /> Excluir</button>
+            </div>
+          </div>
+        ) : null}
+      </li>
+    );
+  }
 
   return (
     <li

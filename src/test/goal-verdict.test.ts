@@ -37,7 +37,7 @@ describe("veredito: ter meta está fazendo sentido?", () => {
   const v = hist().verdict!;
   it("caso real: 3 de 4 metas funcionaram — resposta por meta, sem culpar outras categorias", () => {
     expect(v.verdict).toBe("sim");
-    expect(v.badge).toBe("3 DE 4 FUNCIONARAM");
+    expect(v.badge).toBe("3 de 4 funcionaram");
     expect(v.headline).toBe("Nas categorias com meta, você está gastando menos.");
     // nada de "em parte" nem de "foi para outras categorias"
     expect(`${v.headline} ${v.summary} ${v.caveats.join(" ")}`).not.toMatch(/em parte|outras categorias|gasto total quase não mudou/i);
@@ -76,7 +76,7 @@ describe("veredito: ter meta está fazendo sentido?", () => {
     expect(v0.verdict).toBe("cedo");
     expect(v0.net_monthly).toBeNull();
     expect(v0.summary).toMatch(/pelo menos 2 meses/);
-    expect(v0.badge).toBe("CEDO DEMAIS");
+    expect(v0.badge).toBe("Cedo demais");
   });
   it("um único mês fechado também é cedo demais", () => {
     const v1 = hist([goal("g", T, "2026-10-01", 1850)]).verdict!;
@@ -173,5 +173,16 @@ describe("meses importados e referência recalculada", () => {
   it("sem meses anteriores no ledger, mantém a referência guardada", () => {
     const h = buildGoalHistory({ today: "2026-11-03", goals: [goalOct], entries: buildSpendingLedger(monthly(L, { "2026-10": 600 })), categories });
     expect(h.series[0]!.baseline).toBe(1500);
+  });
+});
+
+describe("período real da medição (não a soma categoria × mês)", () => {
+  it("caso real: 4 categorias × 2 meses = 8 meses-de-meta, mas só 2 meses de calendário", () => {
+    const v = hist().verdict!;
+    expect(v.closed_goal_months).toBe(6); // soma categoria × mês (fixture: set/out para T e A, out para S e L)
+    expect(v.since_month).toBe("2026-09");
+    expect(v.calendar_months).toBe(2); // set e out
+    expect(v.summary).toMatch(/Desde setembro de 2026/);
+    expect(v.summary).not.toMatch(/\d+ meses com meta/);
   });
 });
