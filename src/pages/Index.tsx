@@ -8,6 +8,7 @@ import { RitmoUnificadoCard } from "@/components/home/RitmoUnificadoCard";
 import { GuideHomeCards } from "@/components/guide/GuideHomeCards";
 import { QuickActions } from "@/components/home/QuickActions";
 import { NinoGuidanceSection } from "@/components/home/NinoGuidanceSection";
+import { todayISO } from "@/lib/engine/facts";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { PrevisaoFechamentoCard } from "@/components/home/PrevisaoFechamentoCard";
 import { ProximosCompromissosCard } from "@/components/home/ProximosCompromissosCard";
@@ -54,6 +55,11 @@ export default function Index() {
 
   const hasAccount = (accounts ?? []).length > 0;
   const heroLabel = "Disponível hoje";
+  // Período que já terminou: o card de cima mostra como ele fechou, não a posição de hoje.
+  const bridge = snap?.cashBridge ?? null;
+  const pastPeriod = periodRange.end < todayISO() && bridge && bridge.confirmedClosingCash != null
+    ? { endLabel: `${periodRange.end.slice(8, 10)}/${periodRange.end.slice(5, 7)}`, closingCash: bridge.confirmedClosingCash, openingCash: bridge.openingCash }
+    : null;
 
   return (
     <div className="mx-auto w-full max-w-[720px] space-y-4 pb-16 [scroll-padding-bottom:8rem]" data-surface="home">
@@ -87,6 +93,7 @@ export default function Index() {
         cardDueThisMonth={availability.cardExposure === "available" ? snap?.projection.cardDueThisMonth ?? 0 : 0}
         projectedEndBalance={availability.projection === "available" ? snap?.projection.projectedEndBalance ?? 0 : 0}
         freeAfterKnownCommitments={availability.projection === "available" ? snap?.projection.freeAfterKnownCommitments ?? null : null}
+        pastPeriod={pastPeriod}
         loading={loading}
         hasAccount={hasAccount}
         error={snapshotError}
@@ -130,11 +137,14 @@ export default function Index() {
 
       <HeatmapSemanalCard data={heatmap.data} loading={heatmap.isLoading} />
 
-      <PrevisaoFechamentoCard
-        projection={snap?.projection ?? null}
-        availability={availability.projection}
-        loading={loading}
-      />
+      {/* Previsão de fechamento é do mês corrente: num período que já terminou só confundiria. */}
+      {pastPeriod ? null : (
+        <PrevisaoFechamentoCard
+          projection={snap?.projection ?? null}
+          availability={availability.projection}
+          loading={loading}
+        />
+      )}
 
       <ProximosCompromissosCard
         commitments={snap?.commitmentAgenda.items ?? []}
@@ -142,7 +152,7 @@ export default function Index() {
         loading={loading}
       />
 
-      <EmotionalCheckinCard />
+      <EmotionalCheckinCard month={periodRange.end.slice(0, 7)} />
     </div>
   );
 }

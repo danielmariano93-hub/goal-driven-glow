@@ -89,3 +89,29 @@ export function causeLedgerForLastClosedMonth(txs: CauseSourceTx[], categories: 
   const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
   return causeLedgerForMonth(buildCauseMonths(txs, categories), prev);
 }
+
+function shiftYm(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y!, m! - 1 + delta, 1, 12));
+  return d.toISOString().slice(0, 7);
+}
+
+/**
+ * Mês que o card de causas explica para o período escolhido na tela:
+ * mês civil inteiro já fechado → esse mês; qualquer outro período (mês atual, 7/30 dias, personalizado) → último mês fechado.
+ * Depende só do período e de hoje — nunca da janela de lançamentos carregada.
+ */
+export function causeMonthForPeriod(period: { start: string; end: string }, today: string): string {
+  const currentYm = today.slice(0, 7);
+  const lastClosed = shiftYm(currentYm, -1);
+  const ym = period.start.slice(0, 7);
+  const [y, m] = ym.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(y!, m!, 0, 12)).getUTCDate();
+  const wholeMonth = period.start === `${ym}-01` && period.end === `${ym}-${String(lastDay).padStart(2, "0")}`;
+  return wholeMonth && ym < currentYm ? ym : lastClosed;
+}
+
+/** Janela de leitura para o mês `ym`: 7 meses antes (6 de base + 1 de folga para compra de cartão) até o fim do mês. */
+export function causeReadWindow(ym: string): { from: string; before: string } {
+  return { from: `${shiftYm(ym, -7)}-01`, before: `${shiftYm(ym, 1)}-01` };
+}

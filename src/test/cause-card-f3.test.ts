@@ -90,7 +90,7 @@ describe("liberação por usuário e custo", () => {
   const migration = readFileSync("supabase/migrations/20261103180000_cause_ledger_access.sql", "utf8");
   it("o snapshot só calcula `causes` para quem está em cause_ledger_access (sem consulta nova para os demais)", () => {
     const accessAt = edge.indexOf('from("cause_ledger_access")');
-    const computeAt = edge.indexOf("causeLedgerForLastClosedMonth(");
+    const computeAt = edge.indexOf("causeLedgerForMonth(");
     expect(accessAt).toBeGreaterThan(0);
     expect(computeAt).toBeGreaterThan(accessAt);
     expect(edge).toContain("const snapshot = causes ? { ...snapshotBase, causes } : snapshotBase;");
