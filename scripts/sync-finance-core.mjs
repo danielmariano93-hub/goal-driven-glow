@@ -86,6 +86,7 @@ export const FINANCE_CORE_MODULES = [
   "mapaReading",
   "causeLedger",
   "benefitWallet",
+  "benefitStatement",
 ];
 
 export const REPORT_MODULES = [

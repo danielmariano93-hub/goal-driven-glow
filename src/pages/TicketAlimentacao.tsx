@@ -11,6 +11,7 @@ import { useBenefitEnabled, useBenefitEntries, useBenefitWallet, useDeleteBenefi
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
 import { EntrySheet } from "@/components/ticket/EntrySheet";
+import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
 
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -32,6 +33,7 @@ export default function TicketAlimentacao() {
   const today = todayISO();
   const [tab, setTab] = useState<"resumo" | "padroes">("resumo");
   const [sheet, setSheet] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
 
   const wallet = walletQ.data;
@@ -59,7 +61,10 @@ export default function TicketAlimentacao() {
         <h1 className="font-display text-xl font-bold">Ticket Alimentação</h1>
       </div>
       {wallet && (
-        <button onClick={() => setSheet(true)} aria-label="Registrar" className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground"><Plus size={20} /></button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setImporting(true)} className="min-h-11 rounded-full border border-border px-3 text-sm font-semibold">Importar extrato</button>
+          <button onClick={() => setSheet(true)} aria-label="Registrar" className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground"><Plus size={20} /></button>
+        </div>
       )}
     </header>
   );
@@ -259,6 +264,7 @@ export default function TicketAlimentacao() {
 
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">Este saldo fica separado do seu caixa livre, da renda e do patrimônio. Só alimenta esta tela.</p>
       <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} />
+      <StatementImportSheet open={importing} onOpenChange={setImporting} walletId={wallet.id} entries={entries} />
     </div>
   );
 }
