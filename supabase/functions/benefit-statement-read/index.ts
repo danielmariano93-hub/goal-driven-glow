@@ -9,7 +9,7 @@ import { getAiBlock, pauseAiCircuit } from "../_shared/aiCircuit.ts";
 import { recordAiUsage, estimateAiCostUsd } from "../_shared/aiUsageLedger.ts";
 import { aiEndpoint, aiJsonHeaders, normalizeAiModel, resolveAiProvider } from "../_shared/ai-runtime.ts";
 import { ensureWorkloadAllowed } from "../_shared/aiWorkloadBudget.ts";
-import { todaySaoPaulo } from "../_shared/agent/parser.ts";
+import { today as localToday } from "../_shared/finance-core/ninoClock.ts";
 import { BENEFIT_STATEMENT_VERSION, parseBenefitStatement } from "../_shared/finance-core/benefitStatement.ts";
 
 const FN = "benefit-statement-read";
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
   const budget = await ensureWorkloadAllowed(sb, "DOCUMENT_INGEST");
   if (!budget.allowed) return fail("ai_budget_blocked", { status: 429, functionName: FN });
 
-  const today = todaySaoPaulo();
+  const today = localToday();
   const model = normalizeAiModel(await visionModel(sb), provider);
   const started = Date.now();
   let tokensIn = 0, tokensOut = 0, httpStatus: number | null = null, success = false, errorCode: string | null = null;
