@@ -393,6 +393,18 @@ export const EXTERNAL_TRANSFER_KINDS = new Set([
   "external_transfer_out",
 ]);
 
+/**
+ * `pix_consumption.v2` — Pix/transferência a pessoa com categoria de CONSUMO conta como gasto (promovido a
+ * `movement_kind = 'transaction'` no banco, gatilho `trg_zz_promote_categorized_transfer`). Fora de consumo:
+ * dívida/empréstimo, divisão de rolê/reembolso, fatura, aplicação/investimento e transferência.
+ * Espelha `public.category_is_consumption` (SQL); `pix-consumption-contract.test.ts` confere que os dois não divergem.
+ */
+export const NON_CONSUMPTION_CATEGORY_SOURCE = "(aplica[cç]|investiment|poupan|d[ií]vida|empr[eé]stimo|financiament|divis[aã]o|reembols|fatura|transfer[eê]ncia)";
+const NON_CONSUMPTION_CATEGORY_RX = new RegExp(NON_CONSUMPTION_CATEGORY_SOURCE, "i");
+export function isConsumptionCategoryName(name?: string | null, slug?: string | null): boolean {
+  return !NON_CONSUMPTION_CATEGORY_RX.test(`${name ?? ""} ${slug ?? ""}`);
+}
+
 export function isExternalTransfer(t: Pick<TransactionRow, "movement_kind">): boolean {
   return EXTERNAL_TRANSFER_KINDS.has(String(t.movement_kind ?? ""));
 }
