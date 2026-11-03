@@ -8,11 +8,13 @@ import {
   Sparkles,
   Loader2,
   Tags,
+  UtensilsCrossed,
 } from "lucide-react";
 
 import { copy } from "@/lib/copy/strings";
 import { useAuth } from "@/context/AuthContext";
 import { markNinoSeen, useMoreMenuContext } from "@/lib/nino/intelligence";
+import { useBenefitEnabled } from "@/lib/db/benefitWallet";
 import { moreGroups } from "@/lib/navigation/appNavigationRegistry";
 
 type Item = { path: string; label: string; desc: string; icon: any; badge?: string | null; tone?: "attention" | "neutral" };
@@ -43,6 +45,8 @@ export default function MaisMenu() {
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const { data, isLoading } = useMoreMenuContext();
+  // Liberação por usuário (falha fechada): só quem tem acesso vê a entrada do Ticket Alimentação.
+  const { data: ticketEnabled } = useBenefitEnabled();
 
   useEffect(() => {
     void markNinoSeen("mais", "all");
@@ -87,6 +91,14 @@ export default function MaisMenu() {
         ? `${nino.new_since_last_visit} novidade${nino.new_since_last_visit > 1 ? "s" : ""} desde sua última visita`
         : `${nino.attention_items} ponto${nino.attention_items > 1 ? "s" : ""} de atenção`,
       icon: Sparkles,
+    });
+  }
+  if (ticketEnabled === true) {
+    highlights.push({
+      path: "/app/ticket",
+      label: "Ticket Alimentação",
+      desc: "Saldo, quando acaba e quanto gastar por dia",
+      icon: UtensilsCrossed,
     });
   }
   if (uncategorized > 0) {
