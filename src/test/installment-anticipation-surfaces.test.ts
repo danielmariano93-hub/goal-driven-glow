@@ -5,7 +5,7 @@ import {
   computeExecutiveInsights,
   type LedgerEntry,
 } from "../../supabase/functions/_shared/insights/executive/engine";
-import { chartDateOf, collectAnticipations } from "../../supabase/functions/_shared/insights/executive/load";
+import { collectAnticipations, purchaseDayOf } from "../../supabase/functions/_shared/insights/executive/load";
 import { summarizeAnticipation } from "../../supabase/functions/_shared/reportsDashboard/runtime";
 import { buildReportDashboard, type DashEntry } from "@/lib/engine/reportDashboard";
 import { detectHighlights } from "@/lib/reports/intelligent/highlights";
@@ -46,12 +46,12 @@ describe("carga do livro", () => {
     expect(out).toEqual([{ billed_month: "2026-10", economic_month: "2026-12", amount: 100, group: "g" }]);
   });
 
-  it("gráfico diário: compra do mês no dia da compra; parcela antiga no fechamento; nunca dia 1", () => {
+  it("gráfico diário: cartão = dia da compra (nunca fechamento/vencimento); fora do cartão usa a data do lançamento", () => {
     const base = { credit_card_id: "c", payment_method: "credit_card", competence_date: "2026-10-01" };
-    expect(chartDateOf({ ...base, purchase_date: "2026-10-18", occurred_at: "2026-10-18" }, 24)).toBe("2026-10-18");
-    expect(chartDateOf({ ...base, purchase_date: "2026-07-26", occurred_at: "2026-07-26" }, 24)).toBe("2026-10-24");
-    expect(chartDateOf({ ...base, purchase_date: "2026-09-30", occurred_at: "2026-09-30" }, 24)).toBe("2026-10-24");
-    expect(chartDateOf({ payment_method: "account", occurred_at: "2026-10-03" }, null)).toBeNull();
+    expect(purchaseDayOf({ ...base, purchase_date: "2026-10-18", occurred_at: "2026-10-18" })).toBe("2026-10-18");
+    expect(purchaseDayOf({ ...base, purchase_date: "2026-07-26", occurred_at: "2026-07-26" })).toBe("2026-07-26");
+    expect(purchaseDayOf({ ...base, purchase_date: null, occurred_at: "2026-09-30" })).toBe("2026-09-30");
+    expect(purchaseDayOf({ payment_method: "account", occurred_at: "2026-10-03" })).toBeNull();
   });
 });
 

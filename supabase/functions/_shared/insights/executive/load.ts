@@ -6,6 +6,7 @@
 import { fetchAllPages } from "../../derived/pagedSelect.ts";
 import {
   behavioralMetricAmount,
+  buildCarriedInstallmentIds,
   buildRefundAttribution,
   effectiveCategoryId,
   reportingCompetenceDate,
@@ -21,34 +22,16 @@ const TX_COLUMNS = [
   "purchase_date", "purchase_group_id", "installment_number", "installments_total",
 ].join(",");
 
-const lastDay = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
-
 /**
- * Dia do gráfico diário/semanal. Cartão: dia da compra quando ela é do mesmo mês da
- * competência; compra de mês anterior (parcela antiga, borda do ciclo) vai para o dia
- * de fechamento da fatura. Nunca o dia 1: o dia 1 acumulava o cartão inteiro do mês.
+ * Dia em que o gasto de CARTÃO aparece nos gráficos diários/semanais: o dia da compra (`report_evolution.v3`).
+ * O gráfico responde "quanto gastei neste dia", então nunca usa a data de fechamento/vencimento da fatura.
+ * Fora do cartão, o dia é a própria data do lançamento (null = usa `date`).
  */
-export function chartDateOf(row: any, closingDay: number | null): string | null {
+export function purchaseDayOf(row: any): string | null {
   const isCard = Boolean(row.credit_card_id) || String(row.payment_method ?? "") === "credit_card";
   if (!isCard) return null;
-  const comp = reportingCompetenceDate(row as TransactionRow);
   const purchase = String(row.purchase_date ?? row.occurred_at ?? "").slice(0, 10);
-  if (purchase.length === 10 && purchase.slice(0, 7) === comp.slice(0, 7)) return purchase;
-  const ym = comp.slice(0, 7);
-  const day = Math.min(Math.max(1, closingDay ?? lastDay(ym)), lastDay(ym));
-  return `${ym}-${String(day).padStart(2, "0")}`;
-}
-
-/**
- * Compra no cartão que pertence à fatura de um mês mas foi feita em outro (parcela 2+, compra depois do fechamento).
- * Ela entra no total do período, mas não tem um dia nele: não pode virar barra do gráfico diário.
- */
-export function isCarriedCardEntry(row: any): boolean {
-  const isCard = Boolean(row.credit_card_id) || String(row.payment_method ?? "") === "credit_card";
-  if (!isCard) return false;
-  const comp = reportingCompetenceDate(row as TransactionRow);
-  const purchase = String(row.purchase_date ?? row.occurred_at ?? "").slice(0, 10);
-  return purchase.length === 10 && purchase.slice(0, 7) !== comp.slice(0, 7);
+  return purchase.length === 10 ? purchase : null;
 }
 
 /** Parcelas antecipadas do livro: cobradas numa fatura, vencendo em outro mês. */
@@ -77,12 +60,14 @@ export function toLedger(
   categories: Map<string, string>,
   aliases: MerchantAliasRow[],
   window: { from: string; to: string },
-  opts: { includeDebtPayments?: boolean; closingDays?: Map<string, number> } = {},
+  opts: { includeDebtPayments?: boolean } = {},
 ): LedgerEntry[] {
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   const attribution = buildRefundAttribution(rows as TransactionRow[]);
   const resolver = buildMerchantResolver(aliases);
   const out: LedgerEntry[] = [];
+  // Parcela 2+ de compra de mês anterior não foi gasto de nenhum dia do período (`goal_consumption.v1`).
+  const carriedIds = buildCarriedInstallmentIds(rows as any[]);
   for (const raw of rows) {
     const row = { ...raw, amount: Number(raw.amount ?? 0) } as TransactionRow;
     const date = reportingCompetenceDate(row);
@@ -109,10 +94,8 @@ export function toLedger(
       category: (categoryId && categories.get(String(categoryId))) || "Sem categoria",
       merchant_key: merchant?.key ?? null,
       merchant: merchant?.label ?? null,
-      chart_date: kind === "expense"
-        ? chartDateOf(row, row.credit_card_id ? opts.closingDays?.get(String(row.credit_card_id)) ?? null : null)
-        : null,
-      chart_carried: kind === "expense" && isCarriedCardEntry(row),
+      chart_date: kind === "expense" ? purchaseDayOf(row) : null,
+      chart_carried: kind === "expense" && carriedIds.has(String(row.id)),
     });
   }
   return out;
@@ -137,17 +120,14 @@ export async function loadExecutiveInput(sb: any, userId: string, asOf: string, 
       .range(a, b),
   { source: "executive_insights" });
 
-  const [{ data: cats }, { data: aliasRows }, { data: installments }, { data: cardRows }] = await Promise.all([
+  const [{ data: cats }, { data: aliasRows }, { data: installments }] = await Promise.all([
     sb.from("categories").select("id,name").or(`user_id.eq.${userId},user_id.is.null`),
     sb.from("merchant_aliases").select("alias_key,friendly_name,hits").eq("user_id", userId),
     sb.from("credit_card_installments")
       .select("competence_month,amount,status,absorbed_by_statement_id")
       .eq("user_id", userId)
       .gt("competence_month", `${asOf.slice(0, 7)}-01`),
-    sb.from("credit_cards").select("id,closing_day").eq("user_id", userId),
   ]);
-  const closingDays = new Map<string, number>(((cardRows ?? []) as any[])
-    .filter((c) => Number(c.closing_day) > 0).map((c) => [String(c.id), Number(c.closing_day)]));
   const categories = new Map<string, string>(((cats ?? []) as any[]).map((c) => [String(c.id), String(c.name)]));
   const aliases: MerchantAliasRow[] = ((aliasRows ?? []) as any[]).map((a) => ({
     alias_normalized: a.alias_key,
@@ -156,7 +136,7 @@ export async function loadExecutiveInput(sb: any, userId: string, asOf: string, 
   }));
   return {
     as_of: asOf,
-    entries: toLedger(rows, categories, aliases, { from, to }, { ...opts, closingDays }),
+    entries: toLedger(rows, categories, aliases, { from, to }, opts),
     anticipations: collectAnticipations(rows),
     future_installments: ((installments ?? []) as any[])
       .filter((row) => String(row.status ?? "") !== "paid" && !row.absorbed_by_statement_id)

@@ -121,7 +121,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Dados antigos: só o dono foi ajustado (8 Pix: Lazer R$ 614, Transporte R$ 26). Linhas antigas de outros usuários NÃO foram tocadas.
 - Pix sem categoria segue neutro e aparece em "Pix a classificar" (`CounterpartyCategorizer`, grupos com ≥ 2 lançamentos do mesmo favorecido).
 
-## Gráfico "Evolução · quanto saiu": parcela/compra de fatura anterior não vira pico (report_evolution.v2)
-- Causa: no gráfico diário/semanal, compra de cartão feita em OUTRO mês que o da fatura (parcela 2+, compra depois do fechamento) era colocada no dia de fechamento do cartão; como esse dia (24) está no futuro, era empurrada para o último dia do período ("hoje") e criava um pico sem gasto real (03/11: R$ 1.183,82 = JIM.COM 2/6 e 4/6 + compra de 27/10; "antes": a fatura de outubro toda em 03/10).
-- Agora: `chart_carried` (edge `isCarriedCardEntry`) tira esses lançamentos das barras e da linha do período anterior; o total do período segue por competência; `ReportDashboard.carried` (valor, anterior, nº) vira a nota "Fora das barras…" sob o gráfico. Soma das barras + `carried` = total.
-- Não mudou: total do período, categorias, projeção (ainda por competência).
+## Gráfico "Evolução · quanto saiu": cada barra é o que foi gasto naquele dia (report_evolution.v3)
+- Propósito (decisão do dono): o gráfico diário/semanal mostra QUANDO você gastou. Cartão = dia da compra (nunca fechamento/vencimento); parcela 2+ de compra antiga (`buildCarriedInstallmentIds`, `chart_carried`) não é gasto de dia nenhum do período e fica fora das barras. O total do período segue a fatura (competência).
+- Causa do pico falso (03/11: R$ 1.183,82; "antes" 03/10: R$ 5.556,08): lançamentos de cartão de outro mês eram postos no dia de fechamento (24), que está no futuro, e depois empurrados para o último dia do período ("hoje").
+- Como as duas contas diferem, a diferença é declarada em `ReportDashboard.barsGap` e na nota sob o gráfico: `notInBars` (no total, não nas barras: parcelas e compras de faturas anteriores) e `notInTotal` (nas barras, ainda não no total: compras do período que só entram na fatura seguinte, ex.: compra de 27/10 que vai para a fatura de novembro aparece em OUTUBRO). Barras + notInBars − notInTotal = total.
+- Não mudou: total do período, categorias, projeção (por competência). Granularidade mensal: igual.

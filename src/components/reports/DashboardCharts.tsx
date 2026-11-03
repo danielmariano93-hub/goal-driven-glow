@@ -58,12 +58,22 @@ export function EvolutionChart({ d }: { d: ReportDashboard }) {
           <li className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-primary" /> Saiu</li>
           {d.previous ? <li className="inline-flex items-center gap-1"><span className="w-3 border-t-2 border-dashed border-muted-foreground" /> Saiu no período anterior</li> : null}
         </ul>
-        {d.carried && d.carried.current > 0 ? (
-          <p className="mt-2 text-[12px] leading-4 text-muted-foreground" data-testid="evolution-carried">
-            Fora das barras: {formatBRL(d.carried.current)} em parcelas e compras de faturas anteriores ({d.carried.count} {d.carried.count === 1 ? "lançamento" : "lançamentos"}).
-            Entram no total do período, mas não aconteceram em nenhum dia dele.
-            {d.carried.previous != null ? ` No período anterior: ${formatBRL(d.carried.previous)}.` : ""}
-          </p>
+        {d.barsGap ? (
+          <div className="mt-2 space-y-1 text-[12px] leading-4 text-muted-foreground" data-testid="evolution-gap">
+            <p>As barras mostram o dia em que você gastou (data da compra). O total do período segue a fatura.</p>
+            {d.barsGap.notInBars.count > 0 ? (
+              <p>
+                Fora das barras: {formatBRL(d.barsGap.notInBars.amount)} em parcelas e compras de faturas anteriores
+                ({d.barsGap.notInBars.count} {d.barsGap.notInBars.count === 1 ? "lançamento" : "lançamentos"}). Entram no total, mas não foram gastos neste período.
+              </p>
+            ) : null}
+            {d.barsGap.notInTotal.count > 0 ? (
+              <p>
+                Nas barras e ainda fora do total: {formatBRL(d.barsGap.notInTotal.amount)} em compras deste período
+                ({d.barsGap.notInTotal.count} {d.barsGap.notInTotal.count === 1 ? "lançamento" : "lançamentos"}) que só entram na fatura seguinte.
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {active ? (
           <p className="mt-2 rounded-lg bg-secondary/60 px-2.5 py-1.5 text-[12px]" aria-live="polite">
