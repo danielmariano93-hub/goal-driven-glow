@@ -144,9 +144,16 @@ export function computeCauseLedger(current: CauseMonth, baseline: CauseMonth[]):
   }
 
   if (baseline.length < 2) reasons.push("poucos_meses_de_comparacao");
+  // Com menos de 3 meses a base é média simples: um mês atípico (renda extraordinária, compra única) vira o "normal".
+  // Se os meses da base diferem de mais de 2x na renda ou no gasto, a comparação não sustenta causa.
+  const skewed = (values: number[]) => values.length >= 2 && Math.min(...values) > 0 && Math.max(...values) / Math.min(...values) > 2;
+  const baselineSpend = baseline.map((m) => EXPENSE_CLASSES.reduce((s, k) => s + m[k], 0));
+  const unstableBase = baseline.length >= 2 && baseline.length < 3 && (skewed(baseline.map((m) => m.income)) || skewed(baselineSpend));
+  if (unstableBase) reasons.push("base_atipica");
   if (unknown.current > 0 && current.income + freeCash(current) !== 0 && unknown.current / Math.max(1, current.income) > 0.2) reasons.push("muito_gasto_sem_classificacao");
   if (residualShare !== null && residualShare > 0.2) reasons.push("residual_alto");
-  const confidence: CauseLedger["confidence"] = reasons.length === 0 && baseline.length >= 3 ? "alta" : reasons.length <= 1 && baseline.length >= 2 ? "media" : "baixa";
+  const confidence: CauseLedger["confidence"] = unstableBase ? "baixa"
+    : reasons.length === 0 && baseline.length >= 3 ? "alta" : reasons.length <= 1 && baseline.length >= 2 ? "media" : "baixa";
 
   return {
     version: CAUSE_LEDGER_VERSION,
