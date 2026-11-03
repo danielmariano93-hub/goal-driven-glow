@@ -97,6 +97,8 @@ export const APP_NAVIGATION: NavEntry[] = [
   e({ id: "divisao-editar", path: "/app/divisao-do-role/:id/editar", label: "Editar divisão", navigationType: "detail", parentId: "divisao-do-role", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
 
   // ---------- deep links e telas internas ----------
+  // Piloto: liberado por usuário (benefit_wallet_enabled). Fora do menu até a abertura gradual.
+  e({ id: "ticket-alimentacao", path: "/app/ticket", label: "Ticket Alimentação", navigationType: "deep_link", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "beta" }),
   e({ id: "alerta-detalhe", path: "/app/alertas/:dedupKey", label: "Alerta do Nino", navigationType: "deep_link", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "antecipacoes-detalhe", path: "/app/antecipacoes/detalhe", label: "Prepare-se", navigationType: "deep_link", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "assessor", path: "/app/assessor", label: "Assessor", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
