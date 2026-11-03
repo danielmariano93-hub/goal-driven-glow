@@ -120,3 +120,8 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Todos os indicadores leem `movement_kind = 'transaction'` (um só ponto: `isRealMonthlyMovement` / `is_behavioral_consumption`); promovido entra em Home, metas, relatórios, ritmo, causas e agente sem mudança de código. Único consumidor explícito de transferência externa: `anticipation/facts.ts` (continua correto). Caixa não muda (a saída de caixa já contava todo Pix).
 - Dados antigos: só o dono foi ajustado (8 Pix: Lazer R$ 614, Transporte R$ 26). Linhas antigas de outros usuários NÃO foram tocadas.
 - Pix sem categoria segue neutro e aparece em "Pix a classificar" (`CounterpartyCategorizer`, grupos com ≥ 2 lançamentos do mesmo favorecido).
+
+## Gráfico "Evolução · quanto saiu": parcela/compra de fatura anterior não vira pico (report_evolution.v2)
+- Causa: no gráfico diário/semanal, compra de cartão feita em OUTRO mês que o da fatura (parcela 2+, compra depois do fechamento) era colocada no dia de fechamento do cartão; como esse dia (24) está no futuro, era empurrada para o último dia do período ("hoje") e criava um pico sem gasto real (03/11: R$ 1.183,82 = JIM.COM 2/6 e 4/6 + compra de 27/10; "antes": a fatura de outubro toda em 03/10).
+- Agora: `chart_carried` (edge `isCarriedCardEntry`) tira esses lançamentos das barras e da linha do período anterior; o total do período segue por competência; `ReportDashboard.carried` (valor, anterior, nº) vira a nota "Fora das barras…" sob o gráfico. Soma das barras + `carried` = total.
+- Não mudou: total do período, categorias, projeção (ainda por competência).

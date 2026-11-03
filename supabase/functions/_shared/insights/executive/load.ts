@@ -39,6 +39,18 @@ export function chartDateOf(row: any, closingDay: number | null): string | null 
   return `${ym}-${String(day).padStart(2, "0")}`;
 }
 
+/**
+ * Compra no cartão que pertence à fatura de um mês mas foi feita em outro (parcela 2+, compra depois do fechamento).
+ * Ela entra no total do período, mas não tem um dia nele: não pode virar barra do gráfico diário.
+ */
+export function isCarriedCardEntry(row: any): boolean {
+  const isCard = Boolean(row.credit_card_id) || String(row.payment_method ?? "") === "credit_card";
+  if (!isCard) return false;
+  const comp = reportingCompetenceDate(row as TransactionRow);
+  const purchase = String(row.purchase_date ?? row.occurred_at ?? "").slice(0, 10);
+  return purchase.length === 10 && purchase.slice(0, 7) !== comp.slice(0, 7);
+}
+
 /** Parcelas antecipadas do livro: cobradas numa fatura, vencendo em outro mês. */
 export function collectAnticipations(rows: any[]): AnticipatedInstallment[] {
   const out: AnticipatedInstallment[] = [];
@@ -100,6 +112,7 @@ export function toLedger(
       chart_date: kind === "expense"
         ? chartDateOf(row, row.credit_card_id ? opts.closingDays?.get(String(row.credit_card_id)) ?? null : null)
         : null,
+      chart_carried: kind === "expense" && isCarriedCardEntry(row),
     });
   }
   return out;

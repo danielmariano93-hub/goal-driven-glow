@@ -25,6 +25,11 @@ export interface DashEntry {
   merchant: string | null;
   /** Dia no gráfico diário/semanal (data da compra no cartão). Totais seguem `date`. */
   chart_date?: string | null;
+  /**
+   * Compra no cartão feita em OUTRO mês que o da fatura (parcela de compra antiga, compra depois do fechamento):
+   * entra no total do período (competência), mas não aconteceu em nenhum dia dele — não vira barra do gráfico diário.
+   */
+  chart_carried?: boolean;
 }
 
 export type CompareMode = "previous" | "year" | "none";
@@ -159,6 +164,8 @@ export interface ReportDashboard {
   previousTotals: Totals | null;
   deltas: { income: Delta; expense: Delta; net: Delta; dailyAvg: Delta; savingsRatePoints: number | null } | null;
   series: SeriesPoint[];
+  /** Parte do total que não tem dia no período (parcelas e compras de fatura anterior); fora das barras do gráfico diário. */
+  carried: { current: number; previous: number | null; count: number } | null;
   categories: DashCategoryRow[];
   change: {
     previousTotal: number;
@@ -402,8 +409,11 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   // Série. Gráfico diário/semanal mostra QUANDO você gastou (data da compra no cartão);
   // o total do período continua por competência. Cada lançamento entra no período pela
   // competência e só muda de dia dentro dele (nunca sai do período).
+  const dayLevel = granularity !== "month";
   const chartEntries = (r: DashRange): DashEntry[] => scoped
     .filter((e) => inRange(e, r))
+    // Parcela/compra de fatura anterior não aconteceu num dia deste período: não vira pico no "último dia".
+    .filter((e) => !(dayLevel && e.kind === "expense" && e.chart_carried))
     .map((e) => {
       if (granularity === "month" || !e.chart_date) return e;
       const day = e.chart_date < r.start ? r.start : e.chart_date > r.end ? r.end : e.chart_date;
@@ -413,6 +423,15 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   const prevBuckets = previous ? bucketsOf(previous, granularity) : [];
   const curChart = chartEntries(period);
   const prevChart = previous ? chartEntries(previous) : [];
+  const carriedOf = (r: DashRange) => {
+    const rows = scoped.filter((e) => e.kind === "expense" && e.chart_carried && e.amount > 0 && inRange(e, r));
+    return { amount: round2(rows.reduce((a, e) => a + e.amount, 0)), count: rows.length };
+  };
+  const carriedNow = dayLevel ? carriedOf(period) : { amount: 0, count: 0 };
+  const carriedPrev = dayLevel && previous ? carriedOf(previous) : null;
+  const carried = carriedNow.count > 0 || (carriedPrev?.count ?? 0) > 0
+    ? { current: carriedNow.amount, previous: carriedPrev ? carriedPrev.amount : null, count: carriedNow.count }
+    : null;
   const series: SeriesPoint[] = buckets.map((b, i) => {
     const t = totalsOf(curChart, { start: b.from, end: b.to, days: 1 }, 1);
     const pb = prevBuckets[i];
@@ -547,7 +566,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
   return {
     version: REPORT_DASHBOARD_VERSION,
     request: req, period, previous, granularity, filtered,
-    totals, previousTotals, deltas, series, categories, change, habits, trend, verdict, highlights, projection,
+    totals, previousTotals, deltas, series, carried, categories, change, habits, trend, verdict, highlights, projection,
     filterOptions: { categories: [...optionTotals.values()].filter((o) => o.total > 0).map((o) => ({ ...o, total: round2(o.total) })).sort((a, b) => b.total - a.total) },
     coverage: {
       firstDate: first, monthsOfHistory,
