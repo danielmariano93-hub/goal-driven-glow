@@ -167,3 +167,68 @@ export function smoothPath(pts: Array<[number, number]>, tension = 0.5): string 
   }
   return d;
 }
+
+// ───────── Calendário do mês (registro retroativo) ─────────
+
+export interface MonthCell {
+  /** AAAA-MM-DD */
+  date: string;
+  day: number;
+  /** false = dia de outro mês, só preenche a grade */
+  inMonth: boolean;
+  isToday: boolean;
+  /** dia que ainda não chegou: não dá para registrar */
+  future: boolean;
+  emotion: EmotionOption | null;
+  count: number;
+}
+
+/** AAAA-MM do dia (São Paulo). */
+export function monthOf(day: string): string {
+  return day.slice(0, 7);
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1, 12));
+  return d.toISOString().slice(0, 7);
+}
+
+export function monthBounds(month: string): { first: string; last: string } {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0, 12)).getUTCDate();
+  return { first: `${month}-01`, last: `${month}-${String(last).padStart(2, "0")}` };
+}
+
+/**
+ * Grade do mês (semanas de domingo a sábado). Cada dia traz a emoção registrada (a última do dia).
+ * Dias fora do mês entram só para completar a semana e nunca são editáveis.
+ */
+export function buildMonthCalendar(rows: CheckinRow[], month: string, today: string): MonthCell[][] {
+  const { first, last } = monthBounds(month);
+  const days = byDay(rows);
+  const startPad = new Date(`${first}T12:00:00Z`).getUTCDay();
+  const endPad = 6 - new Date(`${last}T12:00:00Z`).getUTCDay();
+  const start = shiftDay(first, -startPad);
+  const total = startPad + Number(last.slice(8, 10)) + endPad;
+  const cells: MonthCell[] = Array.from({ length: total }, (_, i) => {
+    const date = shiftDay(start, i);
+    const inMonth = date >= first && date <= last;
+    const hit = inMonth ? days.get(date) : undefined;
+    return {
+      date, day: Number(date.slice(8, 10)), inMonth, isToday: date === today, future: date > today,
+      emotion: hit ? emotionOf(hit.last) : null, count: hit?.count ?? 0,
+    };
+  });
+  return Array.from({ length: total / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+}
+
+/** Instante gravado para um registro retroativo: meio-dia em São Paulo, para o dia nunca virar o vizinho por fuso. */
+export function retroOccurredAt(day: string): string {
+  return new Date(`${day}T12:00:00-03:00`).toISOString();
+}
+
+export function monthSummary(cells: MonthCell[][], today: string): { registered: number; elapsed: number } {
+  const inMonth = cells.flat().filter((c) => c.inMonth && c.date <= today);
+  return { registered: inMonth.filter((c) => c.emotion).length, elapsed: inMonth.length };
+}

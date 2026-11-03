@@ -95,6 +95,7 @@ export interface AgendaDebtRow {
   id: string;
   name: string;
   status: string;
+  installments_total?: number | null;
   installment_amount?: number | null;
   due_day?: number | null;
   outstanding_balance?: number | null;
@@ -316,8 +317,18 @@ export function computeCommitmentAgenda(input: CommitmentAgendaInput): Commitmen
       }
       continue;
     }
+    // Agenda ancorada (1ª parcela / início informados): o vencimento vem do motor
+    // canônico (`next_due_date`), NÃO do `due_day` — o `due_day` pode estar
+    // desatualizado depois que o usuário muda a data da 1ª parcela. As parcelas
+    // seguintes são mensais; só entram as que ainda restam.
+    const anchoredNext = canonical && canonical.derived_schedule === false ? canonical.next_due_date : null;
+    const remaining = debt.installments_total == null || canonical == null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, Number(debt.installments_total) - Number(canonical.installments_paid ?? 0));
     const currentCycleDue = debtDueDate(todayIso, debt.due_day);
-    const candidates = [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
+    const candidates = anchoredNext
+      ? [anchoredNext, civilAddMonths(anchoredNext, 1)].slice(0, Math.max(0, Math.min(2, remaining)))
+      : [currentCycleDue, debtDueDate(addDaysISO(todayIso, 31), debt.due_day)];
     for (const due of candidates) {
       if (!inHorizon(due)) continue;
       // Estado do ciclo lido DO CONTRATO canônico (`debt_obligation.v1`).

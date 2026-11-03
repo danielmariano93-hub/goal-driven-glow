@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatBRL } from "@/lib/engine/facts";
 import { Button } from "@/components/ui/button";
 import { EXTRA_EMOTIONS, PRIMARY_EMOTIONS, resolveEmotion } from "@/lib/emotions/catalog";
-import { EmotionWeekStrip } from "@/components/emotions/EmotionWeekStrip";
+import { EmotionMonthCalendar } from "@/components/emotions/EmotionMonthCalendar";
 
 const PRIMARY_MOODS = PRIMARY_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label, emoji: e.emoji }));
 const EXTRA_MOODS = EXTRA_EMOTIONS.map((e) => ({ key: e.key, v: e.mood, label: e.label, emoji: e.emoji }));
@@ -160,7 +160,7 @@ export function EmotionalCheckinCard() {
         </div>
       </div>
 
-      <EmotionWeekStrip />
+      <EmotionMonthCalendar />
 
       {saved && selected ? (
         <div className="mt-3">
