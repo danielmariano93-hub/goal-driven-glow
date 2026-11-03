@@ -82,3 +82,10 @@ export function causeLedgerForMonth(months: CauseMonth[], month: string, baselin
   if (!baseline.length) return null;
   return computeCauseLedger(current, baseline);
 }
+
+/** F3: livro de causas do último mês FECHADO (o mês corrente é parcial e não compara com meses inteiros). */
+export function causeLedgerForLastClosedMonth(txs: CauseSourceTx[], categories: CauseCategoryRef[], today: string): CauseLedger | null {
+  const [y, m] = today.split("-").map(Number);
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+  return causeLedgerForMonth(buildCauseMonths(txs, categories), prev);
+}

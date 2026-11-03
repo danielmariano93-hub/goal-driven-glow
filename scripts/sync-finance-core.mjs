@@ -86,6 +86,7 @@ export const FINANCE_CORE_MODULES = [
   "mapaReading",
   "causeLedger",
   "causeEntries",
+  "causePresentation",
   "benefitWallet",
   "benefitStatement",
 ];
