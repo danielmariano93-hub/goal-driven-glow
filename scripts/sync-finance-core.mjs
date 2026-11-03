@@ -85,6 +85,7 @@ export const FINANCE_CORE_MODULES = [
   "recurringDetection",
   "mapaReading",
   "causeLedger",
+  "benefitWallet",
 ];
 
 export const REPORT_MODULES = [

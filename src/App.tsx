@@ -51,6 +51,7 @@ const Relatorios = lazyRoute(() => import("./pages/RelatoriosInteligentes"));
 const RelatorioInteligenteDetalhe = lazyRoute(() => import("./pages/RelatorioInteligenteDetalhe"));
 const Nino = lazyRoute(() => import("./pages/Nino"));
 const Emocoes = lazyRoute(() => import("./pages/Emocoes"));
+const TicketAlimentacao = lazyRoute(() => import("./pages/TicketAlimentacao"));
 const Perfil = lazyRoute(() => import("./pages/Perfil"));
 const Investimentos = lazyRoute(() => import("./pages/Investimentos"));
 const MaisMenu = lazyRoute(() => import("./pages/MaisMenu"));
@@ -178,6 +179,7 @@ const App = () => (
                 <Route path="relatorios-inteligentes" element={<Navigate to="/app/relatorios" replace />} />
                 <Route path="relatorios-inteligentes/:id" element={<RelatorioInteligenteDetalhe />} />
                 <Route path="mapa" element={<Emocoes />} />
+                <Route path="ticket" element={<TicketAlimentacao />} />
                 <Route path="investimentos" element={<Investimentos />} />
                 <Route path="perfil" element={<Perfil />} />
                 <Route path="plano" element={<Plano />} />
