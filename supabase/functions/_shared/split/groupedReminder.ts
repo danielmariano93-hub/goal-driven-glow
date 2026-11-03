@@ -38,6 +38,8 @@ export function buildGroupedReminderMessage(input: {
   dueDate: string;
   today: string;
   daysOverdue?: number;
+  /** Posição da mensagem de atraso no dia (1 = primeira, 2 = segunda). A 2ª nunca repete a 1ª. */
+  seqToday?: number;
   items: GroupedItem[];
 }): { title: string; text: string } {
   const { kind, ownerName, dueDate, today, items } = input;
@@ -72,9 +74,16 @@ export function buildGroupedReminderMessage(input: {
     head = `Oi, ${name}! Amanhã, *${when}*, vencem ${countWord(n)} parcelas das suas divisões com ${ownerName}, somando *${fmtBRL(total)}*:`;
   } else {
     const days = Math.max(1, input.daysOverdue ?? 1);
-    title = "💸 *Um lembrete amigo*";
-    head = `Oi, ${name}! Passando pra lembrar que estas parcelas com ${ownerName} venceram em *${when}* e estão em aberto há *${days} ${days === 1 ? "dia" : "dias"}*, somando *${fmtBRL(total)}*:`;
-    foot = "\n\nSe já pagou, é só me responder por aqui que eu confiro 😉";
+    const daysText = `${days} ${days === 1 ? "dia" : "dias"}`;
+    if ((input.seqToday ?? 1) >= 2) {
+      title = "🌙 *De novo por aqui*";
+      head = `${name}, estas parcelas com ${ownerName} continuam em aberto (*${daysText}* de atraso), somando *${fmtBRL(total)}*:`;
+      foot = `\n\nSe preferir, combine uma nova data com ${ownerName} 💛`;
+    } else {
+      title = "💸 *Um lembrete amigo*";
+      head = `Oi, ${name}! Passando pra lembrar que estas parcelas com ${ownerName} venceram em *${when}* e estão em aberto há *${daysText}*, somando *${fmtBRL(total)}*:`;
+      foot = "\n\nSe já pagou, é só me responder por aqui que eu confiro 😉";
+    }
   }
   return { title, text: `${title}\n\n${head}\n\n${lines.join("\n")}${pix}${foot}` };
 }
@@ -192,9 +201,20 @@ export async function dispatchGroupedReminder(sb: any, group: ReminderGroup, dep
     });
   }
   const daysOverdue = group.kind === "overdue" ? Math.max(1, deps.daysBetween(group.dueDate, deps.today)) : undefined;
+  // Cobrança em atraso: se alguma parcela do grupo já recebeu cobrança hoje, esta é a 2ª do dia e não repete a 1ª.
+  let seqToday = 1;
+  if (group.kind === "overdue") {
+    const dayStart = new Date(`${deps.today}T00:00:00-03:00`);
+    const { count } = await sb.from("reminder_jobs").select("id", { count: "exact", head: true })
+      .in("installment_id", valid.map((m) => m.job.installment_id)).eq("kind", "overdue")
+      .not("id", "in", `(${valid.map((m) => m.job.id).join(",")})`)
+      .in("status", ["sent", "enqueued"])
+      .gte("scheduled_for", dayStart.toISOString()).lt("scheduled_for", new Date(dayStart.getTime() + 86_400_000).toISOString());
+    seqToday = (count ?? 0) > 0 ? 2 : 1;
+  }
   const leader = valid[0];
   const { title, text } = buildGroupedReminderMessage({
-    kind: group.kind, participantName: String(leader.participant.name ?? ""), ownerName, dueDate: group.dueDate, today: deps.today, daysOverdue, items,
+    kind: group.kind, participantName: String(leader.participant.name ?? ""), ownerName, dueDate: group.dueDate, today: deps.today, daysOverdue, seqToday, items,
   });
 
   const jobIds = valid.map((m) => m.job.id).sort();

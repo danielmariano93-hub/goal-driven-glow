@@ -72,52 +72,56 @@ export function renderMessageTemplate(
 }
 
 // ---------------------------------------------------------------------------
-// Cobrança em atraso (split_overdue_copy.v1)
+// Cobrança em atraso (split_overdue_copy.v2)
 //
 // Regras de produto:
 //  - Sempre cordial e amigável: ninguém perde amigo por cobrança. Sem pressão, culpa, ameaça ou
 //    "inadimplente"; sempre uma saída fácil (responder, combinar nova data com quem criou o rolê).
+//  - A cobrança fala SÓ do que está em atraso: a parcela, o valor, o vencimento e há quantos dias. Sem o saldo
+//    total do rolê e sem link de cadastro (v1 tinha os dois e ficava longa).
 //  - TODA mensagem depois do vencimento diz há quantos dias a parcela está em atraso.
-//  - Atraso de até `LATE_AFTER_DAYS` dias: uma mensagem por dia. Acima disso: até duas por dia
-//    (1ª e 2ª do dia), e a 2ª nunca repete o conteúdo da 1ª.
+//  - 1º dia de atraso: tom de lembrete leve. A partir do 2º dia: até duas por dia (1ª e 2ª do dia), e a 2ª
+//    nunca repete o conteúdo da 1ª. Quantas saem por dia é política do banco (`late_after_days`); aqui só se
+//    escolhe o texto pela POSIÇÃO da mensagem no dia, nunca por um limiar duplicado em código.
 //  - Os textos giram por dia de atraso, então dois dias seguidos também não saem iguais.
 // Se o administrador definir um texto próprio para `split_overdue`, ele tem precedência.
 // ---------------------------------------------------------------------------
-export const OVERDUE_COPY_VERSION = "split_overdue_copy.v1";
-/** Acima deste atraso (em dias) a cobrança passa a poder sair duas vezes no mesmo dia. */
-export const LATE_AFTER_DAYS = 2;
+export const OVERDUE_COPY_VERSION = "split_overdue_copy.v2";
+/** Até este atraso (em dias) o texto é o lembrete leve; depois, o firme (1ª do dia) ou o de reforço (2ª do dia). */
+export const LATE_AFTER_DAYS = 1;
 
-const PIECES = "{{partial_sentence}}{{remaining_sentence}}{{pix_sentence}}{{link_sentence}}";
+/** Só o que ajuda a resolver a parcela em atraso: pagamento parcial (se houver) e o Pix. */
+const PIECES = "{{partial_sentence}}{{pix_sentence}}";
 
-/** Atraso recente (1–2 dias): uma mensagem por dia, tom de lembrete leve. */
+/** 1º dia de atraso: uma mensagem, tom de lembrete leve. */
 const OVERDUE_RECENT: Array<{ id: string; text: string }> = [
   {
     id: "recent_1",
-    text: `💸 *{{title}} — um lembrete amigo*\n\n{{greeting}}, {{participant_name}}! Passando pra lembrar que a *{{installment_label}}* da divisão “{{title}}” com {{owner_name}}, de *{{amount}}*, venceu em *{{due_date}}* e está em aberto há *{{days_phrase}}*.${PIECES}\n\nSe já pagou, é só me responder por aqui que eu confiro 😉`,
+    text: `💸 {{greeting}}, {{participant_name}}! A *{{installment_label}}* de “{{title}}” com {{owner_name}} (*{{amount}}*) venceu em *{{due_date}}* e está em aberto há *{{days_phrase}}*.${PIECES}\n\nSe já pagou, é só me avisar por aqui 😉`,
   },
   {
     id: "recent_2",
-    text: `👋 *{{title}} — sua parte*\n\n{{greeting}}, {{participant_name}}! Tudo certo? A *{{installment_label}}* de “{{title}}” (*{{amount}}*) venceu em *{{due_date}}* e está com *{{days_phrase}}* de atraso. Acontece com todo mundo!${PIECES}\n\nQuando puder, dá uma olhadinha. Se precisar de mais um tempo, me conta que a gente combina 💛`,
+    text: `👋 {{greeting}}, {{participant_name}}! Lembrete da *{{installment_label}}* de “{{title}}” com {{owner_name}}: *{{amount}}*, vencida em *{{due_date}}* ({{days_phrase}} de atraso).${PIECES}\n\nSe precisar de mais um tempo, me conta que a gente combina 💛`,
   },
 ];
 
-/** 1ª mensagem do dia quando o atraso já passou de 2 dias: firme, mas leve. */
+/** 1ª mensagem do dia a partir do 2º dia de atraso: firme, mas leve. */
 const OVERDUE_FIRST_OF_DAY: Array<{ id: string; text: string }> = [
   {
     id: "first_1",
-    text: `⏰ *{{title}} — {{days_phrase}} de atraso*\n\n{{greeting}}, {{participant_name}}! A *{{installment_label}}* de “{{title}}” com {{owner_name}} (*{{amount}}*) venceu em *{{due_date}}* e segue em aberto há *{{days_phrase}}*.${PIECES}\n\nSe já resolveu, me avisa por aqui que eu atualizo 🙌`,
+    text: `⏰ *{{title}} — {{days_phrase}} de atraso*\n\n{{greeting}}, {{participant_name}}! A *{{installment_label}}* com {{owner_name}} (*{{amount}}*) venceu em *{{due_date}}* e segue em aberto.${PIECES}\n\nSe já resolveu, me avisa por aqui 🙌`,
   },
   {
     id: "first_2",
-    text: `💸 *{{title}} — sua parte*\n\n{{greeting}}, {{participant_name}}! Só passando pra lembrar da *{{installment_label}}* de “{{title}}”: *{{amount}}*, vencida em *{{due_date}}* (em atraso há *{{days_phrase}}*).${PIECES}\n\nSe algo atrapalhou, me conta que a gente acha um jeito 💛`,
+    text: `💸 {{greeting}}, {{participant_name}}! Pendente em “{{title}}” com {{owner_name}}: *{{installment_label}}*, *{{amount}}*, vencida em *{{due_date}}* (há *{{days_phrase}}*).${PIECES}\n\nSe algo atrapalhou, me conta que a gente acha um jeito 💛`,
   },
   {
     id: "first_3",
-    text: `👋 *{{title}} — um lembrete rápido*\n\n{{greeting}}, {{participant_name}}, tudo bem? A parcela de *{{amount}}* de “{{title}}” está em aberto há *{{days_phrase}}* (venceu em *{{due_date}}*).${PIECES}\n\nQualquer dúvida sobre o valor, é só chamar!`,
+    text: `👋 {{greeting}}, {{participant_name}}! A parcela de *{{amount}}* de “{{title}}” com {{owner_name}} está em aberto há *{{days_phrase}}* (venceu em *{{due_date}}*).${PIECES}\n\nQualquer dúvida, é só chamar!`,
   },
   {
     id: "first_4",
-    text: `🙂 *{{title}} — pendência de {{days_phrase}}*\n\n{{greeting}}, {{participant_name}}! Lembrando da *{{installment_label}}* de “{{title}}” com {{owner_name}}: *{{amount}}*, que venceu em *{{due_date}}* (há *{{days_phrase}}*).${PIECES}\n\nSe já pagou e eu ainda não vi, me manda um “paguei” (ou o comprovante) por aqui 😉`,
+    text: `🙂 {{greeting}}, {{participant_name}}! Lembrando da *{{installment_label}}* de “{{title}}” com {{owner_name}}: *{{amount}}*, vencida em *{{due_date}}* (há *{{days_phrase}}*).${PIECES}\n\nSe já pagou, me manda um “paguei” por aqui 😉`,
   },
 ];
 
@@ -125,19 +129,19 @@ const OVERDUE_FIRST_OF_DAY: Array<{ id: string; text: string }> = [
 const OVERDUE_SECOND_OF_DAY: Array<{ id: string; text: string }> = [
   {
     id: "second_1",
-    text: `🌙 *{{title}} — de novo por aqui*\n\n{{participant_name}}, voltei rapidinho! 😅 A *{{installment_label}}* de “{{title}}” (*{{amount}}*) continua em aberto — são *{{days_phrase}}* de atraso.${PIECES}\n\nSe preferir, combine uma nova data direto com {{owner_name}}. O importante é não ficar pendente 💛`,
+    text: `🌙 *{{title}} — de novo por aqui*\n\n{{participant_name}}, a *{{installment_label}}* (*{{amount}}*) continua em aberto: *{{days_phrase}}* de atraso.${PIECES}\n\nSe preferir, combine uma nova data com {{owner_name}} 💛`,
   },
   {
     id: "second_2",
-    text: `🙏 *{{title}} — último lembrete de hoje*\n\n{{participant_name}}, prometo que é o último de hoje! A *{{installment_label}}* (*{{amount}}*), vencida em *{{due_date}}*, completa *{{days_phrase}}* em aberto.${PIECES}\n\nObrigado por resolver — e se rolou algum imprevisto, me conta 😉`,
+    text: `🙏 *{{title}} — último lembrete de hoje*\n\n{{participant_name}}, a *{{installment_label}}* (*{{amount}}*), vencida em *{{due_date}}*, completa *{{days_phrase}}* em aberto.${PIECES}\n\nSe rolou algum imprevisto, me conta 😉`,
   },
   {
     id: "second_3",
-    text: `💬 *{{title}} — fechando o dia*\n\n{{participant_name}}, quando der, vale resolver a *{{installment_label}}* de “{{title}}”: *{{amount}}*, em atraso há *{{days_phrase}}*.${PIECES}\n\nSe já pagou, é só me responder aqui que eu confiro 🙌`,
+    text: `💬 *{{title}} — fechando o dia*\n\n{{participant_name}}, a *{{installment_label}}* (*{{amount}}*) segue em aberto há *{{days_phrase}}*.${PIECES}\n\nSe já pagou, é só me responder aqui 🙌`,
   },
   {
     id: "second_4",
-    text: `🤝 *{{title}} — sem estresse*\n\nOi de novo, {{participant_name}}! Sei que o dia corre, mas a *{{installment_label}}* de “{{title}}” (*{{amount}}*) ainda está pendente, com *{{days_phrase}}* de atraso.${PIECES}\n\nSe precisar ajustar a data, fala com {{owner_name}} ou comigo. A gente resolve 💛`,
+    text: `🤝 *{{title}} — sem estresse*\n\nOi de novo, {{participant_name}}! A *{{installment_label}}* (*{{amount}}*) ainda está pendente, com *{{days_phrase}}* de atraso.${PIECES}\n\nSe precisar ajustar a data, fala com {{owner_name}} ou comigo 💛`,
   },
 ];
 
@@ -159,7 +163,8 @@ export function greetingForHour(hour: number): string {
  */
 export function overdueVariantFor(daysOverdue: number, seqToday: number): { id: string; text: string } {
   const d = Math.max(1, Math.floor(daysOverdue));
-  const pool = d <= LATE_AFTER_DAYS ? OVERDUE_RECENT : seqToday >= 2 ? OVERDUE_SECOND_OF_DAY : OVERDUE_FIRST_OF_DAY;
+  // A 2ª do dia usa sempre o conjunto de reforço (nunca repete a 1ª), qualquer que seja o limiar da política.
+  const pool = seqToday >= 2 ? OVERDUE_SECOND_OF_DAY : d <= LATE_AFTER_DAYS ? OVERDUE_RECENT : OVERDUE_FIRST_OF_DAY;
   return pool[d % pool.length];
 }
 

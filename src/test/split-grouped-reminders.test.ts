@@ -95,6 +95,15 @@ describe("mensagem agrupada", () => {
     expect(t).toContain("venceram em *07/11* e estão em aberto há *2 dias*, somando *R$ 267,17*");
     expect(t).toContain("Se já pagou, é só me responder por aqui que eu confiro 😉");
   });
+  it("atraso, 2ª do dia: não repete a 1ª e continua só com o que está em atraso", () => {
+    const base = { kind: "overdue" as const, participantName: "Thales", ownerName: "Daniel Assis", dueDate: "2026-11-07", today: "2026-11-09", daysOverdue: 2, items };
+    const first = clean(buildGroupedReminderMessage({ ...base, seqToday: 1 }).text);
+    const second = clean(buildGroupedReminderMessage({ ...base, seqToday: 2 }).text);
+    expect(second).not.toBe(first);
+    expect(second).toContain("De novo por aqui");
+    expect(second).toContain("continuam em aberto (*2 dias* de atraso), somando *R$ 267,17*");
+    expect(second).not.toMatch(/Total ainda a receber|Cadastre-se/);
+  });
   it("vence amanhã usa 'Amanhã'", () => {
     const { text } = buildGroupedReminderMessage({ kind: "due_soon", participantName: "Thales", ownerName: "Daniel", dueDate: "2026-11-07", today: "2026-11-06", items });
     expect(text).toContain("Amanhã, *07/11*");

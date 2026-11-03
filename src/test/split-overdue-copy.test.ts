@@ -24,19 +24,25 @@ describe("cobrança em atraso — textos (split_overdue_copy.v1)", () => {
     expect(daysPhrase(12)).toBe("12 dias");
   });
 
-  it("até 2 dias de atraso: 1 mensagem por dia; acima disso a 2ª do dia usa outro conjunto de textos", () => {
-    expect(LATE_AFTER_DAYS).toBe(2);
-    for (let d = 3; d <= 60; d++) {
+  it("1º dia de atraso: lembrete leve; a partir do 2º dia a 1ª do dia é firme e a 2ª usa o conjunto de reforço", () => {
+    expect(LATE_AFTER_DAYS).toBe(1);
+    expect(msg(1, 1).variant.startsWith("recent_")).toBe(true);
+    for (let d = 2; d <= 60; d++) {
       expect(msg(d, 1).text, `d=${d}`).not.toBe(msg(d, 2).text);
       expect(msg(d, 1).variant.startsWith("first_")).toBe(true);
       expect(msg(d, 2).variant.startsWith("second_")).toBe(true);
     }
-    expect(msg(1, 1).variant.startsWith("recent_")).toBe(true);
-    expect(msg(2, 1).variant.startsWith("recent_")).toBe(true);
+  });
+
+  it("2 dias de atraso (limiar da política em 1): a 2ª mensagem do dia NÃO repete a 1ª", () => {
+    const first = msg(2, 1);
+    const second = msg(2, 2);
+    expect(second.text).not.toBe(first.text);
+    expect(second.variant.startsWith("second_")).toBe(true);
   });
 
   it("a 2ª do dia nunca é igual à 1ª, nem em estrutura (assunto e abertura diferentes)", () => {
-    for (let d = 3; d <= 60; d++) {
+    for (let d = 2; d <= 60; d++) {
       const first = msg(d, 1).text.split("\n")[0];
       const second = msg(d, 2).text.split("\n")[0];
       expect(second, `d=${d}`).not.toBe(first);
@@ -67,6 +73,17 @@ describe("cobrança em atraso — textos (split_overdue_copy.v1)", () => {
     expect(text).toContain("Pix: 11977992569");
   });
 
+  it("fala só do que está em atraso: sem saldo total do rolê e sem link de cadastro/app", () => {
+    const withExtras = { ...values, remaining_sentence: "\n\nTotal ainda a receber de você: *R$ 906,25*.", link_sentence: " Cadastre-se em segundos: www.meunino.com.br/s/abc" };
+    for (let d = 1; d <= 12; d++) {
+      for (const seq of [1, 2]) {
+        const { text } = renderOverdueMessage(null, withExtras, { daysOverdue: d, seqToday: seq, sendHour: 9 });
+        expect(text, `d=${d} seq=${seq}`).not.toMatch(/Total ainda a receber|906,25|Cadastre-se|www\.meunino/);
+        expect(text.length, `d=${d} seq=${seq}`).toBeLessThan(420);
+      }
+    }
+  });
+
   it("saudação conforme a hora de envio", () => {
     expect(greetingForHour(9)).toBe("Bom dia");
     expect(greetingForHour(14)).toBe("Boa tarde");
@@ -75,7 +92,7 @@ describe("cobrança em atraso — textos (split_overdue_copy.v1)", () => {
     expect(msg(12, 1, 15).text).toContain("Boa tarde");
   });
 
-  it("cabe no WhatsApp mesmo com pagamento parcial, saldo total e link", () => {
+  it("cabe no WhatsApp mesmo com pagamento parcial (saldo total e link são ignorados)", () => {
     const long = renderOverdueMessage(null, {
       ...values,
       partial_sentence: "\n\n💰 *Pagamento parcial:* já foram pagos *R$ 100,00*. Restam *R$ 191,33*.",
