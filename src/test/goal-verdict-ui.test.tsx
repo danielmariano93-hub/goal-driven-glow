@@ -74,8 +74,8 @@ describe("onde ainda não há meta", () => {
   });
 });
 
-describe("placar: meses reconstruídos antes da criação da meta", () => {
-  it("não aparece '?' (sem confirmação manual) e 'vs antes' vem da mesma conta do resultado", () => {
+describe("placar: histórico de ciclos", () => {
+  it("sem '?' (ciclos do histórico contam sozinhos) e 'vs antes' vem da mesma conta do resultado", () => {
     const h = buildGoalHistory({
       today: "2026-11-03",
       goals: [{ id: "g", category_id: T, computed_limit: 1800, baseline_value: 2000, status: "active", period_type: "monthly_recurring", start_date: "2026-09-01", end_date: null, created_at: "2026-09-01T10:00:00+00:00" }],
@@ -86,7 +86,7 @@ describe("placar: meses reconstruídos antes da criação da meta", () => {
     const effects = Object.fromEntries(h.verdict!.by_category.map((c) => [c.category_id, { change_pct: c.change_pct, status: c.status }]));
     render(<GoalScoreboard history={h} effects={effects} />);
     expect(screen.getByText("vs antes")).toBeTruthy();
-    expect(screen.getByText("−25%")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /histórico importado/ })).toBeNull();
+    expect(screen.getByText("−17%")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /histórico importado/ })).toBeNull(); // agosto (ciclo guardado) conta sozinho
   });
 });

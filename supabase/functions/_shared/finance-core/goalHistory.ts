@@ -199,8 +199,8 @@ function goalForMonth(goals: HistoryGoalRow[], month: string, current: string): 
 }
 
 /**
- * Primeiro mês em que a meta VALE, lido do registro de criação (sem confirmação manual):
- * mês de `created_at` (fuso de São Paulo); meta criada "para o mês seguinte" só vale a partir dele.
+ * Mês em que a LINHA da meta nasceu (`created_at`, fuso de São Paulo; "mês seguinte" vale a partir dele).
+ * Serve para reconhecer a referência congelada na criação; NÃO define o início da medição (isso é o histórico de ciclos).
  */
 export function goalStartMonth(g: Pick<HistoryGoalRow, "created_at" | "period_type">): string | null {
   if (!g.created_at) return null;
@@ -220,27 +220,15 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
   const current = input.today.slice(0, 7);
   const monthsBefore = input.monthsBefore ?? 3;
   const names = new Map(input.categories.map((c) => [c.id, c.name]));
-  // Regra automática: a meta conta a partir do mês em que foi criada (registro do banco). Meses reconstruídos
-  // (importados em lote) ANTES disso não tinham meta e ficam fora; depois disso entram sem pedir confirmação.
-  // Só "não tinha" marcado pela própria pessoa (confirmed=false) fica de fora.
-  const startFloor = new Map<string, string>();
-  for (const g of input.goals) {
-    const m = goalStartMonth(g);
-    if (!m) continue;
-    const cur = startFloor.get(g.category_id);
-    if (!cur || m < cur) startFloor.set(g.category_id, m);
-  }
+  // O início da meta vem do HISTÓRICO guardado (ciclos que sobrevivem a edição/exclusão da meta), não da data de
+  // criação da linha atual: a linha viva foi renovada/editada e só diz quando ESSA linha nasceu. Todo ciclo conta
+  // sem pedir confirmação; só "não tinha" marcado pela própria pessoa (confirmed=false) fica de fora.
   const allCycles = input.cycles ?? [];
   const isRejected = (c: HistoryGoalRow) => c.confirmed === false;
   const goals = [
     ...input.goals.map((g) => ({ ...g, source: "goal" as const })),
     ...allCycles.filter((c) => !isRejected(c)).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
-  ]
-    .filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0)
-    .filter((g) => {
-      const floor = startFloor.get(g.category_id);
-      return !floor || g.start_date.slice(0, 7) >= floor;
-    });
+  ].filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0);
 
   // Gasto e maior estabelecimento por categoria e mês.
   const spend = new Map<string, number>();
