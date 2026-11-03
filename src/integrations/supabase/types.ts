@@ -12258,6 +12258,7 @@ export type Database = {
           refund_match_status: string | null
           refund_of_transaction_id: string | null
           donation_goal_id: string | null
+          promoted_from_transfer: boolean
           settles_card_id: string | null
           shared_expense_id: string | null
           source_document_id: string | null
@@ -12329,6 +12330,7 @@ export type Database = {
           refund_match_status?: string | null
           refund_of_transaction_id?: string | null
           donation_goal_id?: string | null
+          promoted_from_transfer?: boolean
           settles_card_id?: string | null
           shared_expense_id?: string | null
           source_document_id?: string | null
@@ -12400,6 +12402,7 @@ export type Database = {
           refund_match_status?: string | null
           refund_of_transaction_id?: string | null
           donation_goal_id?: string | null
+          promoted_from_transfer?: boolean
           settles_card_id?: string | null
           shared_expense_id?: string | null
           source_document_id?: string | null
