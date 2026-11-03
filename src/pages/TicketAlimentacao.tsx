@@ -7,7 +7,7 @@ import {
   balanceSeries, computeBenefitState, merchantBreakdown, suggestions, weekdayPattern, whatIf,
   type BenefitStatus,
 } from "@/lib/engine/benefitWallet";
-import { useBenefitEnabled, useBenefitEntries, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
+import { useBenefitEnabled, useBenefitEntries, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
 import { EntrySheet } from "@/components/ticket/EntrySheet";
@@ -30,6 +30,8 @@ export default function TicketAlimentacao() {
   const walletQ = useBenefitWallet(enabled.data === true);
   const entriesQ = useBenefitEntries(walletQ.data?.id);
   const remove = useDeleteBenefitEntry(walletQ.data?.id);
+  const cycleStartForLeak = useMemo(() => (walletQ.data ? computeBenefitState(walletQ.data, entriesQ.data ?? [], todayISO()).cycle.start : undefined), [walletQ.data, entriesQ.data]);
+  const leak = useBenefitFoodLeak(cycleStartForLeak, todayISO(), !!walletQ.data);
   const today = todayISO();
   const [tab, setTab] = useState<"resumo" | "padroes">("resumo");
   const [sheet, setSheet] = useState(false);
@@ -226,6 +228,15 @@ export default function TicketAlimentacao() {
               ) : (
                 <p className="text-sm text-muted-foreground">Com mais alguns gastos lançados eu já aponto em quais dias da semana você mais gasta.</p>
               )}
+            </section>
+          )}
+          {leak.data && leak.data.amount > 0 && (
+            <section className="surface-card flex flex-col gap-1 p-5">
+              <h2 className="font-bold">Comida fora do Ticket</h2>
+              <div className="text-2xl font-bold">{brl2(leak.data.amount)}</div>
+              <p className="text-sm text-muted-foreground">
+                Neste ciclo você pagou do bolso {leak.data.count} {leak.data.count === 1 ? "gasto" : "gastos"} com alimentação ({leak.data.categories.join(", ").toLowerCase()}). Esse valor está nas suas contas, não no Ticket.
+              </p>
             </section>
           )}
           {tips.length > 0 && (

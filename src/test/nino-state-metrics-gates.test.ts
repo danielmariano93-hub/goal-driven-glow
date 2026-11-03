@@ -150,3 +150,20 @@ describe("projeção do mês no gate de preservação", () => {
     expect(executed?.time.aspect).toBe("projection");
   });
 });
+
+describe("caixa negativo só com evidência de saldo negativo", () => {
+  const claimsOf = (result: unknown, engine: string) => buildEvidenceClaims(ir("balance") as never, {
+    outcomes: [{ query_id: "q1", status: "ok", engine, args: {}, result }],
+  } as never);
+  it("saldo positivo na evidência: 'o caixa ficou negativo' é violação", () => {
+    const claims = claimsOf(snapshot, "get_financial_snapshot");
+    const out = groundReply({ reply: "Seu caixa ficou negativo neste mês.", claims });
+    expect(out.ok).toBe(false);
+    expect(out.violations[0].detail).toBe("negative_cash_not_in_evidence");
+    expect(groundReply({ reply: "Você tem R$ 12.345,67 disponíveis.", claims }).ok).toBe(true);
+  });
+  it("com saldo negativo na evidência (projeção), o aviso é permitido", () => {
+    const claims = claimsOf({ available_today: 500, horizon_days: 30, first_negative_date: "2026-10-12", lowest_balance: -320, lowest_date: "2026-10-12", days: [{ date: "2026-10-12", balance: -320, items: [] }] }, "explain_cash_projection");
+    expect(groundReply({ reply: "Em 12/10 o caixa fica negativo, em R$ -320,00.", claims }).violations.filter((v) => v.detail === "negative_cash_not_in_evidence")).toEqual([]);
+  });
+});

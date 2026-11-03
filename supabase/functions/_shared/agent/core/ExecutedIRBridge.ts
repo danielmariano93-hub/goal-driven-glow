@@ -244,7 +244,7 @@ function fromSpendingReport(requested: FinancialQueryV3, result: unknown): Execu
  * aplicou (`category_filter.applied`). Filtro pedido e não aplicado continua
  * falhando fechado (`filter_lost`).
  */
-const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health", "benefit_balance"]);
+const STATE_METRICS = new Set(["balance", "net_worth", "debt_balance", "goal_progress", "future_installments", "financial_health", "benefit_balance", "card_invoice", "transaction_list"]);
 
 function fromStateEngine(requested: FinancialQueryV3, result: unknown): ExecutedIR | null {
   const isForecast = requested.time?.aspect === "projection" && result != null && typeof result === "object"
@@ -259,6 +259,20 @@ function fromStateEngine(requested: FinancialQueryV3, result: unknown): Executed
     if (applied && applied.applied === true && applied.requested) {
       filters = [{ field: "category", op: "eq", value: String(applied.requested) }];
     }
+  }
+  if (requested.metric === "future_installments") {
+    const applied = r.merchant_filter as Record<string, unknown> | undefined;
+    if (applied && applied.applied === true && applied.requested) filters = [{ field: "merchant", op: "eq", value: String(applied.requested) }];
+  }
+  if (requested.metric === "transaction_list") {
+    const cat = r.category_filter as Record<string, unknown> | undefined;
+    if (cat && cat.applied === true && cat.requested) filters.push({ field: "category", op: "eq", value: String(cat.requested) });
+    const mer = r.merchant_filter as Record<string, unknown> | undefined;
+    if (mer && mer.applied === true && mer.requested) filters.push({ field: "merchant", op: "eq", value: String(mer.requested) });
+  }
+  if (requested.metric === "card_invoice") {
+    const applied = r.card_filter as Record<string, unknown> | undefined;
+    if (applied && applied.requested) filters = [{ field: "card", op: "eq", value: String(applied.requested) }];
   }
   if (requested.metric === "balance") {
     const applied = r.account_filter as Record<string, unknown> | undefined;

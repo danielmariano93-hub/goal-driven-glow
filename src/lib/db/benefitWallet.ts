@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import type { BenefitEntry, BenefitKind, BenefitWalletConfig } from "@/lib/engine/benefitWallet";
 import type { BenefitStatementItem } from "@/lib/engine/benefitStatement";
+import { isBenefitFoodCategory } from "@/lib/engine/benefitWallet";
 
 // Ticket Alimentação (contexto separado do livro-razão). As tabelas ainda não estão nos tipos gerados do Supabase.
 type Row = Record<string, unknown>;
@@ -165,5 +166,32 @@ export function useImportBenefitEntries(walletId?: string) {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.entries(walletId) }),
+  });
+}
+
+export type FoodLeak = { amount: number; count: number; categories: string[] };
+
+/** Comida paga do bolso no ciclo (despesas reais de Restaurante, Mercado, Delivery… no livro-razão). Só lê quando há carteira. */
+export function useBenefitFoodLeak(from: string | undefined, to: string, enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["benefit-food-leak", user?.id, from, to],
+    enabled: !!user && enabled && !!from,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<FoodLeak> => {
+      const cats = await supabase.from("categories").select("id,name").or(`user_id.eq.${user!.id},user_id.is.null`);
+      if (cats.error) throw cats.error;
+      const food = new Map((cats.data ?? []).filter((c) => isBenefitFoodCategory(c.name)).map((c) => [c.id, c.name as string]));
+      if (!food.size) return { amount: 0, count: 0, categories: [] };
+      const tx = await supabase.from("transactions").select("amount,category_id,movement_kind,type")
+        .eq("user_id", user!.id).eq("type", "expense").gte("occurred_at", from!).lte("occurred_at", to).in("category_id", [...food.keys()]);
+      if (tx.error) throw tx.error;
+      const rows = (tx.data ?? []).filter((r) => (r.movement_kind ?? "transaction") === "transaction");
+      return {
+        amount: Math.round(rows.reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100,
+        count: rows.length,
+        categories: [...new Set(rows.map((r) => food.get(r.category_id as string)).filter(Boolean) as string[])].sort(),
+      };
+    },
   });
 }

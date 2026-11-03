@@ -105,6 +105,8 @@ function explicitPeriodMentions(reply: string): Array<{ token: string; from: str
   return mentions;
 }
 
+const NEGATIVE_CASH_RX = /\b(?:caixa|saldo|conta)\b[^.?!\n]{0,40}\b(?:negativ[oa]s?|no vermelho)\b|\bficou\s+no\s+vermelho\b/i;
+
 export function groundReply(args: {
   reply: string;
   claims: EvidenceClaimSet;
@@ -218,6 +220,12 @@ export function groundReply(args: {
         detail: null,
       });
     }
+  }
+
+  // "o caixa ficou negativo / está no vermelho" só pode sair quando a evidência traz saldo negativo.
+  // Antes o compositor escrevia isso por impressão, com saldo positivo no resultado.
+  if (claims.length > 0 && NEGATIVE_CASH_RX.test(reply) && !values.some((v) => v < 0)) {
+    verdicts.push({ kind: "absence", token: "negative_cash", status: "semantic_mismatch", detail: "negative_cash_not_in_evidence" });
   }
 
   const violations = verdicts.filter((v) => v.status === "unbacked" || v.status === "semantic_mismatch");

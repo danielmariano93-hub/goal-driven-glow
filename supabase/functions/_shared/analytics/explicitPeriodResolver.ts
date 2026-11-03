@@ -132,6 +132,10 @@ export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): R
     return to ? range(from, to, raw) : null;
   }
 
+  // Dia + nome do mês: "1º de novembro", "dia 15 de outubro", "do dia 1 a 5 de novembro de 2026".
+  const named = resolveNamedMonthDays(t, raw, today);
+  if (named) return named;
+
   // Day-only ranges: "do dia 21 ao dia 27", "21 a 27", semantic "21-27".
   const dayRange = t.match(/(?:\bdo\s+)?\bdia\s*(\d{1,2})\s*(?:ao|a|ate|-)\s*(?:dia\s*)?(\d{1,2})\b/)
     ?? (/^(?:dia\s*)?(\d{1,2})\s*(?:a|ate|ao|-)\s*(?:dia\s*)?(\d{1,2})$/.exec(t));
@@ -144,6 +148,37 @@ export function resolveExplicitPeriodPt(text: string, now: Date = new Date()): R
     return day ? range(day, day, raw) : null;
   }
 
+  return null;
+}
+
+const MONTH_BY_NAME: Record<string, number> = {
+  janeiro: 1, fevereiro: 2, marco: 3, abril: 4, maio: 5, junho: 6,
+  julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
+};
+const MONTH_RX = "(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)";
+// "º"/"°" não são diacríticos: sobrevivem à normalização e precisam ser aceitos.
+const DAY_RX = "(\\d{1,2})\\s*[ºo°]?";
+const LEAD_RX = "(?:(?:no|do|em|ate o|desde o)\\s+)?";
+
+function resolveNamedMonthDays(t: string, raw: string, today: string): ResolvedPeriod | null {
+  const year = (y: string | undefined, month: number): number => {
+    const [ty, tm] = today.split("-").map(Number);
+    return y ? Number(y) : month > tm ? ty - 1 : ty;
+  };
+  const rangeMatch = new RegExp(`^${LEAD_RX}(?:dia\\s*)?${DAY_RX}\\s*(?:a|ate|ao|-)\\s*(?:dia\\s*)?${DAY_RX}\\s*de\\s*${MONTH_RX}(?:\\s*de\\s*(20\\d{2}))?$`).exec(t);
+  if (rangeMatch) {
+    const month = MONTH_BY_NAME[rangeMatch[3]];
+    const y = year(rangeMatch[4], month);
+    const from = ymd(y, month, Number(rangeMatch[1]));
+    const to = ymd(y, month, Number(rangeMatch[2]));
+    return from && to ? range(from, to, raw) : null;
+  }
+  const single = new RegExp(`^${LEAD_RX}(?:dia\\s*)?${DAY_RX}\\s*de\\s*${MONTH_RX}(?:\\s*de\\s*(20\\d{2}))?$`).exec(t);
+  if (single) {
+    const month = MONTH_BY_NAME[single[2]];
+    const day = ymd(year(single[3], month), month, Number(single[1]));
+    return day ? range(day, day, raw) : null;
+  }
   return null;
 }
 
