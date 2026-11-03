@@ -32,6 +32,9 @@ export const OPERATIONAL_KINDS = new Set<string>([
   // tom "behavior" a 2 números e apagaria a projeção; o texto sai como o motor calculou.
   "weekday_spending_risk",
   "weekend_spending_risk",
+  // Ticket Alimentação: data de esgotamento, falta e ritmo SÃO o conteúdo do aviso.
+  "benefit_projection",
+  "benefit_stale_reading",
 ]);
 
 /** Tipos INTERPRETATIVOS: leitura, causa, comparação, comportamento, meta. */
@@ -41,6 +44,8 @@ export const NARRATIVE_TONES: Record<string, NarrativeTone> = {
   growing_category: "attention",
   small_spend_acceleration: "behavior",
   weekday_spending_risk: "behavior",
+  benefit_projection: "attention",
+  benefit_stale_reading: "attention",
   weekend_spending_risk: "behavior",
   month_phase_spending_risk: "behavior",
   emotional_spending: "behavior",

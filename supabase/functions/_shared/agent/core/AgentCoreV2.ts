@@ -31,6 +31,7 @@ import { findPending } from "./PendingConfirmations.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
 import { parseBankNotification } from "./BankNotificationParser.ts";
 import { DEFAULT_FAST_LOG_TOKEN, detectFastLog, loadFastLogToken } from "./FastLog.ts";
+import { classifyBenefitMessage } from "../benefitFastLog.ts";
 import { enqueueReply } from "./OutboundQueue.ts";
 import { sanitizeUserFacingText } from "./UserSafeError.ts";
 import { contractRepairHint, isRepairableFailure, isTransientInterpreterFailure, selfRepairHint, SELF_REPAIR_VERSION } from "./SelfRepair.ts";
@@ -506,7 +507,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   if (bank.draftable || looksLikeBulkOrDocument(input.text)) return await handleLegacyTurn(input);
 
   const fastLogToken = await loadFastLogToken(sb, input.user_id).catch(() => DEFAULT_FAST_LOG_TOKEN);
-  if (detectFastLog(input.text, fastLogToken).triggered) return await handleLegacyTurn(input);
+  if (detectFastLog(input.text, fastLogToken).triggered || classifyBenefitMessage(input.text)) return await handleLegacyTurn(input);
 
   const session = await resolveSession(sb, {
     user_id: input.user_id,

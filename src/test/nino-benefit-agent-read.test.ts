@@ -97,3 +97,37 @@ describe("Ticket Alimentação — leitura pelo agente", () => {
     expect(out.turn?.reply).toContain("30/11");
   });
 });
+
+describe("vazamento: comida paga do bolso no ciclo", () => {
+  function sbWithLedger(txRows: Array<Record<string, unknown>>) {
+    const base = fakeSb({ access: true, wallet: true }) as any;
+    const origFrom = base.from;
+    base.from = (table: string) => {
+      if (table === "categories") {
+        const q: any = { select: () => q, or: () => q, then: (r: any) => r({ data: [{ id: "c1", name: "Restaurante" }, { id: "c2", name: "Mercado" }, { id: "c3", name: "Transporte" }], error: null }) };
+        return q;
+      }
+      if (table === "transactions") {
+        const q: any = { select: () => q, eq: () => q, gte: () => q, lte: () => q, in: () => q, then: (r: any) => r({ data: txRows, error: null }) };
+        return q;
+      }
+      return origFrom(table);
+    };
+    return base;
+  }
+  it("soma só despesas reais de comida; transferência e outras categorias ficam fora", async () => {
+    const sb = sbWithLedger([
+      { amount: 40, category_id: "c1", occurred_at: "2026-11-10", movement_kind: "transaction" },
+      { amount: 60.5, category_id: "c2", occurred_at: "2026-11-12", movement_kind: "transaction" },
+      { amount: 999, category_id: "c1", occurred_at: "2026-11-12", movement_kind: "transfer" },
+    ]);
+    const out = await get_benefit_status({ sb, user_id: "u1", conversation_id: "c" } as never);
+    const leak = (out as any).result.food_outside_ticket;
+    expect(leak).toEqual({ amount: 100.5, count: 2, categories: ["Mercado", "Restaurante"] });
+    expect(semanticBlockText("get_benefit_status", (out as any).result)).toMatch(/Fora do Ticket, você gastou \*R\$\s100,50\* com alimentação/);
+  });
+  it("sem comida no ciclo, não menciona vazamento", async () => {
+    const out = await get_benefit_status({ sb: sbWithLedger([]), user_id: "u1", conversation_id: "c" } as never);
+    expect(semanticBlockText("get_benefit_status", (out as any).result)).not.toContain("Fora do Ticket");
+  });
+});

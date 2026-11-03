@@ -33,6 +33,7 @@ import { learnAdvisorInterest } from "./AdvisorInteractionLearning.ts";
 import { resolveAdvisorTopicKey } from "../../finance-core/advisorTopics.ts";
 import { isLLMConfigured } from "../llm.ts";
 import { detectFastLog, loadFastLogToken, runFastLog } from "./FastLog.ts";
+import { classifyBenefitMessage } from "../benefitFastLog.ts";
 import { tryBulkDraft, findBulkPending, executeBulkPending } from "./BulkEntry.ts";
 import { runConfirmationFastPath } from "./ConfirmationFastPath.ts";
 import { confirmationExecutor } from "./PendingConfirmations.ts";
@@ -455,7 +456,11 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
 
   // ---- FastLog (palavra-mágica: registra sem confirmação) ---------------
   const fastLogToken = await loadFastLogToken(sb, input.user_id);
-  const fastLog = detectFastLog(input.text, fastLogToken);
+  const fastLogDetected = detectFastLog(input.text, fastLogToken);
+  // Ticket em texto livre ("gastei 45 no mercado com o ticket", "caiu o ticket 900", "ticket 412,40"):
+  // mesmo caminho direto do `!ja`, mas só para a carteira do Ticket.
+  const benefitKind = fastLogDetected.triggered ? null : classifyBenefitMessage(input.text);
+  const fastLog = benefitKind ? { triggered: true, cleanText: input.text, token: fastLogDetected.token } : fastLogDetected;
   if (fastLog.triggered) {
     const started = Date.now();
     let outcome: Awaited<ReturnType<typeof runFastLog>> = { handled: true, reply: "", reply_kind: "info", tool_calls: [] };
@@ -463,6 +468,7 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
     try {
       outcome = await runFastLog(sb, {
         user_id: input.user_id, conversation_id: input.conversation_id, cleanText: fastLog.cleanText,
+        benefitKind: benefitKind ?? undefined,
       });
     } catch (e) {
       fastLogError = String((e as Error).message ?? "fast_log_error").slice(0, 200);

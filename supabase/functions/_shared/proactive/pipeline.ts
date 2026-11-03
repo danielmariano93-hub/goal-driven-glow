@@ -45,6 +45,7 @@ import { weekendForecastSituation } from "./weekendMessages.ts";
 import { validAnswers } from "./habitContext.ts";
 import { loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
+import { benefitSituations, isBenefitAlertWindow, loadBenefitState } from "./benefitSituations.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
 import {
@@ -381,6 +382,14 @@ export async function runMultiFinanceProactive(
       !(situation.communication_kind === "expected_recurring_payment" && (situation.days_until ?? 99) <= 1));
   }
   refined.push(...reminders);
+  // nino_benefit_alerts.v1 — Ticket Alimentação: avisa quando a projeção muda (estado novo = aviso novo).
+  if (isBenefitAlertWindow(new Date())) {
+    const benefitState = await loadBenefitState(sb, userId, ctx.as_of).catch(() => null);
+    if (benefitState) {
+      const knownBenefit = new Set(refined.map((situation) => situation.fingerprint));
+      refined.push(...benefitSituations(benefitState, ctx, new Date()).filter((situation) => !knownBenefit.has(situation.fingerprint)));
+    }
+  }
   // nino_spending_goals_comm.v1 — metas de gasto com submetas: intervir enquanto
   // ainda dá para corrigir o mês. A leitura rica substitui o aviso genérico de
   // teto da mesma meta (uma meta, uma mensagem).
