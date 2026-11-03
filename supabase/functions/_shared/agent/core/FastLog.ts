@@ -6,6 +6,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { interpret } from "../parser.ts";
+import { detectBenefitPayment, recordBenefitFastLog } from "../benefitFastLog.ts";
 import { extractSpans } from "../extract.ts";
 import {
   create_transaction_draft, create_transfer_draft, add_goal_contribution_draft,
@@ -87,6 +88,11 @@ export async function runFastLog(
   const ctx: ToolContext = {
     sb, user_id: input.user_id, conversation_id: input.conversation_id, user_text: input.cleanText,
   };
+  // Ticket Alimentação: carteira separada, nunca vira lançamento de conta.
+  if (detectBenefitPayment(input.cleanText)) {
+    const out = await recordBenefitFastLog(sb, { user_id: input.user_id, cleanText: input.cleanText });
+    return { handled: true, reply: out.reply, reply_kind: out.reply_kind, tool_calls: [] };
+  }
   const spans = extractSpans(input.cleanText);
   const intent = interpret(input.cleanText);
   const calls: NonNullable<FastLogOutcome["tool_calls"]> = [];

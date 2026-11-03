@@ -74,6 +74,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/ticket-fastlog.test.ts
           src/test/nino-benefit-agent-read.test.ts
           src/test/finance-core-barrel-collisions.test.ts
           src/test/confirmar-lancamento-planejado.test.ts
@@ -110,6 +111,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/ticket-fastlog.test.ts
           src/test/nino-benefit-agent-read.test.ts
           src/test/finance-core-barrel-collisions.test.ts
           src/test/confirmar-lancamento-planejado.test.ts
