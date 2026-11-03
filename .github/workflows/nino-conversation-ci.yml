@@ -74,6 +74,9 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/nino-card-invoice.test.ts
+          src/test/nino-transaction-list.test.ts
+          src/test/explicit-period-named-month.test.ts
           src/test/benefit-alerts.test.ts
           src/test/benefit-statement.test.ts
           src/test/ticket-fastlog.test.ts
@@ -113,6 +116,9 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/nino-card-invoice.test.ts
+          src/test/nino-transaction-list.test.ts
+          src/test/explicit-period-named-month.test.ts
           src/test/benefit-alerts.test.ts
           src/test/benefit-statement.test.ts
           src/test/ticket-fastlog.test.ts

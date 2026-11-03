@@ -99,6 +99,9 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
   // --- Cartões (compromissos futuros) ---
   { key: "cards.future_installments", label: "Parcelas futuras", domain: "cards", tool: "get_future_installments", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar as parcelas que ainda vão cair" },
 
+  { key: "ledger.period_list", label: "Lançamentos do período", domain: "ledger", tool: "list_period_transactions", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "listar os lançamentos de um período, um a um" },
+  { key: "cards.invoice", label: "Fatura do cartão", domain: "cards", tool: "get_card_invoice", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar o valor da fatura de um mês" },
+
   // --- Ticket Alimentação (benefício separado) ---
   { key: "benefit.status", label: "Ticket Alimentação", domain: "ledger", tool: "get_benefit_status", writes: false, risk: "read_only", surfaces: ["app", "whatsapp"], says: "mostrar o saldo do Ticket Alimentação e quando ele acaba" },
 

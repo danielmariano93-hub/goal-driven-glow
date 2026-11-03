@@ -311,6 +311,34 @@ function mapQuery(q: FinancialQuery, ir: FinancialQueryIR): Mapping | null {
     }
   }
 
+  // "Liste meus gastos de outubro": lançamentos do período, com categoria e/ou estabelecimento opcionais.
+  if (q.metric === "transaction_list" && !q.group_by.length && ["value", "sum"].includes(q.operation)) {
+    if (!q.filters.every((f) => f.op === "eq" && (f.field === "category" || f.field === "merchant"))) return null;
+    const cat = filter(q, "category");
+    const mer = filter(q, "merchant");
+    return {
+      tool: "list_period_transactions", capability: "financial_analysis", execution: "deterministic",
+      args: { from: period.from, to: period.to, ...(cat ? { category: cat } : {}), ...(mer ? { merchant: mer } : {}) },
+    };
+  }
+
+  // "Quanto falta pagar no JIM.COM?": parcelas futuras de UM estabelecimento, confirmado pela ferramenta.
+  if (q.metric === "future_installments" && !q.group_by.length && ["value", "sum"].includes(q.operation)
+    && q.filters.length === 1 && q.filters[0].field === "merchant" && q.filters[0].op === "eq" && String(q.filters[0].value ?? "").trim()) {
+    return { tool: "get_future_installments", capability: "financial_analysis", execution: "deterministic", args: { months: 24, merchant: String(q.filters[0].value).trim() } };
+  }
+
+  // "Quanto vem na fatura de novembro?": fatura de UMA competência (mês da query), com cartão opcional.
+  if (q.metric === "card_invoice" && !q.group_by.length && ["value", "sum"].includes(q.operation)) {
+    const card = q.filters.length === 1 && q.filters[0].field === "card" && q.filters[0].op === "eq" ? String(q.filters[0].value ?? "").trim() : "";
+    if (q.filters.length && !card) return null;
+    const month = String(period.from ?? "").slice(0, 7);
+    return {
+      tool: "get_card_invoice", capability: "financial_analysis", execution: "deterministic",
+      args: { ...(/^\d{4}-\d{2}$/.test(month) ? { month } : {}), ...(card ? { card } : {}) },
+    };
+  }
+
   // "Saldo da conta Itaú": UM filtro de conta, aplicado e confirmado pela ferramenta.
   if (q.metric === "balance" && !q.group_by.length && ["value", "sum"].includes(q.operation)) {
     const only = q.filters.length === 1 ? q.filters[0] : null;
@@ -456,6 +484,9 @@ export const EXECUTABLE_ONTOLOGY: string[] = [
   "balance + breakdown group card|account (cadastro: 'quais cartões/contas eu tenho?')",
   "balance + forecast (projeção de caixa: saldo de hoje, entradas e compromissos dia a dia; 'por que o caixa fica negativo?')",
   "financial_health + value|sum|trend|compare|explain (veredito holístico: 'estou melhorando ou piorando?')",
+  "future_installments + value|sum com filtro merchant (parcelas que faltam num estabelecimento)",
+  "transaction_list + value|sum (lançamentos do período, filtros opcionais: category, merchant)",
+  "card_invoice + value|sum (fatura do cartão de um mês, com cartão opcional)",
   "benefit_balance + value|sum (Ticket Alimentação: saldo do benefício, quando acaba, quanto posso gastar por dia)",
 ];
 

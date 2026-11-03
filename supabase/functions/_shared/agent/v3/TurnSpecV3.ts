@@ -40,7 +40,9 @@ export type FinancialMetricV3 =
   | "debt_balance"
   | "future_installments"
   | "financial_health"
-  | "benefit_balance";
+  | "benefit_balance"
+  | "card_invoice"
+  | "transaction_list";
 export type FinancialOperationV3 =
   | "value"
   | "sum"

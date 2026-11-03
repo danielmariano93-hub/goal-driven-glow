@@ -23,6 +23,8 @@ import { computeAgentSnapshot } from "../engine/metrics.ts";
 import { COMPETENCE_WINDOW_PADDING_DAYS, loadTransactionsForCompetenceWindow } from "./core/handlers/TransactionWindowLoader.ts";
 import { shift, today } from "../finance-core/ninoClock.ts";
 import { get_benefit_status } from "./benefitTools.ts";
+import { get_card_invoice } from "./cardInvoiceTool.ts";
+import { list_period_transactions } from "./transactionListTool.ts";
 import { computeGoalStrategy } from "./goalStrategyTool.ts";
 import { computeGoalPerformance } from "./goalPerformanceTool.ts";
 import { computeNextBestAction } from "./behaviorWealth.ts";
@@ -2338,7 +2340,7 @@ export async function list_investments(ctx: ToolContext): Promise<ToolResult> {
   };
 }
 
-export async function get_future_installments(ctx: ToolContext, args?: { months?: number }): Promise<ToolResult> {
+export async function get_future_installments(ctx: ToolContext, args?: { months?: number; merchant?: string }): Promise<ToolResult> {
   const months = Math.max(1, Math.min(24, Number(args?.months ?? 6)));
   const today = todaySaoPaulo();
   const [y, m] = today.slice(0, 7).split("-").map(Number);
@@ -2356,7 +2358,21 @@ export async function get_future_installments(ctx: ToolContext, args?: { months?
   if (instRes.error) return { ok: false, error: `installments_query_failed:${instRes.error.message}` };
   if (cardsRes.error) return { ok: false, error: `cards_query_failed:${cardsRes.error.message}` };
   const cardName = new Map(((cardsRes.data ?? []) as any[]).map((c) => [c.id, c.name]));
-  const rows = ((instRes.data ?? []) as any[]).filter((r) => String(r.status ?? "").toLowerCase() !== "cancelled");
+  let rows = ((instRes.data ?? []) as any[]).filter((r) => String(r.status ?? "").toLowerCase() !== "cancelled");
+  // "Quanto falta pagar no JIM.COM?": só as parcelas das compras daquele estabelecimento (nome ou nome canônico).
+  const wantedMerchant = String(args?.merchant ?? "").trim();
+  let merchantFilter: { requested: string; applied: true; matched_purchases: number } | null = null;
+  if (wantedMerchant) {
+    const key = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const wantedKey = key(wantedMerchant);
+    const purchasesRes = await ctx.sb.from("credit_card_purchases").select("id,merchant,merchant_canonical").eq("user_id", ctx.user_id);
+    if (purchasesRes.error) return { ok: false, error: `purchases_query_failed:${purchasesRes.error.message}` };
+    const ids = new Set(((purchasesRes.data ?? []) as any[])
+      .filter((p) => wantedKey && (key(p.merchant).includes(wantedKey) || key(p.merchant_canonical).includes(wantedKey)))
+      .map((p) => String(p.id)));
+    rows = rows.filter((r) => ids.has(String(r.purchase_id)));
+    merchantFilter = { requested: wantedMerchant, applied: true, matched_purchases: ids.size };
+  }
   const byMonth = new Map<string, { competence_month: string; total: number; count: number }>();
   for (const r of rows) {
     const key = String(r.competence_month).slice(0, 7);
@@ -2380,6 +2396,7 @@ export async function get_future_installments(ctx: ToolContext, args?: { months?
         status: r.status,
       })),
       count: rows.length,
+      ...(merchantFilter ? { merchant_filter: merchantFilter } : {}),
       note: "Competência é o mês em que a parcela entra na fatura; o vencimento é a data de pagamento.",
     },
   };
@@ -3985,10 +4002,26 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "Parcelas de cartão que ainda vão cair, por mês de competência. Use para 'quanto ainda tenho parcelado', 'o que já está comprometido nos próximos meses'.",
     parameters: {
       type: "object",
-      properties: { months: { type: "integer", minimum: 1, maximum: 24 } },
+      properties: { months: { type: "integer", minimum: 1, maximum: 24 }, merchant: { type: "string" } },
       additionalProperties: false,
     },
     execute: get_future_installments,
+  },
+  {
+    name: "list_period_transactions",
+    description: "Lista os lançamentos (um a um) de um período, por competência: 'liste meus gastos de outubro', 'me mostra o que gastei em mercado'. Não é ranking por categoria.",
+    parameters: {
+      type: "object",
+      properties: { from: { type: "string" }, to: { type: "string" }, category: { type: "string" }, merchant: { type: "string" }, kind: { type: "string", enum: ["expense", "income"] } },
+      additionalProperties: false,
+    },
+    execute: list_period_transactions,
+  },
+  {
+    name: "get_card_invoice",
+    description: "Fatura do cartão de UMA competência (mês), oficial ou reconstruída: 'quanto vem na fatura de novembro', 'quanto é a fatura do Nubank'. Não é gasto total do mês.",
+    parameters: { type: "object", properties: { month: { type: "string", description: "YYYY-MM" }, card: { type: "string" } }, additionalProperties: false },
+    execute: get_card_invoice,
   },
   {
     name: "get_benefit_status",

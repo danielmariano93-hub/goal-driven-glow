@@ -1,17 +1,13 @@
 // Ticket Alimentação — leitura para o agente (contexto SEPARADO do livro-razão).
 // Determinística: nenhum número nasce do modelo; tudo vem de `benefitWallet.ts` (mesmo motor da tela).
 import {
-  computeBenefitState, merchantBreakdown, weekdayPattern, whatIf,
+  computeBenefitState, isBenefitFoodCategory, merchantBreakdown, weekdayPattern, whatIf,
   type BenefitEntry, type BenefitKind, type BenefitWalletConfig,
 } from "../finance-core/benefitWallet.ts";
 import { todaySaoPaulo } from "./parser.ts";
 import type { ToolContext, ToolResult } from "./tools.ts";
 
 const KINDS = new Set<string>(["credit", "spend", "balance_reading", "adjustment"]);
-
-// Categorias que contam como comida paga do bolso (o Ticket em si fica fora do livro-razão).
-const FOOD_CATEGORY_KEYS = new Set(["restaurante", "restaurantes", "mercado", "supermercado", "delivery", "padaria", "lanche", "lanches", "alimentacao", "ifood"]);
-const foodKey = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 /**
  * "Vazamento": alimentação paga do bolso no ciclo atual (despesas reais do livro-razão nas categorias de comida,
@@ -21,7 +17,7 @@ export async function foodLeakInCycle(ctx: ToolContext, from: string, to: string
   const cats = await ctx.sb.from("categories").select("id,name").or(`user_id.eq.${ctx.user_id},user_id.is.null`);
   if (cats.error) return null;
   const food = new Map(((cats.data ?? []) as Array<Record<string, unknown>>)
-    .filter((c) => FOOD_CATEGORY_KEYS.has(foodKey(c.name))).map((c) => [String(c.id), String(c.name)]));
+    .filter((c) => isBenefitFoodCategory(c.name)).map((c) => [String(c.id), String(c.name)]));
   if (!food.size) return { amount: 0, count: 0, categories: [] };
   const tx = await ctx.sb.from("transactions").select("amount,category_id,occurred_at,movement_kind")
     .eq("user_id", ctx.user_id).eq("type", "expense").gte("occurred_at", from).lte("occurred_at", to).in("category_id", [...food.keys()]);

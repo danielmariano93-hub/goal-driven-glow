@@ -66,10 +66,18 @@ function formatFutureInstallments(result: any): string | null {
   const count = Number(result?.count ?? 0);
   const total = Number(result?.total);
   if (!Number.isFinite(total)) return null;
+  const mf = result?.merchant_filter as { requested?: string; matched_purchases?: number } | undefined;
+  if (mf && (count <= 0 || total <= 0)) {
+    return mf.matched_purchases
+      ? `Não há parcelas futuras em aberto no ${mf.requested}.`
+      : `Não encontrei compras parceladas no ${mf.requested}.`;
+  }
   if (count <= 0 || total <= 0) return "Você não tem parcelas futuras no cartão registradas.";
   const months = Array.isArray(result?.by_month) ? result.by_month : [];
   const label = (m: string) => { const [y, mo] = String(m).split("-"); return mo && y ? `${mo}/${y}` : String(m); };
-  const lines = [`Você tem *${BRL.format(total)}* em ${count} parcela${count === 1 ? "" : "s"} futura${count === 1 ? "" : "s"} no cartão.`];
+  const lines = [mf
+    ? `Ainda faltam *${BRL.format(total)}* no ${mf.requested}, em ${count} parcela${count === 1 ? "" : "s"}.`
+    : `Você tem *${BRL.format(total)}* em ${count} parcela${count === 1 ? "" : "s"} futura${count === 1 ? "" : "s"} no cartão.`];
   const rows = months.slice(0, 6).map((row: any) => `• ${label(row.competence_month)}: ${BRL.format(Number(row.total ?? row.amount ?? 0))}`);
   if (rows.length) lines.push("", ...rows);
   return lines.join("\n");
@@ -129,6 +137,39 @@ function formatCashProjection(result: any): string | null {
   return lines.join("\n");
 }
 
+const MONTH_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+function formatCardInvoice(result: any): string | null {
+  if (!result || result.engine !== "get_card_invoice") return null;
+  const [y, m] = String(result.month ?? "").split("-").map(Number);
+  const label = y && m ? `${MONTH_PT[m - 1]} de ${y}` : "o mês";
+  if (result.has_cards === false) return headline(result);
+  if (result.card_filter && result.card_filter.applied === false) return `Não encontrei um cartão chamado “${result.card_filter.requested}”. Me diga o nome como aparece em Cartões.`;
+  const rows: any[] = result.cards ?? [];
+  const known = rows.filter((r) => r.source !== "unavailable" && r.source !== "none");
+  if (!known.length) return `Ainda não tenho compras nem parcelas lançadas na fatura de ${label}.`;
+  const how = (r: any) => r.source === "official" ? "fatura oficial" : "estimativa com as compras e parcelas já lançadas";
+  const due = (r: any) => r.due_date ? `, vence em ${dm(r.due_date)}` : "";
+  if (known.length === 1) {
+    const r = known[0];
+    return `A fatura de ${label}${rows.length > 1 || result.card_filter ? ` do ${r.card}` : ""} está em *${BRL.format(Number(r.amount))}* (${how(r)}${due(r)}).`;
+  }
+  const lines = [`Faturas de ${label}: *${BRL.format(Number(result.total))}* no total.`];
+  for (const r of known) lines.push(`• ${r.card}: *${BRL.format(Number(r.amount))}* (${how(r)}${due(r)})`);
+  return lines.join("\n");
+}
+
+function formatPeriodTransactions(result: any): string | null {
+  if (!result || result.engine !== "list_period_transactions") return null;
+  const word = result.kind === "income" ? "entradas" : "gastos";
+  if (result.category_filter && result.category_filter.applied === false) return `Não encontrei a categoria “${result.category_filter.requested}”.`;
+  const span = result.from === result.to ? dm(result.from) : `${dm(result.from)} a ${dm(result.to)}`;
+  if (!Number(result.count)) return `Não encontrei ${word} em ${span}.`;
+  const lines = [`${Number(result.count)} ${word} em ${span}, somando *${BRL.format(Number(result.total))}*:`, ""];
+  for (const it of result.items ?? []) lines.push(`• ${dm(it.date)} · ${it.description}${it.category ? ` (${it.category})` : ""}: *${BRL.format(Number(it.amount))}*`);
+  if (result.truncated) lines.push("", `Mostrei os ${Number(result.shown)} mais recentes de ${Number(result.count)}. Me peça uma categoria ou estabelecimento para filtrar.`);
+  return lines.join("\n");
+}
+
 function formatBenefitStatus(result: any): string | null {
   if (!result || result.engine !== "get_benefit_status") return null;
   if (result.enabled === false || result.configured === false) return headline(result);
@@ -178,6 +219,8 @@ const FORMATTERS: Record<string, (result: any) => string | null> = {
   explain_cash_projection: formatCashProjection,
   list_financial_sources: formatFinancialSources,
   get_benefit_status: formatBenefitStatus,
+  get_card_invoice: formatCardInvoice,
+  list_period_transactions: formatPeriodTransactions,
   compare_periods: formatPeriodComparisonEnhanced,
 };
 

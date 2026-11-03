@@ -28,7 +28,14 @@ describe("Ticket Alimentação F1", () => {
   });
 
   it("o Ticket nunca lê nem escreve o livro-razão (contexto separado)", () => {
-    for (const src of [hook, page, engine]) expect(src).not.toMatch(/from\("transactions"\)|from\("accounts"\)|movement_kind/);
+    // Tela e motor nunca tocam o livro-razão. O hook só LÊ transactions dentro do "vazamento" (comida paga do bolso),
+    // nunca escreve e nunca lê contas.
+    for (const src of [page, engine]) expect(src).not.toMatch(/from\("transactions"\)|from\("accounts"\)|movement_kind/);
+    expect(hook).not.toMatch(/from\("accounts"\)/);
+    expect(hook).not.toMatch(/from\("transactions"\)\s*\.(insert|update|delete|upsert)/);
+    const leakStart = hook.indexOf("export function useBenefitFoodLeak");
+    expect(leakStart).toBeGreaterThan(0);
+    for (const m of hook.matchAll(/from\("transactions"\)/g)) expect(m.index!).toBeGreaterThan(leakStart);
   });
 
   it("a tela só abre para quem foi liberado (falha fechada) e a rota existe como link direto", () => {
