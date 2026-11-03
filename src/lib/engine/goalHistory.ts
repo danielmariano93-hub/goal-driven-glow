@@ -31,14 +31,22 @@ export interface HistoryGoalRow {
   created_at?: string | null;
   /** "cycle" = mês guardado no histórico (meta editada ou excluída depois). */
   source?: "goal" | "cycle";
+  /** Mês importado em lote, sem meta por trás: só conta depois que o usuário confirma. */
+  imported?: boolean;
+  /** Confirmação do usuário para mês importado: true = tinha meta, false = não tinha, null = não confirmado. */
+  confirmed?: boolean | null;
+  /** id do ciclo no banco (sem prefixo) para confirmar/negar. */
+  cycle_id?: string | null;
 }
 
-export type HistoryMonthStatus = "met" | "missed" | "in_progress" | "no_goal" | "before" | "paused";
+export type HistoryMonthStatus = "met" | "missed" | "in_progress" | "no_goal" | "before" | "paused" | "unconfirmed";
 
 export interface HistoryMonth {
   month: string;
   status: HistoryMonthStatus;
   goal_id: string | null;
+  /** Mês importado aguardando confirmação (status "unconfirmed"): id do ciclo para confirmar/negar. */
+  cycle_id?: string | null;
   /** "cycle" quando o mês vem do histórico guardado (meta editada/excluída). */
   source: "goal" | "cycle" | null;
   limit: number | null;
@@ -196,9 +204,14 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
   const current = input.today.slice(0, 7);
   const monthsBefore = input.monthsBefore ?? 3;
   const names = new Map(input.categories.map((c) => [c.id, c.name]));
+  // Meses importados em lote (sem meta por trás) só contam depois que o usuário confirma; "não tinha" some dos cálculos.
+  const allCycles = input.cycles ?? [];
+  const isUnconfirmed = (c: HistoryGoalRow) => c.imported === true && c.confirmed == null;
+  const isRejected = (c: HistoryGoalRow) => c.confirmed === false;
+  const unconfirmedCycles = allCycles.filter(isUnconfirmed);
   const goals = [
     ...input.goals.map((g) => ({ ...g, source: "goal" as const })),
-    ...(input.cycles ?? []).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
+    ...allCycles.filter((c) => !isUnconfirmed(c) && !isRejected(c)).map((c) => ({ ...c, source: "cycle" as const, status: c.status || "active" })),
   ].filter((g) => g.status !== "cancelled" && Number(g.computed_limit) > 0);
 
   // Gasto e maior estabelecimento por categoria e mês.
@@ -257,15 +270,32 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     // a mesma que ela viu ao definir o teto. Só sem esse valor usa a média dos meses antes da meta.
     // (Recalcular a partir dos meses anteriores fazia o número mudar a cada importação ou recategorização
     // de meses antigos.)
-    const frozen = [...list]
+    // Só vale a referência guardada se ela nasceu na meta do PRIMEIRO mês conhecido: uma meta mais nova (criada depois
+    // de meses já com meta) calculou a média em cima de meses "durante", não "antes". Nesse caso, recalcula pelos
+    // 3 meses anteriores ao primeiro mês de meta.
+    const frozenCandidate = [...list]
       .filter((g) => g.baseline_value != null && Number(g.baseline_value) > 0)
       .sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
+    const frozen = frozenCandidate && frozenCandidate.start_date.slice(0, 7) === firstMonth ? frozenCandidate : undefined;
     const beforeValues = months.filter((m) => m.status === "before" && m.actual > 0).map((m) => m.actual);
-    const baseline = frozen
-      ? round2(Number(frozen.baseline_value))
+    const frozenFallback = !frozen && frozenCandidate && !beforeValues.length ? frozenCandidate : undefined;
+    const baseline = frozen || frozenFallback
+      ? round2(Number((frozen ?? frozenFallback)!.baseline_value))
       : beforeValues.length
         ? round2(beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length)
         : null;
+
+    // Mês importado ainda sem confirmação: aparece como "?" no placar e fica fora dos totais.
+    for (const c of unconfirmedCycles.filter((x) => x.category_id === categoryId)) {
+      const ym = c.start_date.slice(0, 7);
+      const idx = months.findIndex((m) => m.month === ym);
+      if (idx >= 0 && (months[idx].status === "before" || months[idx].status === "no_goal")) {
+        months[idx] = { ...months[idx], status: "unconfirmed", limit: round2(Number(c.computed_limit)), cycle_id: c.cycle_id ?? null };
+      } else if (idx < 0 && ym < firstMonth) {
+        months.unshift({ month: ym, status: "unconfirmed", goal_id: null, cycle_id: c.cycle_id ?? null, source: null, limit: round2(Number(c.computed_limit)), actual: actualOf(categoryId, ym), projected: null, difference: null, main_driver: driverOf(categoryId, ym) });
+      }
+    }
+    months.sort((a, b) => a.month.localeCompare(b.month));
 
     const closed = months.filter((m) => m.status === "met" || m.status === "missed");
     let streak = 0;

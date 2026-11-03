@@ -56,8 +56,12 @@ export interface GoalVerdict {
   hurt: number;
   flat: number;
   by_category: GoalCategoryEffect[];
-  /** Gasto variável total (todas as categorias de consumo livre) antes das metas × desde as metas. */
-  variable_total: { before_avg: number; after_avg: number; change_pct: number; months_before: number; months_after: number } | null;
+  /** Texto curto do selo: "3 DE 4 FUNCIONARAM" ou "CEDO DEMAIS". */
+  badge: string;
+  /** Gasto de categorias de consumo livre SEM meta: antes da 1ª meta × meses fechados desde então (contexto, sem culpa). */
+  outside_goals: { before_avg: number; after_avg: number; change_pct: number; change_month: number; months_before: number; months_after: number } | null;
+  /** Frase neutra sobre o que está fora das metas (null quando praticamente igual). */
+  outside_line: string | null;
   /** Variação do gasto de categorias SEM meta no mesmo período (contexto). */
   control_change_pct: number | null;
   caveats: string[];
@@ -136,6 +140,7 @@ export function buildGoalVerdict(args: {
   const hurt = measured.filter((e) => e.status === "nao_ajudou").length;
   const flat = measured.filter((e) => e.status === "sem_efeito").length;
   const caveats: string[] = [];
+  const outside = outsideGoals(args.entries, args.categories, args.series, args.current);
 
   const base = {
     version: GOAL_VERDICT_VERSION as typeof GOAL_VERDICT_VERSION,
@@ -144,14 +149,15 @@ export function buildGoalVerdict(args: {
     helped, hurt, flat,
     by_category: effects,
     control_change_pct: args.controlChange,
+    outside_goals: outside,
   };
 
   if (!measured.length || months < 2) {
     return {
-      ...base, verdict: "cedo", headline: "Ainda é cedo para dizer.",
-      summary: `Para saber se ter meta ajuda, preciso de pelo menos 2 meses fechados com meta (hoje: ${months}). Quando fechar o próximo mês, eu comparo com o que você gastava antes.`,
+      ...base, verdict: "cedo", badge: "CEDO DEMAIS", headline: "Ainda é cedo para dizer.",
+      summary: `Para saber se as metas funcionam, preciso de pelo menos 2 meses fechados com meta (hoje: ${months}). Quando fechar o próximo mês, eu comparo com o que você gastava antes.`,
       confidence: "baixa", confidence_note: "Poucos meses para concluir.",
-      net_monthly: null, baseline_monthly: null, net_pct: null, total_avoided: null, variable_total: null, caveats,
+      net_monthly: null, baseline_monthly: null, net_pct: null, total_avoided: null, outside_line: null, caveats,
     };
   }
 
@@ -160,6 +166,7 @@ export function buildGoalVerdict(args: {
   const netPct = baselineSum > 0 ? round2(-net / baselineSum) : 0;
   const totalAvoided = round2(measured.reduce((a, e) => a + (e.total_avoided ?? 0), 0));
 
+  // A pergunta é por meta: ela funcionou na SUA categoria? O conjunto resume isso (líquido, contando as que não mexeram).
   let verdict: GoalVerdictKind;
   if (netPct <= -0.10 && helped > hurt) verdict = "sim";
   else if (netPct < -0.03) verdict = "parcial";
@@ -172,58 +179,50 @@ export function buildGoalVerdict(args: {
   if (net > 0 && top && (top.delta_month ?? 0) > 0 && (top.delta_month ?? 0) / net > 0.5 && measured.length > 1) {
     caveats.push(`Mais da metade do ganho vem de ${top.category_name}; sem ela o efeito seria bem menor.`);
   }
-
-  // Contexto: o resto dos gastos andou junto?
-  const control = args.controlChange;
-  if (control != null && netPct < 0) {
-    if (control <= -0.05 && control <= netPct * 0.6) {
-      caveats.push(`Seus gastos sem meta também caíram ${pct(control)} no mesmo período: parte da queda pode não ser da meta.`);
-      confidence = downgrade(confidence);
-    } else if (control >= 0.05) {
-      caveats.push(`Enquanto isso, seus gastos sem meta subiram ${pct(control)}: a queda nas categorias com meta não parece ser só uma fase boa.`);
-    }
+  // Se o resto dos gastos caiu junto, parte da queda pode não ser da meta.
+  if (outside && netPct < 0 && outside.change_pct <= -0.05 && outside.change_pct <= netPct * 0.6) {
+    caveats.push(`Seus gastos fora das metas também caíram ${pct(outside.change_pct)} no mesmo período: parte da queda pode não ser da meta.`);
+    confidence = downgrade(confidence);
   }
-
-  // Evitado só vira dinheiro guardado se o gasto variável total também caiu.
-  const variable = variableTotals(args.entries, args.categories, args.series, args.current);
-  const variableFell = variable ? variable.before_avg - variable.after_avg : null;
-  const shifted = variable != null && net > 0 && (variableFell ?? 0) < net * 0.5;
-  if (shifted && verdict === "sim") verdict = "parcial";
-  if (shifted && netPct > -0.10) caveats.push(`O seu gasto variável total caiu só ${brl(Math.max(0, variableFell ?? 0))} por mês, menos do que o ganho nas categorias com meta: parte do que você evitou pode ter ido para outras categorias.`);
   if (months < 4) caveats.push("Poucos meses de meta ainda: leia como indício, não como certeza.");
 
   const confidence_note = confidence === "alta" ? "Base firme: vários meses e várias categorias." : confidence === "media" ? "Base razoável: pode mudar nos próximos meses." : "Base pequena: é um indício, não uma conclusão.";
 
   let headline: string;
   let summary: string;
-  if (shifted && netPct <= -0.10) {
-    headline = "Em parte: caiu nas categorias com meta, mas o seu gasto total quase não mudou.";
-    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos, já contando as que subiram), mas o seu gasto variável total caiu só ${brl(Math.max(0, variableFell ?? 0))} por mês: boa parte do que você evitou apareceu em outras categorias. Em ${months} meses com meta, foram ${brl(totalAvoided)} evitados nas categorias com meta.`;
-  } else if (verdict === "sim") {
-    headline = "Sim: ter metas está fazendo sentido.";
-    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês do que gastava antes (${pct(netPct)} a menos), já contando as que não melhoraram${variableFell != null && variableFell > 0 ? `, e o seu gasto variável total também caiu (${brl(variableFell)} por mês)` : ""}. Em ${months} meses com meta, isso soma ${brl(totalAvoided)} evitados.`;
+  if (verdict === "sim") {
+    headline = "Nas categorias com meta, você está gastando menos.";
+    summary = `Você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos) do que antes de criar as metas, já contando as que quase não mexeram. Desde o início, são ${brl(totalAvoided)} evitados.`;
   } else if (verdict === "parcial") {
-    headline = "Em parte: ajudou, mas não em tudo.";
-    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos), mas ${hurt > 0 ? `${hurt} ${hurt === 1 ? "categoria subiu" : "categorias subiram"}` : "o efeito ainda é pequeno"}. Em ${months} meses com meta, foram ${brl(totalAvoided)} evitados.`;
+    headline = "As metas reduziram o gasto, mas ainda pouco.";
+    summary = `Nas categorias com meta você gasta ${brl(net)} a menos por mês (${pct(netPct)} a menos). Desde o início, são ${brl(totalAvoided)} evitados.`;
   } else if (net < 0 && Math.abs(netPct) >= 0.03) {
-    headline = "Por enquanto, não.";
+    headline = "Por enquanto, as metas não reduziram o gasto.";
     summary = `Nas categorias com meta você está gastando ${brl(-net)} a mais por mês do que antes (${pct(netPct)} a mais). Vale rever os tetos ou o que mudou nessas categorias.`;
   } else {
     headline = "Por enquanto, não dá para ver efeito.";
     summary = "O gasto nas categorias com meta está praticamente igual ao de antes das metas.";
   }
 
-  return { ...base, verdict, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, variable_total: variable, caveats };
+  let outside_line: string | null = null;
+  if (outside && Math.abs(outside.change_pct) >= 0.03) {
+    outside_line = outside.change_pct > 0
+      ? `Fora das metas, o seu gasto subiu ${pct(outside.change_pct)} (${brl(Math.abs(outside.change_month))} por mês). Sem meta, sem freio: veja abaixo onde faz sentido criar a próxima.`
+      : `Fora das metas, o seu gasto também caiu ${pct(outside.change_pct)} (${brl(Math.abs(outside.change_month))} por mês).`;
+  }
+
+  return { ...base, verdict, badge: `${helped} DE ${measured.length} FUNCIONARAM`, headline, summary, confidence, confidence_note, net_monthly: net, baseline_monthly: baselineSum, net_pct: netPct, total_avoided: totalAvoided, outside_line, caveats };
 }
 
-/** Gasto variável total (categorias de consumo livre): 3 meses antes da 1ª meta × meses fechados desde então. */
-function variableTotals(entries: SpendingEntry[], categories: Array<{ id: string; name: string }>, series: GoalSeries[], current: string) {
+/** Gasto de categorias de consumo livre SEM meta: 3 meses antes da 1ª meta × meses fechados desde então. */
+function outsideGoals(entries: SpendingEntry[], categories: Array<{ id: string; name: string }>, series: GoalSeries[], current: string) {
   const first = series.map((s) => s.first_month).sort()[0];
   if (!first) return null;
+  const goalCats = new Set(series.map((s) => s.category_id));
   const names = new Map(categories.map((c) => [c.id, c.name]));
   const totals = new Map<string, number>();
   for (const e of entries) {
-    if (!e.category_id) continue;
+    if (!e.category_id || goalCats.has(e.category_id)) continue;
     const name = names.get(e.category_id);
     if (!name || isObligationCategory(name) || EXCLUDE_RX.test(name)) continue;
     totals.set(e.month, (totals.get(e.month) ?? 0) + e.amount);
@@ -235,7 +234,8 @@ function variableTotals(entries: SpendingEntry[], categories: Array<{ id: string
   const avg = (ms: string[]) => ms.reduce((a, m) => a + Math.max(0, totals.get(m) ?? 0), 0) / ms.length;
   const b = avg(beforeMonths);
   const a = avg(afterMonths);
-  return { before_avg: round2(b), after_avg: round2(a), change_pct: b > 0 ? round2(a / b - 1) : 0, months_before: beforeMonths.length, months_after: afterMonths.length };
+  if (b <= 0) return null;
+  return { before_avg: round2(b), after_avg: round2(a), change_pct: round2(a / b - 1), change_month: round2(a - b), months_before: beforeMonths.length, months_after: afterMonths.length };
 }
 
 // ───────── Categorias que merecem uma meta ─────────

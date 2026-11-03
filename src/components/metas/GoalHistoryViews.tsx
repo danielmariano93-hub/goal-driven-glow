@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Check, CircleDashed, Minus, Pause, X } from "lucide-react";
+import { AlertTriangle, Check, CircleDashed, HelpCircle, Minus, Pause, X } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
 import { historyMonthName, type GoalHighlight, type GoalHistory, type GoalImpact, type GoalSeries, type HistoryMonth, type HistoryMonthStatus } from "@/lib/engine/goalHistory";
 
@@ -15,6 +15,7 @@ const STATUS_META: Record<HistoryMonthStatus, { label: string; cell: string; tex
   paused: { label: "Pausada", cell: "bg-slate-500/10 text-slate-600", text: "text-slate-600", bar: "fill-slate-400", Icon: Pause },
   before: { label: "Antes da meta", cell: "bg-secondary text-muted-foreground", text: "text-muted-foreground", bar: "fill-slate-300", Icon: Minus },
   no_goal: { label: "Sem meta", cell: "bg-transparent text-muted-foreground/60", text: "text-muted-foreground", bar: "fill-slate-300", Icon: Minus },
+  unconfirmed: { label: "Histórico importado (confirmar)", cell: "bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/40", text: "text-amber-700", bar: "fill-amber-400", Icon: HelpCircle },
 };
 
 const TONE: Record<GoalHighlight["tone"], { box: string; Icon: typeof Check }> = {
@@ -56,14 +57,25 @@ export function GoalHighlights({ highlights, onOpen }: { highlights: GoalHighlig
 }
 
 /** Placar categorias × meses: em um olhar, onde cumpriu e onde estourou. */
-export function GoalScoreboard({ history, onOpen }: { history: GoalHistory; onOpen?: (series: GoalSeries) => void }) {
+export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
+  history: GoalHistory;
+  onOpen?: (series: GoalSeries) => void;
+  /** Efeito por categoria (mesma conta do cartão de resultado): variação do gasto frente ao "antes". */
+  effects?: Record<string, { change_pct: number | null; status: "ajudou" | "nao_ajudou" | "sem_efeito" | "cedo" }>;
+  /** Toque num mês importado ("?"): confirmar se aquele mês teve meta. */
+  onConfirm?: (series: GoalSeries, month: HistoryMonth) => void;
+}) {
   if (!history.series.length) return null;
-  const legend: HistoryMonthStatus[] = ["met", "missed", "in_progress", "before", "no_goal"];
+  const legend: HistoryMonthStatus[] = ["met", "missed", "in_progress", "before", "unconfirmed"];
+  const hasUnconfirmed = history.series.some((s) => s.months.some((m) => m.status === "unconfirmed"));
+  const shown = legend.filter((st) => st !== "unconfirmed" || hasUnconfirmed);
+  const pctText = (v: number) => `${v < 0 ? "−" : "+"}${Math.round(Math.abs(v) * 100)}%`;
   return (
     <section aria-label="Placar das metas" className="mb-4 rounded-2xl border border-border bg-card p-4">
       <p className="text-sm font-semibold">Placar mês a mês</p>
+      <p className="text-[11px] text-muted-foreground">Cumpriu o teto ou estourou, em cada categoria com meta.</p>
       <div className="mt-3 overflow-x-auto">
-        <table className="w-full min-w-[320px] border-separate border-spacing-y-1 text-[12px]">
+        <table className="w-full min-w-[340px] border-separate border-spacing-y-1 text-[12px]">
           <thead>
             <tr>
               <th className="pb-1 text-left font-medium text-muted-foreground">Categoria</th>
@@ -72,30 +84,45 @@ export function GoalScoreboard({ history, onOpen }: { history: GoalHistory; onOp
                   {monthShort(m)}
                 </th>
               ))}
+              {effects ? <th scope="col" className="pb-1 text-right font-medium text-muted-foreground">vs antes</th> : null}
             </tr>
           </thead>
           <tbody>
             {history.scoreboard.rows.map((row) => {
               const series = history.series.find((s) => s.category_id === row.category_id)!;
+              const effect = effects?.[row.category_id];
               return (
                 <tr key={row.category_id}>
                   <th scope="row" className="max-w-[110px] truncate pr-2 text-left font-semibold">
-                    <button type="button" onClick={() => onOpen?.(series)} className="truncate text-left hover:underline">{row.category_name}</button>
+                    <button type="button" onClick={() => onOpen?.(series)} className="min-h-9 truncate text-left hover:underline">{row.category_name}</button>
                   </th>
                   {row.cells.map((cell) => {
                     const meta = STATUS_META[cell.status];
                     const month = series.months.find((m) => m.month === cell.month);
-                    const title = month && cell.status !== "no_goal"
-                      ? `${historyMonthName(cell.month)}: ${meta.label} · ${formatBRL(month.actual)}${month.limit != null ? ` de ${formatBRL(month.limit)}` : ""}`
-                      : `${historyMonthName(cell.month)}: ${meta.label}`;
+                    const title = cell.status === "unconfirmed" && month
+                      ? `${historyMonthName(cell.month)}: histórico importado${month.limit != null ? ` (teto ${formatBRL(month.limit)})` : ""}. Toque para confirmar se você tinha meta`
+                      : month && cell.status !== "no_goal"
+                        ? `${historyMonthName(cell.month)}: ${meta.label} · ${formatBRL(month.actual)}${month.limit != null ? ` de ${formatBRL(month.limit)}` : ""}`
+                        : `${historyMonthName(cell.month)}: ${meta.label}`;
                     return (
                       <td key={cell.month} className="text-center">
-                        <span title={title} aria-label={title} className={`mx-auto grid h-7 w-7 place-items-center rounded-lg ${meta.cell}`}>
-                          {cell.status === "no_goal" ? <span className="text-[10px]">·</span> : <meta.Icon size={13} aria-hidden />}
-                        </span>
+                        {cell.status === "unconfirmed" && month && onConfirm ? (
+                          <button type="button" title={title} aria-label={title} onClick={() => onConfirm(series, month)} className={`mx-auto grid h-8 w-8 place-items-center rounded-lg ${meta.cell}`}>
+                            <meta.Icon size={14} aria-hidden />
+                          </button>
+                        ) : (
+                          <span title={title} aria-label={title} className={`mx-auto grid h-7 w-7 place-items-center rounded-lg ${meta.cell}`}>
+                            {cell.status === "no_goal" ? <span className="text-[10px]">·</span> : <meta.Icon size={13} aria-hidden />}
+                          </span>
+                        )}
                       </td>
                     );
                   })}
+                  {effects ? (
+                    <td className={`whitespace-nowrap pl-1 text-right text-[12px] font-bold ${effect?.status === "ajudou" ? "text-emerald-700" : effect?.status === "nao_ajudou" ? "text-red-700" : "text-muted-foreground"}`}>
+                      {effect?.change_pct != null ? pctText(effect.change_pct) : "—"}
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}
@@ -103,16 +130,19 @@ export function GoalScoreboard({ history, onOpen }: { history: GoalHistory; onOp
         </table>
       </div>
       <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        {legend.map((s) => {
+        {shown.map((s) => {
           const meta = STATUS_META[s];
           return (
             <li key={s} className="inline-flex items-center gap-1">
-              <span className={`grid h-4 w-4 place-items-center rounded ${meta.cell}`}>{s === "no_goal" ? "·" : <meta.Icon size={10} aria-hidden />}</span>
-              {meta.label}
+              <span className={`grid h-4 w-4 place-items-center rounded ${meta.cell}`}><meta.Icon size={10} aria-hidden /></span>
+              {s === "unconfirmed" ? "Importado: toque para confirmar" : meta.label}
             </li>
           );
         })}
       </ul>
+      {effects ? (
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">“vs antes” compara o gasto médio com a média que você tinha antes da meta. Toque numa categoria para ver o mês a mês em valores.</p>
+      ) : null}
     </section>
   );
 }
