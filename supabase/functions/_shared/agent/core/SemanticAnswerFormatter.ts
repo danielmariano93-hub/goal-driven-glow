@@ -146,6 +146,20 @@ function formatCardInvoice(result: any): string | null {
   if (result.card_filter && result.card_filter.applied === false) return `Não encontrei um cartão chamado “${result.card_filter.requested}”. Me diga o nome como aparece em Cartões.`;
   const rows: any[] = result.cards ?? [];
   const known = rows.filter((r) => r.source !== "unavailable" && r.source !== "none");
+  // Fatura fechada com saldo credor: os pagamentos/antecipações superaram os lançamentos. Nada a pagar.
+  const credit = rows.filter((r) => r.signed_total != null && Number(r.signed_total) < 0);
+  if (credit.length === 1 && rows.filter((r) => r.source !== "unavailable").length === 1) {
+    const r = credit[0];
+    const lines = [`A fatura de ${label}${rows.length > 1 ? ` do ${r.card}` : ""} fechou com *saldo credor de ${BRL.format(Math.abs(Number(r.signed_total)))}*: não há nada a pagar.`];
+    if (r.closing) {
+      lines.push("", "Como fechou:",
+        `• Compras e parcelas: *${BRL.format(Number(r.closing.charges))}*`,
+        `• Estornos e antecipações: *${BRL.format(Number(r.closing.refunds_and_anticipations))}*`,
+        `• Lançamentos líquidos: *${BRL.format(Number(r.closing.net_charges))}*`,
+        `• Pagamentos feitos: *${BRL.format(Number(r.closing.payments))}*`);
+    }
+    return lines.join("\n");
+  }
   if (!known.length && rows.some((r) => r.paid_without_amount)) return `A fatura de ${label} consta como paga, mas sem o valor importado, então não consigo informar quanto foi. Se você importar a fatura, eu passo a mostrar o total.`;
   if (!known.length) return `Ainda não tenho compras nem parcelas lançadas na fatura de ${label}.`;
   const how = (r: any) => r.source === "official" ? "fatura oficial"

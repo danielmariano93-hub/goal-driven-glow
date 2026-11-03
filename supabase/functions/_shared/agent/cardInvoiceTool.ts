@@ -17,7 +17,7 @@ export async function get_card_invoice(ctx: ToolContext, args?: { month?: string
   const [cardsRes, stRes, instRes] = await Promise.all([
     ctx.sb.from("credit_cards").select("id,name,closing_day,due_day").eq("user_id", ctx.user_id).eq("active", true),
     ctx.sb.from("credit_card_statements")
-      .select("id,credit_card_id,competence_month,due_date,stated_total,paid_amount,outstanding_amount,reconciliation_difference,status")
+      .select("id,credit_card_id,competence_month,due_date,stated_total,signed_total,paid_amount,outstanding_amount,reconciliation_difference,status")
       .eq("user_id", ctx.user_id),
     ctx.sb.from("credit_card_installments")
       .select("id,credit_card_id,competence_month,amount,status,absorbed_by_statement_id,legacy_transaction_id")
@@ -72,6 +72,34 @@ export async function get_card_invoice(ctx: ToolContext, args?: { month?: string
     })
     : null;
 
+  // Fechamento da fatura importada: lançamentos, antecipações/estornos e pagamentos, para a conta fechar na tela.
+  const statementIds = statements.filter((s) => String(s.competence_month).slice(0, 7) === ym && s.id).map((s) => String(s.id));
+  const itemsBy = new Map<string, Array<{ item_kind: string; amount: number }>>();
+  if (statementIds.length) {
+    const itemsRes = await ctx.sb.from("credit_card_statement_items").select("statement_id,item_kind,amount")
+      .eq("user_id", ctx.user_id).in("statement_id", statementIds).limit(5000);
+    if (!itemsRes.error) {
+      for (const it of (itemsRes.data ?? []) as any[]) {
+        const list = itemsBy.get(String(it.statement_id)) ?? [];
+        list.push({ item_kind: String(it.item_kind), amount: Number(it.amount) });
+        itemsBy.set(String(it.statement_id), list);
+      }
+    }
+  }
+  const closingOf = (statement: any) => {
+    const items = statement?.id ? itemsBy.get(String(statement.id)) : undefined;
+    if (!items?.length) return null;
+    const sumOf = (...kinds: string[]) => round2(items.filter((i) => kinds.includes(i.item_kind)).reduce((s, i) => s + i.amount, 0));
+    const payments = sumOf("payment");
+    const net = round2(items.filter((i) => i.item_kind !== "payment").reduce((s, i) => s + i.amount, 0));
+    return {
+      charges: sumOf("installment", "purchase", "fee", "interest"),
+      refunds_and_anticipations: sumOf("refund", "adjustment"),
+      net_charges: net,
+      payments: Math.abs(payments),
+    };
+  };
+
   const rows = cards.map((c) => {
     const fig = exposures[String(c.id)]?.currentStatement;
     const statement = statements.find((s) => s.credit_card_id === c.id && String(s.competence_month).slice(0, 7) === ym);
@@ -81,10 +109,13 @@ export async function get_card_invoice(ctx: ToolContext, args?: { month?: string
     // Fatura já paga: o "a pagar" é 0, mas a pergunta é quanto FOI a fatura. Sem valor importado, não há total a informar.
     const settled = ["paid", "settled", "closed_paid"].includes(String(fig?.status ?? "").toLowerCase());
     const statedTotal = round2(Number(fig?.statedTotal ?? 0));
-    const paidNoAmount = settled && statedTotal <= 0.005;
+    const signedTotal = statement && (statement as any).signed_total != null ? round2(Number((statement as any).signed_total)) : null;
+    const paidNoAmount = settled && statedTotal <= 0.005 && signedTotal === null;
     return {
       settled,
       paid_without_amount: paidNoAmount,
+      signed_total: signedTotal,
+      closing: closingOf(statement),
       card: String(c.name),
       // Parcial: o valor importado sozinho subestima; mostramos o maior entre ele e a reconstrução.
       amount: partial && estimate !== null ? Math.max(imported, estimate) : settled && !paidNoAmount ? statedTotal : imported,

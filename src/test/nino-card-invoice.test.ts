@@ -19,7 +19,7 @@ const ir = (filters: unknown[] = [], period = { from: "2026-11-01", to: "2026-11
 function sb(data: Record<string, Array<Record<string, unknown>>>) {
   return {
     from: (table: string) => {
-      const q: any = { select: () => q, eq: () => q, gte: () => q, lte: () => q, lt: () => q, order: () => q, limit: () => q, then: (r: any) => r({ data: data[table] ?? [], error: null }) };
+      const q: any = { select: () => q, eq: () => q, in: () => q, gte: () => q, lte: () => q, lt: () => q, order: () => q, limit: () => q, then: (r: any) => r({ data: data[table] ?? [], error: null }) };
       return q;
     },
   } as never;
@@ -138,6 +138,27 @@ describe("fatura já paga", () => {
     }), { month: "2026-10", card: "Nubank" });
     const text = semanticBlockText("get_card_invoice", (out as any).result)!;
     expect(text).toContain("consta como paga, mas sem o valor importado");
+    expect(text).not.toMatch(/R\$\s0,00/);
+  });
+});
+
+describe("fatura fechada com saldo credor", () => {
+  it("explica o fechamento (compras, antecipações, pagamentos) e que não há nada a pagar", async () => {
+    const out = await get_card_invoice(ctx({
+      credit_cards: CARDS,
+      credit_card_statements: [{ id: "s1", credit_card_id: "c1", competence_month: "2026-10-01", due_date: "2026-11-01", stated_total: 0, signed_total: -3644.06, paid_amount: 4579.9, outstanding_amount: 0, status: "paid" }],
+      credit_card_statement_items: [
+        { statement_id: "s1", item_kind: "installment", amount: 8788.43 }, { statement_id: "s1", item_kind: "purchase", amount: 727.18 },
+        { statement_id: "s1", item_kind: "refund", amount: -106.24 }, { statement_id: "s1", item_kind: "adjustment", amount: -4829.47 },
+        { statement_id: "s1", item_kind: "payment", amount: -8223.96 },
+      ],
+    }), { month: "2026-10", card: "Nubank" });
+    const row = (out as any).result.cards[0];
+    expect(row.closing).toEqual({ charges: 9515.61, refunds_and_anticipations: -4935.71, net_charges: 4579.9, payments: 8223.96 });
+    const text = semanticBlockText("get_card_invoice", (out as any).result)!;
+    expect(text).toMatch(/saldo credor de R\$\s3\.644,06\*: não há nada a pagar/);
+    expect(text).toMatch(/Lançamentos líquidos: \*R\$\s4\.579,90\*/);
+    expect(text).toMatch(/Pagamentos feitos: \*R\$\s8\.223,96\*/);
     expect(text).not.toMatch(/R\$\s0,00/);
   });
 });
