@@ -78,3 +78,10 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - Cobrança: o vigia de entrega marca `failed` por `ack_stalled_no_delivery` mesmo quando a mensagem chegou (caso do Roger em 02/11); não reenvia, mas o painel mostra falha.
 - Medir amanhã de manhã se a cobrança das 9h saiu com o texto curto, e à noite se a das 19h saiu diferente.
 
+
+## Metas: veredito e categorias candidatas (`goal_verdict.v1`)
+- Tela de Metas responde literalmente "ter metas está fazendo sentido?" (SIM / EM PARTE / AINDA NÃO / CEDO DEMAIS) com `goalVerdict.ts` (módulo puro, espelhado em `finance-core`), saído em `goalHistoryOf` como `verdict` e `candidates` (aditivos, opcionais).
+- Conceitos: referência congelada (`baseline_value`); evitado LÍQUIDO (soma de todas as categorias com meta, inclusive as que subiram); efeito por categoria (≤ −10% ajudou, ≥ +10% não ajudou); confiança pelo nº de meses fechados; contexto = gasto de categorias sem meta e gasto variável total (evitado numa categoria só vira dinheiro guardado se o total também cai — quando não cai, o veredito é "em parte").
+- O antigo card "O que as metas já fizeram por você" e o destaque `impact` saíram da tela: somavam só o que caiu. O motor `goalImpact` continua (testes e agente).
+- Candidatas: consumo livre SEM meta, ≥ R$ 150/mês e ≥ 4% do variável (≥ 2% se subindo ≥ 20%); essenciais (mercado/farmácia) só subindo; nunca obrigações, "Outros", rolê e contas da casa. Prioridade alta = ≥ 10% do variável, ou ≥ 5% e subindo. Teto sugerido = média dos 3 últimos meses × 0,9.
+- Verificado com os dados reais do dono (agregados): Sim/Em parte conforme a regra, net ≈ R$ 1,76 mil/mês (−26%), Transporte "não ajudou" (+26%), gasto variável total caiu só ~R$ 90/mês (Serviços/JIM subiu).

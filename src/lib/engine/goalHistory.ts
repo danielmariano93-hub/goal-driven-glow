@@ -14,6 +14,7 @@
 // competência, estornos e categoria efetiva. Módulo puro, sem I/O.
 
 import { isObligationCategory, type SpendingEntry } from "./spendingGoals";
+import { buildGoalCandidates, buildGoalVerdict, type GoalCandidate, type GoalVerdict } from "./goalVerdict";
 
 export const GOAL_HISTORY_VERSION = "goal_history.v2";
 
@@ -86,6 +87,10 @@ export interface GoalHistory {
   scoreboard: { months: string[]; rows: Array<{ category_id: string; category_name: string; cells: Array<{ month: string; status: HistoryMonthStatus }> }> };
   highlights: GoalHighlight[];
   impact: GoalImpact;
+  /** `goal_verdict.v1` — "ter meta está fazendo sentido?" (opcional: leituras guardadas antes do veredito não o têm). */
+  verdict?: GoalVerdict;
+  /** Categorias sem meta que merecem uma meta, com o porquê. */
+  candidates?: GoalCandidate[];
 }
 
 /**
@@ -316,6 +321,16 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     });
   }
 
+  const verdict = buildGoalVerdict({
+    series, entries: input.entries, categories: input.categories, current, controlChange: impact.control_change,
+  });
+  const candidates = buildGoalCandidates({
+    entries: input.entries,
+    categories: input.categories,
+    goalCategoryIds: new Set(series.map((s) => s.category_id)),
+    current,
+  });
+
   return {
     version: GOAL_HISTORY_VERSION,
     as_of: input.today,
@@ -324,6 +339,8 @@ export function buildGoalHistory(input: GoalHistoryInput): GoalHistory {
     scoreboard,
     highlights: highlights.slice(0, 6),
     impact,
+    verdict,
+    candidates,
   };
 }
 

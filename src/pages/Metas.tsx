@@ -39,10 +39,11 @@ import { evaluateDonationMonth } from "@/lib/engine/donationGoal";
 import { buildStrategyBase, buildStrategyForGoal, buildStrategyForCategoryGoal } from "@/lib/goals/strategyInputs";
 import { computeGoalOverview } from "@/lib/goals/summary";
 import { sortCategories } from "@/lib/categories/order";
-import { useAdjustCategoryGoal, useGoalAdjustments, useGoalHistory, useSpendingGoalAdvice, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
+import { useAdjustCategoryGoal, useGoalAdjustments, useGoalHistory, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
 import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
-import { ClosedGoalMonths, GoalHighlights, GoalImpactCard, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
+import { ClosedGoalMonths, GoalHighlights, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
+import { GoalCandidatesCard, GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
 
 type GoalTab = "all" | "individual" | "shared";
 
@@ -120,7 +121,6 @@ export default function Metas() {
 
 
   const { data: spendingReadings } = useSpendingGoalReadings();
-  const { data: spendingAdvice } = useSpendingGoalAdvice(tab === "all" || openCatList);
   const numericTxs = useMemo(() => (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount) })) as never, [txs]);
   const catNameById = useMemo(() => {
     const map: Record<string, string> = {};
@@ -174,14 +174,6 @@ export default function Metas() {
   const readingByGoal = useMemo(
     () => new Map((spendingReadings ?? []).map((reading) => [reading.goal_id, reading])),
     [spendingReadings],
-  );
-  // Sugestões do Nino: categorias de gasto variável ainda sem meta, pelo histórico.
-  const suggestions = useMemo(
-    () => (spendingAdvice?.categories ?? [])
-      .filter((c) => c.discretionary && c.potential_monthly > 0 && !c.existing_goal_id && c.reference >= 150)
-      .filter((c) => !(catGoals ?? []).some((g) => g.category_id === c.category_id && g.status !== "cancelled"))
-      .slice(0, 3),
-    [spendingAdvice, catGoals],
   );
 
   return (
@@ -253,8 +245,16 @@ export default function Metas() {
 
       {(tab === "all" || openCatList) && goalHistory ? (
         <>
-          <GoalHighlights highlights={goalHistory.highlights} onOpen={openSeries} />
-          <GoalImpactCard impact={goalHistory.impact} />
+          {/* O veredito (líquido, com confiança) substitui o antigo "O que as metas já fizeram": aquele somava só o que caiu. */}
+          {goalHistory.verdict && goalHistory.series.length > 0 ? <GoalVerdictCard verdict={goalHistory.verdict} /> : null}
+          <GoalCandidatesCard
+            candidates={goalHistory.candidates ?? []}
+            onCreate={(c) => {
+              setEditingCatGoal({ category_id: c.category_id, mode: "fixed_limit", fixed_limit: c.recommended_limit, computed_limit: c.recommended_limit, period_type: "monthly_recurring" } as never);
+              setOpenCatGoal(true);
+            }}
+          />
+          <GoalHighlights highlights={goalHistory.highlights.filter((h) => h.id !== "impact")} onOpen={openSeries} />
           <GoalScoreboard history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
         </>
       ) : null}
@@ -323,35 +323,6 @@ export default function Metas() {
                 })}
               </ul>
             </details>
-          ) : null}
-          {suggestions.length ? (
-            <div className="mt-4 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-3">
-              <p className="text-[12px] font-semibold">Sugestões do Nino pelo seu histórico</p>
-              <ul className="mt-2 space-y-2">
-                {suggestions.map((c) => (
-                  <li key={c.category_id} className="flex items-start justify-between gap-2 text-[12px]">
-                    <div className="min-w-0">
-                      <p className="font-semibold">{c.name}</p>
-                      <p className="text-muted-foreground">
-                        Referência {formatBRL(c.reference)} · limite sugerido {formatBRL(c.recommended_limit)} · {formatBRL(c.impact.m12)} em 12 meses
-                        {c.merchants[0] ? ` · maior peso: ${c.merchants[0].label}` : ""}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingCatGoal({ category_id: c.category_id, mode: "fixed_limit", fixed_limit: c.recommended_limit, computed_limit: c.recommended_limit, period_type: "monthly_recurring" } as never);
-                        setOpenCatGoal(true);
-                      }}
-                      className="shrink-0 rounded-full border border-primary px-3 py-1 text-[11px] font-semibold text-primary"
-                    >
-                      Criar meta
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-[11px] text-muted-foreground">Você também pode pedir no chat: “analise meus gastos e me ajude a criar metas”.</p>
-            </div>
           ) : null}
         </div>
       )}
