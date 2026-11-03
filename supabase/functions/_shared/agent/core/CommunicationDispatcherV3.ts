@@ -569,6 +569,10 @@ export async function dispatchSuggestions(
         ? catalogGate.reason!
         : entry?.requires_manual_approval && (candidate as unknown as { approved_at?: string }).approved_at == null
         ? "awaiting_manual_approval"
+        // F4: sem vínculo ativo não há entrega WhatsApp possível — barra ANTES de
+        // política/template/narrativa (evita custo de LLM em mensagem que nunca sai).
+        : target === "whatsapp" && !(link as any)?.phone_e164
+        ? "no_active_whatsapp_link"
         : null;
       if (gate) {
         if (gate === "awaiting_manual_approval") awaitingApproval = true;

@@ -22,6 +22,7 @@ import { TX_COLUMNS, fetchAllTransactions } from "../_shared/derived/txColumns.t
 import { buildCompactLedger, resolveWindow } from "../_shared/derived/compactLedger.ts";
 import { getLedgerVersion, readDerivedCache, writeDerivedCache } from "../_shared/derived/cache.ts";
 import { today as localToday } from "../_shared/finance-core/ninoClock.ts";
+import { causeLedgerForLastClosedMonth } from "../_shared/finance-core/causeEntries.ts";
 
 const FN = "home-snapshot";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -234,7 +235,7 @@ Deno.serve(async (req) => {
     const categoryNameById: Record<string, string> = {};
     for (const c of (categories ?? []) as Any[]) categoryNameById[c.id] = c.name;
 
-    const snapshot = computeFinancialSnapshot({
+    const snapshotBase = computeFinancialSnapshot({
       accounts: ((accounts ?? []) as Any[]).map((a) => ({
         id: a.id, name: a.name, type: a.type, opening_balance: num(a.opening_balance), active: a.active,
       })),
@@ -327,6 +328,22 @@ Deno.serve(async (req) => {
         : null,
       today: new Date(`${today}T12:00:00-03:00`),
     } as Any);
+
+    // F3 — "Por que está assim?": livro de causas do último mês fechado, só para quem foi liberado (`cause_ledger_access`).
+    // Zero consulta nova para os demais; para o liberado é uma leitura por PK na falha de cache + CPU em memória sobre
+    // os lançamentos e categorias que o snapshot já carregou.
+    let causes: Any = null;
+    try {
+      const access = await sb.from("cause_ledger_access").select("user_id").eq("user_id", userId).maybeSingle();
+      if (!access.error && access.data) {
+        causes = causeLedgerForLastClosedMonth(
+          normalizedTxs as Any,
+          ((categories ?? []) as Any[]).map((c) => ({ id: c.id, name: c.name })),
+          today,
+        );
+      }
+    } catch (_e) { causes = null; }
+    const snapshot = causes ? { ...snapshotBase, causes } : snapshotBase;
 
     const payload = {
       missing_sources: missing,

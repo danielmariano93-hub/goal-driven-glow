@@ -51,6 +51,7 @@ import {
   type NetWorthBridge,
   type PeriodPerformance,
 } from "./bridges.ts";
+import type { CauseLedger } from "./causeLedger.ts";
 import {
   computeCardExposure,
   totalCardDebtOf,
@@ -339,6 +340,11 @@ function projectionConfidenceOf(daysElapsed: number): ProjectionConfidence {
 
 
 export interface FinancialSnapshot {
+  /**
+   * F3 (aditivo, atrás de flag por usuário): livro de causas do ÚLTIMO mês fechado contra o normal do próprio usuário.
+   * Ausente = flag desligada ou sem base de comparação; a Home nunca preenche por conta própria.
+   */
+  causes?: CauseLedger | null;
   contractVersion: string;
   today: string;
   period: DateRange;

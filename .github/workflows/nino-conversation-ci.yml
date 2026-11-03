@@ -74,6 +74,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/cause-card-f3.test.ts src/test/communication-no-link-early-gate.test.ts
           src/test/cause-entries-f2b.test.ts
           src/test/import-dedupe-open-finance-hoje.test.ts
           src/test/nino-card-invoice.test.ts
@@ -118,6 +119,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/cause-card-f3.test.ts src/test/communication-no-link-early-gate.test.ts
           src/test/cause-entries-f2b.test.ts
           src/test/import-dedupe-open-finance-hoje.test.ts
           src/test/nino-card-invoice.test.ts

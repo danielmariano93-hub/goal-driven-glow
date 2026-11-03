@@ -68,6 +68,7 @@ export * from "./recurringDetection.ts";
 export * from "./mapaReading.ts";
 export * from "./causeLedger.ts";
 export * from "./causeEntries.ts";
+export * from "./causePresentation.ts";
 export * from "./benefitWallet.ts";
 export * from "./benefitStatement.ts";
 export type { DateRange, Trend } from "./spendingRhythm.ts";
