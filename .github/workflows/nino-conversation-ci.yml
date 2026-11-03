@@ -74,6 +74,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/finance-core-barrel-collisions.test.ts
           src/test/confirmar-lancamento-planejado.test.ts
           src/test/nino-v2-goals-overview-safety.test.ts
           src/test/nino-runtime-v3-foundation.test.ts
@@ -108,6 +109,7 @@ jobs:
           src/test/split-grouped-reminders.test.ts
           src/test/benefit-wallet.test.ts
           src/test/ticket-alimentacao-f1.test.ts
+          src/test/finance-core-barrel-collisions.test.ts
           src/test/confirmar-lancamento-planejado.test.ts
 
       # Contratos novos precisam ser estritamente type-safe. O runtime integrado

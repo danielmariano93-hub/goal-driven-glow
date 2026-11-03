@@ -28,7 +28,7 @@ export interface BenefitEntry {
 const DAY_MS = 86_400_000;
 const parse = (iso: string) => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
 const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-export const addDays = (iso: string, n: number) => fmt(parse(iso) + n * DAY_MS);
+export const benefitAddDays = (iso: string, n: number) => fmt(parse(iso) + n * DAY_MS);
 export const daysBetween = (from: string, to: string) => Math.round((parse(to) - parse(from)) / DAY_MS);
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const daysInMonth = (year: number, month0: number) => new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
@@ -142,7 +142,7 @@ export function computeRate(w: BenefitWalletConfig, entries: BenefitEntry[], tod
   if (!entries.length) return { per_day: 0, source: "none", days_observed: 0 };
   const first = entries.reduce((min, e) => (e.occurred_on < min ? e.occurred_on : min), entries[0].occurred_on);
   const observed = Math.max(0, Math.min(windowDays, daysBetween(first, today) + 1));
-  const from = addDays(today, -(windowDays - 1));
+  const from = benefitAddDays(today, -(windowDays - 1));
   const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on >= from && e.occurred_on <= today);
   if (spends.length > 0 && observed >= 3) {
     const total = spends.reduce((s, e) => s + e.amount, 0);
@@ -187,7 +187,7 @@ export function project(balance: number, daysLeft: number, perDay: number, today
   const need = perDay * daysLeft;
   return {
     covers_days: round2(covers),
-    depletion_date: covers < daysLeft ? addDays(today, Math.ceil(covers)) : null,
+    depletion_date: covers < daysLeft ? benefitAddDays(today, Math.ceil(covers)) : null,
     uncovered_days: round2(uncovered),
     shortfall: round2(Math.max(0, need - balance)),
     leftover: round2(Math.max(0, balance - need)),
@@ -222,7 +222,7 @@ export function computeBenefitState(w: BenefitWalletConfig, entries: BenefitEntr
   const spentInCycle = round2(entries.filter((e) => e.kind === "spend" && e.occurred_on >= cycle.start && e.occurred_on <= today).reduce((s, e) => s + e.amount, 0));
   let carryIn: number | null = null;
   if (w.carries_over) {
-    const atStart = computeBalance(w, entries, addDays(cycle.start, -1));
+    const atStart = computeBalance(w, entries, benefitAddDays(cycle.start, -1));
     if (atStart.balance !== null) carryIn = atStart.balance;
   } else {
     carryIn = 0;
@@ -255,11 +255,11 @@ export function whatIf(state: BenefitState, perDay: number): Projection | null {
 export function balanceSeries(w: BenefitWalletConfig, entries: BenefitEntry[], today: string): Array<{ date: string; balance: number | null }> {
   const { start } = cycleBounds(w.credit_day, today);
   const out: Array<{ date: string; balance: number | null }> = [];
-  for (let d = start; d <= today; d = addDays(d, 1)) out.push({ date: d, balance: computeBalance(w, entries, d).balance });
+  for (let d = start; d <= today; d = benefitAddDays(d, 1)) out.push({ date: d, balance: computeBalance(w, entries, d).balance });
   return out;
 }
 
-export const WEEKDAY_LABELS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"] as const;
+export const BENEFIT_WEEKDAY_LABELS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"] as const;
 
 export interface WeekdayPattern {
   by_weekday: Array<{ weekday: number; label: string; total: number; avg_per_occurrence: number; share_pct: number }>;
@@ -270,14 +270,14 @@ export interface WeekdayPattern {
 
 /** Gasto por dia da semana nas últimas `weeks` semanas (precisa de gastos lançados, não só leituras de saldo). */
 export function weekdayPattern(entries: BenefitEntry[], today: string, weeks = 8): WeekdayPattern {
-  const from = addDays(today, -(weeks * 7 - 1));
+  const from = benefitAddDays(today, -(weeks * 7 - 1));
   const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on >= from && e.occurred_on <= today);
   const totals = Array.from({ length: 7 }, () => 0);
   for (const s of spends) totals[(new Date(parse(s.occurred_on)).getUTCDay() + 6) % 7] += s.amount;
   const total = totals.reduce((a, b) => a + b, 0);
   const by = totals.map((t, i) => ({
     weekday: i,
-    label: WEEKDAY_LABELS[i],
+    label: BENEFIT_WEEKDAY_LABELS[i],
     total: round2(t),
     avg_per_occurrence: round2(t / weeks),
     share_pct: total > 0 ? Math.round((t / total) * 100) : 0,
@@ -300,14 +300,14 @@ export function weekdayPattern(entries: BenefitEntry[], today: string, weeks = 8
   return { by_weekday: by, total: round2(total), peak };
 }
 
-export interface MerchantRow {
+export interface BenefitMerchantRow {
   merchant: string;
   total: number;
   share_pct: number;
 }
 
 /** Para onde foi no ciclo atual: ranking por estabelecimento (sem nome vira "Sem nome"; o excedente vira "Outros"). */
-export function merchantBreakdown(entries: BenefitEntry[], from: string, to: string, limit = 5): MerchantRow[] {
+export function merchantBreakdown(entries: BenefitEntry[], from: string, to: string, limit = 5): BenefitMerchantRow[] {
   const groups = new Map<string, { label: string; total: number }>();
   for (const e of entries) {
     if (e.kind !== "spend" || e.occurred_on < from || e.occurred_on > to) continue;
@@ -339,7 +339,7 @@ const roundTo5 = (n: number) => Math.max(5, Math.round(n / 5) * 5);
 const brl = (n: number) => `R$ ${n.toFixed(2).replace(".", ",").replace(/,00$/, "")}`;
 
 /** Sugestões determinísticas e ancoradas nos dados (nenhuma texto de IA, nenhum número inventado). */
-export function suggestions(state: BenefitState, pattern: WeekdayPattern, merchants: MerchantRow[]): Suggestion[] {
+export function suggestions(state: BenefitState, pattern: WeekdayPattern, merchants: BenefitMerchantRow[]): Suggestion[] {
   const out: Suggestion[] = [];
   const peak = pattern.peak;
   if (peak && peak.share_pct >= 25 && peak.ratio >= 1.5 && peak.others_avg > 0) {

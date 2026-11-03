@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays, balanceSeries, computeBalance, computeBenefitState, computeRate, creditDateInMonth, cycleBounds,
+  benefitAddDays, balanceSeries, computeBalance, computeBenefitState, computeRate, creditDateInMonth, cycleBounds,
   merchantBreakdown, suggestions, weekdayPattern, whatIf, type BenefitEntry, type BenefitWalletConfig,
 } from "@/lib/engine/benefitWallet";
 
@@ -114,7 +114,7 @@ describe("Ticket Alimentação — padrões e sugestões", () => {
   // 8 semanas (24/09 a 18/11): seg 20, ter 30, qua 20, qui 20, sex 80, sáb 50, dom 20 → R$ 240 por semana.
   const perDay: Record<number, number> = { 1: 20, 2: 30, 3: 20, 4: 20, 5: 80, 6: 50, 0: 20 };
   const weeks: BenefitEntry[] = [];
-  for (let d = "2026-09-24"; d <= TODAY; d = addDays(d, 1)) {
+  for (let d = "2026-09-24"; d <= TODAY; d = benefitAddDays(d, 1)) {
     const wd = new Date(`${d}T12:00:00Z`).getUTCDay();
     weeks.push(e("spend", perDay[wd], d, wd === 5 ? "iFood" : "Mercado Extra"));
   }
