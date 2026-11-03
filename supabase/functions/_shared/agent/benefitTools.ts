@@ -59,7 +59,7 @@ export async function get_benefit_status(ctx: ToolContext, args?: { per_day?: nu
       rate_per_day: state.rate.per_day,
       ideal_per_day: state.ideal_per_day,
       projection: state.projection,
-      weekday_peak: pattern.peak,
+      weekday_peak: pattern.peak ? { ...pattern.peak, confidence: pattern.confidence, days_observed: pattern.days_observed } : null,
       top_merchants: merchants.map((m) => ({ merchant: m.merchant, total: m.total, share_pct: m.share_pct })),
       scenario,
     },

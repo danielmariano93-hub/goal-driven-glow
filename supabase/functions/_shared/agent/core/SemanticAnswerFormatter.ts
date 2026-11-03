@@ -156,7 +156,7 @@ function formatBenefitStatus(result: any): string | null {
       : `Gastando *${BRL.format(Number(sc.per_day))}/dia*, o saldo fecha o ciclo e sobram *${BRL.format(Number(sc.leftover))}*.`);
   }
   const peak = result.weekday_peak;
-  if (peak) lines.push(`O dia que mais pesa é *${peak.label}*: ${Number(peak.share_pct)}% do gasto, média de ${BRL.format(Number(peak.avg_per_occurrence))}.`);
+  if (peak) lines.push(`O dia que mais pesa é *${peak.label}*: ${Number(peak.share_pct)}% do gasto, média de ${BRL.format(Number(peak.avg_per_occurrence))}${peak.confidence === "low" ? ` (primeira leitura, com ${Number(peak.days_observed)} dias de histórico)` : ""}.`);
   if (result.inconsistent) lines.push("Os lançamentos passaram do saldo lido; vale conferir a leitura do app do ticket.");
   return lines.join("\n");
 }

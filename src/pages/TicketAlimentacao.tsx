@@ -208,15 +208,18 @@ export default function TicketAlimentacao() {
           )}
           {hasSpends && (
             <section className="surface-card flex flex-col gap-3 p-5">
-              <div className="flex items-baseline justify-between"><h2 className="font-bold">Quando eu gasto</h2><span className="text-xs text-muted-foreground">últimas 8 semanas</span></div>
+              <div className="flex items-baseline justify-between"><h2 className="font-bold">Quando eu gasto</h2><span className="text-xs text-muted-foreground">{pattern.days_observed < 56 ? `${pattern.days_observed} ${pattern.days_observed === 1 ? "dia" : "dias"} de histórico` : "últimas 8 semanas"}</span></div>
               <WeekdayBars pattern={pattern} />
               {pattern.peak ? (
                 <div className="rounded-xl bg-muted/50 p-3 text-sm leading-relaxed">
                   <strong className="font-semibold">{pattern.peak.label === "sáb" ? "Sábado" : pattern.peak.label === "dom" ? "Domingo" : `${pattern.peak.label.charAt(0).toUpperCase()}${pattern.peak.label.slice(1)}`} pesa {pattern.peak.share_pct}% do seu Ticket.</strong>
                   <div className="text-muted-foreground">Em média, esse dia custa {brl2(pattern.peak.avg_per_occurrence)}, {pattern.peak.ratio.toFixed(1).replace(".", ",")} vezes a média dos outros dias ({brl2(pattern.peak.others_avg)}).</div>
+                  {pattern.confidence === "low" && (
+                    <div className="mt-1 text-xs text-muted-foreground">Primeira leitura, com {pattern.days_observed} dias de histórico: ela se firma conforme você lança mais gastos, mas já serve para se antecipar.</div>
+                  )}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Ainda não há histórico suficiente (pelo menos 2 semanas e 6 gastos) para apontar um padrão.</p>
+                <p className="text-sm text-muted-foreground">Com mais alguns gastos lançados eu já aponto em quais dias da semana você mais gasta.</p>
               )}
             </section>
           )}
