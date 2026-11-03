@@ -90,6 +90,33 @@ export type DedupeInputItem = {
 };
 
 /**
+ * Um Pix recebido que paga VÁRIAS parcelas de rolê (ex.: "quitar tudo", ou duas parcelas de uma vez) vira um
+ * lançamento por parcela no Nino. Procura o menor grupo (2 a 8) de recebimentos cuja soma fecha com o Pix,
+ * com tolerância de centavos por parcela (a parcela é arredondada).
+ */
+export function findReceiptGroup(candidates: ExistingTx[], target: number): ExistingTx[] | null {
+  const list = candidates.slice(0, 16);
+  let best: ExistingTx[] | null = null;
+  const dfs = (start: number, picked: ExistingTx[], sum: number) => {
+    if (picked.length >= 2 && Math.abs(sum - target) <= 0.02 + 0.01 * picked.length) {
+      if (!best || picked.length < best.length) best = [...picked];
+      return;
+    }
+    if (picked.length >= 8 || (best && picked.length >= (best as ExistingTx[]).length)) return;
+    for (let i = start; i < list.length; i++) {
+      const next = sum + Number(list[i].amount);
+      if (next > target + 0.5) continue;
+      dfs(i + 1, [...picked, list[i]], next);
+    }
+  };
+  dfs(0, [], 0);
+  return best;
+}
+
+/** Folha de pagamento: o banco credita o LÍQUIDO; o Nino guarda o bruto e o desconto (ex.: previdência) em lançamentos separados. */
+export const PAYROLL_NET_TOLERANCE = 1.0;
+
+/**
  * Classifica um lote inteiro contra as transações já existentes do usuário.
  * Retorna um veredito por índice, na mesma ordem do lote.
  */
@@ -180,6 +207,58 @@ export function classifyBatch(
       }
     }
 
+    const isIncomeIn = item.type === "income"
+      && ["external_transfer_in", "transaction", "income", undefined, null].includes(item.movement_kind as never);
+
+    // 2c. Pix recebido = SOMA de recebimentos de rolê já baixados (várias parcelas de uma vez).
+    if (isIncomeIn) {
+      const pool = existing
+        .filter((tx) =>
+          !consumed.has(tx.id)
+          && tx.split_transaction_role === "reimbursement"
+          && tx.type === "income"
+          && Number(tx.amount) < item.amount
+          && dates.some((d) => daysApart(tx.occurred_at, d) <= windowDays))
+        .sort((a, b) => Math.min(...dates.map((d) => daysApart(a.occurred_at, d))) - Math.min(...dates.map((d) => daysApart(b.occurred_at, d))));
+      // Primeiro dentro de um mesmo dia (uma baixa em lote), depois na janela inteira.
+      const byDay = new Map<string, ExistingTx[]>();
+      for (const tx of pool) byDay.set(tx.occurred_at, [...(byDay.get(tx.occurred_at) ?? []), tx]);
+      let group: ExistingTx[] | null = null;
+      for (const day of byDay.values()) { group = findReceiptGroup(day, item.amount); if (group) break; }
+      if (!group) group = findReceiptGroup(pool, item.amount);
+      if (group) {
+        for (const tx of group) consumed.add(tx.id);
+        const diff = Math.abs(group.reduce((s, tx) => s + Number(tx.amount), 0) - item.amount);
+        verdicts.push({
+          status: "probable_duplicate",
+          reason_code: `reembolso_do_role_soma:n=${group.length}${diff > 0.004 ? `:dif=${diff.toFixed(2)}` : ""}`,
+          duplicate_of: group[0].id,
+        });
+        continue;
+      }
+    }
+
+    // 2d. Salário líquido: bruto lançado menos o desconto em folha (aporte de previdência etc.) lançado no mesmo dia.
+    if (isIncomeIn && item.amount >= 500) {
+      const payroll = existing.filter((tx) => !consumed.has(tx.id) && tx.type === "income" && Number(tx.amount) > item.amount
+        && ["transaction", "income", null, undefined].includes(tx.movement_kind as never)
+        && dates.some((d) => daysApart(tx.occurred_at, d) <= 1));
+      let hit: { tx: ExistingTx; dif: number } | null = null;
+      for (const gross of payroll) {
+        const deductions = existing.filter((tx) => !consumed.has(tx.id) && tx.type === "expense"
+          && tx.movement_kind === "investment_application" && daysApart(tx.occurred_at, gross.occurred_at) <= 1);
+        for (const ded of deductions) {
+          const dif = Math.abs(Number(gross.amount) - Number(ded.amount) - item.amount);
+          if (dif <= PAYROLL_NET_TOLERANCE && (!hit || dif < hit.dif)) hit = { tx: gross, dif };
+        }
+      }
+      if (hit) {
+        consumed.add(hit.tx.id);
+        verdicts.push({ status: "probable_duplicate", reason_code: `liquido_de_folha:dif=${hit.dif.toFixed(2)}`, duplicate_of: hit.tx.id });
+        continue;
+      }
+    }
+
     // 3/4. tipo + valor + (data|janela) + comerciante
     const candidates = existing.filter((tx) =>
       !consumed.has(tx.id)
@@ -236,6 +315,15 @@ export function classifyBatch(
         reason_code: "data+valor_descricao_diferente",
         duplicate_of: sameDay.tx.id,
       });
+      continue;
+    }
+
+    // Banco lança no dia seguinte e chama de outra coisa ("Pagamento de boleto…" x "Aluguel"): mesmo valor, até 1 dia.
+    // Só valores a partir de R$ 20, para pequenas coincidências não virarem suspeita; vai para revisão, nunca some sozinho.
+    const nextDay = item.amount >= 20 ? withMerchant.filter((c) => c.gap <= 1).sort((a, b) => a.gap - b.gap)[0] : undefined;
+    if (nextDay) {
+      consumed.add(nextDay.tx.id);
+      verdicts.push({ status: "probable_duplicate", reason_code: "janela_1d+valor_descricao_diferente", duplicate_of: nextDay.tx.id });
       continue;
     }
 
