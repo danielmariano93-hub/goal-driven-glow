@@ -206,3 +206,19 @@ export function useAdjustCategoryGoal() {
     },
   };
 }
+
+/**
+ * Mês importado em lote (histórico sem meta por trás): o usuário confirma se tinha meta naquele mês.
+ * true = entra nos cálculos; false = some deles. Só o dono escreve (RLS `csgc_owner_all`).
+ */
+export function useConfirmGoalCycle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { cycleId: string; hadGoal: boolean }) => {
+      const id = args.cycleId.replace(/^cycle:/, "");
+      const { error } = await db.from("category_spending_goal_cycles").update({ confirmed: args.hadGoal }).eq("id", id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}

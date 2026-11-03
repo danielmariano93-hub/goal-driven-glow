@@ -42,8 +42,10 @@ import { sortCategories } from "@/lib/categories/order";
 import { useAdjustCategoryGoal, useGoalAdjustments, useGoalHistory, useSpendingGoalReadings, type GoalReading } from "@/lib/nino/spendingGoals";
 import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
-import { ClosedGoalMonths, GoalHighlights, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
+import { ClosedGoalMonths, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 import { GoalCandidatesCard, GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
+import { GoalCycleConfirmDialog } from "@/components/metas/GoalCycleConfirmDialog";
+import type { GoalSeries, HistoryMonth } from "@/lib/engine/goalHistory";
 
 type GoalTab = "all" | "individual" | "shared";
 
@@ -156,6 +158,7 @@ export default function Metas() {
   }), [goals, contribs, investments, catGoalEvals, numericTxs]);
 
   const { data: goalHistory } = useGoalHistory();
+  const [confirmTarget, setConfirmTarget] = useState<{ series: GoalSeries; month: HistoryMonth } | null>(null);
   const { data: adjustments } = useGoalAdjustments();
   const adjuster = useAdjustCategoryGoal();
   const [adjusting, setAdjusting] = useState<CategoryGoalEvaluation | null>(null);
@@ -193,26 +196,6 @@ export default function Metas() {
 
       <PendingInvitesBanner />
 
-      <section className="mb-4 grid grid-cols-2 gap-3" aria-label="Resumo das metas">
-        <div className="rounded-[18px] border border-border bg-card p-4 shadow-sm">
-          <p className="text-[11px] font-semibold text-muted-foreground">Impacto positivo no mês</p>
-          <p className="mt-1 font-display text-xl font-bold tabular-nums text-foreground">{formatBRL(goalOverview.positiveImpactThisMonth)}</p>
-          <p className="mt-1 text-[10px] leading-4 text-muted-foreground">Aportes realizados + economia observada nas categorias.</p>
-        </div>
-        <details className="group rounded-[18px] border border-border bg-card p-4 shadow-sm">
-          <summary className="cursor-pointer list-none">
-            <span className="flex items-center justify-between gap-2 text-[11px] font-semibold text-muted-foreground">Atingimento geral <Info size={13} /></span>
-            <span className="mt-1 block font-display text-xl font-bold tabular-nums text-foreground">{Math.round(goalOverview.overallAttainmentPct)}%</span>
-            <span className="mt-1 block text-[10px] text-muted-foreground">Toque para ver por tipo.</span>
-          </summary>
-          <dl className="mt-3 space-y-1 border-t border-border pt-2 text-[10px]">
-            <GoalTypeRow label="Financeiras" value={goalOverview.byType.financial} />
-            <GoalTypeRow label="Categorias" value={goalOverview.byType.category} />
-            <GoalTypeRow label="Doação" value={goalOverview.byType.donation} />
-          </dl>
-        </details>
-      </section>
-
       <div className="mb-3 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
         <button
           onClick={() => setTab("all")}
@@ -245,17 +228,14 @@ export default function Metas() {
 
       {(tab === "all" || openCatList) && goalHistory ? (
         <>
-          {/* O veredito (líquido, com confiança) substitui o antigo "O que as metas já fizeram": aquele somava só o que caiu. */}
+          {/* Resultado (líquido, por meta) e placar mês a mês: a mesma conta nos dois. O antigo card "O que as metas já fizeram" somava só o que caiu. */}
           {goalHistory.verdict && goalHistory.series.length > 0 ? <GoalVerdictCard verdict={goalHistory.verdict} /> : null}
-          <GoalCandidatesCard
-            candidates={goalHistory.candidates ?? []}
-            onCreate={(c) => {
-              setEditingCatGoal({ category_id: c.category_id, mode: "fixed_limit", fixed_limit: c.recommended_limit, computed_limit: c.recommended_limit, period_type: "monthly_recurring" } as never);
-              setOpenCatGoal(true);
-            }}
+          <GoalScoreboard
+            history={goalHistory}
+            onOpen={(series) => openSeries(series.category_id)}
+            effects={goalHistory.verdict ? Object.fromEntries(goalHistory.verdict.by_category.map((c) => [c.category_id, { change_pct: c.change_pct, status: c.status }])) : undefined}
+            onConfirm={(series, month) => setConfirmTarget({ series, month })}
           />
-          <GoalHighlights highlights={goalHistory.highlights.filter((h) => h.id !== "impact")} onOpen={openSeries} />
-          <GoalScoreboard history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
         </>
       ) : null}
 
@@ -294,36 +274,6 @@ export default function Metas() {
               ))}
             </ul>
           )}
-          {goalHistory ? (
-            <ClosedGoalMonths history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
-          ) : closedEvals.length ? (
-            <details className="group mt-4 rounded-xl border border-border">
-              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] font-semibold">
-                Encerradas ({closedEvals.length})
-                <span className="text-[11px] font-normal text-muted-foreground group-open:hidden">ver resultado</span>
-              </summary>
-              <ul className="divide-y divide-border border-t border-border">
-                {closedEvals.map((ev) => {
-                  const ok = ev.status === "completed_ok";
-                  return (
-                    <li key={ev.goal.id}>
-                      <Link to={`/app/metas/categoria/${ev.goal.id}`} className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px]">
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold">{ev.categoryName ?? "Categoria"}</span>
-                          <span className="text-muted-foreground">
-                            {new Date(`${ev.period.start}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })} · {formatBRL(ev.actualSpend)} de {formatBRL(ev.targetAmount)}
-                          </span>
-                        </span>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${ok ? "bg-emerald-500/15 text-emerald-700" : "bg-red-500/15 text-red-700"}`}>
-                          {ok ? "Cumpriu" : `Acima ${formatBRL(ev.currentOverage)}`}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-          ) : null}
         </div>
       )}
 
@@ -458,6 +408,17 @@ export default function Metas() {
           })}
         </ul>
       )}
+      {(tab === "all" || openCatList) && goalHistory ? (
+        <div className="mt-4">
+          <GoalCandidatesCard
+            candidates={goalHistory.candidates ?? []}
+            onCreate={(c) => {
+              setEditingCatGoal({ category_id: c.category_id, mode: "fixed_limit", fixed_limit: c.recommended_limit, computed_limit: c.recommended_limit, period_type: "monthly_recurring" } as never);
+              setOpenCatGoal(true);
+            }}
+          />
+        </div>
+      ) : null}
       {tab === "all" && (
         <div className="mt-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -466,6 +427,41 @@ export default function Metas() {
           <SharedGoalsInline />
         </div>
       )}
+      {/* Encerradas: no fim da tela. */}
+      {(tab === "all" || openCatList) ? (
+        <div className="mb-4">
+          {goalHistory ? (
+            <ClosedGoalMonths history={goalHistory} onOpen={(series) => openSeries(series.category_id)} />
+          ) : closedEvals.length ? (
+            <details className="group mt-4 rounded-xl border border-border">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[13px] font-semibold">
+                Encerradas ({closedEvals.length})
+                <span className="text-[11px] font-normal text-muted-foreground group-open:hidden">ver resultado</span>
+              </summary>
+              <ul className="divide-y divide-border border-t border-border">
+                {closedEvals.map((ev) => {
+                  const ok = ev.status === "completed_ok";
+                  return (
+                    <li key={ev.goal.id}>
+                      <Link to={`/app/metas/categoria/${ev.goal.id}`} className="flex items-center justify-between gap-2 px-3 py-2.5 text-[12px]">
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{ev.categoryName ?? "Categoria"}</span>
+                          <span className="text-muted-foreground">
+                            {new Date(`${ev.period.start}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })} · {formatBRL(ev.actualSpend)} de {formatBRL(ev.targetAmount)}
+                          </span>
+                        </span>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${ok ? "bg-emerald-500/15 text-emerald-700" : "bg-red-500/15 text-red-700"}`}>
+                          {ok ? "Cumpriu" : `Acima ${formatBRL(ev.currentOverage)}`}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
         </>
       )}
 
@@ -510,6 +506,8 @@ export default function Metas() {
           }
         />
       )}
+
+      <GoalCycleConfirmDialog target={confirmTarget} onClose={() => setConfirmTarget(null)} />
 
       {adjusting ? (
         <GoalAdjustSheet

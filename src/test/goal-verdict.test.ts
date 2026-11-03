@@ -35,21 +35,18 @@ const hist = (g = goals, r = rows, today = "2026-11-03") => buildGoalHistory({ t
 
 describe("veredito: ter meta está fazendo sentido?", () => {
   const v = hist().verdict!;
-  it("caso real: as categorias com meta caíram, mas o gasto total quase não mudou → em parte (e diz isso)", () => {
-    expect(v.verdict).toBe("parcial");
-    expect(v.headline).toMatch(/^Em parte: caiu nas categorias com meta, mas o seu gasto total quase não mudou/);
-    expect(v.summary).toMatch(/aparece(u|ram) em outras categorias/);
+  it("caso real: 3 de 4 metas funcionaram — resposta por meta, sem culpar outras categorias", () => {
+    expect(v.verdict).toBe("sim");
+    expect(v.badge).toBe("3 DE 4 FUNCIONARAM");
+    expect(v.headline).toBe("Nas categorias com meta, você está gastando menos.");
+    // nada de "em parte" nem de "foi para outras categorias"
+    expect(`${v.headline} ${v.summary} ${v.caveats.join(" ")}`).not.toMatch(/em parte|outras categorias|gasto total quase não mudou/i);
   });
-  it("quando o gasto variável total também cai, o veredito é sim", () => {
-    const clean = [
-      ...monthly(T, { "2026-06": 2000, "2026-07": 2000, "2026-08": 2000, "2026-09": 1500, "2026-10": 1500 }),
-      ...monthly(A, { "2026-06": 1000, "2026-07": 1000, "2026-08": 1000, "2026-09": 700, "2026-10": 700 }),
-      ...monthly(V, { "2026-06": 700, "2026-07": 700, "2026-08": 700, "2026-09": 700, "2026-10": 700 }),
-    ];
-    const vs = hist([goal("g1", T, "2026-09-01", 2000), goal("g2", A, "2026-09-01", 1000)], clean).verdict!;
-    expect(vs.verdict).toBe("sim");
-    expect(vs.headline).toBe("Sim: ter metas está fazendo sentido.");
-    expect(vs.summary).toMatch(/gasto variável total também caiu/);
+  it("o que está fora das metas aparece como contexto neutro (sem culpa)", () => {
+    // Serviços e Mercado subiram desde as metas
+    expect(v.outside_goals).not.toBeNull();
+    expect(v.outside_goals!.change_pct).toBeGreaterThan(0.03);
+    expect(v.outside_line).toMatch(/^Fora das metas, o seu gasto subiu \d+% \(R\$.* por mês\)\. Sem meta, sem freio/);
   });
   it("números do caso real", () => {
     expect(v.helped).toBe(3);
@@ -74,16 +71,12 @@ describe("veredito: ter meta está fazendo sentido?", () => {
   it("avisa quando o resultado depende de uma categoria só", () => {
     expect(v.caveats.some((c) => /Mais da metade do ganho vem de Assinaturas/.test(c))).toBe(true);
   });
-  it("compara com o gasto variável total (evitado numa categoria não é, sozinho, dinheiro guardado)", () => {
-    expect(v.variable_total).not.toBeNull();
-    // o variável total (Serviços e Mercado subiram) caiu menos que o ganho líquido
-    expect(v.variable_total!.before_avg - v.variable_total!.after_avg).toBeLessThan(v.net_monthly! * 0.5);
-  });
   it("sem meses fechados com meta: cedo demais, sem número inventado", () => {
     const v0 = hist([goal("g", T, "2026-11-01", 1850)]).verdict!;
     expect(v0.verdict).toBe("cedo");
     expect(v0.net_monthly).toBeNull();
     expect(v0.summary).toMatch(/pelo menos 2 meses/);
+    expect(v0.badge).toBe("CEDO DEMAIS");
   });
   it("um único mês fechado também é cedo demais", () => {
     const v1 = hist([goal("g", T, "2026-10-01", 1850)]).verdict!;
@@ -96,7 +89,7 @@ describe("veredito: ter meta está fazendo sentido?", () => {
     ];
     const vw = hist([goal("g", T, "2026-09-01", 1000)], worse).verdict!;
     expect(vw.verdict).toBe("nao");
-    expect(vw.headline).toBe("Por enquanto, não.");
+    expect(vw.headline).toBe("Por enquanto, as metas não reduziram o gasto.");
     expect(vw.net_monthly!).toBeLessThan(0);
   });
   it("praticamente igual: não dá para ver efeito", () => {
@@ -142,5 +135,43 @@ describe("categorias que merecem uma meta", () => {
   it("com menos de 3 meses de dados não sugere nada", () => {
     const few = monthly(V, { "2026-09": 800, "2026-10": 900 });
     expect(hist([], few).candidates).toEqual([]);
+  });
+});
+
+describe("meses importados e referência recalculada", () => {
+  // Lazer: meta de setembro apagada/editada (ciclo importado) + meta nova de 30/09 para outubro (referência calculada em jul–set).
+  const lazerRows = monthly(L, { "2026-05": 1000, "2026-06": 1000, "2026-07": 1000, "2026-08": 1000, "2026-09": 1000, "2026-10": 600 });
+  const cycle = (id: string, month: string, confirmed: boolean | null, imported = true) => ({
+    id: `cycle:${id}`, cycle_id: id, category_id: L, computed_limit: 800, baseline_value: null, start_date: `${month}-01`, end_date: `${month}-28`,
+    period_type: "custom", status: "active", imported, confirmed,
+  });
+  const goalOct = { id: "go", category_id: L, computed_limit: 700, baseline_value: 1500, status: "active", period_type: "this_month", start_date: "2026-10-01", end_date: "2026-10-31", created_at: "2026-09-30" };
+  const run = (cycles: unknown[]) => buildGoalHistory({ today: "2026-11-03", goals: [goalOct], cycles: cycles as never, entries: buildSpendingLedger(lazerRows), categories });
+
+  it("mês importado sem confirmação aparece como '?' e fica fora dos totais", () => {
+    const h = run([cycle("c-ago", "2026-08", null), cycle("c-set", "2026-09", true)]);
+    const s = h.series[0]!;
+    expect(s.months.find((m) => m.month === "2026-08")).toMatchObject({ status: "unconfirmed", cycle_id: "c-ago" });
+    expect(s.months.find((m) => m.month === "2026-09")!.status).toBe("missed"); // 1000 > teto 800, confirmado
+    // só set (confirmado) e out contam: 2 meses fechados
+    expect(s.kpis.closed_months).toBe(2);
+    expect(h.scoreboard.rows[0]!.cells.find((c) => c.month === "2026-08")!.status).toBe("unconfirmed");
+  });
+  it("'não tinha' some dos cálculos; 'tinha' entra", () => {
+    const no = run([cycle("c-ago", "2026-08", false), cycle("c-set", "2026-09", true)]).series[0]!;
+    expect(no.months.find((m) => m.month === "2026-08")!.status).not.toBe("unconfirmed");
+    expect(no.kpis.closed_months).toBe(2);
+    const yes = run([cycle("c-ago", "2026-08", true), cycle("c-set", "2026-09", true)]).series[0]!;
+    expect(yes.kpis.closed_months).toBe(3);
+  });
+  it("o 'antes' é recalculado quando a referência guardada nasceu depois do primeiro mês de meta", () => {
+    // 1º mês de meta = set (confirmado); a referência guardada (1.500) é da meta de out, calculada em cima de meses 'durante'.
+    const s = run([cycle("c-set", "2026-09", true)]).series[0]!;
+    expect(s.first_month).toBe("2026-09");
+    expect(s.baseline).toBe(1000); // média de jun–ago (3 meses antes de setembro), não 1.500
+  });
+  it("sem meses anteriores no ledger, mantém a referência guardada", () => {
+    const h = buildGoalHistory({ today: "2026-11-03", goals: [goalOct], entries: buildSpendingLedger(monthly(L, { "2026-10": 600 })), categories });
+    expect(h.series[0]!.baseline).toBe(1500);
   });
 });

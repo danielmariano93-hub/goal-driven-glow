@@ -97,7 +97,7 @@ export async function loadSpendingGoalContext(
     sb.from("category_spending_goals").select("*").eq("user_id", userId).in("status", ["active", "paused"]),
     sb.from("spending_goal_merchant_targets").select("*").eq("user_id", userId).neq("status", "cancelled"),
     sb.from("category_spending_goal_cycles")
-      .select("id,goal_id,category_id,start_date,end_date,target_snapshot,baseline_snapshot")
+      .select("id,goal_id,category_id,start_date,end_date,target_snapshot,baseline_snapshot,source,confirmed")
       .eq("user_id", userId).not("category_id", "is", null),
     sb.from("communication_deliveries").select("id", { count: "exact", head: true })
       .eq("user_id", userId).eq("status", "delivered")
@@ -149,6 +149,10 @@ export async function loadSpendingGoalContext(
       period_type: "custom",
       status: "active",
       source: "cycle" as const,
+      // Mês importado em lote, sem meta por trás: só conta depois que o usuário confirma.
+      imported: c.source === "backfill",
+      confirmed: c.confirmed ?? null,
+      cycle_id: String(c.id),
     })),
     alerts_delivered: Number((alertsRes as any).count ?? 0),
     adjustments: (((adjRes as any).data ?? []) as any[]).map((a) => ({

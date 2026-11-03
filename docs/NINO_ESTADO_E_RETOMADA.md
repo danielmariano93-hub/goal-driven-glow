@@ -85,3 +85,9 @@ Custo/escala (guia §11): nada recorrente abaixo de 1 h sem aprovação; pollers
 - O antigo card "O que as metas já fizeram por você" e o destaque `impact` saíram da tela: somavam só o que caiu. O motor `goalImpact` continua (testes e agente).
 - Candidatas: consumo livre SEM meta, ≥ R$ 150/mês e ≥ 4% do variável (≥ 2% se subindo ≥ 20%); essenciais (mercado/farmácia) só subindo; nunca obrigações, "Outros", rolê e contas da casa. Prioridade alta = ≥ 10% do variável, ou ≥ 5% e subindo. Teto sugerido = média dos 3 últimos meses × 0,9.
 - Verificado com os dados reais do dono (agregados): Sim/Em parte conforme a regra, net ≈ R$ 1,76 mil/mês (−26%), Transporte "não ajudou" (+26%), gasto variável total caiu só ~R$ 90/mês (Serviços/JIM subiu).
+
+### Metas — tela v2 (ordem e conceito)
+- Ordem: resultado ("N de M funcionaram") → placar mês a mês (+ coluna "vs antes") → metas deste mês (layout de sempre) → dízimo/metas de guardar → "Onde ainda não há meta" (fechado, expande) → metas conjuntas → encerradas. Saíram "Impacto positivo no mês", "Atingimento geral", o carrossel de destaques e a lista de sugestões antiga.
+- A pergunta é POR META (a meta da categoria X funcionou?). O conjunto é o líquido de todas as metas. O que está fora das metas é contexto neutro ("sem meta, sem freio"), nunca causa.
+- Meses importados em lote (`category_spending_goal_cycles.source = 'backfill'`) só contam depois que o usuário confirma (`confirmed`: true = tinha meta, false = não tinha, null = "?" no placar, fora dos totais). Agosto/2026 do dono ficou "?"; setembro de Lazer e Assinaturas foi confirmado por ele.
+- A referência ("antes") só usa o valor guardado quando a meta que o guardou é a do primeiro mês de meta; senão recalcula pelos 3 meses anteriores ao primeiro mês.
