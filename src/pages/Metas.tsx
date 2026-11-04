@@ -250,7 +250,7 @@ export default function Metas() {
                 : "Defina um teto de gasto e acompanhe seu ritmo em tempo real."}
             </p>
           ) : (
-            <ul className="space-y-2">
+            <ul>
               {currentEvals.map((ev) => (
                 <CategoryGoalCard
                   key={ev.goal.id}

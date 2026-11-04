@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { Pencil, Trash2, Pause, Play, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { Pencil, Trash2, Pause, Play, ChevronRight, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
 import { formatBRL } from "@/lib/engine/facts";
 import type { AdjustmentReview } from "@/lib/engine/goalAdjustment";
 import { AdjustedBadge } from "./GoalAdjustmentViews";
 import { resolveRequiredLabel } from "@/lib/observability/dataContract";
-import { PILL_TONE, StatusPill, ValueChip, type PillTone } from "./StatusPill";
+import { PILL_TONE, StatusPill, type PillTone } from "./StatusPill";
 
 type Props = {
   evaluation: CategoryGoalEvaluation;
@@ -68,35 +68,49 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
   if (compact) {
     const title = resolveRequiredLabel({ kind: "category_name_missing", surface: "CategoryGoalCard", id: evaluation.goal.category_id, name: evaluation.categoryName, fallback: "Categoria" });
     const active = evaluation.status !== "scheduled" && evaluation.status !== "paused";
+    // Uma escala só: o preenchido é o gasto, o trecho claro é o que falta até a projeção e o tracinho é o teto.
+    const scale = Math.max(evaluation.targetAmount, evaluation.projectedFinalSpend, evaluation.actualSpend, 1);
+    const pctOf = (v: number) => `${Math.round(Math.min(1, Math.max(0, v / scale)) * 100)}%`;
+    const showProjection = active && evaluation.projectedFinalSpend > evaluation.actualSpend;
     return (
-      <li className={`rounded-xl bg-muted/50 p-3 ${paused ? "opacity-70" : ""}`}>
-        <div className="flex items-start justify-between gap-2">
-          <button type="button" onClick={open} aria-label={`Abrir meta de ${title}`} className="min-w-0 flex-1 text-left">
-            <span className="block text-[14px] font-semibold leading-5">{title}</span>
-            <span className="block text-[12px] leading-4 text-muted-foreground">{fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}</span>
-          </button>
-          <StatusPill tone={s.tone}>{s.label}</StatusPill>
-        </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className={`h-full rounded-full transition-[width] ${bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
-        </div>
-        <p className="mt-2 text-[13px] leading-5 tabular-nums">
-          <span className="font-semibold">{formatBRL(evaluation.actualSpend)}</span>
-          <span className="text-muted-foreground"> de {formatBRL(evaluation.targetAmount)}</span>
-        </p>
-        {active ? (
-          <p className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="goal-projection-chips">
-            <ValueChip tone="muted">Projeção {formatBRL(evaluation.projectedFinalSpend)}</ValueChip>
-            {evaluation.projectedOverage > 0
-              ? <ValueChip tone="danger">{formatBRL(evaluation.projectedOverage)} acima</ValueChip>
-              : <ValueChip tone="success">{formatBRL(Math.max(0, evaluation.projectedDifference))} de folga</ValueChip>}
-          </p>
-        ) : null}
-        <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="mt-1 min-h-8 text-[12px] text-primary">
-          {more ? "Menos" : "Detalhes e ações"}
+      <li className={`border-t border-border first:border-t-0 ${paused ? "opacity-70" : ""}`}>
+        <button
+          type="button"
+          aria-expanded={more}
+          aria-label={`${title}: ${more ? "menos" : "Detalhes e ações"}`}
+          onClick={() => setMore((v) => !v)}
+          className="block w-full py-3.5 text-left"
+        >
+          <span className="flex items-start justify-between gap-2">
+            <span className="min-w-0">
+              <span className="block text-[15px] font-semibold leading-5">{title}</span>
+              <span className="block text-[12px] leading-4 text-muted-foreground">{fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              <StatusPill tone={s.tone}>{s.label}</StatusPill>
+              <ChevronDown size={16} aria-hidden className={`text-muted-foreground transition-transform ${more ? "rotate-180" : ""}`} />
+            </span>
+          </span>
+          <span className="relative mt-3 block h-1.5 rounded-full bg-muted" aria-hidden>
+            {showProjection ? <span data-testid="goal-bar-projection" className={`absolute inset-y-0 left-0 rounded-full opacity-30 ${bar}`} style={{ width: pctOf(evaluation.projectedFinalSpend) }} /> : null}
+            <span className={`absolute inset-y-0 left-0 rounded-full transition-[width] ${bar}`} style={{ width: pctOf(evaluation.actualSpend) }} />
+            {scale > evaluation.targetAmount ? <span className="absolute -inset-y-0.5 w-0.5 rounded-full bg-foreground/60" style={{ left: pctOf(evaluation.targetAmount) }} /> : null}
+          </span>
+          <span className="mt-2 block text-[13px] leading-5 tabular-nums">
+            <span className="font-semibold">{formatBRL(evaluation.actualSpend)}</span>
+            <span className="text-muted-foreground"> de {formatBRL(evaluation.targetAmount)}</span>
+          </span>
+          {active ? (
+            <span className="block text-[12px] leading-4 tabular-nums text-muted-foreground" data-testid="goal-projection-line">
+              Projeção {formatBRL(evaluation.projectedFinalSpend)} ·{" "}
+              {evaluation.projectedOverage > 0
+                ? <span className="font-medium text-destructive">{formatBRL(evaluation.projectedOverage)} acima do teto</span>
+                : <span className="font-medium text-success">{formatBRL(Math.max(0, evaluation.projectedDifference))} de folga</span>}
+            </span>
+          ) : null}
         </button>
         {more ? (
-          <div className="mt-1 space-y-2 border-t border-border pt-2">
+          <div className="mb-3 space-y-2 rounded-xl bg-muted/50 p-3">
             <p className="text-[13px] leading-5">{evaluation.message}</p>
             {evaluation.carriedInstallments > 0 ? (
               <p data-testid="goal-carried-installments" className="text-[12px] leading-4 text-muted-foreground">
@@ -106,6 +120,7 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
             {adjustment ? <AdjustedBadge review={adjustment} /> : null}
             {children ? <div>{children}</div> : null}
             <div className="flex flex-wrap gap-2">
+              <button onClick={open} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium text-primary">Abrir meta <ChevronRight size={12} /></button>
               {onAdjust ? <button onClick={stop(onAdjust)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium text-primary"><SlidersHorizontal size={12} /> Ajustar meta</button> : null}
               <button onClick={stop(onEdit)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px]"><Pencil size={12} /> Editar</button>
               <button onClick={stop(onToggleStatus)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px]">{paused ? <><Play size={12} /> Reativar</> : <><Pause size={12} /> Pausar</>}</button>

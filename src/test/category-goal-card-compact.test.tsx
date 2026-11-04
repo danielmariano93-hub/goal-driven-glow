@@ -28,7 +28,7 @@ describe("lista de metas deste mês, compacta", () => {
   });
   it("aberto: mostra o plano e as quatro ações, e elas funcionam", () => {
     const h = renderCard(true);
-    fireEvent.click(screen.getByRole("button", { name: "Detalhes e ações" }));
+    fireEvent.click(screen.getByRole("button", { name: /Detalhes e ações/ }));
     expect(screen.getByText("Plano do Nino")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Ajustar meta/ }));
     fireEvent.click(screen.getByRole("button", { name: /Editar/ }));
