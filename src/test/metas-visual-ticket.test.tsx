@@ -43,17 +43,22 @@ describe("meta do mês: etiqueta e chips no padrão do Ticket", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
     expect(screen.getByText("Atenção").className).toMatch(/bg-warning\/20/);
   });
-  it("projeção e diferença em chips: neutro para a projeção, vermelho para 'acima'", () => {
+  it("projeção e diferença numa linha só: só o trecho da diferença ganha cor", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    const chips = screen.getByTestId("goal-projection-chips");
-    expect(chips.textContent).toMatch(/Projeção R\$\s?[\d.]+,\d{2}/);
-    const acima = screen.getByText(/acima$/);
-    expect(acima.className).toMatch(/bg-destructive\/15/);
+    const line = screen.getByTestId("goal-projection-line");
+    expect(line.textContent).toMatch(/Projeção R\$\s?[\d.]+,\d{2} · R\$\s?[\d.]+,\d{2} acima do teto/);
+    expect(screen.getByText(/acima do teto$/).className).toMatch(/text-destructive/);
+    expect(line.querySelectorAll("[class*='rounded-full']").length).toBe(0);
   });
-  it("dentro do teto: chip verde de folga", () => {
+  it("cada meta tem um único selo (o estado); sem selos de valor", () => {
+    const { container } = render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    expect(container.querySelectorAll("span.px-2\\.5.rounded-full").length).toBe(1);
+    expect(screen.queryByText(/^Detalhes e ações$/)).toBeNull();
+  });
+  it("dentro do teto: linha com folga em verde", () => {
     const folga = evaluateCategoryGoal({ ...goal, computed_limit: 9000, fixed_limit: 9000 } as CategorySpendingGoalRow, [...monthly("2026-10", 500), tx("2026-11", 50, "01")] as never, new Date("2026-11-03T12:00:00"), "Lazer");
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={folga} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    expect(screen.getByText(/de folga$/).className).toMatch(/bg-success\/15/);
+    expect(screen.getByText(/de folga$/).className).toMatch(/text-success/);
     expect(screen.getByText("No ritmo").className).toMatch(/bg-success\/15/);
   });
 });
