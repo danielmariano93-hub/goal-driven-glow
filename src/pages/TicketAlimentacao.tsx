@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
   balanceSeries, computeBenefitState, merchantBreakdown, suggestions, weekdayPattern, whatIf,
   type BenefitStatus,
 } from "@/lib/engine/benefitWallet";
-import { useBenefitEnabled, useBenefitEntries, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
+import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
-import { EntrySheet } from "@/components/ticket/EntrySheet";
+import { EntrySheet, isEditableBenefitEntry } from "@/components/ticket/EntrySheet";
 import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
 
@@ -35,6 +35,7 @@ export default function TicketAlimentacao() {
   const today = todayISO();
   const [tab, setTab] = useState<"resumo" | "padroes">("resumo");
   const [sheet, setSheet] = useState(false);
+  const [editing, setEditing] = useState<BenefitEntryRow | null>(null);
   const [importing, setImporting] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
 
@@ -264,6 +265,10 @@ export default function TicketAlimentacao() {
               </div>
               <div className="flex items-center gap-1">
                 <strong className={`font-semibold ${e.kind === "credit" ? "text-success" : ""}`}>{e.kind === "spend" ? "− " : e.kind === "credit" ? "+ " : ""}{brl2(e.amount)}</strong>
+                {isEditableBenefitEntry(e) && (
+                  <button aria-label="Editar lançamento" onClick={() => setEditing(e)}
+                    className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:bg-secondary"><Pencil size={16} /></button>
+                )}
                 <button aria-label="Excluir lançamento" disabled={remove.isPending}
                   onClick={() => remove.mutate(e.id, { onSuccess: () => toast.success("Lançamento excluído"), onError: () => toast.error("Não consegui excluir agora.") })}
                   className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:bg-secondary"><Trash2 size={16} /></button>
@@ -275,6 +280,7 @@ export default function TicketAlimentacao() {
 
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">Este saldo fica separado do seu caixa livre, da renda e do patrimônio. Só alimenta esta tela.</p>
       <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} />
+      <EntrySheet open={!!editing} onOpenChange={(v) => { if (!v) setEditing(null); }} walletId={wallet.id} today={today} entry={editing} />
       <StatementImportSheet open={importing} onOpenChange={setImporting} walletId={wallet.id} entries={entries} />
     </div>
   );
