@@ -4,7 +4,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { fetchAllPages } from "../derived/pagedSelect.ts";
 import { loadExecutiveInput } from "../insights/executive/load.ts";
-import { buildReportDashboard, summarizeOtherInflows, type CompareMode, type ReportDashboard } from "../finance-core/reportDashboard.ts";
+import { applyHomeProjection, buildReportDashboard, summarizeOtherInflows, type CompareMode, type ReportDashboard } from "../finance-core/reportDashboard.ts";
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 400;
@@ -65,10 +65,40 @@ export function parseDashboardParams(raw: Record<string, any>, today: string): D
   return { start, end, compare, categoryIds, merchant };
 }
 
+/**
+ * Previsão de fechamento da Home (`financial_current_snapshots`), só quando está fresca: mesma versão do livro, de hoje e
+ * sem recálculo pendente. Relatórios e Home têm de mostrar o MESMO número para "quanto vou gastar este mês".
+ */
+export async function loadHomeProjection(sb: any, userId: string, today: string) {
+  try {
+    const { data } = await sb.from("financial_current_snapshots")
+      .select("payload,as_of_date").eq("user_id", userId).maybeSingle();
+    const payload = data?.payload as any;
+    const p = payload?.snapshot?.projection;
+    if (!p || data?.as_of_date !== today || String(payload?.freshness ?? "fresh") !== "fresh") return null;
+    const { getLedgerVersion } = await import("../derived/cache.ts");
+    if (Number(payload?.ledger_version ?? -1) !== await getLedgerVersion(sb, userId)) return null;
+    const total = Number(p.projectedTotalSpending);
+    if (!Number.isFinite(total) || total <= 0 || p.confidence === "insufficient") return null;
+    return {
+      total: Math.round(total * 100) / 100,
+      composition: {
+        realized: Number(p.realizedConsumption ?? 0),
+        variable: Number(p.projectedVariableSpending ?? 0),
+        commitments: Number(p.upcomingConfirmedCommitments ?? 0),
+        cardDue: Number(p.cardDueThisMonth ?? 0),
+        confidence: String(p.confidence ?? ""),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadReportDashboard(sb: any, userId: string, today: string, params: DashboardParams): Promise<ReportDashboard> {
   // 24 meses: o período escolhido (até 12 meses) e o período de comparação.
   const input = await loadExecutiveInput(sb, userId, today, 24, { includeDebtPayments: true });
-  const dash = buildReportDashboard(input.entries, {
+  let dash = buildReportDashboard(input.entries, {
     today,
     start: params.start,
     end: params.end,
@@ -76,6 +106,11 @@ export async function loadReportDashboard(sb: any, userId: string, today: string
     categoryIds: params.categoryIds,
     merchant: params.merchant,
   });
+  // Mês em andamento sem filtro: o número é o da Home (mesma fonte), não uma conta paralela.
+  if (dash.projection && !dash.filtered) {
+    const home = await loadHomeProjection(sb, userId, today);
+    if (home) dash = applyHomeProjection(dash, home);
+  }
   dash.anticipation = summarizeAnticipation(input.anticipations ?? [], params.start, params.end);
   if (dash.anticipation && !dash.filtered) {
     const a = dash.anticipation;

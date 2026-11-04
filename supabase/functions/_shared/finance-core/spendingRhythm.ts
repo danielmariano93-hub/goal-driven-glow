@@ -24,7 +24,7 @@
  *    demais janelas usam o período imediatamente anterior com o mesmo tamanho.
  * 6. Uma queda no ritmo é sempre positiva; uma alta é sempre negativa.
  */
-import { behavioralMetricAmount, round2, type TransactionRow } from "./facts.ts";
+import { behavioralDayAmount, round2, type TransactionRow } from "./facts.ts";
 
 export const RHYTHM_FORMULA_VERSION = "spending_rhythm.v4";
 
@@ -267,7 +267,7 @@ export function computeRhythm(
   for (const t of txs) {
     const d = String(t.occurred_at ?? "").slice(0, 10);
     if (!d || d < range.start || d > range.end) continue;
-    const signed = behavioralMetricAmount(t, "expense");
+    const signed = behavioralDayAmount(t, "expense");
     if (signed === 0) continue;
     if (signed > 0) {
       totalGross += signed;

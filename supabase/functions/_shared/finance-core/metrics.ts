@@ -9,6 +9,7 @@ import {
   effectiveCategoryId,
   computeAvailableUntil,
   computeBehavioralExpense,
+  computeDayLevelExpense,
   computeNetWorth,
   computeTotalCash,
   computeActiveDebtsTotal,
@@ -796,7 +797,8 @@ export function computeFinancialSnapshot(input: FinancialSnapshotInput): Financi
 
   const monthRange = monthRangeOf(today);
   const monthToDateRange: DateRange = { start: monthRange.start, end: todayIso };
-  const mtdExpense = computeBehavioralExpense(input.txs, monthToDateRange);
+  // `installment_day_rule.v1`: o realizado do mês projeta com a 1ª parcela no dia da compra, não a compra parcelada inteira.
+  const mtdExpense = computeDayLevelExpense(input.txs, monthToDateRange);
   const daysElapsed = Math.max(1, daysInclusive(monthRange.start, todayIso));
   const daysTotal = daysInclusive(monthRange.start, monthRange.end);
   const daysRemainingInMonth = Math.max(0, daysTotal - daysElapsed);

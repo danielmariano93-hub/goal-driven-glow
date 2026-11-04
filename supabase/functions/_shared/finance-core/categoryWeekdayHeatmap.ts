@@ -14,7 +14,7 @@
 // original. Nenhuma regra é reescrita aqui.
 
 import {
-  behavioralMetricAmount,
+  behavioralDayAmount,
   buildRefundAttribution,
   effectiveCategoryId,
   round2,
@@ -223,7 +223,7 @@ export function computeCategoryWeekdayHeatmap(input: HeatmapInput): CategoryWeek
   let bankTotal = 0;
 
   for (const t of input.transactions) {
-    const signed = behavioralMetricAmount(t, "expense");
+    const signed = behavioralDayAmount(t, "expense");
     if (signed === 0) continue;
     const resolved = resolveHeatmapBehaviorDay(t);
     if (!resolved.day || resolved.day < start || resolved.day > end) continue;

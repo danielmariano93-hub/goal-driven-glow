@@ -1,6 +1,6 @@
 // GERADO POR scripts/sync-finance-core.mjs — NÃO EDITAR À MÃO.
 // Fonte canônica: src/lib/engine/<module>.ts (finance_contract.v4)
-import { computeBehavioralExpense, round2, isGrossCardMovement, type TransactionRow } from "./facts.ts";
+import { computeDayLevelExpense, round2, isGrossCardMovement, type TransactionRow } from "./facts.ts";
 import { previousComparableRange } from "./spendingRhythm.ts";
 
 export interface DateRange { start: string; end: string }
@@ -66,7 +66,7 @@ export function shiftRangePrevMonth(range: DateRange): DateRange {
 export function computeDailyAverage(txs: TransactionRow[], range: DateRange): DailyAverage {
   const days = daysInclusive(range.start, range.end);
   if (days <= 0) return { total: 0, days: 0, avg: 0 };
-  const total = computeBehavioralExpense(txs, range);
+  const total = computeDayLevelExpense(txs, range);
   const avg = round2(total / days);
   return { total, days, avg };
 }

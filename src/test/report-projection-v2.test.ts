@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReportDashboard, type DashEntry } from "@/lib/engine/reportDashboard";
+import { applyHomeProjection, buildReportDashboard, type DashEntry } from "@/lib/engine/reportDashboard";
 
 // `month_projection.v2`: o total até aqui não se multiplica por inteiro. Caso real (3/11): R$ 1.627,77 em 3 dias, dos quais
 // R$ 1.183,82 eram parcelas e compras de faturas anteriores (uma vez por mês) — a projeção antiga dava R$ 16.277,70.
@@ -47,10 +47,30 @@ describe("projeção do mês nos Relatórios", () => {
     // Alimentação: 400 já gastos + o que falta da média (600/mês) × dias restantes/30 — nunca 400 ÷ 3 × 30
     expect(d.projection!.expense).toBeLessThan(400 / 3 * 30);
   });
-  it("o título admite que é cedo", () => {
+  it("o texto é o mesmo de sempre; antes de 7 dias avisa que usou o histórico (sem 'ainda é cedo' no título)", () => {
     const d = run([...history, e("2026-11-01", 400, "Alimentação")], "2026-11-03");
-    expect(d.highlights.find((h) => h.id === "projection")!.title).toMatch(/^Ainda é cedo: pelo seu histórico, o mês fecha perto de R\$/);
+    const h = d.highlights.find((x) => x.id === "projection")!;
+    expect(h.title).toMatch(/^No ritmo atual, o mês fecha em R\$/);
+    expect(h.body).toMatch(/Base pequena: só 3 dias do mês, então usei o seu histórico\./);
     const later = run(Array.from({ length: 10 }, (_, i) => e(`2026-11-${String(1 + i).padStart(2, "0")}`, 50, "Alimentação")), "2026-11-10");
-    expect(later.highlights.find((h) => h.id === "projection")!.title).toMatch(/^No ritmo atual, o mês fecha em R\$/);
+    expect(later.highlights.find((x) => x.id === "projection")!.body).not.toMatch(/Base pequena/);
+  });
+});
+
+describe("projeção dos Relatórios = projeção da Home", () => {
+  const home = { total: 8200.54, composition: { realized: 288.78, variable: 3861, commitments: 3920.86, cardDue: 129.9, confidence: "low" } };
+  it("troca pelo número da Home e explica a composição", () => {
+    const d = applyHomeProjection(run([...history, e("2026-11-01", 400, "Alimentação")], "2026-11-03"), home);
+    expect(d.projection!.expense).toBe(8200.54);
+    expect(d.projection!.source).toBe("home");
+    const h = d.highlights.filter((x) => x.id === "projection");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.title).toMatch(/^Previsão do mês: R\$\s?8\.200,54 de gasto$/);
+    expect(h[0]!.body).toMatch(/Já gasto R\$\s?288,78 \+ ritmo previsto R\$\s?3\.861,00 \+ compromissos e fatura R\$\s?4\.050,76 \(a mesma previsão da Home\)\./);
+  });
+  it("com filtro ativo ou sem projeção, não mexe", () => {
+    const sem = buildReportDashboard([e("2026-10-05", 10, "Moradia")], { today: "2026-10-02", start: "2026-10-01", end: "2026-10-02", compare: "none" });
+    expect(sem.projection).toBeNull();
+    expect(applyHomeProjection(sem, home)).toBe(sem);
   });
 });
