@@ -65,7 +65,7 @@ export function useBenefitWallet(enabled: boolean) {
   });
 }
 
-export type BenefitEntryRow = BenefitEntry & { note?: string | null; created_at: string };
+export type BenefitEntryRow = BenefitEntry & { note?: string | null; created_at: string; source?: string | null };
 
 export function useBenefitEntries(walletId?: string) {
   return useQuery({
@@ -73,7 +73,7 @@ export function useBenefitEntries(walletId?: string) {
     enabled: !!walletId,
     queryFn: async (): Promise<BenefitEntryRow[]> => {
       const { data, error } = await db.from("benefit_entries")
-        .select("id,kind,amount,occurred_on,merchant,note,created_at")
+        .select("id,kind,amount,occurred_on,merchant,note,created_at,source")
         .eq("wallet_id", walletId)
         .order("occurred_on", { ascending: true })
         .order("created_at", { ascending: true })
@@ -82,6 +82,7 @@ export function useBenefitEntries(walletId?: string) {
       return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
         id: String(r.id), kind: r.kind as BenefitKind, amount: Number(r.amount), occurred_on: String(r.occurred_on),
         merchant: (r.merchant as string | null) ?? null, note: (r.note as string | null) ?? null, created_at: String(r.created_at),
+        source: (r.source as string | null) ?? null,
       }));
     },
   });
@@ -135,6 +136,31 @@ export function useDeleteBenefitEntry(walletId?: string) {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: KEYS.entries(walletId) }),
+  });
+}
+
+export type EditEntryInput = { original: BenefitEntryRow; amount: number; occurred_on: string; merchant: string | null };
+
+/**
+ * Corrige um lançamento já feito (valor, dia e lugar; o tipo não muda). A tabela só aceita inserir e excluir, então a
+ * correção grava a linha nova primeiro e só então remove a antiga: se a gravação falhar nada muda; se a remoção
+ * falhar, avisa (a linha antiga continua e a nova também, nunca se perde um lançamento).
+ */
+export function useEditBenefitEntry(walletId?: string) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ original, amount, occurred_on, merchant }: EditEntryInput) => {
+      if (!user || !walletId) throw new Error("Sessão expirada");
+      const { error } = await db.from("benefit_entries").insert({
+        wallet_id: walletId, user_id: user.id, kind: original.kind, amount, occurred_on,
+        merchant: merchant?.trim() || null, note: original.note ?? null, source: original.source ?? "manual",
+      });
+      if (error) throw error;
+      const removed = await db.from("benefit_entries").delete().eq("id", original.id);
+      if (removed.error) throw new Error("edit_old_not_removed");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: KEYS.entries(walletId) }),
   });
 }
 
