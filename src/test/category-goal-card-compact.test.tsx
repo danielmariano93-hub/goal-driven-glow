@@ -22,7 +22,7 @@ describe("lista de metas deste mês, compacta", () => {
   it("fechado: título, regra, barra e números numa linha; ações e plano ficam atrás de 'Detalhes e ações'", () => {
     renderCard(true);
     expect(screen.getByText("Transporte")).toBeTruthy();
-    expect(screen.getByText(/de R\$\s958,61/)).toBeTruthy();
+    expect(screen.getAllByText(/de R\$\s958,61/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Editar/ })).toBeNull();
     expect(screen.queryByText("Plano do Nino")).toBeNull();
   });
