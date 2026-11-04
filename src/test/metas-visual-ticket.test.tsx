@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { CategoryGoalCard, displayLabel } from "@/components/metas/CategoryGoalCard";
 import { GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
@@ -43,26 +43,37 @@ describe("meta do mês: etiqueta e chips no padrão do Ticket", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
     expect(screen.getByText("Atenção").className).toMatch(/bg-warning\/20/);
   });
-  it("frase central com a data prevista; só o selo carrega o estado (sem texto vermelho)", () => {
+  it("linha única: data prevista à esquerda, quanto passa à direita; sem texto vermelho nem caixa", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    const box = screen.getByTestId("goal-outlook");
-    expect(box.textContent).toMatch(/Passa do teto por volta de \d{2}\/\d{2}\./);
-    expect(box.textContent).toMatch(/Projeção R\$\s?[\d.]+,\d{2} · R\$\s?[\d.]+,\d{2} acima no fim do período/);
-    expect(box.querySelector("[class*='text-destructive']")).toBeNull();
+    const line = screen.getByTestId("goal-outlook");
+    expect(line.children[0]!.textContent).toMatch(/^Passa do teto por volta de \d{2}\/\d{2}$/);
+    expect(line.children[1]!.textContent).toMatch(/^\+R\$\s?[\d.]+,\d{2}$/);
+    expect(line.querySelector("[class*='text-destructive']")).toBeNull();
+    expect(line.className).not.toMatch(/bg-/);
   });
-  it("barra na cor da marca em qualquer estado, como a do Ticket", () => {
+  it("barra na cor da marca com trilha visível, em qualquer estado", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    expect(screen.getByTestId("goal-bar-fill").className).toMatch(/bg-primary/);
-    expect(screen.getByText(/\d+ de 30 dias/)).toBeTruthy();
+    const fill = screen.getByTestId("goal-bar-fill");
+    expect(fill.className).toMatch(/bg-primary/);
+    expect(fill.parentElement!.className).toMatch(/bg-primary\/15/);
   });
-  it("cada meta tem um único selo (o estado)", () => {
+  it("cada meta é um cartão próprio e tem um único selo (o estado)", () => {
     const { container } = render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    expect(container.querySelector("li")!.className).toMatch(/surface-card/);
     expect(container.querySelectorAll("span.px-2\\.5.rounded-full").length).toBe(1);
+  });
+  it("período, regra e projeção saem da frente e ficam nos detalhes", () => {
+    render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    expect(screen.queryByTestId("goal-details-rule")).toBeNull();
+    expect(screen.queryByText(/Projeção R\$/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Detalhes e ações/ }));
+    expect(screen.getByTestId("goal-details-rule").textContent).toMatch(/1–30 nov · .* · dia \d+ de 30/);
+    expect(screen.getByText(/Projeção R\$\s?[\d.]+,\d{2} · R\$\s?[\d.]+,\d{2} acima do teto/)).toBeTruthy();
   });
   it("dentro do teto: 'Deve fechar dentro do teto' com a folga", () => {
     const folga = evaluateCategoryGoal({ ...goal, computed_limit: 9000, fixed_limit: 9000 } as CategorySpendingGoalRow, [...monthly("2026-10", 500), tx("2026-11", 50, "01")] as never, new Date("2026-11-03T12:00:00"), "Lazer");
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={folga} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    expect(screen.getByTestId("goal-outlook").textContent).toMatch(/Deve fechar dentro do teto\..*folga de R\$/);
+    expect(screen.getByTestId("goal-outlook").textContent).toMatch(/Deve fechar dentro do teto.*folga R\$/);
     expect(screen.getByText("No ritmo").className).toMatch(/bg-success\/15/);
   });
 });

@@ -31,7 +31,7 @@ import { goalSchema, contributionSchema } from "@/lib/validation/finance";
 import { behavioralMetricAmount, computeGoalProgress, formatBRL, todayISO } from "@/lib/engine/facts";
 import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { CategoryGoalForm } from "@/components/metas/CategoryGoalForm";
-import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
+import { CategoryGoalCard, fmtPeriod } from "@/components/metas/CategoryGoalCard";
 import { CategoryGoalStrategyCard } from "@/components/metas/CategoryGoalStrategyCard";
 import { GoalStrategyCard } from "@/components/metas/GoalStrategyCard";
 import { DonationCurrentMonth } from "@/components/metas/DonationGoalMonths";
@@ -233,9 +233,16 @@ export default function Metas() {
       ) : null}
 
       {(tab === "all" || openCatList) && (
-        <div className="surface-card mb-3 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-[14px] font-semibold leading-5">Metas de gasto · este mês</p>
+        <div className="mb-3">
+          <div className="mb-2.5 flex items-center justify-between px-0.5">
+            <div>
+              <p className="text-[16px] font-semibold leading-[22px]">Metas de gasto</p>
+              {currentEvals[0] ? (
+                <p className="text-[12px] leading-4 text-muted-foreground" data-testid="cat-goals-period">
+                  {fmtPeriod(currentEvals[0].period.start, currentEvals[0].period.end)} · dia {currentEvals[0].elapsedDays} de {currentEvals[0].totalDays}
+                </p>
+              ) : <p className="text-[12px] leading-4 text-muted-foreground">este mês</p>}
+            </div>
             <button
               onClick={() => { setEditingCatGoal(null); setOpenCatGoal(true); }}
               className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border px-3 text-[13px] font-medium"
@@ -244,13 +251,13 @@ export default function Metas() {
             </button>
           </div>
           {currentEvals.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="surface-card p-4 text-xs text-muted-foreground">
               {closedEvals.length
                 ? "Nenhuma meta ativa neste mês. Crie um teto “Mensal recorrente” para continuar a série sem recriar todo mês."
                 : "Defina um teto de gasto e acompanhe seu ritmo em tempo real."}
             </p>
           ) : (
-            <ul>
+            <ul className="space-y-2.5">
               {currentEvals.map((ev) => (
                 <CategoryGoalCard
                   key={ev.goal.id}
