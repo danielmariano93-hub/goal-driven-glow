@@ -185,7 +185,13 @@ export interface ReportDashboard {
   trend: { months: TrendMonth[]; direction: Direction; detail: string };
   verdict: Verdict | null;
   highlights: DashHighlight[];
-  projection: { expense: number; daysElapsed: number; daysInMonth: number; previousMonthExpense: number | null } | null;
+  projection: {
+    expense: number; daysElapsed: number; daysInMonth: number; previousMonthExpense: number | null;
+    /** Antes de 7 dias o ritmo do mês é 1–2 compras: a projeção usa só o histórico dos meses fechados. */
+    early: boolean;
+    /** Parcelas e compras de faturas anteriores já conhecidas: entram uma vez, nunca multiplicadas pelo ritmo. */
+    fixedKnown: number;
+  } | null;
   filterOptions: { categories: Array<{ id: string; name: string; total: number }> };
   coverage: { firstDate: string | null; monthsOfHistory: number; comparisonAvailable: boolean };
   /** Dinheiro que entrou no período e NÃO é renda (resgate, empréstimo, reembolso, rendimento). Preenchido no servidor. */
@@ -563,9 +569,53 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
     const daysInMonth = daysBetween(period.start, endOfMonth(period.start));
     const prevMonth = shiftMonthKey(monthOf(period.start), -1);
     const prevMonthExpense = totalsOf(scoped, { start: `${prevMonth}-01`, end: endOfMonth(`${prevMonth}-01`), days: 1 }, 1).expense;
+    // `month_projection.v2`: o total até aqui NÃO se multiplica por inteiro (parcela de fatura e aluguel acontecem uma vez).
+    //  1. O que não tem dia neste período (parcelas e compras de faturas anteriores) já é conhecido: entra como está.
+    //  2. Categoria de consumo contínuo (gasto em ≥ 50% dos dias, depois de 7 dias): ritmo do período.
+    //  3. Categoria pontual, ou qualquer uma antes de 7 dias: o gasto já feito mais o que falta da média dos meses fechados,
+    //     diminuindo conforme o mês passa.
+    const early = daysElapsed < 7;
+    const remainingShare = Math.max(0, daysInMonth - daysElapsed) / daysInMonth;
+    let fixedKnown = 0;
+    const cur = new Map<string, { spent: number; days: Set<string> }>();
+    for (const e of scoped) {
+      if (e.kind !== "expense" || !(e.amount > 0) || !inRange(e, period)) continue;
+      const day = chartDayOf(e);
+      if (day == null || day < period.start || day > period.end) { fixedKnown += e.amount; continue; }
+      const k = e.category_id ?? "__none__";
+      const c = cur.get(k) ?? { spent: 0, days: new Set<string>() };
+      c.spent += e.amount; c.days.add(day);
+      cur.set(k, c);
+    }
+    const histMonths = [-3, -2, -1].map((d) => shiftMonthKey(monthOf(period.start), d));
+    const hist = new Map<string, Map<string, number>>();
+    for (const e of scoped) {
+      if (e.kind !== "expense" || !(e.amount > 0) || e.chart_carried) continue;
+      const m = e.date.slice(0, 7);
+      if (!histMonths.includes(m)) continue;
+      const k = e.category_id ?? "__none__";
+      const byMonth = hist.get(k) ?? new Map<string, number>();
+      byMonth.set(m, (byMonth.get(m) ?? 0) + e.amount);
+      hist.set(k, byMonth);
+    }
+    const histAvg = (k: string): number | null => {
+      const values = [...(hist.get(k)?.values() ?? [])].filter((v) => v > 0);
+      return values.length >= 2 ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    };
+    let variable = 0;
+    for (const k of new Set([...cur.keys(), ...hist.keys()])) {
+      const c = cur.get(k);
+      const h = histAvg(k);
+      const spent = c?.spent ?? 0;
+      const continuous = !early && c != null && c.days.size / daysElapsed >= 0.5;
+      variable += continuous
+        ? spent / daysElapsed * daysInMonth
+        : spent + Math.max(0, (h ?? spent) - spent) * remainingShare;
+    }
     projection = {
-      expense: round2(totals.expense / daysElapsed * daysInMonth), daysElapsed, daysInMonth,
+      expense: round2(fixedKnown + variable), daysElapsed, daysInMonth,
       previousMonthExpense: prevMonthExpense > 0 ? prevMonthExpense : null,
+      early, fixedKnown: round2(fixedKnown),
     };
   }
 
@@ -858,7 +908,9 @@ function buildHighlights(a: {
     const base = projection.previousMonthExpense;
     out.push({
       id: "projection", tone: base != null && projection.expense > base * 1.05 ? "negative" : "neutral", weight: 85,
-      title: `No ritmo atual, o mês fecha em ${brl(projection.expense)} de gasto`,
+      title: projection.early
+        ? `Ainda é cedo: pelo seu histórico, o mês fecha perto de ${brl(projection.expense)} de gasto`
+        : `No ritmo atual, o mês fecha em ${brl(projection.expense)} de gasto`,
       body: base != null
         ? `${projection.expense >= base ? "Acima" : "Abaixo"} do mês passado inteiro (${brl(base)}) em ${brl(Math.abs(projection.expense - base))}.`
         : `Com ${projection.daysElapsed} de ${projection.daysInMonth} dias passados.`,
