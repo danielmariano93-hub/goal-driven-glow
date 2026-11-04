@@ -150,6 +150,8 @@ export interface CategoryGoalEvaluation {
   projectedFinalSpend: number;
   projectedDifference: number; // target - projected
   projectedOverage: number; // max(0, projected - target)
+  /** Dia (AAAA-MM-DD) em que, no ritmo projetado, o gasto cruza o teto; null se já passou ou se não passa. */
+  projectedCrossDate: string | null;
   currentOverage: number; // max(0, actual - target)
   dailyAllowance: number;
   requiredDailyReduction: number;
@@ -543,6 +545,23 @@ function statusMessage(
   }
 }
 
+/**
+ * Dia previsto em que o gasto cruza o teto (`goal_cross_date.v1`): o que falta gastar até a projeção é espalhado
+ * pelos dias restantes e vê-se quando o acumulado chega ao teto. Mesma projeção da tela, nenhum número novo.
+ * Estimativa: a tela diz "por volta de".
+ */
+export function projectedCrossingDate(args: {
+  actualSpend: number; limit: number; projectedFinalSpend: number; remainingDays: number; referenceIso: string; periodEnd: string;
+}): string | null {
+  const { actualSpend, limit, projectedFinalSpend, remainingDays, referenceIso, periodEnd } = args;
+  if (limit <= 0 || actualSpend >= limit || projectedFinalSpend <= limit || remainingDays <= 0) return null;
+  const perDay = (projectedFinalSpend - actualSpend) / remainingDays;
+  if (!(perDay > 0)) return null;
+  const days = Math.max(1, Math.ceil((limit - actualSpend) / perDay));
+  const at = new Date(Date.parse(`${referenceIso}T12:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+  return at > periodEnd ? periodEnd : at;
+}
+
 export function evaluateCategoryGoal(
   goal: CategorySpendingGoalRow,
   txs: TransactionRow[],
@@ -678,6 +697,7 @@ export function evaluateCategoryGoal(
     projectedFinalSpend,
     projectedDifference,
     projectedOverage,
+    projectedCrossDate: projectedCrossingDate({ actualSpend, limit, projectedFinalSpend, remainingDays, referenceIso, periodEnd: period.end }),
     currentOverage,
     dailyAllowance,
     requiredDailyReduction,

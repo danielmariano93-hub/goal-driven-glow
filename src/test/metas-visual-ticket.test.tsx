@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
+import { CategoryGoalCard, displayLabel } from "@/components/metas/CategoryGoalCard";
 import { GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
 import { DonationCurrentMonth } from "@/components/metas/DonationGoalMonths";
 import { GoalScoreboard } from "@/components/metas/GoalHistoryViews";
-import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "@/lib/engine/metrics";
+import { evaluateCategoryGoal, projectedCrossingDate, type CategorySpendingGoalRow } from "@/lib/engine/metrics";
 import { buildGoalHistory } from "@/lib/engine/goalHistory";
 import { buildSpendingLedger, type SpendingLedgerTx } from "@/lib/engine/spendingGoals";
 
@@ -43,23 +43,48 @@ describe("meta do mês: etiqueta e chips no padrão do Ticket", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
     expect(screen.getByText("Atenção").className).toMatch(/bg-warning\/20/);
   });
-  it("projeção e diferença numa linha só: só o trecho da diferença ganha cor", () => {
+  it("frase central com a data prevista; só o selo carrega o estado (sem texto vermelho)", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    const line = screen.getByTestId("goal-projection-line");
-    expect(line.textContent).toMatch(/Projeção R\$\s?[\d.]+,\d{2} · R\$\s?[\d.]+,\d{2} acima do teto/);
-    expect(screen.getByText(/acima do teto$/).className).toMatch(/text-destructive/);
-    expect(line.querySelectorAll("[class*='rounded-full']").length).toBe(0);
+    const box = screen.getByTestId("goal-outlook");
+    expect(box.textContent).toMatch(/Passa do teto por volta de \d{2}\/\d{2}\./);
+    expect(box.textContent).toMatch(/Projeção R\$\s?[\d.]+,\d{2} · R\$\s?[\d.]+,\d{2} acima no fim do período/);
+    expect(box.querySelector("[class*='text-destructive']")).toBeNull();
   });
-  it("cada meta tem um único selo (o estado); sem selos de valor", () => {
+  it("barra na cor da marca em qualquer estado, como a do Ticket", () => {
+    render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    expect(screen.getByTestId("goal-bar-fill").className).toMatch(/bg-primary/);
+    expect(screen.getByText(/\d+ de 30 dias/)).toBeTruthy();
+  });
+  it("cada meta tem um único selo (o estado)", () => {
     const { container } = render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
     expect(container.querySelectorAll("span.px-2\\.5.rounded-full").length).toBe(1);
-    expect(screen.queryByText(/^Detalhes e ações$/)).toBeNull();
   });
-  it("dentro do teto: linha com folga em verde", () => {
+  it("dentro do teto: 'Deve fechar dentro do teto' com a folga", () => {
     const folga = evaluateCategoryGoal({ ...goal, computed_limit: 9000, fixed_limit: 9000 } as CategorySpendingGoalRow, [...monthly("2026-10", 500), tx("2026-11", 50, "01")] as never, new Date("2026-11-03T12:00:00"), "Lazer");
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={folga} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
-    expect(screen.getByText(/de folga$/).className).toMatch(/text-success/);
+    expect(screen.getByTestId("goal-outlook").textContent).toMatch(/Deve fechar dentro do teto\..*folga de R\$/);
     expect(screen.getByText("No ritmo").className).toMatch(/bg-success\/15/);
+  });
+});
+
+describe("data prevista de cruzar o teto (goal_cross_date.v1)", () => {
+  const base = { limit: 1000, referenceIso: "2026-11-04", periodEnd: "2026-11-30" };
+  it("espalha o que falta até a projeção pelos dias restantes", () => {
+    // faltam 26 dias; vai de 100 a 1300: 46,15/dia; chega a 1000 em ~19,5 dias => 24/11
+    expect(projectedCrossingDate({ ...base, actualSpend: 100, projectedFinalSpend: 1300, remainingDays: 26 })).toBe("2026-11-24");
+  });
+  it("sem data quando não passa, quando já passou ou quando o período acabou", () => {
+    expect(projectedCrossingDate({ ...base, actualSpend: 100, projectedFinalSpend: 900, remainingDays: 26 })).toBeNull();
+    expect(projectedCrossingDate({ ...base, actualSpend: 1200, projectedFinalSpend: 1500, remainingDays: 26 })).toBeNull();
+    expect(projectedCrossingDate({ ...base, actualSpend: 100, projectedFinalSpend: 1300, remainingDays: 0 })).toBeNull();
+  });
+  it("nunca passa do fim do período", () => {
+    expect(projectedCrossingDate({ ...base, actualSpend: 900, projectedFinalSpend: 1001, remainingDays: 26 })).toBe("2026-11-30");
+  });
+  it("passar até 5% é 'No limite' (neutro); acima disso continua Atenção", () => {
+    const mk = (over: number) => ({ status: "attention", targetAmount: 1000, projectedOverage: over } as never);
+    expect(displayLabel(mk(40), { label: "Atenção", tone: "warning" })).toEqual({ text: "No limite", tone: "muted" });
+    expect(displayLabel(mk(120), { label: "Atenção", tone: "warning" })).toEqual({ text: "Atenção", tone: "warning" });
   });
 });
 

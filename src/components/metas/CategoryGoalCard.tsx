@@ -54,6 +54,31 @@ function fmtRule(ev: CategoryGoalEvaluation): string {
   return `Redução de ${Number(ev.goal.reduction_pct ?? 0)}%`;
 }
 
+/** Passar do teto por até 5% é "No limite" (cinza): não pede ação como um estouro de verdade. */
+export const AT_LIMIT_BAND = 0.05;
+export function displayLabel(ev: CategoryGoalEvaluation, base: { label: string; tone: PillTone }): { text: string; tone: PillTone } {
+  const nearLimit = ev.status === "attention" && ev.targetAmount > 0 && ev.projectedOverage > 0 && ev.projectedOverage / ev.targetAmount <= AT_LIMIT_BAND;
+  return nearLimit ? { text: "No limite", tone: "muted" } : { text: base.label, tone: base.tone };
+}
+
+const dayMonth = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** Frase central do card: quando passa do teto (ou que não passa) e quanto, sem inventar número novo. */
+export function goalOutlook(ev: CategoryGoalEvaluation): { headline: string; detail: string } | null {
+  if (ev.status === "scheduled" || ev.status === "paused" || ev.status === "cancelled") return null;
+  if (ev.currentOverage > 0) {
+    return { headline: `Já passou do teto em ${formatBRL(ev.currentOverage)}.`, detail: `Projeção ${formatBRL(ev.projectedFinalSpend)} · ${formatBRL(ev.projectedOverage)} acima no fim do período.` };
+  }
+  if (ev.projectedOverage > 0) {
+    const d = ev.projectedCrossDate;
+    const headline = !d ? "Deve passar do teto."
+      : d >= ev.period.end ? `Encosta no teto só no fim do período, por volta de ${dayMonth(d)}.`
+      : `Passa do teto por volta de ${dayMonth(d)}.`;
+    return { headline, detail: `Projeção ${formatBRL(ev.projectedFinalSpend)} · ${formatBRL(ev.projectedOverage)} acima${d && d >= ev.period.end ? "" : " no fim do período"}.` };
+  }
+  return { headline: "Deve fechar dentro do teto.", detail: `Projeção ${formatBRL(ev.projectedFinalSpend)} · folga de ${formatBRL(Math.max(0, ev.projectedDifference))}.` };
+}
+
 export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true, compact = false }: Props) {
   const navigate = useNavigate();
   const [more, setMore] = useState(false);
@@ -68,10 +93,8 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
   if (compact) {
     const title = resolveRequiredLabel({ kind: "category_name_missing", surface: "CategoryGoalCard", id: evaluation.goal.category_id, name: evaluation.categoryName, fallback: "Categoria" });
     const active = evaluation.status !== "scheduled" && evaluation.status !== "paused";
-    // Uma escala só: o preenchido é o gasto, o trecho claro é o que falta até a projeção e o tracinho é o teto.
-    const scale = Math.max(evaluation.targetAmount, evaluation.projectedFinalSpend, evaluation.actualSpend, 1);
-    const pctOf = (v: number) => `${Math.round(Math.min(1, Math.max(0, v / scale)) * 100)}%`;
-    const showProjection = active && evaluation.projectedFinalSpend > evaluation.actualSpend;
+    const label = displayLabel(evaluation, s);
+    const outlook = goalOutlook(evaluation);
     return (
       <li className={`border-t border-border first:border-t-0 ${paused ? "opacity-70" : ""}`}>
         <button
@@ -79,33 +102,34 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
           aria-expanded={more}
           aria-label={`${title}: ${more ? "menos" : "Detalhes e ações"}`}
           onClick={() => setMore((v) => !v)}
-          className="block w-full py-3.5 text-left"
+          className="block w-full py-4 text-left"
         >
           <span className="flex items-start justify-between gap-2">
             <span className="min-w-0">
-              <span className="block text-[15px] font-semibold leading-5">{title}</span>
+              <span className="block text-[16px] font-semibold leading-[22px]">{title}</span>
               <span className="block text-[12px] leading-4 text-muted-foreground">{fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}</span>
             </span>
             <span className="flex shrink-0 items-center gap-1">
-              <StatusPill tone={s.tone}>{s.label}</StatusPill>
+              <StatusPill tone={label.tone}>{label.text}</StatusPill>
               <ChevronDown size={16} aria-hidden className={`text-muted-foreground transition-transform ${more ? "rotate-180" : ""}`} />
             </span>
           </span>
-          <span className="relative mt-3 block h-1.5 rounded-full bg-muted" aria-hidden>
-            {showProjection ? <span data-testid="goal-bar-projection" className={`absolute inset-y-0 left-0 rounded-full opacity-30 ${bar}`} style={{ width: pctOf(evaluation.projectedFinalSpend) }} /> : null}
-            <span className={`absolute inset-y-0 left-0 rounded-full transition-[width] ${bar}`} style={{ width: pctOf(evaluation.actualSpend) }} />
-            {scale > evaluation.targetAmount ? <span className="absolute -inset-y-0.5 w-0.5 rounded-full bg-foreground/60" style={{ left: pctOf(evaluation.targetAmount) }} /> : null}
+          <span className="mt-3 block text-[24px] font-bold leading-[30px] tracking-tight tabular-nums">
+            {formatBRL(evaluation.actualSpend)}
+            <span className="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">de {formatBRL(evaluation.targetAmount)}</span>
           </span>
-          <span className="mt-2 block text-[13px] leading-5 tabular-nums">
-            <span className="font-semibold">{formatBRL(evaluation.actualSpend)}</span>
-            <span className="text-muted-foreground"> de {formatBRL(evaluation.targetAmount)}</span>
+          {/* Mesma barra do Ticket Alimentação: cor da marca sempre; o estado fica só na etiqueta. */}
+          <span className="mt-2.5 block h-2 overflow-hidden rounded-full bg-muted" aria-hidden>
+            <span data-testid="goal-bar-fill" className="block h-full rounded-full bg-primary transition-[width]" style={{ width: `${Math.round(barPct * 100)}%` }} />
           </span>
-          {active ? (
-            <span className="block text-[12px] leading-4 tabular-nums text-muted-foreground" data-testid="goal-projection-line">
-              Projeção {formatBRL(evaluation.projectedFinalSpend)} ·{" "}
-              {evaluation.projectedOverage > 0
-                ? <span className="font-medium text-destructive">{formatBRL(evaluation.projectedOverage)} acima do teto</span>
-                : <span className="font-medium text-success">{formatBRL(Math.max(0, evaluation.projectedDifference))} de folga</span>}
+          <span className="mt-2 flex justify-between text-[12px] leading-4 tabular-nums text-muted-foreground">
+            <span>{Math.round(evaluation.percentageUsed * 100)}% do teto</span>
+            <span>{evaluation.elapsedDays} de {evaluation.totalDays} dias</span>
+          </span>
+          {active && outlook ? (
+            <span data-testid="goal-outlook" className="mt-3 block rounded-xl bg-muted/50 px-3 py-2.5 text-[13px] leading-[19px]">
+              <span className="block font-semibold">{outlook.headline}</span>
+              <span className="block tabular-nums text-muted-foreground">{outlook.detail}</span>
             </span>
           ) : null}
         </button>
