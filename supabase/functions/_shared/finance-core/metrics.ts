@@ -476,6 +476,8 @@ function statusPriority(
   actualSpend: number,
   limit: number,
   projected: number,
+  /** Piso da faixa de fechamento (só com projeção por mistura): se nem o cenário mais baixo cabe, é risco de verdade. */
+  projectedLow: number | null = null,
 ): CategoryGoalStatus {
   if (goal.status === "cancelled") return "cancelled";
   if (goal.status === "paused") return "paused";
@@ -488,6 +490,12 @@ function statusPriority(
   if (todayIso > period.end) return actualSpend <= limit ? "completed_ok" : "completed_over";
   if (actualSpend === limit) return "limit_reached";
   // Ainda dentro do período e abaixo do limite: olha projeção
+  if (projectedLow != null) {
+    // `category_projection.v2`: risco = nem o cenário mais baixo da faixa cabe no teto; atenção = o teto está dentro da faixa.
+    if (projectedLow > limit) return "at_risk";
+    if (projected > limit) return "attention";
+    return "on_track";
+  }
   const overage = Math.max(0, projected - limit);
   if (overage > limit * 0.1) return "at_risk";
   if (overage > 0) return "attention";
@@ -626,7 +634,7 @@ export function evaluateCategoryGoal(
     ? round2(Math.max(0, currentDailyRate - allowedRemainingRate))
     : 0;
 
-  const status = statusPriority(goal, today, period, actualSpend, limit, projectedFinalSpend);
+  const status = statusPriority(goal, today, period, actualSpend, limit, projectedFinalSpend, projection.range?.low ?? null);
   let message = statusMessage(
     status,
     categoryName ?? "categoria",
@@ -639,13 +647,17 @@ export function evaluateCategoryGoal(
     period.start,
     period.end,
   );
-  // Início do período: a projeção vem do histórico, então a frase não pode dizer "no ritmo atual".
-  if (projection.basis === "history" && (status === "on_track" || status === "attention" || status === "at_risk")) {
+  // Projeção por mistura (ritmo do mês + histórico): a frase diz isso e mostra a faixa, nunca só um número.
+  if (projection.basis === "blend" && projection.range && (status === "on_track" || status === "attention" || status === "at_risk")) {
     const brlE = (n: number) => `R$ ${n.toFixed(2).replace(".", ",")}`;
-    const early = `Ainda é cedo (${elapsedDays} ${elapsedDays === 1 ? "dia" : "dias"}).`;
-    message = projectedOverage > 0
-      ? `${early} Pelo seu histórico (média de ${brlE(projection.historicalMonthlyAvg ?? 0)} por mês), você deve passar do teto em ${brlE(projectedOverage)} se nada mudar.`
-      : `${early} Pelo seu histórico (média de ${brlE(projection.historicalMonthlyAvg ?? 0)} por mês), você deve fechar perto de ${brlE(projectedFinalSpend)}.`;
+    const r = projection.range;
+    const faixa = `faixa de ${brlE(r.low)} a ${brlE(r.high)}`;
+    const small = elapsedDays < 7 ? ` Base pequena: só ${elapsedDays} ${elapsedDays === 1 ? "dia" : "dias"} do mês.` : "";
+    message = status === "at_risk"
+      ? `Mesmo no cenário mais baixo (${brlE(r.low)}) você passa do teto. Projeção ${brlE(projectedFinalSpend)}, ${faixa}.${small}`
+      : status === "attention"
+        ? `Pode passar do teto: projeção ${brlE(projectedFinalSpend)}, ${faixa}; o teto está dentro da faixa.${small}`
+        : `Deve fechar perto de ${brlE(projectedFinalSpend)} (${faixa}), dentro do teto.${small}`;
   }
 
 
