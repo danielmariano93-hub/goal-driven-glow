@@ -32,11 +32,16 @@ const monthly = (m: string, total: number) => [tx(m, total / 2, "05"), tx(m, tot
 describe("meta do mês: etiqueta e chips no padrão do Ticket", () => {
   const ev = evaluateCategoryGoal(goal, [...monthly("2026-08", 1414), ...monthly("2026-09", 2028), ...monthly("2026-10", 1445), tx("2026-11", 368, "01")] as never, new Date("2026-11-03T12:00:00"), "Lazer");
   it("estado vira etiqueta tingida com ponto (não texto solto)", () => {
-    render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    const apertado = evaluateCategoryGoal({ ...goal, computed_limit: 600, fixed_limit: 600 } as CategorySpendingGoalRow, [...monthly("2026-08", 1414), ...monthly("2026-09", 2028), ...monthly("2026-10", 1445), tx("2026-11", 368, "01")] as never, new Date("2026-11-03T12:00:00"), "Lazer");
+    render(<MemoryRouter><ul><CategoryGoalCard evaluation={apertado} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
     const pill = screen.getByText("Em risco");
     expect(pill.className).toMatch(/rounded-full/);
     expect(pill.className).toMatch(/bg-destructive\/15/);
     expect(pill.querySelector("span[aria-hidden]")).not.toBeNull();
+  });
+  it("o teto dentro da faixa de fechamento é 'Atenção' (amarelo), não alarme", () => {
+    render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);
+    expect(screen.getByText("Atenção").className).toMatch(/bg-warning\/20/);
   });
   it("projeção e diferença em chips: neutro para a projeção, vermelho para 'acima'", () => {
     render(<MemoryRouter><ul><CategoryGoalCard evaluation={ev} compact onEdit={() => {}} onDelete={() => {}} onToggleStatus={() => {}} /></ul></MemoryRouter>);

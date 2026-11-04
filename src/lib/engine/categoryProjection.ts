@@ -80,16 +80,28 @@ export interface CategoryProjection {
   /** R$/dia e "corte por dia" só fazem sentido quando true. */
   supportsDailyBudget: boolean;
   /**
-   * De onde vem o ritmo da parcela variável: do período (`pace`) ou do histórico dos meses fechados (`history`).
-   * Nos primeiros dias o ritmo do período é só 1 ou 2 compras: o histórico é a única base honesta.
+   * De onde vem o ritmo da parcela variável: do período (`pace`) ou da mistura do ritmo do mês com o histórico dos meses
+   * fechados (`blend`, `category_projection.v2`). A mistura vale quando há 2+ meses de histórico: o peso do ritmo do mês
+   * cresce com os dias observados e o maior dia de gasto fica fora do ritmo (1 compra grande não é um "ritmo").
    */
-  basis: "pace" | "history";
-  /** Média mensal dos meses fechados usada quando `basis = history` (senão null). */
+  basis: "pace" | "blend";
+  /** Média mensal dos meses fechados usada quando `basis = blend` (senão null). */
   historicalMonthlyAvg: number | null;
+  /** Peso do ritmo do mês na mistura (0..1); o resto é do histórico. Só com `basis = blend`. */
+  paceWeight: number | null;
+  /** Faixa de fechamento (erro típico medido em backtest). Só com `basis = blend`; o piso é o gasto já feito. */
+  range: { low: number; high: number } | null;
 }
 
-/** Antes disso, 1–2 compras definem o "ritmo" e a natureza da categoria: usa o histórico. */
-export const EARLY_PERIOD_DAYS = 7;
+/**
+ * `category_projection.v2` — calibrado em backtest sobre o histórico real do dono (5 categorias × ago–out/2026 × dias 3 a 22):
+ * erro absoluto ponderado ~38% (v1) → ~22%, viés de −19%/+7% → ~0%. O peso do histórico (K) e a faixa são escolhas
+ * documentadas em `docs/NINO_ESTADO_E_RETOMADA.md`; com mais meses de dado, recalibrar.
+ */
+export const BLEND_WEIGHT_DAYS = 14;
+/** Erro típico da projeção (fração do fechamento): até 7 dias, e depois. */
+export const BLEND_ERROR_EARLY = 0.35;
+export const BLEND_ERROR_LATER = 0.25;
 
 export interface CategoryProjectionInput {
   txs: TransactionRow[];
@@ -159,6 +171,7 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   type Entry = { date: string; amount: number; recurringOrigin: boolean };
   const groups = new Map<string, { label: string; entries: Entry[] }>();
   const spendDays = new Set<string>();
+  const dayAmounts = new Map<string, number>();
 
   for (const tx of input.txs) {
     if (String((tx as { status?: string | null }).status ?? "confirmed") !== "confirmed") continue;
@@ -172,7 +185,10 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     const amount = round2(Number(tx.amount || 0));
     if (!(amount > 0)) continue;
 
-    if (date >= input.period.start && date <= input.period.end) spendDays.add(date);
+    if (date >= input.period.start && date <= input.period.end) {
+      spendDays.add(date);
+      dayAmounts.set(date, (dayAmounts.get(date) ?? 0) + amount);
+    }
 
     const source = (tx as { merchant_name?: string | null }).merchant_name
       ?? (tx as { description?: string | null }).description
@@ -262,10 +278,11 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
    */
   const spendDayRatio = elapsed > 0 ? spendDaysInPeriod / elapsed : 0;
 
-  // Início do período: o histórico dos meses fechados define o ritmo (`early_history`), não 1–2 compras.
+  // Com histórico (2+ meses fechados), o ritmo é uma MISTURA do ritmo do mês com o do histórico (`blend`).
   const periodDays = elapsed + remaining;
   const historyMonths = [-3, -2, -1].map((d) => shiftMonthStart(input.period.start, d).slice(0, 7));
   const historyTotals = new Map<string, number>();
+  const historyDays = new Map<string, Set<string>>();
   for (const tx of input.txs) {
     if (String((tx as { status?: string | null }).status ?? "confirmed") !== "confirmed") continue;
     if (effectiveCategoryId(tx, attribution) !== input.categoryId) continue;
@@ -274,13 +291,31 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     const month = reportingCompetenceDate(tx).slice(0, 7);
     if (!historyMonths.includes(month)) continue;
     historyTotals.set(month, (historyTotals.get(month) ?? 0) + Number(tx.amount || 0));
+    const days = historyDays.get(month) ?? new Set<string>();
+    days.add(reportingCompetenceDate(tx));
+    historyDays.set(month, days);
   }
   const historyValues = historyMonths.map((m) => historyTotals.get(m) ?? 0).filter((v) => v > 0);
-  const useHistory = elapsed > 0 && elapsed < EARLY_PERIOD_DAYS && remaining > 0 && periodDays > 0 && historyValues.length >= 2;
-  const historicalMonthlyAvg = useHistory ? round2(historyValues.reduce((a, b) => a + b, 0) / historyValues.length) : null;
+  // Frequência de gasto nos meses fechados: consumo contínuo (muitos dias) × pontual/compromisso (poucos dias).
+  const histDayRatios = historyMonths
+    .filter((m) => (historyTotals.get(m) ?? 0) > 0)
+    .map((m) => (historyDays.get(m)?.size ?? 0) / daysInMonthOf(`${m}-01`));
+  const histDayRatio = histDayRatios.length ? histDayRatios.reduce((a, b) => a + b, 0) / histDayRatios.length : 0;
+  // Compromisso (aluguel, assinaturas): série recorrente conhecida e poucos dias de gasto no mês típico não têm "ritmo
+  // diário": seguem a regra de compromisso (gasto confirmado + cobranças esperadas), não a mistura.
+  const commitmentLike = hasSeries && histDayRatio < 0.35;
+  const useBlend = elapsed > 0 && remaining > 0 && periodDays > 0 && historyValues.length >= 2 && !commitmentLike;
+  const historicalMonthlyAvg = useBlend ? round2(historyValues.reduce((a, b) => a + b, 0) / historyValues.length) : null;
+  // Ritmo do mês sem o maior dia de gasto: uma compra grande (ou um Pix de rolê) não é "ritmo".
+  const biggestDay = Math.max(0, ...dayAmounts.values());
+  const trimmedPace = elapsed > 0 ? Math.max(0, confirmedSpend - biggestDay) / elapsed : 0;
+  const paceWeight = useBlend ? elapsed / (elapsed + BLEND_WEIGHT_DAYS) : null;
+  const blendRate = useBlend && paceWeight != null
+    ? paceWeight * trimmedPace + (1 - paceWeight) * ((historicalMonthlyAvg ?? 0) / periodDays)
+    : 0;
 
   let method: CategoryProjectionMethod;
-  if (useHistory) {
+  if (useBlend) {
     method = "flow";
   } else if (elapsed === 0 || (confirmedSpend === 0 && !hasSeries)) {
     method = "insufficient_data";
@@ -296,8 +331,9 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   let commitmentsInProjection = 0;
   let variableDailyRate = 0;
 
-  if (useHistory) {
-    variableDailyRate = (historicalMonthlyAvg ?? 0) / periodDays;
+  if (useBlend) {
+    // A mistura já embute cobranças recorrentes (o histórico as contém): somar compromissos contaria duas vezes.
+    variableDailyRate = blendRate;
     variableProjection = round2(variableDailyRate * remaining);
   } else if (method === "commitment") {
     commitmentsInProjection = remainingKnownCommitments;
@@ -317,8 +353,8 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
   const projectedTotal = round2(confirmedSpend + commitmentsInProjection + variableProjection);
 
   let confidence: CategoryProjectionConfidence;
-  if (useHistory) {
-    confidence = "low";
+  if (useBlend) {
+    confidence = elapsed < 7 ? "low" : elapsed < 21 ? "medium" : "high";
   } else if (method === "insufficient_data") {
     confidence = "low";
   } else if (method === "commitment") {
@@ -346,8 +382,16 @@ export function computeCategoryProjection(input: CategoryProjectionInput): Categ
     recurringShareOfSpend,
     spendDaysInPeriod,
     variableDailyRate: round2(variableDailyRate),
-    supportsDailyBudget: method === "flow" || method === "hybrid",
-    basis: useHistory ? "history" : "pace",
+    // R$/dia só faz sentido em consumo contínuo; na mistura isso vem da frequência histórica (Lazer, com poucos dias de gasto, não tem R$/dia).
+    supportsDailyBudget: useBlend ? histDayRatio >= 0.5 : method === "flow" || method === "hybrid",
+    basis: useBlend ? "blend" : "pace",
     historicalMonthlyAvg,
+    paceWeight: paceWeight != null ? round2(paceWeight) : null,
+    range: useBlend
+      ? (() => {
+        const e = elapsed < 7 ? BLEND_ERROR_EARLY : BLEND_ERROR_LATER;
+        return { low: round2(Math.max(confirmedSpend, projectedTotal * (1 - e))), high: round2(projectedTotal * (1 + e)) };
+      })()
+      : null,
   };
 }
