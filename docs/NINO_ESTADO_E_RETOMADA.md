@@ -142,3 +142,8 @@ Regras combinadas no dia: (R1) gráfico/indicador de DIA = dia da compra, parcel
 - Não mudou: SQL `refresh_financial_daily_facts` (tabelas de fatos diários vazias para o dono; se passarem a ser usadas, alinhar na migração).
 - Projeção do mês nos Relatórios = projeção da Home (`financial_current_snapshots.payload.snapshot.projection.projectedTotalSpending`) quando fresca (versão do livro, de hoje, sem recálculo pendente); senão, `month_projection.v2` local. Título "Previsão do mês" + composição (já gasto + ritmo previsto + compromissos e fatura). Sem "ainda é cedo" no título.
 - Mensagens proativas de meio de mês leem `projected_month_expense` do snapshot da Home: herdam a regra.
+
+## Metas no padrão visual do Ticket Alimentação (4/11)
+- `StatusPill.tsx` reúne o visual do Ticket: `StatusPill` (etiqueta tingida com ponto: success/warning/danger/muted, tokens do tema), `ValueChip`, `InsightBox` (caixa `bg-muted/50`) e `Stat` (rótulo, valor, legenda). Espaçamentos, tipografia e tamanhos das telas de Metas foram mantidos.
+- Aplicado: meta do mês (estado em etiqueta; projeção e diferença em chips: neutro, vermelho "acima", verde "de folga"), veredito (etiqueta ao lado da pergunta + trio Com meta / Sem meta / Confiança + caixa de leitura), placar ("vs antes" em chip), candidatas (tendência e prioridade em chips), Dízimo ("Sem valor definido" deixa de ser verde), abas no estilo do Ticket, cartões `surface-card`.
+- "Metas conjuntas": na aba "Todas" a seção só aparece quando existe meta conjunta (sem meta, nenhum espaço); na aba "Conjuntas" o estado vazio continua.

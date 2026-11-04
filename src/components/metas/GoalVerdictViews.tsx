@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, TrendingUp } from "lucide-react";
+import { InsightBox, Stat, StatusPill, ValueChip, type PillTone } from "./StatusPill";
 import { formatBRL } from "@/lib/engine/facts";
 import type { GoalCandidate, GoalVerdict, GoalVerdictKind } from "@/lib/engine/goalVerdict";
 
@@ -20,18 +21,31 @@ const pct = (v: number) => `${Math.round(Math.abs(v) * 100)}%`;
 const signed = (v: number) => `${v < 0 ? "−" : "+"}${pct(v)}`;
 const CONFIDENCE = { alta: "alta", media: "média", baixa: "baixa" } as const;
 
+/** Etiqueta do veredito (mesmo visual de "Vai faltar" / "Fecha o ciclo" do Ticket): a resposta cabe numa palavra. */
+function verdictLabel(v: GoalVerdict): { tone: PillTone; text: string } {
+  if (v.verdict === "sim") return { tone: "success", text: "Funcionando" };
+  if (v.verdict === "parcial") return { tone: "warning", text: "Ajudou pouco" };
+  if (v.verdict === "cedo") return { tone: "muted", text: "Cedo demais" };
+  return (v.net_pct ?? 0) > 0.03 ? { tone: "danger", text: "Não ajudou" } : { tone: "muted", text: "Sem efeito claro" };
+}
+
 export function GoalVerdictCard({ verdict }: { verdict: GoalVerdict }) {
   const big = verdict.net_monthly;
   const avoided = verdict.total_avoided ?? 0;
+  const label = verdictLabel(verdict);
+  const cmp = verdict.comparison;
   return (
-    <section aria-label="As metas de gasto estão funcionando?" className="mb-3 rounded-2xl border border-border bg-card p-4" data-testid="goal-verdict">
-      <p className="text-[12px] leading-4 text-muted-foreground">As metas de gasto estão funcionando?</p>
+    <section aria-label="As metas de gasto estão funcionando?" className="surface-card mb-3 p-4" data-testid="goal-verdict">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[12px] leading-4 text-muted-foreground">As metas de gasto estão funcionando?</p>
+        <StatusPill tone={label.tone}>{label.text}</StatusPill>
+      </div>
       <h2 className="mt-1 text-[16px] font-semibold leading-5">{verdict.headline}</h2>
 
       {big != null ? (
         <>
           <p className="mt-3 flex flex-wrap items-baseline gap-x-2">
-            <span className={`text-[28px] font-medium leading-8 tabular-nums ${big >= 0 ? FIGURE_TONE[verdict.verdict] : "text-red-700"}`}>{formatBRL(Math.abs(big))}</span>
+            <span className={`text-[28px] font-bold leading-8 tracking-tight tabular-nums ${big >= 0 ? FIGURE_TONE[verdict.verdict] : "text-destructive"}`}>{formatBRL(Math.abs(big))}</span>
             <span className="text-[14px] leading-5 text-muted-foreground">{big >= 0 ? "a menos" : "a mais"} por mês · {pct(verdict.net_pct ?? 0)} {big >= 0 ? "a menos" : "a mais"} vs antes</span>
           </p>
           <p className="mt-2 text-[12px] leading-4 tabular-nums text-muted-foreground">
@@ -43,13 +57,14 @@ export function GoalVerdictCard({ verdict }: { verdict: GoalVerdict }) {
         <p className="mt-2 text-[14px] leading-5 text-muted-foreground">{verdict.summary}</p>
       )}
 
-      {verdict.comparison && verdict.outside_line ? (
-        <div className="mt-3 border-t border-border pt-3" data-testid="goal-vs-outside">
-          <p className="flex flex-wrap gap-x-4 text-[13px] leading-5 tabular-nums">
-            <span><span className="text-muted-foreground">Com meta </span><strong className="font-medium">{signed(verdict.comparison.with_pct)}</strong></span>
-            <span><span className="text-muted-foreground">Sem meta </span><strong className="font-medium">{signed(verdict.comparison.outside_pct)}</strong></span>
-          </p>
-          <p className="mt-1 text-[13px] leading-5 text-muted-foreground">{verdict.outside_line}</p>
+      {cmp && verdict.outside_line ? (
+        <div className="mt-3 space-y-2" data-testid="goal-vs-outside">
+          <div className="grid grid-cols-3 gap-2.5">
+            <Stat label="Com meta" value={signed(cmp.with_pct)} hint="gasto vs antes" tone={cmp.with_pct < 0 ? "success" : cmp.with_pct > 0 ? "danger" : undefined} />
+            <Stat label="Sem meta" value={signed(cmp.outside_pct)} hint="gasto vs antes" />
+            <Stat label="Confiança" value={CONFIDENCE[verdict.confidence]} hint={`${verdict.calendar_months} ${verdict.calendar_months === 1 ? "mês" : "meses"}`} />
+          </div>
+          <InsightBox>{verdict.outside_line}</InsightBox>
         </div>
       ) : null}
 
@@ -80,7 +95,7 @@ export function GoalCandidatesCard({ candidates, onCreate }: { candidates: GoalC
     .join(", ");
   const rising = candidates.filter((c) => c.trend_pct != null && c.trend_pct >= 0.2).length;
   return (
-    <section aria-label="Onde ainda não há meta" className="mb-3 rounded-2xl border border-border bg-card px-4 py-3" data-testid="goal-candidates">
+    <section aria-label="Onde ainda não há meta" className="surface-card mb-3 px-4 py-3" data-testid="goal-candidates">
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
         <span className="min-w-0">
           <span className="block text-[14px] font-semibold leading-5">Onde ainda não há meta</span>
@@ -98,8 +113,8 @@ export function GoalCandidatesCard({ candidates, onCreate }: { candidates: GoalC
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-center gap-x-2 text-[14px] font-medium leading-5">
                     {c.category_name}
-                    {c.trend_pct != null && c.trend_pct >= 0.2 ? <span className="inline-flex items-center gap-0.5 text-[12px] font-normal tabular-nums text-red-700"><TrendingUp size={12} aria-hidden /> +{Math.round(c.trend_pct * 100)}%</span> : null}
-                    {c.priority === "alta" ? <span className="text-[12px] font-normal text-muted-foreground">prioridade alta</span> : null}
+                    {c.trend_pct != null && c.trend_pct >= 0.2 ? <ValueChip tone="danger" className="gap-0.5"><TrendingUp size={12} aria-hidden /> +{Math.round(c.trend_pct * 100)}%</ValueChip> : null}
+                    {c.priority === "alta" ? <ValueChip tone="warning">Prioridade alta</ValueChip> : null}
                   </p>
                   <p className="text-[12px] leading-4 tabular-nums text-muted-foreground">
                     {formatBRL(c.avg_month)}/mês · {Math.round(c.share_variable * 100)}% do gasto livre{c.top_merchant ? ` · ${c.top_merchant.label} pesa ${Math.round(c.top_merchant.share * 100)}%` : ""} · teto sugerido {formatBRL(c.recommended_limit)}

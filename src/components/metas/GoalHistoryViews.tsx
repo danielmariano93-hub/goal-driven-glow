@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Check, CircleDashed, HelpCircle, Minus, Pause, X } from "lucide-react";
 import { formatBRL } from "@/lib/engine/facts";
+import { ValueChip } from "./StatusPill";
 import { historyMonthName, type GoalHighlight, type GoalHistory, type GoalImpact, type GoalSeries, type HistoryMonth, type HistoryMonthStatus } from "@/lib/engine/goalHistory";
 
 // Visual das metas ao longo do tempo (`goal_history.v1`). Status nunca é só cor:
@@ -9,8 +10,8 @@ import { historyMonthName, type GoalHighlight, type GoalHistory, type GoalImpact
 const monthShort = (ym: string) => historyMonthName(ym).slice(0, 3);
 
 const STATUS_META: Record<HistoryMonthStatus, { label: string; cell: string; text: string; bar: string; Icon: typeof Check }> = {
-  met: { label: "Cumpriu", cell: "bg-emerald-500/15 text-emerald-700", text: "text-emerald-700", bar: "fill-emerald-500", Icon: Check },
-  missed: { label: "Estourou", cell: "bg-red-500/15 text-red-700", text: "text-red-700", bar: "fill-red-500", Icon: X },
+  met: { label: "Cumpriu", cell: "bg-success/15 text-success", text: "text-success", bar: "fill-emerald-500", Icon: Check },
+  missed: { label: "Estourou", cell: "bg-destructive/15 text-destructive", text: "text-destructive", bar: "fill-red-500", Icon: X },
   in_progress: { label: "Em andamento", cell: "bg-primary/15 text-primary", text: "text-primary", bar: "fill-primary", Icon: CircleDashed },
   paused: { label: "Pausada", cell: "bg-slate-500/10 text-slate-600", text: "text-slate-600", bar: "fill-slate-400", Icon: Pause },
   before: { label: "Antes da meta", cell: "bg-secondary text-muted-foreground", text: "text-muted-foreground", bar: "fill-slate-300", Icon: Minus },
@@ -71,7 +72,7 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
   const shown = legend.filter((st) => st !== "unconfirmed" || hasUnconfirmed);
   const pctText = (v: number) => `${v < 0 ? "−" : "+"}${Math.round(Math.abs(v) * 100)}%`;
   return (
-    <section aria-label="Placar das metas" className="mb-3 rounded-2xl border border-border bg-card p-4">
+    <section aria-label="Placar das metas" className="surface-card mb-3 p-4">
       <p className="text-[14px] font-semibold leading-5">Placar mês a mês</p>
       <p className="text-[12px] leading-4 text-muted-foreground">Cumpriu o teto ou estourou, em cada categoria com meta</p>
       <div className="mt-2 overflow-x-auto">
@@ -119,8 +120,10 @@ export function GoalScoreboard({ history, onOpen, effects, onConfirm }: {
                     );
                   })}
                   {effects ? (
-                    <td className={`whitespace-nowrap pl-1 text-right text-[13px] font-medium tabular-nums ${effect?.status === "ajudou" ? "text-emerald-700" : effect?.status === "nao_ajudou" ? "text-red-700" : "text-muted-foreground"}`}>
-                      {effect?.change_pct != null ? pctText(effect.change_pct) : "—"}
+                    <td className="whitespace-nowrap pl-1 text-right">
+                      {effect?.change_pct != null
+                        ? <ValueChip tone={effect.status === "ajudou" ? "success" : effect.status === "nao_ajudou" ? "danger" : "muted"}>{pctText(effect.change_pct)}</ValueChip>
+                        : <span className="text-muted-foreground">—</span>}
                     </td>
                   ) : null}
                 </tr>

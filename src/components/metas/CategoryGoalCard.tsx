@@ -6,6 +6,7 @@ import { formatBRL } from "@/lib/engine/facts";
 import type { AdjustmentReview } from "@/lib/engine/goalAdjustment";
 import { AdjustedBadge } from "./GoalAdjustmentViews";
 import { resolveRequiredLabel } from "@/lib/observability/dataContract";
+import { PILL_TONE, StatusPill, ValueChip, type PillTone } from "./StatusPill";
 
 type Props = {
   evaluation: CategoryGoalEvaluation;
@@ -24,17 +25,18 @@ type Props = {
   compact?: boolean;
 };
 
-const STATUS_STYLES: Record<CategoryGoalStatus, { label: string; pill: string; bar: string }> = {
-  on_track: { label: "No ritmo", pill: "text-emerald-700 bg-emerald-500/15", bar: "bg-emerald-500" },
-  attention: { label: "Atenção", pill: "text-amber-700 bg-amber-500/15", bar: "bg-amber-500" },
-  at_risk: { label: "Em risco", pill: "text-red-700 bg-red-500/15", bar: "bg-red-500" },
-  exceeded: { label: "Ultrapassada", pill: "text-red-700 bg-red-500/15", bar: "bg-red-500" },
-  limit_reached: { label: "Limite atingido", pill: "text-amber-700 bg-amber-500/15", bar: "bg-amber-500" },
-  scheduled: { label: "Agendada", pill: "text-slate-700 bg-slate-500/10", bar: "bg-slate-400" },
-  completed_ok: { label: "Meta atingida", pill: "text-emerald-700 bg-emerald-500/15", bar: "bg-emerald-500" },
-  completed_over: { label: "Encerrada acima", pill: "text-red-700 bg-red-500/15", bar: "bg-red-500" },
-  paused: { label: "Pausada", pill: "text-slate-700 bg-slate-500/10", bar: "bg-slate-400" },
-  cancelled: { label: "Cancelada", pill: "text-slate-700 bg-slate-500/10", bar: "bg-slate-400" },
+// Mesmo visual de estado do Ticket Alimentação (etiqueta tingida com ponto).
+const STATUS_STYLES: Record<CategoryGoalStatus, { label: string; tone: PillTone }> = {
+  on_track: { label: "No ritmo", tone: "success" },
+  attention: { label: "Atenção", tone: "warning" },
+  at_risk: { label: "Em risco", tone: "danger" },
+  exceeded: { label: "Ultrapassada", tone: "danger" },
+  limit_reached: { label: "Limite atingido", tone: "warning" },
+  scheduled: { label: "Agendada", tone: "muted" },
+  completed_ok: { label: "Meta atingida", tone: "success" },
+  completed_over: { label: "Encerrada acima", tone: "danger" },
+  paused: { label: "Pausada", tone: "muted" },
+  cancelled: { label: "Cancelada", tone: "muted" },
 };
 
 function fmtPeriod(startIso: string, endIso: string): string {
@@ -56,6 +58,7 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
   const navigate = useNavigate();
   const [more, setMore] = useState(false);
   const s = STATUS_STYLES[evaluation.status];
+  const bar = PILL_TONE[s.tone].bar;
   const paused = evaluation.status === "paused";
   const barPct = Math.min(1, Math.max(0, evaluation.percentageUsed));
   const overLimit = evaluation.actualSpend > evaluation.targetAmount;
@@ -66,30 +69,29 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
     const title = resolveRequiredLabel({ kind: "category_name_missing", surface: "CategoryGoalCard", id: evaluation.goal.category_id, name: evaluation.categoryName, fallback: "Categoria" });
     const active = evaluation.status !== "scheduled" && evaluation.status !== "paused";
     return (
-      <li className={`rounded-xl border border-border bg-card p-3 ${paused ? "opacity-70" : ""}`}>
+      <li className={`rounded-xl bg-muted/50 p-3 ${paused ? "opacity-70" : ""}`}>
         <div className="flex items-start justify-between gap-2">
           <button type="button" onClick={open} aria-label={`Abrir meta de ${title}`} className="min-w-0 flex-1 text-left">
             <span className="block text-[14px] font-semibold leading-5">{title}</span>
             <span className="block text-[12px] leading-4 text-muted-foreground">{fmtPeriod(evaluation.period.start, evaluation.period.end)} · {fmtRule(evaluation)}</span>
           </button>
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] leading-5 text-muted-foreground">
-            <span aria-hidden className={`h-2 w-2 rounded-full ${s.bar}`} />
-            {s.label}
-          </span>
+          <StatusPill tone={s.tone}>{s.label}</StatusPill>
         </div>
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
-          <div className={`h-full transition-[width] ${s.bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className={`h-full rounded-full transition-[width] ${bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
         </div>
         <p className="mt-2 text-[13px] leading-5 tabular-nums">
-          <span className="font-medium">{formatBRL(evaluation.actualSpend)}</span>
+          <span className="font-semibold">{formatBRL(evaluation.actualSpend)}</span>
           <span className="text-muted-foreground"> de {formatBRL(evaluation.targetAmount)}</span>
-          {active ? (
-            <span className={`text-[12px] ${evaluation.projectedOverage > 0 ? "text-red-700" : "text-muted-foreground"}`}>
-              {" "}· projeção {formatBRL(evaluation.projectedFinalSpend)}
-              {evaluation.projectedOverage > 0 ? `, ${formatBRL(evaluation.projectedOverage)} acima` : `, ${formatBRL(Math.max(0, evaluation.projectedDifference))} de folga`}
-            </span>
-          ) : null}
         </p>
+        {active ? (
+          <p className="mt-1.5 flex flex-wrap items-center gap-1.5" data-testid="goal-projection-chips">
+            <ValueChip tone="muted">Projeção {formatBRL(evaluation.projectedFinalSpend)}</ValueChip>
+            {evaluation.projectedOverage > 0
+              ? <ValueChip tone="danger">{formatBRL(evaluation.projectedOverage)} acima</ValueChip>
+              : <ValueChip tone="success">{formatBRL(Math.max(0, evaluation.projectedDifference))} de folga</ValueChip>}
+          </p>
+        ) : null}
         <button type="button" aria-expanded={more} onClick={() => setMore((v) => !v)} className="mt-1 min-h-8 text-[12px] text-primary">
           {more ? "Menos" : "Detalhes e ações"}
         </button>
@@ -141,13 +143,13 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${s.pill}`}>{s.label}</span>
+          <StatusPill tone={s.tone}>{s.label}</StatusPill>
           {clickable ? <ChevronRight size={14} className="text-muted-foreground" /> : null}
         </div>
       </div>
 
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-        <div className={`h-full transition-all ${s.bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
+        <div className={`h-full transition-all ${bar}`} style={{ width: `${Math.round(barPct * 100)}%` }} />
       </div>
       <p className="mt-1.5 text-[13px]">
         <span className="font-bold tabular-nums">{formatBRL(evaluation.actualSpend)}</span>{" "}
