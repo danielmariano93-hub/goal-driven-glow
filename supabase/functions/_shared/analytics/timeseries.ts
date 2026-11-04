@@ -1,7 +1,7 @@
 // spending_timeseries_daily — série diária real de gastos com média móvel
 // de 7 dias, para gráfico de linha. Só considera movimentos reais
 // (isRealMonthlyMovement) para não contar transferência/investimento.
-import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
+import { behavioralDayAmount, type TransactionRow } from "../engine/facts.ts";
 import { makeProvenance, confidenceFromSample, type Provenance } from "./provenance.ts";
 import { daysBetween, todaySP, monthRange } from "./periods.ts";
 
@@ -46,7 +46,7 @@ export function computeDailySpend(input: {
   for (const t of input.txs) {
     const d = t.occurred_at.slice(0, 10);
     if (d < from || d > to) continue;
-    const signed = behavioralMetricAmount(t, metric);
+    const signed = behavioralDayAmount(t, metric);
     if (signed === 0) continue;
     byDay.set(d, (byDay.get(d) ?? 0) + signed);
     rows += 1;

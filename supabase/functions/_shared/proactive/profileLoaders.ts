@@ -3,7 +3,7 @@
 // modelo do usuário. Só LEEM; todo cálculo fica nas funções puras de
 // `dataQuality.ts` e `userModel.ts`.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { computeMonthlyTotals, type TransactionRow } from "../finance-core/facts.ts";
+import { computeMonthlyTotals, isLaterInstallment, type TransactionRow } from "../finance-core/facts.ts";
 import { assessDataQuality, type DataQuality } from "./dataQuality.ts";
 import { buildUserModel, type UserModel } from "./userModel.ts";
 import type { RecentDelivery } from "./repetition.ts";
@@ -131,7 +131,7 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
   const from = weeksFrom < monthsFrom ? weeksFrom : monthsFrom;
   const [txRes, catRes] = await Promise.all([
     sb.from("transactions")
-      .select("occurred_at,amount,category_id,movement_kind,payment_method")
+      .select("occurred_at,amount,category_id,movement_kind,payment_method,credit_card_id,installment_number,installments_total")
       .eq("user_id", userId).eq("status", "confirmed").eq("type", "expense")
       .gte("occurred_at", from).lt("occurred_at", today)
       .order("occurred_at", { ascending: false })
@@ -142,6 +142,8 @@ export async function loadNudgeTransactions(sb: SupabaseClient, userId: string, 
   for (const row of (((catRes as any)?.data ?? []) as any[])) names.set(String(row.id), String(row.name));
   return (((txRes as any)?.data ?? []) as any[])
     .filter((row) => !row.movement_kind || row.movement_kind === "transaction")
+    // `installment_day_rule.v1`: parcela 2+ guarda o dia da compra; não é gasto de nenhum dia (fim de semana, dia da semana, mês).
+    .filter((row) => !isLaterInstallment(row))
     .map((row) => ({
       occurred_at: String(row.occurred_at),
       amount: Math.abs(Number(row.amount ?? 0)),

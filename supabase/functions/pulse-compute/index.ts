@@ -14,7 +14,7 @@ import { applyIntradayBankAnchorAdjustments } from "../_shared/finance-core/intr
 // Verdade financeira única (finance_contract.v2): nunca reimplementar fórmulas aqui.
 import {
   computeActiveDebtsTotal,
-  computeBehavioralExpense,
+  computeDayLevelExpense,
   computeCardExposure,
   computeGoalProgressFacts,
   computeTotalCash,
@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
     const cardOutstanding = Math.max(0, totalCardDebtOf(exposures));
     const cardTotalLimit = cards.reduce((a, c) => a + Number(c.total_limit || 0), 0);
 
-    const monthlyExpense30 = computeBehavioralExpense(last30, { start: cutoff30, end: todayIsoSP });
+    const monthlyExpense30 = computeDayLevelExpense(last30, { start: cutoff30, end: todayIsoSP });
     const goalsPct = goals.map(
       (g) => computeGoalProgressFacts(g.target_amount, g.id, contribs, investments).pct,
     );

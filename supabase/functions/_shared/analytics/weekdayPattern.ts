@@ -1,4 +1,4 @@
-import { behavioralMetricAmount, type TransactionRow } from "../engine/facts.ts";
+import { behavioralDayAmount, type TransactionRow } from "../engine/facts.ts";
 import type { ConfidenceLevel } from "../intelligence/contracts.ts";
 import { resolveBehavioralDate } from "./behavioralDate.ts";
 import {
@@ -73,7 +73,7 @@ export function computeWeekdayPattern(args: {
 
   for (const { t, date } of resolved) {
     if (!date.eligibleForBehavior || date.day < from || date.day > args.to) continue;
-    const amount = behavioralMetricAmount({ ...t, amount: Number(t.amount || 0) } as TransactionRow, "expense");
+    const amount = behavioralDayAmount({ ...t, amount: Number(t.amount || 0) } as TransactionRow, "expense");
     if (amount <= 0) continue;
     const cur = daily.get(date.day) ?? { amount: 0, transactions: 0 };
     cur.amount += amount;

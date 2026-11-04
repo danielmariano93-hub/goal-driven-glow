@@ -5,7 +5,7 @@
 //
 // TODAS as regras contábeis passam por isRealMonthlyMovement — transferência,
 // aplicação, resgate, pagamento de fatura NÃO contam.
-import { isRealMonthlyMovement, type TransactionRow, type RecurringRow } from "../engine/facts.ts";
+import { isLaterInstallment, isRealMonthlyMovement, type TransactionRow, type RecurringRow } from "../engine/facts.ts";
 import { makeProvenance, type Provenance, type Confidence } from "./provenance.ts";
 import { monthRange, dayOfMonth, shiftMonth, todaySP } from "./periods.ts";
 
@@ -46,6 +46,7 @@ function monthTotal(txs: TransactionRow[], from: string, to: string): { total: n
   for (const t of txs) {
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
+    if (isLaterInstallment(t)) continue; // `installment_day_rule.v1`
     const d = t.occurred_at.slice(0, 10);
     if (d < from || d > to) continue;
     total += Number(t.amount || 0);
@@ -203,6 +204,7 @@ function confidenceBand(txs: TransactionRow[], today: string, point: number, day
   for (const t of txs) {
     if (t.type !== "expense") continue;
     if (!isRealMonthlyMovement(t)) continue;
+    if (isLaterInstallment(t)) continue; // `installment_day_rule.v1`
     const d = t.occurred_at.slice(0, 10);
     if (d < from || d > today) continue;
     daily.set(d, (daily.get(d) ?? 0) + Number(t.amount || 0));

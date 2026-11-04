@@ -191,6 +191,12 @@ export interface ReportDashboard {
     early: boolean;
     /** Parcelas e compras de faturas anteriores já conhecidas: entram uma vez, nunca multiplicadas pelo ritmo. */
     fixedKnown: number;
+    /**
+     * `home`: o número é o MESMO da "Previsão de fechamento" da Home (realizado + ritmo previsto + compromissos e fatura);
+     * `report`: cálculo próprio do painel (`month_projection.v2`), usado quando a previsão da Home não está fresca.
+     */
+    source?: "home" | "report";
+    composition?: { realized: number; variable: number; commitments: number; cardDue: number; confidence: string } | null;
   } | null;
   filterOptions: { categories: Array<{ id: string; name: string; total: number }> };
   coverage: { firstDate: string | null; monthsOfHistory: number; comparisonAvailable: boolean };
@@ -615,7 +621,7 @@ export function buildReportDashboard(entries: DashEntry[], req: DashboardRequest
     projection = {
       expense: round2(fixedKnown + variable), daysElapsed, daysInMonth,
       previousMonthExpense: prevMonthExpense > 0 ? prevMonthExpense : null,
-      early, fixedKnown: round2(fixedKnown),
+      early, fixedKnown: round2(fixedKnown), source: "report", composition: null,
     };
   }
 
@@ -849,6 +855,39 @@ function buildVerdict(a: {
 // Destaques acionáveis
 // ---------------------------------------------------------------------------
 
+/** Destaque da projeção do mês: título/corpo mudam conforme a origem do número (Home × cálculo próprio). */
+export function projectionHighlight(projection: NonNullable<ReportDashboard["projection"]>): DashHighlight & { weight: number } {
+  const base = projection.previousMonthExpense;
+  return {
+    id: "projection", tone: base != null && projection.expense > base * 1.05 ? "negative" : "neutral", weight: 85,
+    title: projection.source === "home"
+      ? `Previsão do mês: ${brl(projection.expense)} de gasto`
+      : `No ritmo atual, o mês fecha em ${brl(projection.expense)} de gasto`,
+    body: [
+      projection.composition
+        ? `Já gasto ${brl(projection.composition.realized)} + ritmo previsto ${brl(projection.composition.variable)} + compromissos e fatura ${brl(projection.composition.commitments + projection.composition.cardDue)} (a mesma previsão da Home).`
+        : null,
+      base != null
+        ? `${projection.expense >= base ? "Acima" : "Abaixo"} do mês passado inteiro (${brl(base)}) em ${brl(Math.abs(projection.expense - base))}.`
+        : `Com ${projection.daysElapsed} de ${projection.daysInMonth} dias passados.`,
+      projection.early && !projection.composition ? `Base pequena: só ${projection.daysElapsed} dias do mês, então usei o seu histórico.` : null,
+    ].filter(Boolean).join(" "),
+    action: null,
+  };
+}
+
+/** Troca a projeção própria pela da Home (mesmo número nas duas telas) e refaz o destaque. */
+export function applyHomeProjection(
+  dash: ReportDashboard,
+  home: { total: number; composition: NonNullable<NonNullable<ReportDashboard["projection"]>["composition"]> },
+): ReportDashboard {
+  if (!dash.projection || dash.filtered) return dash;
+  const projection = { ...dash.projection, expense: home.total, source: "home" as const, composition: home.composition, early: false };
+  const replaced = projectionHighlight(projection);
+  const had = dash.highlights.some((h) => h.id === "projection");
+  return { ...dash, projection, highlights: had ? dash.highlights.map((h) => (h.id === "projection" ? replaced : h)) : [replaced, ...dash.highlights] };
+}
+
 function buildHighlights(a: {
   totals: Totals; previousTotals: Totals | null; deltas: ReportDashboard["deltas"]; categories: DashCategoryRow[];
   habits: Habit[]; trend: ReportDashboard["trend"]; projection: ReportDashboard["projection"]; filtered: boolean; incomeIncomplete: boolean; expectedIncome: number;
@@ -904,19 +943,7 @@ function buildHighlights(a: {
       action: { label: "Revisar assinaturas", route: "/app/lancamentos" },
     });
   }
-  if (projection) {
-    const base = projection.previousMonthExpense;
-    out.push({
-      id: "projection", tone: base != null && projection.expense > base * 1.05 ? "negative" : "neutral", weight: 85,
-      title: projection.early
-        ? `Ainda é cedo: pelo seu histórico, o mês fecha perto de ${brl(projection.expense)} de gasto`
-        : `No ritmo atual, o mês fecha em ${brl(projection.expense)} de gasto`,
-      body: base != null
-        ? `${projection.expense >= base ? "Acima" : "Abaixo"} do mês passado inteiro (${brl(base)}) em ${brl(Math.abs(projection.expense - base))}.`
-        : `Com ${projection.daysElapsed} de ${projection.daysInMonth} dias passados.`,
-      action: null,
-    });
-  }
+  if (projection) out.push(projectionHighlight(projection));
   if (trend.direction === "better" || trend.direction === "worse") {
     out.push({
       id: "trend", tone: trend.direction === "better" ? "positive" : "negative", weight: 65,

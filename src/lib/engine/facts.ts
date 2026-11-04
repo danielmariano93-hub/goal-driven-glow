@@ -453,6 +453,38 @@ export function behavioralMetricAmount(
   return Number(t.amount || 0);
 }
 
+/**
+ * `installment_day_rule.v1` — compra parcelada no cartão: cada parcela guarda `occurred_at` = dia da COMPRA, então
+ * somar todas as linhas por data jogaria a compra inteira (e as parcelas antecipadas) no dia em que ela foi feita.
+ * Para indicador de DIA/ritmo/projeção do mês, vale a 1ª parcela no dia da compra; as demais entram pela fatura
+ * (competência). `bridges` (conciliação caixa × resultado) continua na regra de compra inteira: não usa estas funções.
+ */
+export function isLaterInstallment(
+  t: Pick<TransactionRow, "credit_card_id" | "payment_method" | "installment_number" | "installments_total">,
+): boolean {
+  const isCard = Boolean(t.credit_card_id) || String(t.payment_method ?? "") === "credit_card";
+  return isCard && Number(t.installments_total ?? 0) > 1 && Number(t.installment_number ?? 0) > 1;
+}
+
+/** `behavioralMetricAmount` para indicadores de dia: parcela 2+ de compra parcelada não é gasto de nenhum dia. */
+export function behavioralDayAmount(t: TransactionRow, metric: "expense" | "income"): number {
+  if (metric === "expense" && isLaterInstallment(t) && String(t.movement_kind ?? "transaction") !== "refund") return 0;
+  return behavioralMetricAmount(t, metric);
+}
+
+/** Gasto comportamental por data da compra (`installment_day_rule.v1`): base de média diária, ritmo e projeção do mês. */
+export function computeDayLevelExpense(
+  txs: TransactionRow[],
+  range: { start: string; end: string },
+): number {
+  let expense = 0;
+  for (const t of txs) {
+    if (t.occurred_at < range.start || t.occurred_at > range.end) continue;
+    expense += behavioralDayAmount(t, "expense");
+  }
+  return round2(expense);
+}
+
 // Totais mensais financeiros usam competência de relatório (fatura do cartão).
 // Métricas de hábito/ritmo continuam em `computeBehavioralExpense`/`occurred_at`.
 export function computeMonthlyTotals(txs: TransactionRow[], ym: string) {
