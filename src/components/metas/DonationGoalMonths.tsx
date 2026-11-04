@@ -6,6 +6,7 @@ import {
   donationMonthsRange, evaluateDonationMonth, type DonationGoalLike, type DonationMonth, type DonationMonthStatus,
 } from "@/lib/engine/donationGoal";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
+import { StatusPill, type PillTone } from "./StatusPill";
 
 type Tx = {
   id: string; type: string; status?: string | null; amount: number | string; occurred_at: string;
@@ -19,12 +20,12 @@ export const monthLabel = (month: string) => {
   return label.charAt(0).toUpperCase() + label.slice(1);
 };
 
-const STATUS: Record<DonationMonthStatus, { label: string; tone: string }> = {
-  done: { label: "Cumprido", tone: "text-success" },
-  exceeded: { label: "Acima do combinado", tone: "text-success" },
-  partial: { label: "Parcial", tone: "text-warning" },
-  pending: { label: "Pendente", tone: "text-muted-foreground" },
-  no_target: { label: "Sem valor definido", tone: "text-muted-foreground" },
+const STATUS: Record<DonationMonthStatus, { label: string; tone: string; pill: PillTone }> = {
+  done: { label: "Cumprido", tone: "text-success", pill: "success" },
+  exceeded: { label: "Acima do combinado", tone: "text-success", pill: "success" },
+  partial: { label: "Parcial", tone: "text-warning", pill: "warning" },
+  pending: { label: "Pendente", tone: "text-muted-foreground", pill: "muted" },
+  no_target: { label: "Sem valor definido", tone: "text-muted-foreground", pill: "muted" },
 };
 
 export function donationSummaryLine(m: DonationMonth): string {
@@ -38,11 +39,12 @@ export function DonationCurrentMonth({ goal, txs }: { goal: DonationGoalLike; tx
   const month = useMemo(() => evaluateDonationMonth(goal, today.slice(0, 7), txs, today), [goal, txs, today]);
   const st = STATUS[month.status];
   return (
-    <div className="mt-2 rounded-xl bg-success/10 px-3 py-2 text-[11px] leading-4">
-      <p className={`font-semibold ${st.tone}`}>
-        {monthLabel(month.month)} · {st.label}
-      </p>
-      <p className="text-muted-foreground">{donationSummaryLine(month)}</p>
+    <div className="mt-2 rounded-xl bg-muted/50 px-3 py-2 text-[11px] leading-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-semibold">{monthLabel(month.month)}</p>
+        <StatusPill tone={st.pill}>{st.label}</StatusPill>
+      </div>
+      <p className="mt-1 text-muted-foreground">{donationSummaryLine(month)}</p>
     </div>
   );
 }

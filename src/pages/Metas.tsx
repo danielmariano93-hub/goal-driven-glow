@@ -196,25 +196,18 @@ export default function Metas() {
 
       <PendingInvitesBanner />
 
-      <div className="mb-3 grid grid-cols-3 gap-2 rounded-full border border-border bg-card p-1">
-        <button
-          onClick={() => setTab("all")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "all" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-        >
-          Todas
-        </button>
-        <button
-          onClick={() => setTab("individual")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "individual" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-        >
-          Individuais
-        </button>
-        <button
-          onClick={() => setTab("shared")}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${tab === "shared" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-        >
-          Conjuntas
-        </button>
+      <div role="tablist" className="mb-3 grid grid-cols-3 gap-1.5 rounded-2xl bg-muted p-1">
+        {([["all", "Todas"], ["individual", "Individuais"], ["shared", "Conjuntas"]] as const).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${tab === id ? "bg-card shadow-sm" : "text-muted-foreground"}`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab !== "all" ? <div className="mb-4 flex items-center justify-end">
@@ -240,7 +233,7 @@ export default function Metas() {
       ) : null}
 
       {(tab === "all" || openCatList) && (
-        <div className="mb-3 rounded-2xl border border-border bg-card p-4">
+        <div className="surface-card mb-3 p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-[14px] font-semibold leading-5">Metas de gasto · este mês</p>
             <button
@@ -309,7 +302,7 @@ export default function Metas() {
                 aria-label={`Abrir meta ${g.name}`}
                 onClick={() => navigate(`/app/metas/${g.id}`)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/app/metas/${g.id}`); } }}
-                className="cursor-pointer rounded-2xl border border-border bg-card p-4 shadow-card transition-colors hover:border-primary/40"
+                className="surface-card cursor-pointer p-4 transition-colors hover:border-primary/40"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -420,14 +413,7 @@ export default function Metas() {
           />
         </div>
       ) : null}
-      {tab === "all" && (
-        <div className="mt-4">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-            <Users size={12} /> Metas conjuntas
-          </div>
-          <SharedGoalsInline />
-        </div>
-      )}
+      {tab === "all" && <SharedGoalsInline section />}
       {/* Encerradas: no fim da tela. */}
       {(tab === "all" || openCatList) ? (
         <div className="mb-4">
@@ -890,8 +876,13 @@ function ContribModal({
   );
 }
 
-function SharedGoalsInline() {
+/**
+ * `section`: dentro da aba "Todas" só aparece quando há meta conjunta (sem meta, nenhum espaço); na aba "Conjuntas"
+ * o estado vazio continua, porque a pessoa foi procurar por ele.
+ */
+export function SharedGoalsInline({ section = false }: { section?: boolean }) {
   const { data: goals, isLoading } = useSharedGoals();
+  if (section && (isLoading || !goals || goals.length === 0)) return null;
   if (isLoading) {
     return (
       <div className="grid place-items-center py-10">
@@ -912,7 +903,12 @@ function SharedGoalsInline() {
     );
   }
   return (
-    <div className="space-y-3">
+    <div className={section ? "mt-4 space-y-3" : "space-y-3"} data-testid={section ? "shared-goals-section" : undefined}>
+      {section ? (
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Users size={12} /> Metas conjuntas
+        </div>
+      ) : null}
       {goals.map((g) => (
         <Link key={g.id} to={`/app/metas-conjuntas/${g.id}`} className="surface-card flex items-center justify-between p-4">
           <div className="min-w-0">
