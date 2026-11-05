@@ -47,6 +47,8 @@ import { loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCat
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { benefitSituations, isBenefitAlertWindow, loadBenefitState } from "./benefitSituations.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
+import { usageFromDeliveries } from "./pillars.ts";
+import { loadDispatchGateInputs, makeCanDispatch } from "./dispatchGate.ts";
 import { loadSpendingGoalContext, readGoals } from "../spendingGoals/runtime.ts";
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -445,7 +447,15 @@ export async function runMultiFinanceProactive(
     ? await sb.from("notification_preferences").select("due_reminders_enabled").eq("user_id", userId).maybeSingle()
         .then((r: any) => r?.data?.due_reminders_enabled === true).catch(() => false)
     : false;
+  // nino_comm_pillars.v1 — por usuário, desligado por padrão: sem a flag o caminho é exatamente o anterior.
+  // Import dinâmico: o leitor de flags usa o runtime do Deno e não deve entrar nos testes de unidade.
+  const pillarsOn = await import("../agent/core/FeatureFlags.ts")
+    .then((m) => m.isEnabled("comm_pillars_v1", userId))
+    .catch(() => false);
+  const gateInputs = pillarsOn ? await loadDispatchGateInputs(sb, userId).catch(() => null) : null;
   const { decisions, selected, ranked } = allocateAttention({
+    pillars: pillarsOn ? { usage: usageFromDeliveries(recentDeliveries, new Date()) } : undefined,
+    canDispatch: gateInputs ? makeCanDispatch({ ...gateInputs, recent: recentDeliveries }) : undefined,
     whatsappSkip: dueChannelOn ? coveredByDueReminders : undefined,
     situations: timedSituations,
     ctx,

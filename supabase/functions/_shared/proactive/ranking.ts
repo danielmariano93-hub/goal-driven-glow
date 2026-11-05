@@ -6,6 +6,7 @@ import { insightValue, isAppTaskKind, materialityFloor } from "../intelligence/i
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
 import { repeatedKind, type RecentDelivery } from "./repetition.ts";
 import { SPENDING_GOAL_ORIENTATION_KINDS } from "./spendingGoalSituations.ts";
+import { newPillarRound, orderByPillars, pillarGate, pillarOf, recordPillarPick, type PillarUsage } from "./pillars.ts";
 
 import {
   DEFAULT_ATTENTION_BUDGET,
@@ -137,6 +138,16 @@ export type BudgetInput = {
   whatsappSkip?: (situation: FinancialSituation) => boolean;
   now?: Date;
   minConfidence?: number;
+  /**
+   * nino_comm_pillars.v1 — com isto o WhatsApp respeita o teto diário e as cotas por pilar, e os pilares com vaga
+   * reservada ainda não usada passam na frente. Sem isto, o comportamento é exatamente o anterior.
+   */
+  pillars?: { usage: PillarUsage };
+  /**
+   * Despachante recusaria agora (silêncio, cota, cooldown)? Devolve o motivo ou null. A situação é retida SEM gastar
+   * a vaga da rodada: antes, o item que só sairia à noite segurava a vaga da manhã (vaga fantasma).
+   */
+  canDispatch?: (situation: FinancialSituation, channel: "app" | "whatsapp") => string | null;
 };
 
 /** Decide, por canal, quem fala e por que os demais foram retidos. */
@@ -156,7 +167,9 @@ export function allocateAttention(input: BudgetInput): {
     let remaining = channel === "whatsapp" ? budget.whatsapp : budget.app;
     // Diversidade: um assunto (tipo) por canal por rodada.
     const kindsThisRound = new Set<string>();
-    for (const situation of ranked) {
+    const pillarRound = newPillarRound();
+    const order = input.pillars ? orderByPillars(ranked, input.pillars.usage) : ranked;
+    for (const situation of order) {
       const timing = (situation.evidence as any)?.behavioral_timing ?? null;
       const timingOwned = (situation.evidence as any)?.behavioral_timing_owned === true;
       const base = {
@@ -168,6 +181,7 @@ export function allocateAttention(input: BudgetInput): {
         timing_window: situation.timing_window ?? null,
         effective_score: situation.effective_score ?? situation.priority_score,
         defer_until: situation.defer_until ?? null,
+        ...(input.pillars ? { pillar: pillarOf(situation.communication_kind) } : {}),
       } as ProactiveDecision & Record<string, unknown>;
       const delivered = channel === "whatsapp" && input.alreadyDeliveredWhatsapp
         ? input.alreadyDeliveredWhatsapp
@@ -218,11 +232,24 @@ export function allocateAttention(input: BudgetInput): {
         decisions.push({ ...base, decision: "suppress", reason: "same_kind_in_round" });
         continue;
       }
+      if (input.pillars && channel === "whatsapp") {
+        const blocked = pillarGate(situation, input.pillars.usage, pillarRound);
+        if (blocked) {
+          decisions.push({ ...base, decision: "suppress", reason: blocked });
+          continue;
+        }
+      }
+      const wouldDefer = input.canDispatch?.(situation, channel) ?? null;
+      if (wouldDefer) {
+        decisions.push({ ...base, decision: "suppress", reason: `dispatcher_would_defer:${wouldDefer}` });
+        continue;
+      }
       if (remaining <= 0) {
         decisions.push({ ...base, decision: "suppress", reason: "attention_budget_exhausted" });
         continue;
       }
       remaining -= 1;
+      if (channel === "whatsapp") recordPillarPick(pillarRound, situation);
       kindsThisRound.add(situation.communication_kind);
       selected.set(situation.fingerprint, situation);
       decisions.push({ ...base, decision: "deliver", reason: "top_ranked_material_situation" });

@@ -53,7 +53,8 @@ export type FlagName =
   | "compound_turns_v1"
   | "advisor_reasoning_v1"
   | "v3_first_authority_v1"
-  | "generic_aggregate_v1";
+  | "generic_aggregate_v1"
+  | "comm_pillars_v1";
 
 const DEFAULTS: Record<FlagName, boolean> = {
   artifacts_v2_strict: false,
@@ -96,6 +97,8 @@ const DEFAULTS: Record<FlagName, boolean> = {
   advisor_reasoning_v1: false,
   v3_first_authority_v1: false,
   generic_aggregate_v1: false,
+  // nino_comm_pillars.v1 — pilares de comunicação (teto diário, cotas por pilar, fim da vaga fantasma). Por usuário.
+  comm_pillars_v1: false,
 };
 
 const ROLLOUT_FLAGS = new Set<FlagName>([
@@ -122,6 +125,7 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "advisor_reasoning_v1",
   "v3_first_authority_v1",
   "generic_aggregate_v1",
+  "comm_pillars_v1",
 ]);
 
 let cache: { at: number; map: Record<string, boolean> } | null = null;
