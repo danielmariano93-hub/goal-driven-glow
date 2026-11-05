@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatBRL } from "@/lib/engine/facts";
+import { measurePlanSpend } from "@/lib/behavioral/dayPlanCreate";
 
 // day_plan.v1 — plano do dia crítico (hoje gravado em `weekend_commitments`, nascido como "combinado de sexta").
 // Aqui moram a nota graduada do resultado e a leitura da tabela. A tabela guarda o dia em `friday` por compatibilidade:
@@ -89,7 +90,65 @@ export function openPlan(rows: DayPlanRow[], today: string, windowDays = 4): Day
   return open.find((r) => r.status === "accepted") ?? open[0] ?? null;
 }
 
+/**
+ * Plano aceito e já terminado, ainda sem fechamento no servidor (o servidor só fecha o combinado de sexta, na segunda):
+ * o app mede pelo gasto real da categoria e mostra o resultado. `client_measured` marca que a medida veio daqui.
+ */
+export function resolvePlans(
+  rows: DayPlanRow[],
+  ctx: { today: string; txs: Array<Record<string, unknown>>; categoryIdByName: Record<string, string> },
+): Array<DayPlanRow & { client_measured?: boolean }> {
+  return rows.map((r) => {
+    if (r.status !== "accepted" || r.target_amount == null) return r;
+    const categoryId = ctx.categoryIdByName[r.category];
+    if (!categoryId) return r;
+    const spent = measurePlanSpend(ctx.txs as never, categoryId, r.friday, ctx.today);
+    if (spent == null) return r;
+    return { ...r, status: spent <= r.target_amount ? "kept" : "missed", realized_amount: spent, client_measured: true };
+  });
+}
+
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
+
+type RpcFn = (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+const rpc = () => supabase.rpc as unknown as RpcFn;
+
+export type CreateDayPlanInput = {
+  category: string;
+  /** Data de início do plano (o dia escolhido; na sexta, vale o fim de semana). */
+  date: string;
+  target: number;
+  expected: number | null;
+  anchorKind: "goal" | "average" | null;
+  anchorAmount: number | null;
+};
+
+/** Cria o plano já aceito (a pessoa escolheu): mesma função do banco do aceite na tela de hábitos, sem migração. */
+export function useCreateDayPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (a: CreateDayPlanInput) => {
+      const { error } = await rpc()("habit_limit_accept", {
+        p_category: a.category, p_friday: a.date, p_target: a.target, p_expected: a.expected,
+        p_projected_before: null, p_projected_if_met: null, p_anchor_kind: a.anchorKind, p_anchor_amount: a.anchorAmount,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["day-plans"] }),
+  });
+}
+
+/** Cancela o plano (fica registrado como recusado, não some do histórico do banco). */
+export function useCancelDayPlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (a: { category: string; date: string }) => {
+      const { error } = await rpc()("habit_limit_decline", { p_category: a.category, p_friday: a.date });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["day-plans"] }),
+  });
+}
 
 export function useDayPlans(userId: string | undefined) {
   return useQuery<DayPlanRow[]>({

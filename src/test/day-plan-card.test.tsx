@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
-import { DayPlanCardView } from "@/components/metas/DayPlanCard";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { DayPlansAccordionView } from "@/components/metas/DayPlanCard";
 import { gradeDayPlan, gradedPlans, openPlan, weekdayName, type DayPlanRow } from "@/lib/behavioral/dayPlan";
 
 const row = (over: Partial<DayPlanRow>): DayPlanRow => ({
@@ -46,30 +46,58 @@ describe("resultado graduado do plano (day_plan.v1)", () => {
   });
 });
 
-describe("cartão 'Seu plano de…' em Metas", () => {
-  it("sem nenhum plano, não renderiza nada (sem cartão vazio)", () => {
-    const { container } = render(<DayPlanCardView rows={[]} today="2026-11-05" />);
+describe("acordeão 'Planos e experimentos' em Metas", () => {
+  it("sem plano e sem como criar, não renderiza nada; podendo criar, mostra a linha de convite", () => {
+    const { container, rerender } = render(<DayPlansAccordionView rows={[]} today="2026-11-05" />);
     expect(container.firstChild).toBeNull();
+    rerender(<DayPlansAccordionView rows={[]} today="2026-11-05" canCreate onCreate={() => {}} />);
+    expect(screen.getByTestId("day-plans-summary").textContent).toMatch(/Nenhum plano ainda/);
   });
-  it("plano proposto: mostra teto, o padrão e como combinar", () => {
-    render(<DayPlanCardView rows={[row({ friday: "2026-11-04", status: "offered", realized_amount: null, accepted_at: null })]} today="2026-11-05" />);
-    expect(screen.getByText("Seu plano de quarta")).toBeTruthy();
-    expect(screen.getByTestId("day-plan-open").textContent).toMatch(/Proposto\..*R\$\s?160,00 em Lazer.*R\$\s?271,62.*“topo”/);
+  it("fechado: uma linha de resumo e nada do conteúdo (discreto perto das metas)", () => {
+    render(<DayPlansAccordionView rows={[row({})]} today="2026-11-05" canCreate onCreate={() => {}} />);
+    expect(screen.getByTestId("day-plans-summary").textContent).toBe("1 plano medido · último: 38% abaixo do seu padrão");
+    expect(screen.getByRole("button", { name: /Planos e experimentos/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("day-plan-last")).toBeNull();
+    expect(screen.queryByText("Abaixo do seu padrão")).toBeNull();
   });
-  it("último resultado: uma etiqueta de estado graduada e a leitura em texto simples", () => {
-    render(<DayPlanCardView rows={[row({})]} today="2026-11-05" />);
+  it("aberto: último resultado com uma etiqueta graduada, histórico e o botão de criar", () => {
+    const onCreate = vi.fn();
+    render(<DayPlansAccordionView rows={[row({})]} today="2026-11-05" canCreate onCreate={onCreate} />);
+    fireEvent.click(screen.getByRole("button", { name: /Planos e experimentos/ }));
     expect(screen.getByText("Abaixo do seu padrão")).toBeTruthy();
     expect(screen.getByTestId("day-plan-last").textContent).toMatch(/38% abaixo do seu padrão/);
-    expect(screen.queryByText("Dentro do plano")).toBeNull();
+    expect(within(screen.getByTestId("day-plan-history")).getAllByRole("listitem")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Criar um plano/ }));
+    expect(onCreate).toHaveBeenCalled();
+  });
+  it("sem permissão para criar, o botão não aparece", () => {
+    render(<DayPlansAccordionView rows={[row({})]} today="2026-11-05" />);
+    fireEvent.click(screen.getByRole("button", { name: /Planos e experimentos/ }));
+    expect(screen.queryByRole("button", { name: /Criar um plano/ })).toBeNull();
+  });
+  it("plano combinado: abre sozinho, mostra 'Combinado' e permite cancelar", () => {
+    const onCancel = vi.fn();
+    const active = row({ friday: "2026-11-06", status: "accepted", target_amount: 216, realized_amount: null });
+    render(<DayPlansAccordionView rows={[active]} today="2026-11-05" canCreate onCreate={() => {}} onCancel={onCancel} />);
+    expect(screen.getByTestId("day-plans-summary").textContent).toMatch(/Plano de sexta combinado · Lazer, teto de R\$\s?216,00/);
+    expect(screen.getByRole("button", { name: /Planos e experimentos/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Combinado")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Cancelar este plano/ }));
+    expect(onCancel).toHaveBeenCalledWith(active);
+  });
+  it("plano proposto: diz como combinar pelo WhatsApp e não oferece cancelar", () => {
+    render(<DayPlansAccordionView rows={[row({ friday: "2026-11-06", status: "offered", realized_amount: null, accepted_at: null })]} today="2026-11-05" onCancel={() => {}} />);
+    expect(screen.getByTestId("day-plan-open").textContent).toMatch(/Proposto.*“topo”/);
+    expect(screen.queryByRole("button", { name: /Cancelar este plano/ })).toBeNull();
   });
   it("a média só aparece com 3 planos medidos e diz que não prova causa", () => {
     const two = [row({}), row({ friday: "2026-10-02", realized_amount: 150, status: "kept" })];
-    const { rerender } = render(<DayPlanCardView rows={two} today="2026-11-05" />);
+    const { rerender } = render(<DayPlansAccordionView rows={two} today="2026-11-05" />);
+    fireEvent.click(screen.getByRole("button", { name: /Planos e experimentos/ }));
     expect(screen.queryByTestId("day-plan-average")).toBeNull();
-    rerender(<DayPlanCardView rows={[...two, row({ friday: "2026-09-25", realized_amount: 140, status: "kept" })]} today="2026-11-05" />);
+    rerender(<DayPlansAccordionView rows={[...two, row({ friday: "2026-09-25", realized_amount: 140, status: "kept" })]} today="2026-11-05" />);
     const avg = screen.getByTestId("day-plan-average");
     expect(avg.textContent).toMatch(/Nos 3 planos medidos.*em média.*padrão de/);
     expect(avg.textContent).toMatch(/não prova que foi o plano/);
-    expect(within(screen.getByTestId("day-plan-history")).getAllByRole("listitem").length).toBe(3);
   });
 });

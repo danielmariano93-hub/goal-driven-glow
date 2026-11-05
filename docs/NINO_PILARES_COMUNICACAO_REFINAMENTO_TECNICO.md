@@ -190,3 +190,12 @@ Não afetados: motores de cálculo financeiro (`finance-core`), Home, Relatório
 2. Fechamento no dia seguinte com a nota graduada e uma pergunta de barreira só quando foi mal (hoje o servidor ainda grava
    `kept/missed` binário em `recordCommitmentOutcomes`; o cartão já mostra a nota graduada calculada dos valores).
 3. Telemetria por pilar.
+
+### 11.1 Fase 4b: acordeão "Planos e experimentos" e criação pelo app (implementada)
+
+- Em Metas, abaixo das metas: acordeão fechado com uma linha de resumo; abre sozinho quando há plano ativo.
+- "Criar um plano": categoria, dia da semana (padrão = dia mais forte), teto sugerido. Sugestão: padrão do dia (média das
+  últimas 8 ocorrências) cruzado com o que a meta permite por ocorrência; corte >25% vira degrau no meio; sem meta, 10% abaixo.
+- Um plano ativo por vez. Usa as funções `habit_limit_accept/decline` existentes (sem migração); só para quem tem hábitos v2.
+- Limite conhecido: plano de sexta cobre sex–dom; os demais dias são medidos pelo app (`client_measured`), pois o fechamento
+  do servidor ainda é só da sexta (Fase 4c).
