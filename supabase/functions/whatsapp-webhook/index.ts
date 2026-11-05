@@ -41,6 +41,7 @@ import { drainPendingAudio, persistPendingAudio, shouldDrainPendingAudio, type P
 import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTelemetry.ts";
 import { runtimeStamp } from "../_shared/agent/core/RuntimeContract.ts";
 import { handleWeekendReply } from "../_shared/proactive/weekendCommitments.ts";
+import { recordAction, recordInteraction } from "../_shared/proactive/engagement.ts";
 
 // deno-lint-ignore no-explicit-any
 declare const EdgeRuntime: any;
@@ -827,8 +828,11 @@ Deno.serve(async (req) => {
     try {
       // "topo" / "detalhes" em resposta à previsão do fim de semana: resposta
       // determinística, só quando existe uma oferta aberta (senão segue para o agente).
+      // Engajamento: a mensagem da pessoa conta como resposta à proativa mais recente (até 2 h). Nunca bloqueia a conversa.
+      await recordInteraction(sb, link.user_id as string);
       const weekendReply = await handleWeekendReply(sb, { userId: link.user_id as string, text: turnText }).catch(() => null);
       if (weekendReply) {
+        await recordAction(sb, link.user_id as string, `weekend_${weekendReply.action}`);
         stopHints();
         await sb.from("outbound_messages").insert({
           user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",

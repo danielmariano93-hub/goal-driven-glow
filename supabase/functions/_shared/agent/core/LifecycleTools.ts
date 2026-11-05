@@ -10,6 +10,7 @@ import {
   type ToolResult,
 } from "../tools.ts";
 import { localDate } from "../../finance-core/ninoClock.ts";
+import { moneyValue } from "../money.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,13 +21,7 @@ function norm(value: unknown): string {
 }
 
 function numberValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  let raw = String(value ?? "").trim();
-  if (!raw) return null;
-  raw = raw.replace(/r\$/ig, "").replace(/\s/g, "");
-  if (raw.includes(",")) raw = raw.replace(/\./g, "").replace(",", ".");
-  const n = Number(raw.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? n : null;
+  return moneyValue(value);
 }
 
 function intValue(value: unknown): number | null {

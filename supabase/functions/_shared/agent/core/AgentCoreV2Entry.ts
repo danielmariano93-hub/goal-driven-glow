@@ -12,7 +12,7 @@ import { handleTurnV2 as handleTurnV2Core } from "./AgentCoreV2.ts";
 import type { HandleTurnInput, HandleTurnResult } from "./AgentCore.ts";
 import { service } from "./service.ts";
 import { getState, patchState } from "./StateManager.ts";
-import { persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
+import { boundedArgs, persistV2ToolCalls, type V2ToolCall } from "./V2EvidencePersistence.ts";
 import type { ComparisonEvidence, MonthlySeriesEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { resolveV2DeterministicHumanCapability } from "./V2DeterministicHumanGate.ts";
 import { runTool } from "./ToolRuntime.ts";
@@ -200,13 +200,16 @@ async function bindEvidence(input: HandleTurnInput, turn: HandleTurnResult): Pro
   // use this path: their exact executed result is persisted above.
   if (!calls.length) {
     for (const tool of tools) {
+      // Preferência: o que de fato foi tentado neste turno (argumentos e motivo da falha). O marcador vazio só sobra
+      // quando o caminho não informa tentativas.
+      const attempt = (turn.attempted_calls ?? []).find((call) => call.tool_name === tool);
       calls.push({
         tool_name: tool,
-        args: { evidence_unavailable_in_v2_bridge: true },
+        args: attempt ? boundedArgs(attempt.args) : { evidence_unavailable_in_v2_bridge: true },
         result: null,
-        ok: !(run as any)?.error_sanitized,
+        ok: attempt ? attempt.ok === true : !(run as any)?.error_sanitized,
         duration_ms: null,
-        error: (run as any)?.error_sanitized ?? null,
+        error: attempt?.error ?? (run as any)?.error_sanitized ?? null,
       });
     }
   }

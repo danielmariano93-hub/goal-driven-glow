@@ -7,6 +7,7 @@ import { httpContext } from "../_shared/http.ts";
 import { writeJobHeartbeat } from "../_shared/heartbeats.ts";
 import { getWahaAccess, loadWahaConfig } from "../_shared/messaging/waha.ts";
 import { safeEqual } from "../_shared/security/secrets.ts";
+import { opsNoticeRows } from "../_shared/messaging/opsAppNotice.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -60,6 +61,22 @@ async function sendNtfy(topic: string, n: Notify): Promise<boolean> {
   } catch { return false; }
 }
 
+
+/** Cria a notificação no app para os admins ativos. Devolve true se ao menos uma ficou registrada (ou já existia). */
+async function notifyAdminsInApp(sb: any, n: Notify): Promise<boolean> {
+  try {
+    const { data: admins } = await sb.from("platform_admins").select("user_id").eq("active", true);
+    const ids = ((admins as Array<{ user_id: string }>) ?? []).map((a) => a.user_id);
+    if (!ids.length) return false;
+    const rows = opsNoticeRows(ids, n, messageFor(n), Date.now());
+    const { error } = await sb.from("notifications").upsert(rows, { onConflict: "user_id,dedup_key", ignoreDuplicates: true });
+    if (error) { console.warn("ops-alerts in-app", String(error.message).slice(0, 160)); return false; }
+    return true;
+  } catch (e) {
+    console.warn("ops-alerts in-app", String((e as Error)?.message ?? e).slice(0, 160));
+    return false;
+  }
+}
 
 const MAX_EVENT_LINES = 12;
 
@@ -125,6 +142,8 @@ Deno.serve(async (req) => {
       for (const n of notify) {
         const externalConfigured = Boolean(settings.ntfy_topic) || Boolean(settings.notify_whatsapp && adminPhone);
         let delivered = false;
+        // Canal que não depende de nada externo (nem do WhatsApp): notificação dentro do app para cada admin ativo.
+        delivered = (await notifyAdminsInApp(sb, n)) || delivered;
         if (settings.ntfy_topic) delivered = (await sendNtfy(String(settings.ntfy_topic), n)) || delivered;
         // WhatsApp só serve de canal quando a falha não é do próprio WhatsApp.
         const whatsappIsTheProblem = /^(whatsapp|waha|inbound)/.test(n.key) || n.key.startsWith("cron_whatsapp");

@@ -172,6 +172,11 @@ export type HandleTurnResult = {
   envelope?: ReturnType<typeof buildChannelEnvelope>;
   /** Chamadas executadas com o resultado exato (V2): evidência para gráfico/follow-up. */
   executed_calls?: Array<{ tool_name: string; args: unknown; result: unknown; ok: boolean }>;
+  /**
+   * Toda ferramenta tentada no turno, inclusive as que falharam, com os argumentos e o motivo. Serve só para diagnóstico
+   * (`agent_tool_calls`): sem isso a chamada que falhou ficava gravada com um marcador vazio e a causa se perdia.
+   */
+  attempted_calls?: Array<{ tool_name: string; args: unknown; ok: boolean; error?: string | null }>;
 };
 
 /** Entrada pública: roda o turno e passa a resposta pelo humanizador, que é a

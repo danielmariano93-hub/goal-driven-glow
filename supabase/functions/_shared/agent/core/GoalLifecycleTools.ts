@@ -5,17 +5,12 @@
 
 import type { ToolContext, ToolResult } from "../tools.ts";
 import { localDate } from "../../finance-core/ninoClock.ts";
+import { moneyValue } from "../money.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 function numberValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  let raw = String(value ?? "").trim();
-  if (!raw) return null;
-  raw = raw.replace(/r\$/ig, "").replace(/\s/g, "");
-  if (raw.includes(",")) raw = raw.replace(/\./g, "").replace(",", ".");
-  const n = Number(raw.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? n : null;
+  return moneyValue(value);
 }
 
 function dateValue(value: unknown): string | null {

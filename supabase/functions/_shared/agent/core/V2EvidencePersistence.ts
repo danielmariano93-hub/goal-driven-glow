@@ -47,6 +47,20 @@ export async function persistV2ToolCalls(
   }
 }
 
+const MAX_ARGS_CHARS = 4_000;
+
+/** Argumentos para diagnóstico: inteiros quando cabem; senão só as chaves (evita gravar texto longo ou dado em excesso). */
+export function boundedArgs(args: unknown): Record<string, unknown> {
+  if (args == null || typeof args !== "object") return {};
+  try {
+    const text = JSON.stringify(args);
+    if (text.length <= MAX_ARGS_CHARS) return args as Record<string, unknown>;
+    return { args_truncated: true, keys: Object.keys(args as object).slice(0, 40) };
+  } catch {
+    return { args_unserializable: true };
+  }
+}
+
 export function directReplyLooksLikeFinancialFact(text: string): boolean {
   const value = String(text ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, " ");
   const hardNumber = /r\$\s*\d|\b\d+[.,]\d{1,2}\s*%/.test(value);

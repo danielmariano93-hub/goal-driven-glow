@@ -3,7 +3,7 @@ import {
   buildDayPlanRecaps, composeDayPlanOffer, composeDayPlanRecap, dayPlanRecapSituation, goalStateOf, occurrencesLeftInMonth,
   gradeDayPlan as serverGrade, suggestPlanTarget, withDayPlanOffer,
 } from "../../supabase/functions/_shared/proactive/dayPlanOffer";
-import { handleWeekendReply } from "../../supabase/functions/_shared/proactive/weekendCommitments";
+import { handleWeekendReply, hasActivePlan } from "../../supabase/functions/_shared/proactive/weekendCommitments";
 import type { WeekdayProjection } from "../../supabase/functions/_shared/proactive/weekdayNudge";
 import { suggestTarget } from "@/lib/behavioral/dayPlanCreate";
 import { gradeDayPlan } from "@/lib/behavioral/dayPlan";
@@ -139,5 +139,16 @@ describe("'topo' para plano de um dia", () => {
     const r = await handleWeekendReply(db([row("2026-11-06")]), { userId: "u", text: "topo", now: new Date("2026-11-06T13:00:00Z") });
     expect(r!.reply).toMatch(/Neste fim de semana, \*Lazer\*/);
     expect(r!.reply).toMatch(/Na segunda eu te conto/);
+  });
+});
+
+describe("um plano ativo por vez (regra também no servidor)", () => {
+  it("proposto ou combinado dentro da janela bloqueia; antigo, recusado ou já medido não", () => {
+    expect(hasActivePlan([{ friday: "2026-11-04", category: "Lazer", status: "accepted" }], "2026-11-05")).toBe(true);
+    expect(hasActivePlan([{ friday: "2026-11-05", category: "Lazer", status: "offered" }], "2026-11-05")).toBe(true);
+    expect(hasActivePlan([{ friday: "2026-11-06", category: "Lazer", status: "accepted" }], "2026-11-09")).toBe(false); // sexta já passou do domingo
+    expect(hasActivePlan([{ friday: "2026-11-04", category: "Lazer", status: "kept" }], "2026-11-05")).toBe(false);
+    expect(hasActivePlan([{ friday: "2026-11-04", category: "Lazer", status: "declined" }], "2026-11-05")).toBe(false);
+    expect(hasActivePlan([], "2026-11-05")).toBe(false);
   });
 });
