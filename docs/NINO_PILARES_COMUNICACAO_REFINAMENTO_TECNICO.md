@@ -199,3 +199,28 @@ Não afetados: motores de cálculo financeiro (`finance-core`), Home, Relatório
 - Um plano ativo por vez. Usa as funções `habit_limit_accept/decline` existentes (sem migração); só para quem tem hábitos v2.
 - Limite conhecido: plano de sexta cobre sex–dom; os demais dias são medidos pelo app (`client_measured`), pois o fechamento
   do servidor ainda é só da sexta (Fase 4c).
+
+## 12. Replay de 40 dias na conta dona (05/11/2026) **[verificado nos dados; limites abaixo]**
+
+Método: as 74 mensagens de WhatsApp entregues entre 26/09 e 04/11, na ordem de envio, passadas pelo `pillarGate` real
+(`scripts/comm-pillars-replay.mjs`). Proteger no melhor caso (todas furam). Só conta dona.
+
+| | Real | Com pilares |
+|---|---|---|
+| Mensagens | 74 | 69 (5 barradas) |
+| Máximo por dia | 8 (27/10) | 6 |
+| Organização / Proteger / Metas / Antecipar | 23 / 21 / 12 / 18 | 23 / 21 / 10 / 15 |
+
+- **A cota de Organização (2/semana) estava errada.** Primeira rodada barrou 18 mensagens, 13 delas de Organização. O check-in
+  emocional teve **9 respostas em até 2h em 16 envios (56%)**, o maior índice. Correção: rotina assinada (`ROUTINE_KINDS`) não
+  disputa cota do pilar; continua contando no teto diário.
+- **Antecipar tem baixo retorno**: `spending_pace_change` 1 resposta em 9 envios (quase diário de 03/10 a 08/10),
+  `weekday_spending_risk` 1 em 8. A cota de 1/dia barrou 3 repetições.
+- **27/10: 8 mensagens em um dia** após 6 dias sem envio (20 falhas de WhatsApp desde 20/10): descarga de fila. Com pilares
+  o máximo cai a 6, e os 6 são Proteger no melhor caso; o teto de 5 só é furado por prazo/caixa.
+- **Telemetria de engajamento não existe**: `interacted_at`/`acted_at` estão vazios em todas as 112 entregas. "Resposta em
+  até 2h" é indício (a pessoa conversa com o Nino por outros motivos), não prova de que reagiu à mensagem. Fase 3 passa a ser
+  pré-requisito para calibrar além disso.
+- **O que o replay NÃO prova**: só enxerga o que saiu. O objetivo central (o plano do dia crítico ganhar vaga de quem tem
+  pontuação alta) depende dos candidatos que nunca saíram e só se verifica ligando a flag para a conta dona e medindo.
+- Severidade inflada continua pendente: o replay assume que nada fora do Proteger fura.
