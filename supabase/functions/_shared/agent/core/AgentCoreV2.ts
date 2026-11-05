@@ -12,6 +12,7 @@
 
 import { handleTurn as handleLegacyTurn, type HandleTurnInput, type HandleTurnResult } from "./AgentCore.ts";
 import { service } from "./service.ts";
+import { stageTimings } from "./StageTimings.ts";
 import { isEnabled } from "./FeatureFlags.ts";
 import { loadHistory, withoutCurrentTurn } from "./ConversationHistory.ts";
 import { resolveSession } from "./SessionManager.ts";
@@ -239,13 +240,6 @@ async function enqueueIfNeeded(sb: any, input: HandleTurnInput, body: string): P
     inbound_message_id: input.inbound_message_id,
     source: input.channel === "simulator" ? "simulator" : "whatsapp",
   });
-}
-
-/** Divide o tempo total do turno entre IA e o resto (ferramentas, memória, gravação). Puro, para teste. */
-export function stageTimings(totalMs: number, llmMs?: number): { llm_ms: number | null; stage_ms: Record<string, number> } {
-  const total = Math.max(0, Math.round(Number(totalMs) || 0));
-  const llm = Math.min(total, Math.max(0, Math.round(Number(llmMs) || 0)));
-  return { llm_ms: llm > 0 ? llm : null, stage_ms: { total, llm, other: total - llm } };
 }
 
 async function recordV2Run(args: {
@@ -966,7 +960,7 @@ type ContractExecutionContext = {
   recentProactive: RecentProactive | null;
 };
 
-type ToolCallRecord = { tool_name: string; args?: any; result?: any; ok: boolean };
+type ToolCallRecord = { tool_name: string; args?: any; result?: any; ok: boolean; error?: string | null };
 
 type TurnExecution = {
   contract: CanonicalConversationTurnContract;

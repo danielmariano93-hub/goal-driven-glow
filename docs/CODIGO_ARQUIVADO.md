@@ -29,8 +29,19 @@ O conteúdo completo continua no histórico do git; para ver um arquivo retirado
   `humanizeMemoryValue` (`nino-context-humanize.test.ts`) foi removido junto com a função.
 - **Último commit com o arquivo:** `71169a6f` (recuperar com `git show 71169a6f:src/pages/NinoContexto.tsx`).
 
+## 05/11/2026 — Tela de Hábitos v2 (`HabitsV2.tsx` e componentes)
+
+- **O que era:** a tela de hábitos emocionais (roda de hábitos, associação emoção × gasto, cartões de padrão), mostrada por
+  `Emocoes.tsx` quando a flag de hábitos v2 estava ligada. Arquivos: `src/pages/HabitsV2.tsx`,
+  `src/components/habits/{HabitsWheel,EmotionAssociationCard,PatternCard}.tsx`, `src/lib/behavioral/analysisWindow.ts`
+  e os testes `habits-v2-page.test.tsx` e `habits-analysis-window.test.ts`.
+- **Por que saiu:** o Mapa Financeiro substituiu essa tela. Decisão do dono do produto em 05/11/2026: liberar o Mapa para
+  todos (`mapa_financeiro_default` ligada). `Emocoes.tsx` agora mostra o Mapa; se o Mapa estiver desligado ou a flag falhar,
+  mostra a tela legada de emoções, nunca uma tela vazia.
+- **Como reverter o rollout (sem código):** `update public.agent_runtime_flags set enabled=false, updated_at=now() where flag_name='mapa_financeiro_default'`.
+  Exceção por conta: linha em `mapa_access` (vale mais que a flag).
+- **Como recuperar o código:** `git log --diff-filter=D --oneline -- src/pages/HabitsV2.tsx` e `git show <commit>^:src/pages/HabitsV2.tsx`.
+
 ## Verificado e NÃO retirado
 
-- `src/pages/HabitsV2.tsx`: **em uso**, é renderizada por `Emocoes.tsx` quando a flag de hábitos v2 está ligada. Uma
-  checagem anterior (de 05/11) disse o contrário por ter buscado só um formato de importação; está corrigido.
 - `src/pages/AssessorAcompanhamentoV2.tsx` e `src/pages/MapaPage.tsx`: em uso (`NinoHub.tsx` e `Emocoes.tsx`).
