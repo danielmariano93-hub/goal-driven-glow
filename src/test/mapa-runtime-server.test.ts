@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateMapaReading } from "@/lib/engine/mapaContracts";
-import { loadMapaReading, weekStartOf, mapaAccess } from "../../supabase/functions/_shared/mapa/runtime";
+import { loadMapaReading, weekStartOf, mapaAccess, selectMapaUsers } from "../../supabase/functions/_shared/mapa/runtime";
 import { getMapaForAgent, formatMapaForChat } from "../../supabase/functions/_shared/mapa/agentTool";
 
 // Carga do servidor de ponta a ponta, com um banco simulado que responde por tabela. Antes deste teste a carga nunca tinha rodado:
@@ -57,6 +57,15 @@ describe("carga do servidor do Mapa (banco simulado)", () => {
     expect(reading.indicators.find((i) => i.id === "dividas.atrasos")).toBeDefined();
   });
 
+  it("conta nova, sem nenhum dado: carrega sem erro e passa pelo contrato (caso do rollout para todos)", async () => {
+    const { sb } = fakeDb({ mapa_access: [], transactions: [], categories: [], debts: [], financial_current_snapshots: [], category_essential_flags: [] });
+    const reading = await loadMapaReading(sb, USER, ASOF);
+    expect(validateMapaReading(reading)).toEqual([]);
+    expect(reading.indicators.length).toBeGreaterThan(0);
+    // sem dado nenhum, nenhum indicador pode afirmar "crítico" por falta de informação
+    expect(reading.indicators.filter((i) => i.status === "critico")).toEqual([]);
+  });
+
   it("uma fonte quebrada degrada só aquele pedaço (não derruba a leitura)", async () => {
     const tables = baseTables();
     const { sb } = fakeDb(tables);
@@ -111,6 +120,25 @@ describe("carga do servidor do Mapa (banco simulado)", () => {
     expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: true }] }).sb, USER)).toBe(true);
     expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: false }] }).sb, USER)).toBe(false);
     expect(await mapaAccess(fakeDb({ mapa_access: [] }).sb, USER)).toBe(false);
+  });
+
+  it("rollout geral: sem linha, vale a chave geral; a linha da conta vence nos dois sentidos", async () => {
+    const on = { agent_runtime_flags: [{ enabled: true }] };
+    const off = { agent_runtime_flags: [{ enabled: false }] };
+    expect(await mapaAccess(fakeDb({ mapa_access: [], ...on }).sb, USER)).toBe(true);
+    expect(await mapaAccess(fakeDb({ mapa_access: [], ...off }).sb, USER)).toBe(false);
+    expect(await mapaAccess(fakeDb({ mapa_access: [] }).sb, USER)).toBe(false); // chave inexistente = desligado
+    expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: false }], ...on }).sb, USER)).toBe(false); // desligada de propósito
+    expect(await mapaAccess(fakeDb({ mapa_access: [{ enabled: true }], ...off }).sb, USER)).toBe(true); // liberada de propósito
+  });
+
+  it("job semanal: sem rollout, só quem tem linha; com rollout, todas as contas reais menos as desligadas", () => {
+    const profiles = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "t", is_test: true }];
+    const access = [{ user_id: "a", enabled: true }, { user_id: "b", enabled: false }];
+    expect(selectMapaUsers({ access, profiles, defaultOn: false })).toEqual(["a"]);
+    expect(selectMapaUsers({ access, profiles, defaultOn: true }).sort()).toEqual(["a", "c"]);
+    // conta de teste liberada de propósito entra; sem isso, fica de fora
+    expect(selectMapaUsers({ access: [...access, { user_id: "t", enabled: true }], profiles, defaultOn: true }).sort()).toEqual(["a", "c", "t"]);
   });
 });
 
