@@ -49,7 +49,7 @@ import { interpretSemanticQuery } from "../intelligence/semanticQuery.ts";
 import { computeBehavioralSignals } from "../insights/facts.ts";
 import { resolveEntity, type Candidate } from "./resolvers.ts";
 import { resolveOccurredAt, todaySaoPaulo } from "./parser.ts";
-import { parseSpelledMoney } from "./amountWords.ts";
+import { resolveDraftAmount } from "./draftAmount.ts";
 import { renderDraftCard, renderReceiptCard, renderUpdateCard, draftCardBRL, draftCardDateBR } from "./core/DraftCard.ts";
 import { confirmAndBuildReceipt } from "./core/ConfirmAndReceipt.ts";
 import { resolveBehavioralDate } from "../analytics/behavioralDate.ts";
@@ -752,9 +752,8 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
       hint: "Não ficou claro se é gasto ou recebimento. Pergunte isso em UMA frase curta e não crie o rascunho antes da resposta.",
     } as any;
   }
-  const spelled = parseSpelledMoney(String(ctx.user_text ?? ""));
-  const amount = Number(Number.isFinite(Number(args?.amount)) && Number(args?.amount) > 0 ? args.amount : (spelled ?? args?.amount));
-  if (!Number.isFinite(amount) || amount <= 0) {
+  const amount = resolveDraftAmount(args?.amount, String(ctx.user_text ?? ""));
+  if (amount == null) {
     return {
       ok: false,
       error: "needs_amount",
