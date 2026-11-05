@@ -161,15 +161,17 @@ describe("a página e o impacto no dinheiro", () => {
     expect(parts).toMatch(/dia da semana, de compras necessárias, de gastos atípicos/);
   });
 
-  it("a ordem é: descoberta → roda → mudança possível → o que mudou; semana a semana e experimentos ficam recolhidos", () => {
+  it("a ordem é: descoberta → roda → mudança possível → o que mudou; semana a semana fica recolhido e os experimentos genéricos saíram", () => {
     const order = ["<HabitDiscoveryCard", "<BehaviorWheel", "<NextStepCard", "<VerdictStrip", "<WhatChanged", "<BehavioralInsightsCard", "<MoneyImpactCard"].map((t) => page.indexOf(t));
     expect(order.every((i) => i > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(page).toMatch(/<details className="space-y-3">[\s\S]*Ver a evolução semana a semana[\s\S]*<HabitTrend/);
-    expect(page).toMatch(/Experimentos opcionais de 30 dias/);
-    // com experimento ativo, o quadro aparece normalmente antes do check-in (não interrompe quem já começou)
+    // experimentos genéricos aposentados: não há mais convite para começar um novo (decisão do dono, 05/11/2026)
+    expect(page).not.toMatch(/Experimentos opcionais de 30 dias/);
+    expect(page).not.toMatch(/activeExperiments\.length === 0 \? \(\s*<details id="experimentos"/);
+    // quem já tinha um em andamento continua vendo o quadro (sem botão de começar outro), antes do check-in
     expect(page.indexOf("activeExperiments.length > 0")).toBeLessThan(page.indexOf('id="checkin"'));
-    expect(page).toMatch(/activeExperiments\.length === 0 \? \(\s*<details id="experimentos"/);
+    expect(page).toMatch(/<ExperimentsBoard[^>]*allowStart=\{false\}/);
   });
 
   it("Money Mood diferencia medição direta de estimativa no próprio gráfico", () => {

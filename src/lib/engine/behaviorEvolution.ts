@@ -291,7 +291,7 @@ export const DIMENSION_ACTION: Record<BehaviorDimensionKey, { label: string; to:
   consistency: { label: "Fazer um check-in agora", to: "#checkin" },
   security: { label: "Ver reserva e investimentos", to: "/app/investimentos" },
   wealth: { label: "Ver reserva e investimentos", to: "/app/investimentos" },
-  calm: { label: "Testar um experimento", to: "#experimentos" },
+  calm: { label: "Fazer um check-in agora", to: "#checkin" },
   debt: { label: "Ver minhas dívidas", to: "/app/dividas" },
 };
 

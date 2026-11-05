@@ -44,6 +44,7 @@ import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 import { ClosedGoalMonths, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 import { GoalCandidatesCard, GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
+import { DayPlanSection } from "@/components/metas/DayPlanCard";
 import { GoalCycleConfirmDialog } from "@/components/metas/GoalCycleConfirmDialog";
 import type { GoalSeries, HistoryMonth } from "@/lib/engine/goalHistory";
 
@@ -277,6 +278,8 @@ export default function Metas() {
           )}
         </div>
       )}
+
+      {(tab === "all" || openCatList) && <DayPlanSection />}
 
       {tab === "shared" ? (
         <SharedGoalsInline />

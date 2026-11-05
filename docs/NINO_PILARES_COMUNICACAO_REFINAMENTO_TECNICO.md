@@ -169,3 +169,24 @@ Não afetados: motores de cálculo financeiro (`finance-core`), Home, Relatório
 - Consolidar vários Proteger não críticos numa só mensagem (digest).
 - Ajustar `attention_weights`/`pilot_budget_multiplier` depois que o teto por contagem existir.
 - Limpar o valor semanal que gravei para a conta dona (25 → vale 14) quando o teto por contagem entrar.
+
+## 11. Plano do dia crítico e fim dos experimentos genéricos (decisões de 05/11/2026)
+
+- **Cartão do plano fica em Metas** (não na Home): "Seu plano de {dia}" junto das metas de gasto. Sem plano algum, não aparece.
+- **Experimentos genéricos aposentados** (check-ins, revisão, patrimônio): saiu o convite "Experimentos opcionais de 30 dias" da
+  tela legada; quem já tinha um em andamento continua vendo o quadro, sem botão de começar outro. O usuário com hábitos v2
+  (WhatsApp ativo, inclusive a conta dona) já não via experimentos. Os dados e as funções do banco ficam intactos.
+- **Por que a tela antiga não servia** [verificado na conta dona]: 3 experimentos genéricos iniciados em 20/09, 2 expiraram
+  (7/10 check-ins, 2/4 aportes), 1 concluído (revisão); recolhidos no fim da página e sem aviso; o que usava o padrão da pessoa
+  (plano de sexta) vivia só no WhatsApp.
+- **Resultado graduado** (`src/lib/behavioral/dayPlan.ts#gradeDayPlan`): `met` (dentro do plano), `partial` (acima do teto mas
+  ≥ 10% abaixo do padrão) e `missed`. O plano de 09/10 (teto R$ 160, padrão R$ 271,62, gasto R$ 169,58) era "falhou"; passa a
+  "abaixo do seu padrão (38%)". A média só aparece com 3 planos medidos e diz que não prova causa.
+- A tabela `weekend_commitments` não muda (sem migração): o nome do dia vem da data (`friday` guarda a data do plano).
+
+### Próximas entregas (atrás de flag, depois do replay)
+1. Mensagem do plano para o **dia crítico** (não só sexta): escolha do dia com persistência nas duas metades da janela, três
+   situações pelo estado da meta (cabe / já estourou / sem meta), degrau quando o corte pedido passa de 25%.
+2. Fechamento no dia seguinte com a nota graduada e uma pergunta de barreira só quando foi mal (hoje o servidor ainda grava
+   `kept/missed` binário em `recordCommitmentOutcomes`; o cartão já mostra a nota graduada calculada dos valores).
+3. Telemetria por pilar.

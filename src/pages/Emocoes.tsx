@@ -267,7 +267,7 @@ function EmocoesLegacy() {
 
       {dashboard.activeExperiments.length > 0 ? (
         <div id="experimentos" className="scroll-mt-24">
-          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
+          <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} allowStart={false} />
         </div>
       ) : null}
 
@@ -279,16 +279,6 @@ function EmocoesLegacy() {
         <summary className="cursor-pointer rounded-[22px] border border-border bg-card px-4 py-3 text-sm font-semibold shadow-card">Ver a evolução semana a semana</summary>
         <HabitTrend series={series} changes={changes} weeks={weeksOfHistory} reconstructedWeeks={reconstructedWeeks} />
       </details>
-
-      {dashboard.activeExperiments.length === 0 ? (
-        <details id="experimentos" className="scroll-mt-24 rounded-[22px] border border-border bg-card p-4 shadow-card">
-          <summary className="cursor-pointer text-sm font-semibold">Experimentos opcionais de 30 dias</summary>
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Testes curtos para quem quer mudar um comportamento por vez. Comece por uma escolha pequena do bloco acima; os experimentos servem para aprofundar.</p>
-          <div className="mt-3">
-            <ExperimentsBoard snapshot={dashboard} busy={experimentBusy} onStart={startExperiment} onChanged={refresh} />
-          </div>
-        </details>
-      ) : null}
 
       <p className="text-center text-[10px] text-muted-foreground/70" data-testid="build-marker">
         Versão da tela: {typeof __APP_BUILD_SHA__ === "string" ? __APP_BUILD_SHA__ : "dev"}
