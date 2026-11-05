@@ -10,8 +10,11 @@ describe("mapa-weekly (job semanal)", () => {
     expect(src).toContain('"method_not_allowed"');
     expect(src.indexOf("matchesAnySecret")).toBeLessThan(src.indexOf("createClient("));
   });
-  it("lê só contas liberadas e grava a leitura", () => {
-    expect(src).toContain('.from("mapa_access").select("user_id").eq("enabled", true)');
+  it("lê só contas liberadas (linha em mapa_access ou rollout geral) e grava a leitura", () => {
+    // A regra mora em `mapaUserIds`/`selectMapaUsers` (testada em mapa-runtime-server.test.ts): linha da conta vence; sem rollout,
+    // só quem tem linha ligada; com rollout, contas reais menos as desligadas.
+    expect(src).toContain("mapaUserIds(sb)");
+    expect(readFileSync("supabase/functions/_shared/mapa/runtime.ts", "utf8")).toContain('.from("mapa_access").select("user_id,enabled")');
     expect(src).toContain("{ persist: true }");
   });
   it("está sem verificação de JWT (cron) e agendado na segunda 09:45 UTC com o segredo do vault", () => {

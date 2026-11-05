@@ -1,13 +1,13 @@
 // Edge Function: mapa-weekly (`mapa_financeiro.v1`)
 //
-// Grava, uma vez por semana, a leitura do Mapa Financeiro das contas liberadas (`mapa_access.enabled`) em `map_readings`,
+// Grava, uma vez por semana, a leitura do Mapa Financeiro das contas liberadas (`mapa_access.enabled` ou rollout geral `mapa_financeiro_default`) em `map_readings`,
 // sem depender de a pessoa abrir a tela. É o que dá histórico para a Evolução (E10) e para o relatório de sombra da migração.
 // Acesso: somente com `x-cron-secret`. Corpo opcional: { user_id } para uma conta. Nenhuma ação movimenta dinheiro.
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 import { matchesAnySecret } from "../_shared/security/secrets.ts";
-import { loadMapaReading } from "../_shared/mapa/runtime.ts";
+import { loadMapaReading, mapaUserIds } from "../_shared/mapa/runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -40,9 +40,11 @@ Deno.serve(async (req) => {
     if (typeof body.user_id !== "string" || !UUID_RX.test(body.user_id)) return json({ ok: false, error: "invalid_user_id" }, 400);
     users = [body.user_id];
   } else {
-    const { data, error } = await sb.from("mapa_access").select("user_id").eq("enabled", true).limit(1000);
-    if (error) return json({ ok: false, error: `mapa_access:${error.message}` }, 500);
-    users = ((data ?? []) as any[]).map((r) => String(r.user_id)).filter((id) => UUID_RX.test(id));
+    try {
+      users = (await mapaUserIds(sb)).filter((id) => UUID_RX.test(id));
+    } catch (error) {
+      return json({ ok: false, error: String((error as Error)?.message ?? error).slice(0, 160) }, 500);
+    }
   }
 
   const today = todaySP();

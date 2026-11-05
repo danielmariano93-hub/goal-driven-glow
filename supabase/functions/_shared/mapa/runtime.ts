@@ -14,11 +14,52 @@ import { detectRecurringSuggestions, type DetectionTx } from "../finance-core/re
 import type { MapaCommitmentPeriod, MapaHabitInputs, MapaMonthlyEstimate, MapaQuestionRow } from "../finance-core/mapaInputs.ts";
 import { goalHistoryOf, loadSpendingGoalContext } from "../spendingGoals/runtime.ts";
 
-/** Acesso controlado por flag (`mapa_access`): por ora só quem foi liberado. */
+/** Chave de rollout do Mapa para TODOS (`agent_runtime_flags.enabled`). Desligar = volta ao acesso só por linha em `mapa_access`. */
+export const MAPA_DEFAULT_FLAG = "mapa_financeiro_default";
+
+/** Falha fechada: erro ao ler a chave = tratada como desligada (quem não tem linha explícita não recebe o Mapa). */
+export async function mapaDefaultOn(sb: any): Promise<boolean> {
+  const { data, error } = await sb.from("agent_runtime_flags").select("enabled").eq("flag_name", MAPA_DEFAULT_FLAG).maybeSingle();
+  if (error) return false;
+  return data?.enabled === true;
+}
+
+/**
+ * Acesso ao Mapa. A linha da conta em `mapa_access` vence (true liga, false desliga aquela conta, mesmo com o rollout geral);
+ * sem linha, vale a chave geral `mapa_financeiro_default`. Espelha `public.mapa_enabled()` no banco.
+ */
 export async function mapaAccess(sb: any, userId: string): Promise<boolean> {
   const { data, error } = await sb.from("mapa_access").select("enabled").eq("user_id", userId).maybeSingle();
   if (error) throw new Error(`mapa_access:${error.message}`);
-  return data?.enabled === true;
+  if (typeof data?.enabled === "boolean") return data.enabled;
+  return await mapaDefaultOn(sb);
+}
+
+/** Contas que o job semanal deve processar. Pura: recebe as linhas já lidas (testável). */
+export function selectMapaUsers(args: {
+  access: Array<{ user_id: string; enabled: boolean }>;
+  profiles: Array<{ id: string; is_test?: boolean | null }>;
+  defaultOn: boolean;
+}): string[] {
+  const explicitOn = new Set(args.access.filter((r) => r.enabled === true).map((r) => String(r.user_id)));
+  const explicitOff = new Set(args.access.filter((r) => r.enabled === false).map((r) => String(r.user_id)));
+  if (!args.defaultOn) return [...explicitOn];
+  // Rollout geral: todas as contas reais, menos as desligadas de propósito; contas de teste só se liberadas explicitamente.
+  const real = args.profiles.filter((p) => !p.is_test).map((p) => String(p.id)).filter((id) => !explicitOff.has(id));
+  return [...new Set([...real, ...explicitOn])];
+}
+
+export async function mapaUserIds(sb: any): Promise<string[]> {
+  const { data: access, error } = await sb.from("mapa_access").select("user_id,enabled").limit(5000);
+  if (error) throw new Error(`mapa_access:${error.message}`);
+  const defaultOn = await mapaDefaultOn(sb);
+  let profiles: Array<{ id: string; is_test?: boolean | null }> = [];
+  if (defaultOn) {
+    const res = await sb.from("profiles").select("id,is_test").limit(5000);
+    if (res.error) throw new Error(`profiles:${res.error.message}`);
+    profiles = (res.data ?? []) as typeof profiles;
+  }
+  return selectMapaUsers({ access: (access ?? []) as any[], profiles, defaultOn });
 }
 
 /** Nome do lançamento que indica crédito tomado (ex.: "Crédito consignado"). Só rotula; o valor já está fora da renda. */
