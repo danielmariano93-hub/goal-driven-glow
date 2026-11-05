@@ -179,6 +179,23 @@ export async function executeBrainWriteTurn(args: {
     }
   }
 
+  if (!exec.ok && /^(needs_amount|invalid_amount|missing_amount)$/i.test(String(exec.error ?? ""))) {
+    // Falta o valor: é uma pergunta, não uma falha. Mantém o que já foi entendido.
+    await saveWorkflow(args.sb, {
+      user_id: args.user_id,
+      conversation_id: args.conversation_id,
+      workflow: { ...built.workflow, slots: { ...built.workflow.slots, amount: undefined }, asked_slot: "amount" },
+    });
+    return {
+      handled: true,
+      reply: "Só me faltou o valor para registrar. Qual foi o valor?",
+      reply_kind: "question",
+      tool_name: step.kind,
+      tool_args: step.args,
+      error: null,
+    };
+  }
+
   if (!exec.ok) {
     // Mantém workflow aberto: erro de execução não pode apagar a intenção.
     await saveWorkflow(args.sb, {
