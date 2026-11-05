@@ -54,6 +54,15 @@ export function pillarOf(kind: string): Pillar {
 export const ROUTINE_KINDS: ReadonlySet<string> = new Set(["emotional_checkin_due"]);
 export const isRoutine = (kind: string) => ROUTINE_KINDS.has(kind);
 
+/**
+ * Telemetria por pilar (Fase 3): cada entrega grava o pilar do seu tipo em `block_context.pillar`, assim entrega, resposta
+ * (`interacted_at`) e ação (`acted_at`) podem ser agrupados por pilar direto no banco, sem migração:
+ *   select block_context->>'pillar' pilar, count(*), count(interacted_at), count(acted_at) from communication_deliveries ... group by 1
+ */
+export function withPillarContext(blockContext: Record<string, unknown> | null | undefined, kind: string): Record<string, unknown> {
+  return { ...(blockContext ?? {}), pillar: pillarOf(kind), routine: isRoutine(kind) || undefined };
+}
+
 /** Teto padrão do produto: mensagens de WhatsApp por dia (as críticas podem passar). */
 export const WHATSAPP_DAILY_CAP = 5;
 

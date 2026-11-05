@@ -225,10 +225,23 @@ começando pelas novas (`proactive/`). 16. K5/C4: decidir e remover código mort
 - **S3 (senha vazada):** só existe no plano Pro do Supabase; o projeto está no plano básico, então o aviso do linter é aceito.
 - **C2:** regra de validade de mensagem não criada (hipótese refutada).
 
-**Ainda aberto**
-- **Latência de ~9 s (A3):** o caminho "determinístico" faz em média 2,9 chamadas de IA e as colunas de tempo por etapa nunca são
-  preenchidas; falta instrumentar antes de otimizar.
-- **A4** unificar os runtimes do agente; **K1** tipos; **K7** teste ponta a ponta; **D4** migração-base; **R1** cobrança.
-- **Fase 3** telemetria por pilar (agora existe a base: `interacted_at`/`acted_at`); **C3** severidade inflada na origem.
-- **Comprovar em produção** (depois do deploy): `interacted_at` sendo preenchido e a primeira notificação de alerta no sino.
+**Concluído na rodada final (PR "conclusão")**
+- **A3 (latência), instrumentação:** o runtime V2/V3 passa a gravar `llm_ms` e `stage_ms` ({total, llm, other}) em todo turno; antes só o
+  runtime antigo gravava e as colunas ficavam vazias. Com alguns dias de dados dá para dizer se os ~9 s são IA (2,9 chamadas por turno)
+  ou outra coisa. **A otimização em si depende desses dados e não foi feita.**
+- **Fase 3 (telemetria por pilar):** cada entrega grava `block_context.pillar` (e `routine`). Consulta:
+  `select block_context->>'pillar' pilar, count(*) entregues, count(interacted_at) responderam, count(acted_at) agiram from communication_deliveries where channel='whatsapp' and status='delivered' group by 1`.
+- **K3 (ESLint):** `scripts/eslint-ratchet.mjs` + `.github/eslint-baseline.json` (2.395 erros, 2.299 deles `no-explicit-any`). Passo
+  **informativo** no CI: avisa quando o número piora, sem barrar o que já existia.
+- **Verificado em produção:** deploy do lote anterior concluído; 6 rascunhos de lançamento sem nenhum `needs_amount` desde a correção do
+  valor (o caso exato "10,80" ainda não foi reenviado); engajamento sem dado porque não saiu WhatsApp proativo depois do deploy.
+
+**Ainda aberto (precisa de dado, decisão sua ou é grande demais)**
+- **A3, otimização** (depende de alguns dias de `stage_ms`).
+- **C3 (severidade inflada na origem):** exige definir o limiar de "crítico" (hoje 'crítico' marca até impacto de R$ 26); sem esse número, mexer
+  mudaria o que todos recebem. Proposta: crítico só com impacto >= 5% da renda mensal ou prazo <= 3 dias. Aguarda aprovação.
+- **C4:** plano em Hábitos x plano em Metas (qual fica) é decisão de produto.
+- **A4** (unificar runtimes do agente), **K1** (tipos), **K7** (teste ponta a ponta), **D4** (migração-base), **R1** (cobrança): grandes, sem
+  urgência; cada um pede planejamento próprio.
+- **Rodada ao vivo "zero resposta errada"** no CI: exige função temporária com dados reais; hoje é manual (`docs/NINO_GOLDEN_AO_VIVO.md`).
 - **Observação das flags** `comm_pillars_v1` e `critical_day_plan_v1` na conta dona (dias de dados).
