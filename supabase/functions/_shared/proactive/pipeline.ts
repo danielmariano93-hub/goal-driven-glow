@@ -42,8 +42,9 @@ import { discoverySituation, isDiscoveryHour } from "./featureDiscovery.ts";
 import { buildWeekendRecaps, weekendRecapSituation } from "./weekendRecap.ts";
 import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } from "./weekendForecast.ts";
 import { weekendForecastSituation } from "./weekendMessages.ts";
+import { buildDayPlanRecaps, dayPlanRecapSituation, withDayPlanOffer } from "./dayPlanOffer.ts";
 import { validAnswers } from "./habitContext.ts";
-import { loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
+import { loadAcceptedDayPlans, loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { benefitSituations, isBenefitAlertWindow, loadBenefitState } from "./benefitSituations.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
@@ -372,7 +373,25 @@ export async function runMultiFinanceProactive(
   const nudgeProjection = nudgeTransactions.length
     ? buildWeekdayProjection(nudgeTransactions, ctx.as_of, nudgeGoals, weekendCoveredCategories(weekendForecasts.slice(0, 3)))
     : null;
-  const nudge = weekdayNudgeSituation(nudgeProjection, ctx, new Date());
+  let nudge = weekdayNudgeSituation(nudgeProjection, ctx, new Date());
+  // nino_day_plan_offer.v1 — por usuário, desligado por padrão: sem a flag o aviso é exatamente o anterior.
+  const dayPlanOn = await import("../agent/core/FeatureFlags.ts")
+    .then((m) => m.isEnabled("critical_day_plan_v1", userId))
+    .catch(() => false);
+  if (dayPlanOn) {
+    try {
+      if (nudge && nudgeProjection && !decidedInApp.has(nudgeProjection.pattern.category)) nudge = withDayPlanOffer(nudge, nudgeProjection, ctx.as_of);
+      // Fechamento do dia seguinte: plano aceito ontem (fora da sexta, que fecha na segunda) medido pelo gasto real.
+      const yesterday = new Date(Date.parse(`${ctx.as_of}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+      if (nudgeTransactions.length && new Date(`${yesterday}T12:00:00Z`).getUTCDay() !== 5) {
+        const plans = await loadAcceptedDayPlans(sb, userId, yesterday);
+        const recap = dayPlanRecapSituation(buildDayPlanRecaps(plans, nudgeTransactions), ctx, new Date());
+        if (recap) refined.push(recap);
+      }
+    } catch (error) {
+      console.warn("[proactive] day plan skipped", String((error as Error)?.message ?? error).slice(0, 160));
+    }
+  }
   if (nudge) refined.push(nudge);
   // nino_reminders.v1 — avisar ANTES: contas do dia, fatura, fechamento, meio do mês.
   const known = new Set(refined.map((situation) => situation.fingerprint));
@@ -630,7 +649,15 @@ async function persistRun(
         detail: String(evidence.detail ?? ""),
       }).catch((error) => console.warn("[proactive] weekend offer not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
     }
-    if (situation.type === "weekend_recap" && Array.isArray(evidence.commitment_outcomes)) {
+    if (situation.type === "weekday_nudge" && evidence.offer?.category) {
+      await persistWeekendOffer(sb, userId, {
+        friday: String(evidence.offer.friday ?? asOf),
+        category: String(evidence.offer.category),
+        offer: evidence.offer,
+        detail: "",
+      }).catch((error) => console.warn("[proactive] day plan offer not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
+    }
+    if ((situation.type === "weekend_recap" || situation.type === "day_plan_recap") && Array.isArray(evidence.commitment_outcomes)) {
       await recordCommitmentOutcomes(sb, userId, evidence.commitment_outcomes)
         .catch((error) => console.warn("[proactive] weekend outcome not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
     }

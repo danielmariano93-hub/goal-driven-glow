@@ -224,3 +224,20 @@ Método: as 74 mensagens de WhatsApp entregues entre 26/09 e 04/11, na ordem de 
 - **O que o replay NÃO prova**: só enxerga o que saiu. O objetivo central (o plano do dia crítico ganhar vaga de quem tem
   pontuação alta) depende dos candidatos que nunca saíram e só se verifica ligando a flag para a conta dona e medindo.
 - Severidade inflada continua pendente: o replay assume que nada fora do Proteger fura.
+
+## 13. Fase 4c: plano do dia crítico generalizado (implementada atrás de `critical_day_plan_v1`, desligada)
+
+- **Convite** (`proactive/dayPlanOffer.ts`, função pura): o aviso de dia útil (`weekday_spending_risk`) ganha o convite quando a
+  flag está ligada. Quatro leituras da meta da categoria: **vai estourar** (teto = o que a meta permite por ocorrência; corte
+  >25% vira degrau no meio), **já estourou** (passo de 25% sobre o padrão, sem "o que cabe"), **cabe** (manter) e **sem meta**
+  (10% abaixo do padrão). Mesma regra da folha "Criar um plano" do app; há teste de paridade.
+- **Escopo de dia**: segunda a quinta. Sexta, sábado e domingo continuam no fluxo do fim de semana (bloco sex a dom).
+- **"topo"** funciona para qualquer dia (a resposta diz "Hoje"/"Amanhã eu te conto" fora da sexta; sexta inalterada).
+- **Fechamento no dia seguinte**: plano aceito ontem (fora da sexta) é medido pelo gasto real da categoria e vira a nota
+  graduada (dentro do plano / abaixo do padrão / acima), com a pergunta "o que pesou" só quando foi acima. Grava `kept/missed` e
+  o realizado como o fechamento de segunda. Usa o tipo `weekend_spending_risk` (mesmo do fechamento de segunda) para não cair no
+  cooldown de 24h do aviso de ontem.
+- **Não fica atrás da flag de pilares**: são flags independentes, ambas por usuário e desligadas.
+- **Limites conhecidos**: (1) não verifica no servidor "um plano ativo por vez" (o app verifica); (2) a pergunta de barreira é
+  só um convite de texto livre, sem fluxo próprio; (3) não testado ponta a ponta no WhatsApp real (só unidade e paridade); (4)
+  o aviso de dia útil só dispara com o padrão forte e a projeção acima da meta/média, então muitas quartas não terão convite.
