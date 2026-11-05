@@ -44,7 +44,8 @@ import { GoalAdjustSheet } from "@/components/metas/GoalAdjustSheet";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 import { ClosedGoalMonths, GoalScoreboard } from "@/components/metas/GoalHistoryViews";
 import { GoalCandidatesCard, GoalVerdictCard } from "@/components/metas/GoalVerdictViews";
-import { DayPlanSection } from "@/components/metas/DayPlanCard";
+import { DayPlansSection } from "@/components/metas/DayPlanCard";
+import type { PlanCategoryOption } from "@/components/metas/CreateDayPlanSheet";
 import { GoalCycleConfirmDialog } from "@/components/metas/GoalCycleConfirmDialog";
 import type { GoalSeries, HistoryMonth } from "@/lib/engine/goalHistory";
 
@@ -171,6 +172,26 @@ export default function Metas() {
     () => catGoalEvals.filter((ev) => isClosed(ev.status)).sort((a, b) => b.period.end.localeCompare(a.period.end)),
     [catGoalEvals],
   );
+  // Planos do dia: categorias com meta primeiro, depois as que mais pesam sem meta.
+  const categoryIdByName = useMemo(() => Object.fromEntries((categories ?? []).map((c) => [c.name, c.id])) as Record<string, string>, [categories]);
+  const planTxs = useMemo(() => (numericTxs as unknown as Array<Record<string, unknown>>), [numericTxs]);
+  const planCategoryOptions = useMemo<PlanCategoryOption[]>(() => {
+    const withGoal = currentEvals.filter((ev) => ev.categoryName && ev.goal.category_id).map((ev) => ({
+      categoryId: ev.goal.category_id as string, name: ev.categoryName as string,
+      goal: { remainingAmount: ev.remainingAmount, periodEnd: ev.period.end, targetAmount: ev.targetAmount },
+    }));
+    const taken = new Set(withGoal.map((o) => o.categoryId));
+    const since = new Date(Date.now() - 56 * 86_400_000).toISOString().slice(0, 10);
+    const spend = new Map<string, number>();
+    for (const t of numericTxs as unknown as Array<{ category_id?: string | null; type?: string; occurred_at: string; amount: number }>) {
+      if (!t.category_id || taken.has(t.category_id) || t.type !== "expense" || t.occurred_at.slice(0, 10) < since) continue;
+      spend.set(t.category_id, (spend.get(t.category_id) ?? 0) + Number(t.amount));
+    }
+    const extra = [...spend.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .filter(([id]) => catNameById[id]).map(([id]) => ({ categoryId: id, name: catNameById[id]!, goal: null }));
+    return [...withGoal, ...extra];
+  }, [currentEvals, numericTxs, catNameById]);
+
   const openSeries = (categoryId: string) => {
     const series = goalHistory?.series.find((s) => s.category_id === categoryId);
     if (series?.current_goal_id) navigate(`/app/metas/categoria/${series.current_goal_id}`);
@@ -279,7 +300,7 @@ export default function Metas() {
         </div>
       )}
 
-      {(tab === "all" || openCatList) && <DayPlanSection />}
+      {(tab === "all" || openCatList) && <DayPlansSection txs={planTxs} categoryOptions={planCategoryOptions} categoryIdByName={categoryIdByName} />}
 
       {tab === "shared" ? (
         <SharedGoalsInline />
