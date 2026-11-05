@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allocateAttention } from "../../supabase/functions/_shared/proactive/ranking";
 import {
-  PILLARS, WHATSAPP_DAILY_CAP, bypassesCap, emptyUsage, orderByPillars, pillarOf, usageFromDeliveries,
+  PILLARS, WHATSAPP_DAILY_CAP, bypassesCap, emptyUsage, isRoutine, newPillarRound, orderByPillars, pillarGate, pillarOf, usageFromDeliveries,
 } from "../../supabase/functions/_shared/proactive/pillars";
 import { makeCanDispatch } from "../../supabase/functions/_shared/proactive/dispatchGate";
 import type { CatalogEntry } from "../../supabase/functions/_shared/intelligence/catalogGate";
@@ -214,3 +214,27 @@ describe("fim da vaga fantasma: cadência de 2h do WhatsApp", () => {
     expect(later(sextou(), "whatsapp")).toBeNull();
   });
 });
+
+describe("rotina assinada (check-in agendado) fora da cota do pilar", () => {
+  it("o check-in emocional não disputa a cota semanal de Organização, mas conta no teto diário", () => {
+    expect(isRoutine("emotional_checkin_due")).toBe(true);
+    expect(isRoutine("advisor_review_weekly")).toBe(false);
+    const usage = emptyUsage();
+    usage.week.organizacao = 2;
+    const checkin = make("emotional_checkin_due");
+    expect(pillarGate(checkin, usage, newPillarRound())).toBeNull();
+    expect(pillarGate(make("advisor_review_weekly"), usage, newPillarRound())).toBe("pillar_quota_reached:organizacao");
+    usage.whatsappToday = WHATSAPP_DAILY_CAP;
+    expect(pillarGate(checkin, usage, newPillarRound())).toBe("daily_cap_reached");
+  });
+  it("entregas de rotina contam no dia, mas não na cota do pilar", () => {
+    const now = new Date("2026-11-04T23:00:00Z");
+    const usage = usageFromDeliveries([
+      { kind: "emotional_checkin_due", channel: "whatsapp", delivered_at: "2026-11-04T22:18:00Z" },
+      { kind: "advisor_review_weekly", channel: "whatsapp", delivered_at: "2026-11-04T14:18:00Z" },
+    ] as never, now);
+    expect(usage.whatsappToday).toBe(2);
+    expect(usage.week.organizacao).toBe(1);
+  });
+});
+

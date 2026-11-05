@@ -46,6 +46,14 @@ export function pillarOf(kind: string): Pillar {
   return BY_KIND.get(kind) ?? "organizacao";
 }
 
+/**
+ * Rotinas que a pessoa assinou (check-in agendado): não disputam a cota do pilar, só o teto diário do WhatsApp.
+ * Replay de 40 dias na conta dona: o check-in emocional foi o que mais gerou resposta em até 2h (9 de 16), e a cota
+ * semanal de Organização o teria cortado quase pela metade.
+ */
+export const ROUTINE_KINDS: ReadonlySet<string> = new Set(["emotional_checkin_due"]);
+export const isRoutine = (kind: string) => ROUTINE_KINDS.has(kind);
+
 /** Teto padrão do produto: mensagens de WhatsApp por dia (as críticas podem passar). */
 export const WHATSAPP_DAILY_CAP = 5;
 
@@ -91,9 +99,10 @@ export function usageFromDeliveries(recent: RecentDelivery[], now: Date): Pillar
     const at = Date.parse(row.delivered_at);
     if (!Number.isFinite(at) || at > now.getTime()) continue;
     const pillar = pillarOf(row.kind);
-    if (at >= weekAgo) usage.week[pillar] += 1;
+    const routine = isRoutine(row.kind);
+    if (at >= weekAgo && !routine) usage.week[pillar] += 1;
     if (localDay(new Date(at)) === today) {
-      usage.today[pillar] += 1;
+      if (!routine) usage.today[pillar] += 1;
       usage.whatsappToday += 1;
     }
   }
@@ -140,6 +149,7 @@ export const newPillarRound = (): PillarRound => ({ total: 0, byPillar: emptyCou
 export function pillarGate(situation: FinancialSituation, usage: PillarUsage, round: PillarRound): string | null {
   if (bypassesCap(situation)) return null;
   if (usage.whatsappToday + round.total >= WHATSAPP_DAILY_CAP) return "daily_cap_reached";
+  if (isRoutine(situation.communication_kind)) return null;
   const pillar = pillarOf(situation.communication_kind);
   const max = PILLAR_RULES[pillar].max;
   if (max) {
@@ -151,5 +161,5 @@ export function pillarGate(situation: FinancialSituation, usage: PillarUsage, ro
 
 export function recordPillarPick(round: PillarRound, situation: FinancialSituation): void {
   round.total += 1;
-  round.byPillar[pillarOf(situation.communication_kind)] += 1;
+  if (!isRoutine(situation.communication_kind)) round.byPillar[pillarOf(situation.communication_kind)] += 1;
 }
