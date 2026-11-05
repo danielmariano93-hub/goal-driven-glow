@@ -145,6 +145,8 @@ export interface ProactiveDecision {
   timing_window?: string | null;
   effective_score?: number;
   defer_until?: string | null;
+  /** nino_comm_pillars.v1 — pilar do tipo de comunicação (só quando os pilares estão ligados). */
+  pillar?: string;
 }
 
 
