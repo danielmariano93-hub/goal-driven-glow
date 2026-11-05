@@ -25,6 +25,7 @@ import { buildNarrativeEvidencePack, NARRATIVE_EVIDENCE_PACK_VERSION } from "../
 import { narrativeEligibility } from "../narrative/TonePolicy.ts";
 import { composeNarrative, type NarrativeResult } from "../narrative/NarrativeComposer.ts";
 import { catalogAllowsChannel, type CatalogEntry } from "../../intelligence/catalogGate.ts";
+import { withPillarContext } from "../../proactive/pillars.ts";
 import { COMM_CONTRACT_VERSION, applyMessageContract, renderWhatsappMessage } from "./MessageContract.ts";
 import { loadNarrativeContext } from "../narrative/NarrativeMemory.ts";
 import { subjectKeyOf } from "../narrative/SignalGrouping.ts";
@@ -342,7 +343,7 @@ async function record(sb: SupabaseClient, args: {
 
     evidence: args.evidence ?? {},
     cost_usd: 0,
-    block_context: args.block_context ?? {},
+    block_context: withPillarContext(args.block_context, args.kind),
     delivered_at: args.status === "delivered" ? new Date().toISOString() : null,
   }, { onConflict: "suggestion_id,channel" });
   if (error) throw new Error(`communication_delivery:${error.message}`);

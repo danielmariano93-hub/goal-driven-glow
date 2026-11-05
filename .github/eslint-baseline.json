@@ -1,0 +1,21 @@
+{
+  "errors": 2395,
+  "byRule": {
+    "@typescript-eslint/no-explicit-any": 2299,
+    "prefer-const": 10,
+    "@typescript-eslint/no-unused-expressions": 3,
+    "@typescript-eslint/no-empty-object-type": 2,
+    "no-control-regex": 1,
+    "no-useless-escape": 18,
+    "no-case-declarations": 2,
+    "no-empty": 2,
+    "@typescript-eslint/no-require-imports": 2,
+    "@typescript-eslint/ban-ts-comment": 1,
+    "no-irregular-whitespace": 5,
+    "no-var": 36,
+    "no-unsafe-optional-chaining": 6,
+    "no-misleading-character-class": 7,
+    "react-hooks/rules-of-hooks": 1
+  },
+  "updated": "2026-11-05"
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allocateAttention } from "../../supabase/functions/_shared/proactive/ranking";
 import {
-  PILLARS, WHATSAPP_DAILY_CAP, bypassesCap, emptyUsage, isRoutine, newPillarRound, orderByPillars, pillarGate, pillarOf, usageFromDeliveries,
+  PILLARS, WHATSAPP_DAILY_CAP, bypassesCap, emptyUsage, isRoutine, newPillarRound, withPillarContext, orderByPillars, pillarGate, pillarOf, usageFromDeliveries,
 } from "../../supabase/functions/_shared/proactive/pillars";
 import { makeCanDispatch } from "../../supabase/functions/_shared/proactive/dispatchGate";
 import type { CatalogEntry } from "../../supabase/functions/_shared/intelligence/catalogGate";
@@ -238,3 +238,12 @@ describe("rotina assinada (check-in agendado) fora da cota do pilar", () => {
   });
 });
 
+
+describe("telemetria por pilar", () => {
+  it("cada entrega grava o pilar do tipo (e marca rotina), preservando o contexto existente", () => {
+    expect(withPillarContext({ policy_reason: "x" }, "debt_due_soon")).toMatchObject({ policy_reason: "x", pillar: "proteger" });
+    expect(withPillarContext(null, "weekday_spending_risk").pillar).toBe("antecipar");
+    expect(withPillarContext(undefined, "emotional_checkin_due")).toMatchObject({ pillar: "organizacao", routine: true });
+    expect(withPillarContext({}, "tipo_desconhecido").pillar).toBe("organizacao");
+  });
+});

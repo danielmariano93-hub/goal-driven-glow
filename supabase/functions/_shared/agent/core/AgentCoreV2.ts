@@ -241,6 +241,13 @@ async function enqueueIfNeeded(sb: any, input: HandleTurnInput, body: string): P
   });
 }
 
+/** Divide o tempo total do turno entre IA e o resto (ferramentas, memória, gravação). Puro, para teste. */
+export function stageTimings(totalMs: number, llmMs?: number): { llm_ms: number | null; stage_ms: Record<string, number> } {
+  const total = Math.max(0, Math.round(Number(totalMs) || 0));
+  const llm = Math.min(total, Math.max(0, Math.round(Number(llmMs) || 0)));
+  return { llm_ms: llm > 0 ? llm : null, stage_ms: { total, llm, other: total - llm } };
+}
+
 async function recordV2Run(args: {
   sb: any;
   input: HandleTurnInput;
@@ -249,6 +256,8 @@ async function recordV2Run(args: {
   tokens_in: number;
   tokens_out: number;
   llm_calls?: number;
+  /** Soma do tempo das chamadas de IA do turno (interpretação, nova tentativa e composição). */
+  llm_ms?: number;
   model?: string | null;
   provider?: string | null;
   path: HandleTurnResult["path"];
@@ -282,6 +291,8 @@ async function recordV2Run(args: {
         ? estimateCost(String(args.model ?? BRAIN_MODEL), args.tokens_in, args.tokens_out)
         : 0,
       latency_ms: Date.now() - args.started_at,
+      // Tempo por etapa (antes só o runtime antigo gravava; as colunas ficavam vazias e não dava para ver onde ia o tempo).
+      ...stageTimings(Date.now() - args.started_at, args.llm_ms),
       error_sanitized: args.error ?? null,
       error_masked: args.error ?? null,
       context_layers: {
@@ -315,6 +326,7 @@ async function finishV2(args: {
   tokens_in: number;
   tokens_out: number;
   llm_calls?: number;
+  llm_ms?: number;
   model?: string | null;
   provider?: string | null;
   draft_id?: string;
@@ -422,7 +434,7 @@ async function finishV2(args: {
   const run_id = await recordV2Run({
     sb: args.sb, input: args.input, contract: args.contract,
     started_at: args.started_at, tokens_in: args.tokens_in, tokens_out: args.tokens_out,
-    llm_calls: args.llm_calls,
+    llm_calls: args.llm_calls, llm_ms: args.llm_ms,
     model: args.model, provider: args.provider, path: args.path,
     tools: args.tools, error: args.error, diagnostics: args.diagnostics,
   });
@@ -699,6 +711,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
           llm_calls: Number(brain.telemetry.llm_calls ?? 0) + Number(second.telemetry?.llm_calls ?? 0),
           tokens_in: Number(brain.telemetry.tokens_in ?? 0) + Number(second.telemetry?.tokens_in ?? 0),
           tokens_out: Number(brain.telemetry.tokens_out ?? 0) + Number(second.telemetry?.tokens_out ?? 0),
+          latency_ms: Number(brain.telemetry.latency_ms ?? 0) + Number(second.telemetry?.latency_ms ?? 0),
         },
       };
     }
@@ -892,6 +905,7 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
     tokens_in: brain.telemetry.tokens_in + (composition?.telemetry.tokens_in ?? 0) + selfRepair.tokens_in,
     tokens_out: brain.telemetry.tokens_out + (composition?.telemetry.tokens_out ?? 0) + selfRepair.tokens_out,
     llm_calls: Number(brain.telemetry.llm_calls ?? 0) + (composition?.telemetry.llm_calls ?? 0) + selfRepair.llm_calls,
+    llm_ms: Number(brain.telemetry.latency_ms ?? 0) + Number(composition?.telemetry.latency_ms ?? 0),
     model: brain.telemetry.model, provider: brain.telemetry.provider,
     draft_id: merged.draft_id, result: merged.result, session_id,
     tools: merged.tools, tool_calls: merged.tool_calls,
