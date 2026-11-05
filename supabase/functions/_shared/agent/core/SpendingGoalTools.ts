@@ -16,6 +16,7 @@ import {
   type SpendingHistoryAdvice,
 } from "../../finance-core/spendingGoals.ts";
 import { adviseGoals, loadSpendingGoalContext, type SpendingGoalContext } from "../../spendingGoals/runtime.ts";
+import { moneyValue } from "../money.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const brl = (n: number) => BRL.format(Number(n || 0));
@@ -56,10 +57,7 @@ function numberValue(value: unknown): number | null {
   let raw = String(value ?? "").trim();
   if (!raw) return null;
   if (/metade/i.test(raw)) return 50;
-  raw = raw.replace(/r\$/ig, "").replace(/%/g, "").replace(/\s/g, "");
-  if (raw.includes(",")) raw = raw.replace(/\./g, "").replace(",", ".");
-  const n = Number(raw.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? n : null;
+  return moneyValue(raw.replace(/%/g, ""));
 }
 
 function resolveCategory(sg: SpendingGoalContext, term: string): { id: string; name: string } | null {

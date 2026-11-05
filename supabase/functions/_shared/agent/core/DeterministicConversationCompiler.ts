@@ -10,6 +10,7 @@ import {
 import type { ConversationMemory } from "./ConversationMemory.ts";
 import type { MonthlySeriesEvidence, ReferenceObject } from "./ConversationReferenceStore.ts";
 import { deterministicConversationFastPath } from "./DeterministicConversationFastPath.ts";
+import { moneyValue } from "../money.ts";
 
 function norm(value: unknown): string {
   return String(value ?? "").toLowerCase().normalize("NFD")
@@ -17,9 +18,7 @@ function norm(value: unknown): string {
 }
 
 function brMoney(raw: string): number | null {
-  let s = String(raw ?? "").trim().replace(/\./g, "").replace(",", ".");
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+  return moneyValue(raw);
 }
 
 const MONTHS_PT = [

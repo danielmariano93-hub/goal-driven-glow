@@ -7,8 +7,8 @@ const migration = readFileSync(
   resolve(root, "supabase/migrations/20260728100000_product_completion_core.sql"),
   "utf8",
 );
-const contextPage = readFileSync(resolve(root, "src/pages/NinoContexto.tsx"), "utf8");
-const advisorPage = readFileSync(resolve(root, "src/pages/AssessorAcompanhamento.tsx"), "utf8");
+const contextPage = readFileSync(resolve(root, "src/pages/NinoContextoV2.tsx"), "utf8");
+const advisorPage = readFileSync(resolve(root, "src/pages/AssessorAcompanhamentoV2.tsx"), "utf8");
 const behaviorService = readFileSync(
   resolve(root, "supabase/functions/_shared/agent/core/BehaviorService.ts"),
   "utf8",
@@ -52,7 +52,7 @@ describe("product completion contracts", () => {
   });
 
   it("expõe memória editável, hipóteses e acompanhamento no frontend", () => {
-    expect(contextPage).toContain("O que o Nino sabe sobre mim");
+    expect(contextPage).toContain("O que o Nino aprendeu");
     expect(contextPage).toContain("Hipóteses comportamentais");
     expect(advisorPage).toContain("Acompanhamento do Nino");
     expect(advisorPage).toContain("Próximos passos");

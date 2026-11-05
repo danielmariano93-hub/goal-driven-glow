@@ -120,6 +120,23 @@ export async function loadCommitmentForecasts(
   });
 }
 
+export type ActivePlanRow = { friday: string; category: string; status: string };
+
+/**
+ * Um plano ativo por vez (regra do produto, já valia no app): proposto ou combinado e ainda dentro da janela
+ * (plano de sexta vale até domingo, então olha 2 dias para trás). Função pura para teste.
+ */
+export function hasActivePlan(rows: ActivePlanRow[], today: string): boolean {
+  const from = addDays(today, -2);
+  return rows.some((r) => (r.status === "offered" || r.status === "accepted") && String(r.friday).slice(0, 10) >= from);
+}
+
+export async function loadActivePlanRows(sb: SupabaseClient, userId: string, today: string): Promise<ActivePlanRow[]> {
+  const { data } = await sb.from("weekend_commitments").select("friday,category,status")
+    .eq("user_id", userId).gte("friday", addDays(today, -2)).in("status", ["offered", "accepted"]).limit(10);
+  return ((data as any[]) ?? []) as ActivePlanRow[];
+}
+
 /** Planos de um dia (fora da sexta) aceitos para a data `date`, para o fechamento do dia seguinte. */
 export async function loadAcceptedDayPlans(
   sb: SupabaseClient,

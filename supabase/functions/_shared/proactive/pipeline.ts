@@ -44,7 +44,7 @@ import { buildWeekendForecasts, goalsFromReadings, weekendCoveredCategories } fr
 import { weekendForecastSituation } from "./weekendMessages.ts";
 import { buildDayPlanRecaps, dayPlanRecapSituation, withDayPlanOffer } from "./dayPlanOffer.ts";
 import { validAnswers } from "./habitContext.ts";
-import { loadAcceptedDayPlans, loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
+import { hasActivePlan, loadAcceptedDayPlans, loadActivePlanRows, loadAcceptedCommitments, loadCommitmentForecasts, loadDecidedWeekendCategories, persistWeekendOffer, recordCommitmentOutcomes } from "./weekendCommitments.ts";
 import { buildWeekdayProjection, isWeekdayNudgeWindow, weekdayNudgeSituation } from "./weekdayNudge.ts";
 import { benefitSituations, isBenefitAlertWindow, loadBenefitState } from "./benefitSituations.ts";
 import { spendingGoalSituations } from "./spendingGoalSituations.ts";
@@ -380,7 +380,9 @@ export async function runMultiFinanceProactive(
     .catch(() => false);
   if (dayPlanOn) {
     try {
-      if (nudge && nudgeProjection && !decidedInApp.has(nudgeProjection.pattern.category)) nudge = withDayPlanOffer(nudge, nudgeProjection, ctx.as_of);
+      // Um plano ativo por vez: com um plano proposto/combinado em andamento, o aviso sai sem convite novo.
+      const planBusy = nudge && nudgeProjection ? hasActivePlan(await loadActivePlanRows(sb, userId, ctx.as_of), ctx.as_of) : false;
+      if (nudge && nudgeProjection && !planBusy && !decidedInApp.has(nudgeProjection.pattern.category)) nudge = withDayPlanOffer(nudge, nudgeProjection, ctx.as_of);
       // Fechamento do dia seguinte: plano aceito ontem (fora da sexta, que fecha na segunda) medido pelo gasto real.
       const yesterday = new Date(Date.parse(`${ctx.as_of}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
       if (nudgeTransactions.length && new Date(`${yesterday}T12:00:00Z`).getUTCDay() !== 5) {

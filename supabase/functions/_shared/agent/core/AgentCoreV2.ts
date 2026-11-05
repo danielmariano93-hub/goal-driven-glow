@@ -321,7 +321,7 @@ async function finishV2(args: {
   result?: unknown;
   session_id?: string;
   tools?: string[];
-  tool_calls?: Array<{ tool_name: string; args?: any; result?: any; ok: boolean }>;
+  tool_calls?: Array<{ tool_name: string; args?: any; result?: any; ok: boolean; error?: string | null }>;
   error?: string | null;
   memory?: ConversationMemory | null;
   topic_repo?: TopicRepository | null;
@@ -449,6 +449,8 @@ async function finishV2(args: {
     executed_calls: (args.tool_calls ?? [])
       .filter((call) => call.ok && call.result != null)
       .map((call) => ({ tool_name: call.tool_name, args: call.args ?? {}, result: call.result, ok: true })),
+    attempted_calls: (args.tool_calls ?? [])
+      .map((call) => ({ tool_name: call.tool_name, args: call.args ?? {}, ok: call.ok, error: call.error ?? null })),
   };
 }
 
@@ -1090,6 +1092,7 @@ async function executeContract(
         args: write.tool_args,
         result: write.tool_result,
         ok: !write.error,
+        error: write.error ?? null,
       }] : [],
       error: write.error ?? null,
     };
