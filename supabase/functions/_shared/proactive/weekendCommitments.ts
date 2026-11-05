@@ -120,6 +120,21 @@ export async function loadCommitmentForecasts(
   });
 }
 
+/** Planos de um dia (fora da sexta) aceitos para a data `date`, para o fechamento do dia seguinte. */
+export async function loadAcceptedDayPlans(
+  sb: SupabaseClient,
+  userId: string,
+  date: string,
+): Promise<Array<{ category: string; date: string; target: number; expected: number | null }>> {
+  const { data } = await sb.from("weekend_commitments")
+    .select("category,target_amount,expected_amount")
+    .eq("user_id", userId).eq("friday", date).eq("status", "accepted")
+    .not("target_amount", "is", null).limit(5);
+  return (((data as any[]) ?? []) as any[]).map((r) => ({
+    category: String(r.category), date, target: Number(r.target_amount), expected: r.expected_amount == null ? null : Number(r.expected_amount),
+  }));
+}
+
 /** Resultado medido no fechamento de segunda. */
 export async function recordCommitmentOutcomes(
   sb: SupabaseClient,
@@ -164,8 +179,12 @@ export async function handleWeekendReply(
   const open = rows.find((r) => r.status === "offered") ?? rows.find((r) => r.status === "accepted");
   if (!open || open.target_amount == null) return null;
   const target = money0(Number(open.target_amount));
+  // Plano de sexta vale o fim de semana e fecha na segunda; os demais dias valem o dia e fecham no dia seguinte.
+  const isFriday = new Date(`${String(open.friday).slice(0, 10)}T12:00:00Z`).getUTCDay() === 5;
+  const when = isFriday ? "neste fim de semana" : String(open.friday).slice(0, 10) === today ? "hoje" : "nesse dia";
+  const tellWhen = isFriday ? "Na segunda" : "Amanhã";
   if (open.status === "accepted") {
-    return { action, reply: `Já está combinado ✅ ${open.category} até *${target}* neste fim de semana. Na segunda eu te conto como foi.` };
+    return { action, reply: `Já está combinado ✅ ${open.category} até *${target}* ${when}. ${tellWhen} eu te conto como foi.` };
   }
   const { error } = await sb.from("weekend_commitments")
     .update({ status: "accepted", accepted_at: new Date().toISOString() })
@@ -174,6 +193,6 @@ export async function handleWeekendReply(
   const effect = open.projected_if_met != null ? `\n\nSe ficar nisso, o mês fecha em *${money0(Number(open.projected_if_met))}*.` : "";
   return {
     action,
-    reply: `🎯 *Combinado!* Neste fim de semana, *${open.category}* até *${target}*.${effect}\n\nNa segunda eu te conto como foi. Boa! 🙌`,
+    reply: `🎯 *Combinado!* ${isFriday ? "Neste fim de semana" : when === "hoje" ? "Hoje" : "Nesse dia"}, *${open.category}* até *${target}*.${effect}\n\n${tellWhen} eu te conto como foi. Boa! 🙌`,
   };
 }
