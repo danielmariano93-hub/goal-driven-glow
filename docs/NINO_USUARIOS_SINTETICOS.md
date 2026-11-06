@@ -23,7 +23,15 @@ Contas de teste (sandbox) com dados semeados de forma determinística conversam 
 - **Consistência (pass^k)**: com `--reps=3`, um cenário só conta se acertar nas três.
 - Categoria ausente no ato do registro não reprova (o Nino classifica depois); é medida à parte.
 
-## Como rodar
+## Rodar pelo painel (sem linha de comando)
+Em `/admin/qualidade`: **Rodar agora** enfileira a bateria; a rodada continua mesmo com a tela fechada. **Rodada automática** liga uma rodada a cada N horas (6 horas a 7 dias). Como funciona por dentro:
+- `synthetic_jobs` é a fila (uma rodada ativa por vez); `synthetic_settings` guarda o liga/desliga, o intervalo, o orçamento de tokens por minuto (padrão 120 mil) e as faixas em paralelo (padrão 2).
+- A rotina `synthetic-tick-1m` (pg_cron) chama a função `nino-synthetic` (ação `tick`) a cada minuto *somente se há rodada ativa ou a automática venceu*. Cada chamada toca poucas conversas (até ~100 s), grava o resultado e devolve a vez; uma trava (`lease_until`) impede duas chamadas na mesma rodada.
+- O worker usa o mesmo código da linha de comando (`supabase/functions/_shared/synthetic/plan.mjs`), então a nota é igual nos dois lugares.
+- "Variar a escrita com IA" pede à IA outra forma de escrever a primeira pergunta; só vale se mantiver números e meses (senão o gabarito deixaria de valer e usa a versão mecânica).
+- A rodada automática usa a mesma cota de IA dos clientes reais. Por isso é lenta de propósito (orçamento de tokens/min + concorrência adaptativa).
+
+## Como rodar (linha de comando)
 1. Aplicar a migração e publicar a função `nino-synthetic` (o workflow de deploy publica as funções).
 2. `NINO_SYN_URL=https://<projeto>.supabase.co/functions/v1/nino-synthetic NINO_SYN_TOKEN=<segredo> node scripts/synthetic/run.mjs --label="depois do ajuste X" --record`
    - `--personas=a,b` `--only=Q01,R01` `--styles=rotate|all|neutro,informal` `--reps=3` `--out=resultado.json` `--allow-wrong`
@@ -40,4 +48,5 @@ Contas de teste (sandbox) com dados semeados de forma determinística conversam 
 - **Sem juiz de IA** para tom e empatia. A naturalidade é por regras mecânicas; julgar tom pede revisão humana ou juiz calibrado.
 - Resultado sintético **não substitui** o piloto: é um filtro antes dele.
 - Tráfego real não tem gabarito: o painel mostra apenas sinais (falha, recusa, esclarecimento).
+- A rodada agendada ainda **não gera alerta** quando a taxa de acerto cai ou aparece resposta errada: o resultado só aparece no painel.
 - Memória do Nino é por pessoa: personas diferentes rodam em paralelo; dentro de uma persona os cenários rodam em fila.

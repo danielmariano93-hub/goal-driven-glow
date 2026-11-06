@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { callAdminRpc } from "@/lib/admin/adminRpc";
 
 // Qualidade das respostas do Nino (usuários sintéticos + conjunto dourado). Funções puras e ganchos de leitura.
@@ -129,4 +129,61 @@ export function groupFailures(results: QualityResult[] | undefined | null): Fail
 export interface RealSummary { respostas: number; falhas: number; recusas: number; esclarecimentos: number }
 export function summarizeReal(weeks: RealWeek[] | undefined | null): RealSummary {
   return (weeks ?? []).reduce((a, w) => ({ respostas: a.respostas + w.respostas, falhas: a.falhas + w.falhas, recusas: a.recusas + w.recusas, esclarecimentos: a.esclarecimentos + w.esclarecimentos }), { respostas: 0, falhas: 0, recusas: 0, esclarecimentos: 0 });
+}
+
+// ---- Rodar a bateria pelo painel (fila) ----
+export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export interface SyntheticJob {
+  id: string; status: JobStatus; source: "manual" | "schedule"; label: string | null; total: number; done: number;
+  error: string | null; created_at: string; started_at: string | null; finished_at: string | null; run_id: string | null;
+}
+export interface SyntheticSettings { enabled: boolean; every_hours: number; tpm: number; lanes: number; last_enqueued_at: string | null }
+export interface SyntheticState { settings: SyntheticSettings; active: SyntheticJob | null; recent: SyntheticJob[] }
+
+export const JOB_LABEL: Record<JobStatus, string> = { queued: "Na fila", running: "Rodando", done: "Concluída", failed: "Falhou", cancelled: "Cancelada" };
+
+export function useSyntheticState() {
+  return useQuery({
+    queryKey: ["admin-synthetic-state"],
+    queryFn: () => callAdminRpc<SyntheticState>("admin_synthetic_state"),
+    // Acompanha de perto só enquanto há rodada ativa.
+    refetchInterval: (q) => (q.state.data?.active ? 8_000 : 60_000),
+    staleTime: 5_000,
+  });
+}
+
+function useAfterChange() {
+  const qc = useQueryClient();
+  return () => { void qc.invalidateQueries({ queryKey: ["admin-synthetic-state"] }); void qc.invalidateQueries({ queryKey: ["admin-quality-runs"] }); };
+}
+export function useEnqueueRun() {
+  const done = useAfterChange();
+  return useMutation({
+    mutationFn: (config: { reps: number; llm: boolean; label?: string }) => callAdminRpc<{ ok: boolean; reason?: string; job_id?: string }>("admin_synthetic_enqueue", { p_config: { styles: "rotate", ...config } }),
+    onSuccess: done,
+  });
+}
+export function useCancelRun() {
+  const done = useAfterChange();
+  return useMutation({ mutationFn: (job: string) => callAdminRpc("admin_synthetic_cancel", { p_job: job }), onSuccess: done });
+}
+export function useSaveSyntheticSettings() {
+  const done = useAfterChange();
+  return useMutation({
+    mutationFn: (v: { enabled: boolean; every_hours: number }) => callAdminRpc("admin_synthetic_settings_save", { _enabled: v.enabled, _every_hours: v.every_hours }),
+    onSuccess: done,
+  });
+}
+
+/** Progresso de 0 a 100 de uma rodada. */
+export function jobProgress(job: Pick<SyntheticJob, "done" | "total"> | null | undefined): number {
+  if (!job || !job.total) return 0;
+  return Math.max(0, Math.min(100, Math.round((job.done / job.total) * 100)));
+}
+
+/** Frase curta sobre a rodada automática. */
+export function scheduleSentence(s: Pick<SyntheticSettings, "enabled" | "every_hours" | "last_enqueued_at"> | undefined): string {
+  if (!s?.enabled) return "Rodada automática desligada.";
+  const base = s.every_hours === 1 ? "A cada hora" : s.every_hours % 24 === 0 ? `A cada ${s.every_hours / 24} ${s.every_hours === 24 ? "dia" : "dias"}` : `A cada ${s.every_hours} horas`;
+  return s.last_enqueued_at ? `${base}. Última vez: ${new Date(s.last_enqueued_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : `${base}. Ainda não rodou.`;
 }

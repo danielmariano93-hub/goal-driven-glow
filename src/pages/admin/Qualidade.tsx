@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Copy, FlaskConical } from "lucide-react";
 import { PageHeader } from "@/components/admin/PageHeader";
+import { SyntheticRunPanel } from "@/components/admin/SyntheticRunPanel";
 import { dayFull, dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 import {
   AREA_LABEL, PERSONA_LABEL, STYLE_LABEL, VERDICT_LABEL, compareRuns, pct, qualityHeadline,
@@ -109,6 +110,8 @@ export default function Qualidade() {
   return (
     <div className="space-y-6">
       <PageHeader title="Qualidade das respostas" description="Conversas simuladas com contas de teste, com gabarito calculado dos próprios dados. Mostra o que o Nino acerta e erra antes de um cliente real passar por isso." />
+
+      <SyntheticRunPanel />
 
       <section className="rounded-2xl border p-4 space-y-2" data-testid="quality-headline">
         <div className="flex items-center gap-2"><FlaskConical size={16} aria-hidden /><h2 className="text-sm font-semibold">Última rodada</h2></div>
