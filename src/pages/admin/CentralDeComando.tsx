@@ -12,6 +12,7 @@ import { useCommandCenter, useOpsHealth } from "@/lib/admin/useCommandCenter";
 import { dict } from "@/lib/admin/displayDictionary";
 import { useAiConsumption, workloadLabel } from "@/lib/admin/aiConsumption";
 import { OpsAlertsPanel } from "@/components/admin/OpsAlerts";
+import { FeatureHealthStrip } from "@/components/admin/FeatureHealth";
 import {
   buildAttention, errorLabel, modelName, serviceState, servicesAttention, type OpsService, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
@@ -307,6 +308,7 @@ function Overview({ data }: { data: CommandCenterData }) {
 
   return (
     <div className="space-y-6">
+      <FeatureHealthStrip />
       <AttentionBoard items={attention} />
       <OpsAlertsPanel />
 

@@ -129,7 +129,15 @@ Deno.serve(async (req) => {
   try {
     const { data: fromDb, error: evalErr } = await sb.rpc("ops_alerts_evaluate");
     if (evalErr) throw new Error(`evaluate:${evalErr.message}`);
-    const active: Active[] = [...((fromDb as Active[]) ?? []), ...(await checkWaha(sb))];
+    // Saúde das features (resultado, não infraestrutura): entra no mesmo fluxo de popup, WhatsApp e ntfy.
+    // Falha aqui nunca derruba os alertas de infraestrutura.
+    let featureAlerts: Active[] = [];
+    try {
+      const { data: fh, error: fhErr } = await sb.rpc("ops_feature_health_alerts");
+      if (fhErr) console.warn("ops-feature-health", String(fhErr.message).slice(0, 160));
+      else featureAlerts = (fh as Active[]) ?? [];
+    } catch (e) { console.warn("ops-feature-health", String((e as Error)?.message ?? e).slice(0, 160)); }
+    const active: Active[] = [...((fromDb as Active[]) ?? []), ...featureAlerts, ...(await checkWaha(sb))];
 
     const { data: synced, error: syncErr } = await sb.rpc("ops_alerts_sync", { _active: active });
     if (syncErr) throw new Error(`sync:${syncErr.message}`);

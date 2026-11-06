@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { OpsAlertsBanner } from "@/components/admin/OpsAlerts";
 import {
   LayoutDashboard, Users, Sparkles, MessageCircle,
-  ShieldCheck, LogOut, Menu, Bot,
+  ShieldCheck, LogOut, Menu, Bot, HeartPulse,
 
   PanelLeftClose, PanelLeftOpen, X,
 } from "lucide-react";
@@ -34,6 +34,7 @@ const GROUPS: Group[] = [
     title: "Decisão",
     items: [
       { to: "/admin/visao-geral", label: "Visão geral", icon: LayoutDashboard, action: "cockpit.read" },
+      { to: "/admin/saude", label: "Saúde das features", icon: HeartPulse, action: "cockpit.read" },
       { to: "/admin/clientes", label: "Clientes", icon: Users, action: "clients.read" },
       { to: "/admin/produto", label: "Produto", icon: Sparkles, action: "growth.read" },
     ],
