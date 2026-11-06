@@ -312,15 +312,22 @@ function Overview({ data }: { data: CommandCenterData }) {
       <AttentionBoard items={attention} />
       <OpsAlertsPanel />
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} />
-        <MetricTile label="Pessoas atendidas" value={formatInt(t.users)} deltaPct={pctDelta(t.users, t.users_prev)} polarity="higher_is_better" spark={spark("users")} />
-        <MetricTile label="Conversas sem erro" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} com erro · não mede a entrega`} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} hint="reais: sem simulador e sem contas de teste" />
+        <MetricTile label="Pessoas que conversaram" value={formatInt(t.users)} deltaPct={pctDelta(t.users, t.users_prev)} polarity="higher_is_better" spark={spark("users")} />
+        <MetricTile label="Conversas sem erro" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} com erro · pedir um dado (ex.: faltou o valor) não conta como erro`} />
         <MetricTile label="Mensagens entregues" value={formatPct(data.messaging.total > 0 ? 1 - data.messaging.failed / data.messaging.total : 1)} polarity="higher_is_better" spark={data.messaging.daily.map((d) => (d.sent + d.failed > 0 ? 100 - (d.failed / Math.max(1, d.sent + d.failed)) * 100 : 100))} hint={data.messaging.failed > 0 ? `${formatInt(data.messaging.failed)} não chegaram` : "todas chegaram"} />
         <MetricTile label="Tempo típico" value={formatMs(t.p50)} deltaPct={pctDelta(t.p50, t.p50_prev)} polarity="lower_is_better" spark={spark("p50")} hint={`as mais lentas: ${formatMs(t.p95)}`} />
-        <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
-        <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
       </div>
+
+      <details className="surface-card px-4 py-3" data-testid="ai-cost-context">
+        <summary className="cursor-pointer text-sm font-semibold">Custo de IA (contexto, não é alerta)</summary>
+        <p className="mt-1 text-xs text-muted-foreground">Inclui todas as funções e o simulador: o que o simulador gasta também é dinheiro. Por isso estes números não batem com o de conversas reais.</p>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
+          <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
+        </div>
+      </details>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Conversas por dia" subtitle="Volume e quantas terminaram em falha" legend={volume}>

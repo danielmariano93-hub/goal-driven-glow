@@ -48,3 +48,32 @@ faixa na Visão geral (some quando tudo está bem).
 - **Acionáveis, manter:** Mensagens entregues (% e falhas), Conversas sem erro, Tempo típico/mais lentas, alertas de funcionamento.
 - **Contexto, rebaixar de tela inicial:** Pessoas atendidas, Tokens (todas as funções): não indicam ação. Custo de IA só faz sentido com meta.
 - **Corrigir antes de confiar:** "Conversas sem erro" deve excluir `needs_*`.
+
+## Métricas canônicas (uma definição por conceito) — 06/11/2026
+**Problema:** o mesmo conceito aparecia com números diferentes em telas diferentes. Cerca de 30 funções do painel leem `agent_runs`;
+só 5 excluíam contas de teste e só 2 excluíam o simulador; nenhuma tratava "pedir um dado" como não-falha.
+
+**Definição única (SQL):** `v_real_agent_runs` (conversa real = fora do simulador e de contas de teste/sandbox; `needs_*` conta como concluída;
+`raw_status` guarda o original) e `v_real_outbound` (mensagens a usuários reais, sem avisos internos). Migração
+`20261106140000_metricas_canonicas.sql`; a definição original das funções fica em `admin_function_backups` (para desfazer).
+
+**Antes e depois (7 dias, medido no banco):**
+| Indicador | Tela | Antes | Depois |
+|---|---|---|---|
+| Conversas | Operações (`admin_v2_operations_health`) | 519 | 52 |
+| Erros | idem | 134 | 1 |
+| Sucesso | idem | 74,2% | 98,1% |
+| Tempo típico / lentas | idem | 8,4 s / 13,5 s | 1,8 s / 8,8 s |
+| Erros | Visão geral (`admin_v4_command_center`) | 3 (5,8%) | 1 (1,9%) |
+| Falhas nas últimas 24 h | Status da plataforma | 2 | 0 |
+| Conversas na história (universo) | `admin_v2_metrics_universe` | 2034 | 1143 |
+| Conversas por capacidade | Autonomia (`admin_v2_agent_autonomy`) | 530 (bruto, inclui simulador) | 52 |
+
+**Fora da regra, de propósito:** custo e tokens (o simulador gasta dinheiro de verdade; a Visão geral os mostra à parte, como contexto),
+telas por usuário (ficha do cliente, reprocesso de mensagem), fila de envio.
+
+**Ainda divergente / pendente**
+- `admin_v2_cockpit` (rota escondida `painel-antigo`) calcula falha de mensagens com janela própria: 1,82% (amostra 110) contra 0,37% (544) da
+  função padrão. Recomendo retirar essa tela.
+- `admin_v2_agent_autonomy` → `funnel` lê a tabela `agent_decisions`, que está vazia (0 turnos em 7 dias): indicador morto.
+- Funções de custo (`admin_v2_ai_history`, `admin_v2_ai_efficiency`, `admin_ai_ops_snapshot`) continuam brutas por decisão.
