@@ -12,6 +12,7 @@ import {
   type RefreshResult,
 } from "@/lib/nino/contracts.zod";
 import { fixMoneyLocale } from "@/lib/nino/format";
+import { prefetchMapa } from "@/lib/mapa/client";
 import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
 
 export type NinoErrorKind = "network" | "auth" | "rpc" | "contract";
@@ -255,7 +256,10 @@ export function usePrefetchShellContexts() {
   const qc = useQueryClient();
   useEffect(() => {
     if (!user?.id) return;
-    const run = () => { void qc.prefetchQuery(moreMenuQuery(user.id)).catch(() => undefined); };
+    const run = () => {
+      void qc.prefetchQuery(moreMenuQuery(user.id)).catch(() => undefined);
+      void prefetchMapa(qc, user.id);
+    };
     const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
     if (w.requestIdleCallback) {
       const handle = w.requestIdleCallback(run, { timeout: 3000 });

@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import MapaPage from "@/pages/MapaPage";
-import { useMapaEnabled } from "@/lib/mapa/client";
+import { mapaReadingOptions, useMapaEnabled } from "@/lib/mapa/client";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
@@ -301,7 +301,13 @@ function EmocoesLegacy() {
  */
 export default function Emocoes() {
   const { user } = useAuth();
+  const qc = useQueryClient();
   const mapa = useMapaEnabled();
+  // A leitura do Mapa começa agora, junto com a conferência da flag (antes ficava em fila atrás dela). Com a flag desligada
+  // a chamada é recusada no servidor e o erro é engolido: o custo de acertar na maioria vale mais que esperar para ter certeza.
+  useEffect(() => {
+    if (user?.id) void qc.prefetchQuery(mapaReadingOptions(user.id)).catch(() => undefined);
+  }, [qc, user?.id]);
   if (!user || mapa.isLoading) {
     return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
