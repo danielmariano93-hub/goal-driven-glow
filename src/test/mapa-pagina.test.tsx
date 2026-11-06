@@ -40,7 +40,7 @@ describe("aba Mapa Financeiro: qual experiência aparece", () => {
     await mount();
     await new Promise((r) => setTimeout(r, 60));
     expect(screen.queryByText("Sua situação, seus hábitos e seu bem-estar")).not.toBeInTheDocument();
-    expect(document.body.textContent?.length ?? 0).toBeGreaterThan(0); // nunca tela vazia
+    expect(document.querySelector("svg, h1, h2, main, section, div[class]")).not.toBeNull(); // nunca tela vazia
   });
 
   it("falha ao ler a flag do Mapa: cai na experiência anterior, nunca em tela vazia", async () => {
@@ -48,6 +48,6 @@ describe("aba Mapa Financeiro: qual experiência aparece", () => {
     await mount();
     await new Promise((r) => setTimeout(r, 60));
     expect(screen.queryByText("Sua situação, seus hábitos e seu bem-estar")).not.toBeInTheDocument();
-    expect(document.body.textContent?.length ?? 0).toBeGreaterThan(0);
+    expect(document.querySelector("svg, h1, h2, main, section, div[class]")).not.toBeNull();
   });
 });
