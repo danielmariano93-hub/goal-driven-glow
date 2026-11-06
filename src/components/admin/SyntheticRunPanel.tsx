@@ -16,6 +16,15 @@ export function SyntheticRunPanel() {
   const [hours, setHours] = useState(24);
   useEffect(() => { if (s?.settings) { setAutoOn(s.settings.enabled); setHours(s.settings.every_hours); } }, [s?.settings?.enabled, s?.settings?.every_hours]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (stateQ.isError) {
+    return (
+      <section className="rounded-2xl border p-4 space-y-1" data-testid="run-panel-off">
+        <h2 className="text-sm font-semibold">Rodar a bateria de testes</h2>
+        <p className="text-xs text-muted-foreground">A rodada pelo painel ainda não foi ativada neste ambiente (falta aplicar a migração da fila). Enquanto isso, as rodadas continuam pela linha de comando e aparecem aqui.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-2xl border p-4 space-y-4" data-testid="run-panel">
       <div className="space-y-1">
