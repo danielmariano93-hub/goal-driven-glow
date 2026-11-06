@@ -54,7 +54,7 @@ export function useQualityResults(runId: string | null, onlyFailures = true) {
   });
 }
 export function useRealQuality() {
-  return useQuery({ queryKey: ["admin-real-quality"], queryFn: () => callAdminRpc<RealWeek[]>("admin_real_quality_weekly", { p_weeks: 12 }), staleTime: 120_000 });
+  return useQuery({ queryKey: ["admin-real-quality"], queryFn: () => callAdminRpc<RealWeek[]>("admin_real_quality_weekly", { p_weeks: REAL_WEEKS }), staleTime: 120_000 });
 }
 
 export const VERDICT_LABEL: Record<string, string> = {
@@ -93,4 +93,40 @@ export function qualityHeadline(run: QualityRun | undefined): string {
   const wrong = s.wrong ?? 0;
   const base = `Na última rodada, o Nino acertou ${pct(s.ok_rate)} das ${s.total} conversas simuladas`;
   return wrong > 0 ? `${base}, mas respondeu errado ${wrong} ${wrong === 1 ? "vez" : "vezes"}. Resposta errada é o que mais custa confiança: comece por elas.` : `${base} e não deu nenhuma resposta errada.`;
+}
+
+/** Janela fixa do bloco de clientes reais: não cresce com o tempo. */
+export const REAL_WEEKS = 4;
+
+export interface FailureGroup {
+  key: string;
+  area: string | null;
+  verdict: string;
+  why: string;
+  count: number;
+  personas: string[];
+  examples: QualityResult[];
+}
+
+const SEVERITY: Record<string, number> = { WRONG: 0, INFRA: 1, UNVERIFIED: 2, MISS: 3 };
+const MAX_EXAMPLES = 3;
+
+/** Agrupa as falhas por cenário e veredito: uma linha por problema, com poucos exemplos, em vez de uma por conversa. */
+export function groupFailures(results: QualityResult[] | undefined | null): FailureGroup[] {
+  const map = new Map<string, FailureGroup>();
+  for (const r of results ?? []) {
+    if (isPass(r.verdict)) continue;
+    const key = `${r.verdict}|${r.scenario_id}`;
+    const g = map.get(key) ?? { key, area: r.area, verdict: r.verdict, why: r.why ?? "", count: 0, personas: [], examples: [] };
+    g.count += 1;
+    if (r.persona_id && !g.personas.includes(r.persona_id)) g.personas.push(r.persona_id);
+    if (g.examples.length < MAX_EXAMPLES) g.examples.push(r);
+    map.set(key, g);
+  }
+  return [...map.values()].sort((a, b) => (SEVERITY[a.verdict] ?? 9) - (SEVERITY[b.verdict] ?? 9) || b.count - a.count);
+}
+
+export interface RealSummary { respostas: number; falhas: number; recusas: number; esclarecimentos: number }
+export function summarizeReal(weeks: RealWeek[] | undefined | null): RealSummary {
+  return (weeks ?? []).reduce((a, w) => ({ respostas: a.respostas + w.respostas, falhas: a.falhas + w.falhas, recusas: a.recusas + w.recusas, esclarecimentos: a.esclarecimentos + w.esclarecimentos }), { respostas: 0, falhas: 0, recusas: 0, esclarecimentos: 0 });
 }

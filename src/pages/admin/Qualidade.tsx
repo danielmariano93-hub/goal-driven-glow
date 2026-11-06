@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/admin/PageHeader";
 import { dayFull, dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 import {
   AREA_LABEL, PERSONA_LABEL, STYLE_LABEL, VERDICT_LABEL, compareRuns, pct, qualityHeadline,
-  useQualityResults, useQualityRuns, useRealQuality, type GroupStat, type QualityRun,
+  REAL_WEEKS, groupFailures, summarizeReal, useQualityResults, useQualityRuns, useRealQuality, type FailureGroup, type GroupStat, type QualityResult, type QualityRun, type RealWeek,
 } from "@/lib/admin/qualidade";
 
 function Bars({ data, labels }: { data?: Record<string, GroupStat>; labels: Record<string, string> }) {
@@ -24,6 +24,75 @@ function Bars({ data, labels }: { data?: Record<string, GroupStat>; labels: Reco
 }
 
 const runName = (r: QualityRun) => `${r.label} · ${new Date(r.started_at).toLocaleDateString("pt-BR")} · ${pct(r.summary.ok_rate)}`;
+
+function Conversation({ f }: { f: QualityResult }) {
+  return (
+    <div className="space-y-1 rounded-xl bg-muted/30 p-2.5 text-xs">
+      {f.turns.map((t, k) => (
+        <div key={k}><p><span className="font-semibold">Pessoa:</span> {t}</p><p className="whitespace-pre-wrap"><span className="font-semibold">Nino:</span> {f.replies[k]}</p></div>
+      ))}
+      <button type="button" className="inline-flex items-center gap-1 pt-1 text-primary hover:underline" onClick={() => void navigator.clipboard?.writeText(`${f.scenario_id} | ${f.persona_id} | ${f.style}\nMotivo: ${f.why}\n${f.turns.map((t, k) => `Pessoa: ${t}\nNino: ${f.replies[k] ?? ""}`).join("\n")}`)}><Copy size={12} aria-hidden />Copiar conversa</button>
+    </div>
+  );
+}
+
+function GroupRow({ g }: { g: FailureGroup }) {
+  const first = g.examples[0];
+  return (
+    <details className="group rounded-xl border px-3 py-2 text-xs" data-testid="failure-group">
+      <summary className="cursor-pointer list-none">
+        <p className="font-semibold">{AREA_LABEL[g.area ?? ""] ?? g.area} · {g.count} {g.count === 1 ? "caso" : "casos"}</p>
+        <p className="text-muted-foreground">{first?.turns[0] ? `Ex.: “${first.turns[0]}”` : ""}{g.why ? ` — ${g.why}` : ""}</p>
+        <p className="text-muted-foreground">{g.personas.map((p) => PERSONA_LABEL[p] ?? p).join(", ")}</p>
+      </summary>
+      <div className="mt-2 space-y-2">
+        {g.examples.map((f, i) => <Conversation key={i} f={f} />)}
+        {g.count > g.examples.length ? <p className="text-muted-foreground">Mostrando {g.examples.length} de {g.count}.</p> : null}
+      </div>
+    </details>
+  );
+}
+
+function FailuresSection({ results, loading }: { results: QualityResult[] | undefined; loading: boolean }) {
+  const groups = useMemo(() => groupFailures(results), [results]);
+  const byVerdict = (v: string[]) => groups.filter((g) => v.includes(g.verdict));
+  const blocks = [
+    { title: "Respondeu errado", items: byVerdict(["WRONG"]), tone: "border-destructive/50" },
+    { title: "Não respondeu ou falhou", items: byVerdict(["MISS", "INFRA", "UNVERIFIED"]), tone: "" },
+  ];
+  return (
+    <section className="space-y-2" data-testid="failures" aria-label="O que falhou nesta rodada">
+      <h2 className="text-sm font-semibold">O que falhou nesta rodada</h2>
+      {loading ? <p className="text-xs text-muted-foreground">Carregando…</p> : null}
+      {!loading && !groups.length ? <p className="rounded-2xl border p-4 text-xs text-muted-foreground">Nada falhou na rodada selecionada.</p> : null}
+      {blocks.filter((b) => b.items.length).map((b) => (
+        <details key={b.title} className={`rounded-2xl border p-3 ${b.tone}`} data-testid="failure-block">
+          <summary className="cursor-pointer list-none text-sm font-semibold">{b.title} <span className="font-normal text-muted-foreground">({b.items.reduce((s, g) => s + g.count, 0)} casos em {b.items.length} problemas)</span></summary>
+          <div className="mt-2 space-y-2">{b.items.map((g) => <GroupRow key={g.key} g={g} />)}</div>
+        </details>
+      ))}
+    </section>
+  );
+}
+
+function RealTraffic({ weeks }: { weeks: RealWeek[] | undefined }) {
+  const total = summarizeReal(weeks);
+  const rate = (n: number) => pct(n / Math.max(1, total.respostas));
+  return (
+    <section className="rounded-2xl border p-4 space-y-2" data-testid="real-traffic">
+      <h2 className="text-sm font-semibold">Clientes reais: últimas {REAL_WEEKS} semanas</h2>
+      <p className="text-xs text-muted-foreground">Não é taxa de acerto (no uso real não há gabarito). Só mostra respostas com falha técnica, recusa ou pedido de esclarecimento. Contas de teste e o simulador ficam de fora.</p>
+      {total.respostas ? (
+        <p className="text-sm" data-testid="real-summary">{total.respostas} respostas · falha técnica {rate(total.falhas)} · recusa {rate(total.recusas)} · pediu esclarecimento {rate(total.esclarecimentos)}</p>
+      ) : <p className="text-xs text-muted-foreground">Sem respostas no período.</p>}
+      {total.respostas ? (
+        <table className="w-full text-xs"><thead><tr className="text-left text-muted-foreground"><th className="py-1">Semana</th><th>Respostas</th><th>Falha</th><th>Recusa</th><th>Esclarec.</th></tr></thead>
+          <tbody>{(weeks ?? []).map((w) => (<tr key={w.semana} className="border-t"><td className="py-1">{dayTick(w.semana)}</td><td className="tabular-nums">{w.respostas}</td>
+            <td className="tabular-nums">{pct(w.falhas / Math.max(1, w.respostas))}</td><td className="tabular-nums">{pct(w.recusas / Math.max(1, w.respostas))}</td><td className="tabular-nums">{pct(w.esclarecimentos / Math.max(1, w.respostas))}</td></tr>))}</tbody></table>
+      ) : null}
+    </section>
+  );
+}
 
 export default function Qualidade() {
   const runsQ = useQualityRuns();
@@ -97,31 +166,9 @@ export default function Qualidade() {
         </section>
       ) : null}
 
-      <section className="rounded-2xl border p-4 space-y-3" data-testid="failures">
-        <h2 className="text-sm font-semibold">O que falhou nesta rodada</h2>
-        {failuresQ.isLoading ? <p className="text-xs text-muted-foreground">Carregando…</p> : null}
-        {!failuresQ.isLoading && !(failuresQ.data ?? []).length ? <p className="text-xs text-muted-foreground">Nada falhou na rodada selecionada.</p> : null}
-        <ul className="space-y-2">
-          {(failuresQ.data ?? []).sort((a, b) => (a.verdict === "WRONG" ? -1 : 0) - (b.verdict === "WRONG" ? -1 : 0)).slice(0, 60).map((f, i) => (
-            <li key={`${f.scenario_id}-${f.persona_id}-${i}`} className={`rounded-xl border p-3 text-xs ${f.verdict === "WRONG" ? "border-destructive/50 bg-destructive/5" : ""}`}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">{VERDICT_LABEL[f.verdict] ?? f.verdict} · {AREA_LABEL[f.area ?? ""] ?? f.area} · {PERSONA_LABEL[f.persona_id ?? ""] ?? f.persona_id}</p>
-                <button type="button" className="inline-flex items-center gap-1 text-primary hover:underline" onClick={() => void navigator.clipboard?.writeText(`${f.scenario_id} | ${f.persona_id} | ${f.style}\nMotivo: ${f.why}\n${f.turns.map((t, k) => `Pessoa: ${t}\nNino: ${f.replies[k] ?? ""}`).join("\n")}`)}><Copy size={12} aria-hidden />Copiar conversa</button>
-              </div>
-              <p className="mt-1 text-muted-foreground">{f.why}</p>
-              <div className="mt-2 space-y-1">{f.turns.map((t, k) => (<div key={k}><p><span className="font-semibold">Pessoa:</span> {t}</p><p className="whitespace-pre-wrap"><span className="font-semibold">Nino:</span> {f.replies[k]}</p></div>))}</div>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <FailuresSection results={failuresQ.data} loading={failuresQ.isLoading} />
 
-      <section className="rounded-2xl border p-4 space-y-2" data-testid="real-traffic">
-        <h2 className="text-sm font-semibold">Clientes reais: sinais nas respostas enviadas</h2>
-        <p className="text-xs text-muted-foreground">Não é taxa de acerto (no uso real não há gabarito). Mostra a parte das respostas com falha técnica, recusa ou pedido de esclarecimento. Contas de teste ficam de fora.</p>
-        <table className="w-full text-xs"><thead><tr className="text-left text-muted-foreground"><th className="py-1">Semana</th><th>Respostas</th><th>Falha técnica</th><th>Recusa</th><th>Pediu esclarecimento</th></tr></thead>
-          <tbody>{(realQ.data ?? []).map((w) => (<tr key={w.semana} className="border-t"><td className="py-1">{dayTick(w.semana)}</td><td className="tabular-nums">{w.respostas}</td>
-            <td className="tabular-nums">{pct(w.falhas / Math.max(1, w.respostas))}</td><td className="tabular-nums">{pct(w.recusas / Math.max(1, w.respostas))}</td><td className="tabular-nums">{pct(w.esclarecimentos / Math.max(1, w.respostas))}</td></tr>))}</tbody></table>
-      </section>
+      <RealTraffic weeks={realQ.data} />
     </div>
   );
 }
