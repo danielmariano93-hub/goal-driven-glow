@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stageTimings } from "../../supabase/functions/_shared/agent/core/AgentCoreV2";
+import { stageTimings } from "../../supabase/functions/_shared/agent/core/StageTimings";
 
 describe("tempo por etapa do turno", () => {
   it("separa IA do resto e soma o total", () => {

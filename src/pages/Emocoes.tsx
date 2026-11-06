@@ -4,10 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import HabitsV2 from "@/pages/HabitsV2";
 import MapaPage from "@/pages/MapaPage";
 import { useMapaEnabled } from "@/lib/mapa/client";
-import { useHabitsV2Enabled } from "@/lib/behavioral/habitsV2Flag";
 import { EmotionalCheckinCard } from "@/components/home/EmotionalCheckinCard";
 import { BehaviorWheel } from "@/components/behavioral/BehaviorWheel";
 import { MoneyMoodTimeline } from "@/components/behavioral/MoneyMoodTimeline";
@@ -296,16 +294,16 @@ function EmocoesLegacy() {
 }
 
 /**
- * Escolha da experiência (da mais nova para a mais antiga): Mapa Financeiro (`mapa_access`), hábitos v2 (`habits_v2_access`) e a atual.
- * Falha da flag = cai na experiência anterior (nunca numa tela vazia). Desligar `mapa_access` é o rollback.
+ * Escolha da experiência: Mapa Financeiro (`mapa_enabled()`: linha da conta em `mapa_access` ou rollout geral
+ * `mapa_financeiro_default`) ou, se desligado/falhar, a tela anterior de emoções (nunca uma tela vazia).
+ * Desligar `mapa_financeiro_default` (e a linha da conta) é o rollback. A tela intermediária "hábitos v2" foi retirada em
+ * 05/11/2026 (ver docs/CODIGO_ARQUIVADO.md).
  */
 export default function Emocoes() {
   const { user } = useAuth();
   const mapa = useMapaEnabled();
-  const flag = useHabitsV2Enabled();
-  if (!user || mapa.isLoading || flag.isLoading) {
+  if (!user || mapa.isLoading) {
     return <div className="grid min-h-[45vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
-  if (mapa.data === true) return <MapaPage />;
-  return flag.data === true ? <HabitsV2 /> : <EmocoesLegacy />;
+  return mapa.data === true ? <MapaPage /> : <EmocoesLegacy />;
 }

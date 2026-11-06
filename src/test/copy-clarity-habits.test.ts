@@ -29,7 +29,7 @@ describe("clareza do texto de Hábitos", () => {
 describe("sem plural verbal por concatenação", () => {
   const SRC = [
     "src/lib/engine/behaviorObservedV3.ts", "src/lib/engine/behaviorObserved.ts", "src/lib/engine/behaviorEvolution.ts",
-    "src/components/habits/DimensionPanel.tsx", "src/components/habits/HabitsWheel.tsx", "src/components/contacts/QuickAddPeople.tsx",
+    "src/components/habits/DimensionPanel.tsx", "src/components/contacts/QuickAddPeople.tsx",
   ];
   for (const file of SRC) {
     it(`${file}`, () => {
