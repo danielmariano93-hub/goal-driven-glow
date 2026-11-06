@@ -12,7 +12,7 @@ import {
   type RefreshResult,
 } from "@/lib/nino/contracts.zod";
 import { fixMoneyLocale } from "@/lib/nino/format";
-import { prefetchMapa } from "@/lib/mapa/client";
+import { warmIdle, warmOnIntent } from "@/lib/perf/screenWarmup";
 import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
 
 export type NinoErrorKind = "network" | "auth" | "rpc" | "contract";
@@ -256,17 +256,29 @@ export function usePrefetchShellContexts() {
   const qc = useQueryClient();
   useEffect(() => {
     if (!user?.id) return;
+    const conn = (navigator as unknown as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     const run = () => {
       void qc.prefetchQuery(moreMenuQuery(user.id)).catch(() => undefined);
-      void prefetchMapa(qc, user.id);
+      void warmIdle(qc, user.id, conn); // Metas e Mapa (as telas que esperam por função no servidor)
     };
+    // Por intenção: tocar/passar o mouse num link já pede o dado da tela de destino (Relatórios etc.).
+    const onIntent = (ev: Event) => {
+      const a = (ev.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      warmOnIntent(qc, user.id, a?.getAttribute("href"), conn);
+    };
+    document.addEventListener("pointerdown", onIntent, { capture: true, passive: true });
+    document.addEventListener("pointerover", onIntent, { capture: true, passive: true });
     const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    const stopIntent = () => {
+      document.removeEventListener("pointerdown", onIntent, { capture: true });
+      document.removeEventListener("pointerover", onIntent, { capture: true });
+    };
     if (w.requestIdleCallback) {
       const handle = w.requestIdleCallback(run, { timeout: 3000 });
-      return () => w.cancelIdleCallback?.(handle);
+      return () => { w.cancelIdleCallback?.(handle); stopIntent(); };
     }
     const t = window.setTimeout(run, 1200);
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(t); stopIntent(); };
   }, [user?.id, qc]);
 }
 
