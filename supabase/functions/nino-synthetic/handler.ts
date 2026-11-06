@@ -5,6 +5,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { runOrchestrator, service } from "../_shared/agent/orchestrator.ts";
 import { aiEndpoint, aiJsonHeaders, resolveAiProvider } from "../_shared/ai-runtime.ts";
+import { safeEqual } from "../_shared/security/secrets.ts";
+import { runJobTick } from "../_shared/synthetic/worker.ts";
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, x-client-info, apikey, content-type, x-synthetic-token" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json", "cache-control": "no-store" } });
@@ -14,6 +16,9 @@ export type HandlerOptions = { token?: string };
 async function authorized(req: Request, token: string | undefined): Promise<boolean> {
   const header = req.headers.get("x-synthetic-token");
   if (token && header && header === token) return true;
+  const cron = req.headers.get("x-cron-secret") ?? req.headers.get("x-internal-secret") ?? "";
+  const secret = Deno.env.get("INTERNAL_CRON_SECRET") ?? Deno.env.get("CRON_SECRET") ?? "";
+  if (secret && cron && safeEqual(cron, secret)) return true;
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return false;
   try {
@@ -55,6 +60,53 @@ async function paraphrase(body: any) {
   } catch { return { variants: [], note: "resposta fora do formato" }; }
 }
 
+export async function newConversation(sb: any, userId: string) {
+  for (let i = 0; i < 25; i++) {
+    const phone = `+55119999${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
+    const { data, error } = await sb.from("conversations").insert({ user_id: userId, source: "whatsapp", phone_e164: phone, last_message_at: new Date().toISOString() }).select("id").single();
+    if (!error) return { conversation_id: data.id, phone, since: new Date().toISOString() };
+    if (error.code !== "23505") return { error: `conversation_failed:${error.code}` };
+  }
+  return { error: "phone_exhausted" };
+}
+
+export async function runTurn(sb: any, userId: string, conversationId: string, phone: string, rawText: string) {
+  const text = String(rawText ?? "").slice(0, 2000);
+  if (!conversationId || !phone || !text) return { error: "turn_invalid", status: 400 };
+  const inboundId = crypto.randomUUID();
+  const { error: ie } = await sb.from("inbound_messages").insert({
+    id: inboundId, provider: "waha", provider_message_id: `syn-${Date.now()}-${inboundId}`, from_phone: phone, to_phone: "+5500000000000",
+    body: text, received_at: new Date().toISOString(), has_media: false, logical_dedup_key: `syn:${conversationId}:${inboundId}`,
+  });
+  if (ie) return { error: `inbound_failed:${ie.code ?? "unknown"}`, status: 500 };
+  await sb.from("conversation_messages").insert({ conversation_id: conversationId, user_id: userId, direction: "inbound", body_masked: text.slice(0, 500) });
+  const started = Date.now();
+  try {
+    const result = await runOrchestrator({ user_id: userId, conversation_id: conversationId, inbound_message_id: inboundId, text, source: "simulator", to_phone: phone });
+    let run: any = null;
+    if (result.run_id) {
+      const { data } = await sb.from("agent_runs").select("model,provider,path,status,llm_calls,tokens_in,tokens_out,error_sanitized").eq("id", result.run_id).maybeSingle();
+      run = data;
+    }
+    return { reply: result.reply, reply_kind: result.reply_kind, path: result.path, run_id: result.run_id, latency_ms: Date.now() - started, run };
+  } catch (error) {
+    return { error: String((error as Error)?.message ?? error).slice(0, 300), status: 500 };
+  }
+}
+
+export async function listTxs(sb: any, userId: string, since: string) {
+  const { data } = await sb.from("transactions").select("amount,type,occurred_at,description,status,categories(name)").eq("user_id", userId).gte("created_at", since);
+  return (data ?? []).map((t: any) => ({ amount: Number(t.amount), type: t.type, occurred_at: t.occurred_at, description: t.description, status: t.status, category: t.categories?.name ?? null }));
+}
+
+export async function cleanupTxs(sb: any, userId: string, since: string) {
+  const { data } = await sb.from("transactions").delete().eq("user_id", userId).gte("created_at", since).select("id");
+  await sb.from("pending_confirmations").delete().eq("user_id", userId);
+  return data?.length ?? 0;
+}
+
+export { personaUser, paraphrase };
+
 export async function handle(req: Request, opts: HandlerOptions = {}): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -92,56 +144,28 @@ export async function handle(req: Request, opts: HandlerOptions = {}): Promise<R
     return error ? json({ error: error.message }, 500) : json({ ok: true });
   }
 
+  if (action === "tick") {
+    // A rotina agendada não espera a resposta: a fatia roda em segundo plano (`wait: true` aguarda, para teste).
+    const work = runJobTick(sb, { newConversation, runTurn, listTxs, cleanupTxs, personaUser, paraphrase }, { budgetMs: Number(body.budget_ms ?? 100_000) });
+    if (body.wait === true) return json(await work);
+    (globalThis as any).EdgeRuntime?.waitUntil?.(work.catch(() => undefined));
+    return json({ accepted: true });
+  }
+
   // Ações por persona
   const persona = String(body.persona ?? "");
   const userId = await personaUser(sb, persona);
   if (!userId) return json({ error: "persona_not_sandbox" }, 404);
 
   if (action === "new") {
-    for (let i = 0; i < 25; i++) {
-      const phone = `+55119999${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
-      const { data, error } = await sb.from("conversations").insert({ user_id: userId, source: "whatsapp", phone_e164: phone, last_message_at: new Date().toISOString() }).select("id").single();
-      if (!error) return json({ conversation_id: data.id, phone, since: new Date().toISOString() });
-      if (error.code !== "23505") return json({ error: `conversation_failed:${error.code}` }, 500);
-    }
-    return json({ error: "phone_exhausted" }, 500);
+    const r: any = await newConversation(sb, userId);
+    return r.error ? json(r, 500) : json(r);
   }
-
-  if (action === "txs") {
-    const { data } = await sb.from("transactions").select("amount,type,occurred_at,description,status,categories(name)").eq("user_id", userId).gte("created_at", String(body.since));
-    return json({ txs: (data ?? []).map((t: any) => ({ amount: Number(t.amount), type: t.type, occurred_at: t.occurred_at, description: t.description, status: t.status, category: t.categories?.name ?? null })) });
-  }
-
-  if (action === "cleanup") {
-    const { data } = await sb.from("transactions").delete().eq("user_id", userId).gte("created_at", String(body.since)).select("id");
-    await sb.from("pending_confirmations").delete().eq("user_id", userId);
-    return json({ deleted: data?.length ?? 0 });
-  }
-
+  if (action === "txs") return json({ txs: await listTxs(sb, userId, String(body.since)) });
+  if (action === "cleanup") return json({ deleted: await cleanupTxs(sb, userId, String(body.since)) });
   if (action === "turn") {
-    const conversationId = String(body.conversation_id ?? "");
-    const phone = String(body.phone ?? "");
-    const text = String(body.text ?? "").slice(0, 2000);
-    if (!conversationId || !phone || !text) return json({ error: "turn_invalid" }, 400);
-    const inboundId = crypto.randomUUID();
-    const { error: ie } = await sb.from("inbound_messages").insert({
-      id: inboundId, provider: "waha", provider_message_id: `syn-${Date.now()}-${inboundId}`, from_phone: phone, to_phone: "+5500000000000",
-      body: text, received_at: new Date().toISOString(), has_media: false, logical_dedup_key: `syn:${conversationId}:${inboundId}`,
-    });
-    if (ie) return json({ error: `inbound_failed:${ie.code ?? "unknown"}` }, 500);
-    await sb.from("conversation_messages").insert({ conversation_id: conversationId, user_id: userId, direction: "inbound", body_masked: text.slice(0, 500) });
-    const started = Date.now();
-    try {
-      const result = await runOrchestrator({ user_id: userId, conversation_id: conversationId, inbound_message_id: inboundId, text, source: "simulator", to_phone: phone });
-      let run: any = null;
-      if (result.run_id) {
-        const { data } = await sb.from("agent_runs").select("model,provider,path,status,llm_calls,tokens_in,tokens_out,error_sanitized").eq("id", result.run_id).maybeSingle();
-        run = data;
-      }
-      return json({ reply: result.reply, reply_kind: result.reply_kind, path: result.path, run_id: result.run_id, latency_ms: Date.now() - started, run });
-    } catch (error) {
-      return json({ error: String((error as Error)?.message ?? error).slice(0, 300) }, 500);
-    }
+    const r: any = await runTurn(sb, userId, String(body.conversation_id ?? ""), String(body.phone ?? ""), String(body.text ?? ""));
+    return json(r, r.status ?? 200);
   }
   return json({ error: "action_invalid" }, 400);
 }

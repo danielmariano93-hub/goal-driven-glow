@@ -109,3 +109,7 @@ verify_jwt = false
 
 [functions.benefit-statement-read]
 verify_jwt = true
+
+# Autenticação própria no handler (segredo da rodada, segredo da rotina agendada ou JWT de admin).
+[functions.nino-synthetic]
+verify_jwt = false
