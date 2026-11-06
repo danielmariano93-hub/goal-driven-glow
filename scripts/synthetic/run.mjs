@@ -8,7 +8,7 @@
 // Cada persona é uma conta sandbox própria: personas rodam em paralelo (memória é por pessoa), os cenários de
 // uma persona rodam em fila. Registros criados durante o cenário são conferidos no banco e apagados no fim.
 import { writeFileSync } from "node:fs";
-import { PERSONAS, buildSpec, buildTruth, ymd } from "./personas.mjs";
+import { PERSONAS, buildSpec, buildTruth, knownValues, ymd } from "./personas.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 import { STYLES, applyStyle } from "./styles.mjs";
 import { scoreScenario, summarizeRun, consistency, isPass } from "./score.mjs";
@@ -51,12 +51,13 @@ function buildJobs() {
     if (onlyPersonas.size && !onlyPersonas.has(persona.id)) continue;
     const spec = buildSpec(persona, ref);
     const truth = buildTruth(spec, ref);
+    const known = knownValues(spec, ref);
     const ctx = { p: persona, t: truth, ref };
     for (const sc of SCENARIOS) {
       if (onlyScenarios.size && !onlyScenarios.has(sc.id)) continue;
       if (sc.only && !sc.only.includes(persona.id)) continue;
       if (!sc.applies(ctx)) continue;
-      for (const style of stylesFor(persona.id, sc.id)) for (let rep = 1; rep <= reps; rep++) jobs.push({ persona, spec, truth, ctx, sc, style, rep });
+      for (const style of stylesFor(persona.id, sc.id)) for (let rep = 1; rep <= reps; rep++) jobs.push({ persona, spec, truth, known, ctx, sc, style, rep });
     }
   }
   return jobs;
@@ -84,7 +85,7 @@ async function runJob(job) {
   }
   let st = await call({ action: "txs", persona: persona.id, since: conv.since });
   await call({ action: "cleanup", persona: persona.id, since: conv.since });
-  const res = scoreScenario({ expect: sc.expect(ctx), replies, state: { txs: st.txs ?? [] }, truth, level: sc.level, today });
+  const res = scoreScenario({ expect: sc.expect(ctx), replies, state: { txs: st.txs ?? [] }, truth, level: sc.level, today, known: job.known });
   return { scenario_id: sc.id, persona_id: persona.id, style, rep, area: sc.area, level: sc.level, ...res, layers: { ...res.layers, ...(degradedTurns ? { provedor: "degradado" } : {}) }, state: st.txs ?? [], turns: sent, replies, latency_ms: Date.now() - t0 };
 }
 const fail = (job, why) => ({ scenario_id: job.sc.id, persona_id: job.persona.id, style: job.style, rep: job.rep, area: job.sc.area, level: job.sc.level, verdict: "INFRA", why, layers: {}, turns: [], replies: [] });

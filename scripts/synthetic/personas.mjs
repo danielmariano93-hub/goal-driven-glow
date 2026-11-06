@@ -137,3 +137,25 @@ export function buildTruth(spec, ref = new Date()) {
   t["debt:installments"] = round2((spec.debts ?? []).reduce((s, d) => s + d.installment_amount, 0));
   return t;
 }
+
+/** Todo valor que existe de verdade nos dados da persona: lançamentos, somas por dia, por mês e por categoria,
+ *  resultado do mês, metas e dívidas. Serve para separar "palpite de contexto" (valor real) de valor inventado. */
+export function knownValues(spec, ref = new Date()) {
+  const out = new Set();
+  const add = (v) => { if (Number.isFinite(v) && v !== 0) out.add(Math.abs(round2(v))); };
+  const daily = {}, cat = {};
+  for (const t of spec.transactions) {
+    if (t.status !== "confirmed") continue;
+    add(t.amount);
+    const dk = `${t.type}|${t.date}`;
+    daily[dk] = (daily[dk] ?? 0) + t.amount;
+    const ck = `${t.type}|${t.date.slice(0, 7)}|${t.category}`;
+    cat[ck] = (cat[ck] ?? 0) + t.amount;
+  }
+  Object.values(daily).forEach(add);
+  Object.values(cat).forEach(add);
+  for (const v of Object.values(buildTruth(spec, ref))) if (typeof v === "number") add(v);
+  for (const g of spec.goals ?? []) { add(g.target_amount); }
+  for (const d of spec.debts ?? []) { add(d.original_amount); add(d.outstanding_balance); add(d.installment_amount); }
+  return [...out];
+}

@@ -3,7 +3,7 @@
 // Serve para comparar antes/depois com a mesma régua quando o corretor evolui, sem rodar o Nino de novo.
 //   node scripts/synthetic/rescore.mjs --in=antes.json [--label="antes (régua atual)"] [--sha=...] [--record] [--out=novo.json]
 import { readFileSync, writeFileSync } from "node:fs";
-import { PERSONAS, buildSpec, buildTruth, ymd } from "./personas.mjs";
+import { PERSONAS, buildSpec, buildTruth, knownValues, ymd } from "./personas.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 import { scoreScenario, summarizeRun, consistency } from "./score.mjs";
 
@@ -15,8 +15,9 @@ const results = data.results.map((r) => {
   const persona = PERSONAS.find((p) => p.id === r.persona_id);
   const sc = SCENARIOS.find((s) => s.id === r.scenario_id);
   if (!persona || !sc) return r;
-  const ctx = { p: persona, t: buildTruth(buildSpec(persona, ref), ref), ref };
-  const res = scoreScenario({ expect: sc.expect(ctx), replies: r.replies, state: { txs: r.state ?? [] }, truth: ctx.t, level: sc.level, today });
+  const spec = buildSpec(persona, ref);
+  const ctx = { p: persona, t: buildTruth(spec, ref), ref };
+  const res = scoreScenario({ expect: sc.expect(ctx), replies: r.replies, state: { txs: r.state ?? [] }, truth: ctx.t, level: sc.level, today, known: knownValues(spec, ref) });
   const provedor = r.layers?.provedor;
   return { ...r, verdict: res.verdict, why: res.why, layers: { ...res.layers, ...(provedor ? { provedor } : {}) } };
 });

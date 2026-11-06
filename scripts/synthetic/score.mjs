@@ -45,7 +45,7 @@ export function scoreRegistration(expect, state, today) {
   return { verdict: "CORRECT", why: "lançamento certo no banco", categoria: "ok" };
 }
 
-export function scoreScenario({ expect, replies, state, truth, level, today }) {
+export function scoreScenario({ expect, replies, state, truth, level, today, known }) {
   const last = String(replies.at(-1) ?? "");
   const c = classify(last);
   const kind = expect.kind ?? (expect.numbers ? "numbers" : "answers");
@@ -58,8 +58,8 @@ export function scoreScenario({ expect, replies, state, truth, level, today }) {
   else if (kind === "nowrite") res = (state?.txs?.length ?? 0) > 0 ? { verdict: "WRONG", why: "gravou lançamento depois de cancelar" } : { verdict: "CORRECT", why: "nada gravado" };
   else if ((kind === "vague" || kind === "chat") && c.money.length) {
     // Valor que existe no gabarito não é inventado: foi um palpite de contexto (MISS). Valor fora do gabarito é WRONG.
-    const known = Object.values(numericTruth).map((v) => Math.abs(Number(v)));
-    const grounded = c.money.every((t) => known.some((k) => Math.abs(Math.abs(t.value) - k) <= 0.011));
+    const knownVals = known ?? Object.values(numericTruth).map((v) => Math.abs(Number(v)));
+    const grounded = c.money.every((t) => knownVals.some((k) => Math.abs(Math.abs(t.value) - k) <= 0.011));
     res = grounded
       ? { verdict: "MISS", why: kind === "vague" ? "assumiu o contexto em vez de perguntar" : "despejou dados sem a pessoa pedir" }
       : { verdict: "WRONG", why: "valor que não existe nos dados da pessoa" };

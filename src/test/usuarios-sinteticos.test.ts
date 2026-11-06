@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PERSONAS, buildSpec, buildTruth, monthName } from "../../scripts/synthetic/personas.mjs";
+import { PERSONAS, buildSpec, buildTruth, knownValues, monthName } from "../../scripts/synthetic/personas.mjs";
 import { SCENARIOS } from "../../scripts/synthetic/scenarios.mjs";
 import { STYLES, applyStyle } from "../../scripts/synthetic/styles.mjs";
 import { consistency, naturalness, scoreScenario, summarizeRun } from "../../scripts/synthetic/score.mjs";
-import { AREA_LABEL, compareRuns, pct, qualityHeadline } from "@/lib/admin/qualidade";
+import { AREA_LABEL, compareRuns, groupFailures, pct, qualityHeadline, summarizeReal } from "@/lib/admin/qualidade";
 
 const REF = new Date("2026-11-06T12:00:00Z");
 // Categorias globais que toda conta tem (o semeador só usa estas).
@@ -213,5 +213,33 @@ describe("usuários sintéticos: regulador de vazão (limite de tokens por minut
     expect(isDegraded({ status: 429 })).toBe(true);
     expect(isDegraded({ reply: "Não consegui processar isso com segurança agora." })).toBe(true);
     expect(isDegraded({ run: { model: "v3-primary:qwen" }, reply: "Você gastou R$ 10." })).toBe(false);
+  });
+});
+
+describe("valores conhecidos da persona e agrupamento das falhas", () => {
+  it("meta, soma diária e valor de lançamento contam como reais; valor aleatório não", () => {
+    const p = PERSONAS.find((x: any) => x.id === "clt_estavel")!;
+    const spec = buildSpec(p, REF);
+    const known = knownValues(spec, REF);
+    expect(known).toContain(15000); // meta da reserva de emergência
+    expect(known).toContain(Math.abs(spec.transactions[0].amount));
+    expect(known).not.toContain(123456.78);
+  });
+  it("palpite com meta ou soma diária da própria persona é MISS, não WRONG", () => {
+    const base = { state: { txs: [] }, level: 1, today: "2026-11-06", truth: {} };
+    const r = scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["Faltam R$ 15.000,00 para a meta."], known: [15000] });
+    expect(r.verdict).toBe("MISS");
+    expect(scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["Foram R$ 777,00."], known: [15000] }).verdict).toBe("WRONG");
+  });
+  const f = (scenario_id: string, verdict: string, persona_id = "a") => ({ scenario_id, verdict, persona_id, style: "neutro", rep: 1, area: "gasto_mes", why: "x", layers: {}, turns: ["q"], replies: ["r"], latency_ms: 1 });
+  it("agrupa por cenário, ordena erro antes de não-resposta e limita os exemplos", () => {
+    const g = groupFailures([f("Q10", "MISS"), f("Q01", "WRONG", "a"), f("Q01", "WRONG", "b"), f("Q01", "WRONG", "c"), f("Q01", "WRONG", "d"), f("Q02", "CORRECT")] as any);
+    expect(g.map((x) => x.key)).toEqual(["WRONG|Q01", "MISS|Q10"]);
+    expect(g[0].count).toBe(4);
+    expect(g[0].examples).toHaveLength(3);
+    expect(g[0].personas).toEqual(["a", "b", "c", "d"]);
+  });
+  it("resumo de clientes reais soma a janela fixa", () => {
+    expect(summarizeReal([{ semana: "2026-10-26", respostas: 10, falhas: 1, recusas: 2, esclarecimentos: 0 }, { semana: "2026-11-02", respostas: 30, falhas: 0, recusas: 1, esclarecimentos: 1 }])).toEqual({ respostas: 40, falhas: 1, recusas: 3, esclarecimentos: 1 });
   });
 });
