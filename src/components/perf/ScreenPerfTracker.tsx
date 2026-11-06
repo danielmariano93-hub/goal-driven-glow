@@ -18,8 +18,9 @@ function screenLooksBusy(): boolean {
 }
 
 /** Há consulta inicial em andamento (sem dado ainda)? Atualizações em segundo plano não contam: a pessoa não as espera. */
-function initialQueryInFlight(qc: ReturnType<typeof useQueryClient>): boolean {
-  return qc.getQueryCache().findAll({ fetchStatus: "fetching" }).some((q) => q.state.data === undefined);
+export function initialQueryInFlight(qc: Pick<ReturnType<typeof useQueryClient>, "getQueryCache">): boolean {
+  // Consulta marcada `nonBlocking` é melhoria opcional (ex.: texto redigido pela IA): a tela já está utilizável sem ela.
+  return qc.getQueryCache().findAll({ fetchStatus: "fetching" }).some((q) => q.state.data === undefined && !(q.meta as { nonBlocking?: boolean } | undefined)?.nonBlocking);
 }
 
 function coldExtras() {

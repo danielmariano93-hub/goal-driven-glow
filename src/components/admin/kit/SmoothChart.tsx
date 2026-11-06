@@ -80,7 +80,7 @@ export function SmoothChart({
   return (
     <div style={{ height }} role="img" aria-label={`Gráfico: ${series.map((s) => s.label).join(", ")}`}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 8, right: hasRight ? 4 : 8, left: -14, bottom: 4 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: hasRight ? 4 : 22, left: -14, bottom: 4 }}>
           <defs>
             {series.map((s, i) => (
               <linearGradient key={s.key} id={`${uid}-${s.key}`} x1="0" y1="0" x2="0" y2="1">

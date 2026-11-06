@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Sparkles } from "lucide-react";
 import type { MapaEvidencePack } from "@/lib/engine/mapaEvidencePack";
@@ -9,7 +9,13 @@ import { useMapaNarrative, useRecommendationEvent } from "@/lib/mapa/client";
  * quando a redação da IA chega (e passa pela guarda no servidor), ela o substitui.
  */
 export function MapaAgir({ evidence }: { evidence: MapaEvidencePack }) {
-  const narrative = useMapaNarrative(true, evidence.hash);
+  // A redação da IA é um extra: pede só depois que a tela já apareceu, para não disputar rede e CPU com o que a pessoa espera.
+  const [afterFirstPaint, setAfterFirstPaint] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setAfterFirstPaint(true), 800);
+    return () => window.clearTimeout(t);
+  }, []);
+  const narrative = useMapaNarrative(afterFirstPaint, evidence.hash);
   const event = useRecommendationEvent();
   const [rated, setRated] = useState(false);
   const rec = evidence.recommendation;
