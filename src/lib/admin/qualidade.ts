@@ -1,0 +1,94 @@
+import { useQuery } from "@tanstack/react-query";
+import { callAdminRpc } from "@/lib/admin/adminRpc";
+
+// Qualidade das respostas do Nino (usuários sintéticos + conjunto dourado). Funções puras e ganchos de leitura.
+
+export interface GroupStat { total: number; ok: number; wrong: number }
+export interface RunSummary {
+  total: number;
+  by: Record<string, number>;
+  ok: number;
+  ok_rate: number;
+  wrong: number;
+  infra: number;
+  natural_avg: number | null;
+  consistency?: number | null;
+  by_area?: Record<string, GroupStat>;
+  by_persona?: Record<string, GroupStat>;
+  by_style?: Record<string, GroupStat>;
+  by_level?: Record<string, GroupStat>;
+}
+export interface QualityRun {
+  id: string;
+  label: string;
+  suite: "synthetic" | "golden";
+  git_sha: string | null;
+  started_at: string;
+  finished_at: string | null;
+  summary: Partial<RunSummary>;
+}
+export interface QualityResult {
+  scenario_id: string;
+  persona_id: string | null;
+  style: string | null;
+  rep: number;
+  area: string | null;
+  verdict: string;
+  why: string | null;
+  layers: { naturalidade?: number; flags?: string[]; categoria?: string } & Record<string, unknown>;
+  turns: string[];
+  replies: string[];
+  latency_ms: number | null;
+}
+export interface RealWeek { semana: string; respostas: number; falhas: number; recusas: number; esclarecimentos: number }
+
+export function useQualityRuns() {
+  return useQuery({ queryKey: ["admin-quality-runs"], queryFn: () => callAdminRpc<QualityRun[]>("admin_synthetic_overview", { p_limit: 40 }), staleTime: 30_000 });
+}
+export function useQualityResults(runId: string | null, onlyFailures = true) {
+  return useQuery({
+    queryKey: ["admin-quality-results", runId, onlyFailures], enabled: !!runId, staleTime: 60_000,
+    queryFn: () => callAdminRpc<QualityResult[]>("admin_synthetic_results", { p_run: runId, p_only_failures: onlyFailures }),
+  });
+}
+export function useRealQuality() {
+  return useQuery({ queryKey: ["admin-real-quality"], queryFn: () => callAdminRpc<RealWeek[]>("admin_real_quality_weekly", { p_weeks: 12 }), staleTime: 120_000 });
+}
+
+export const VERDICT_LABEL: Record<string, string> = {
+  CORRECT: "Acertou", CORRECT_REFUSAL: "Recusou certo", MISS: "Não respondeu", WRONG: "Respondeu errado", INFRA: "Falha técnica", UNVERIFIED: "A conferir",
+};
+export const AREA_LABEL: Record<string, string> = {
+  gasto_mes: "Gasto do mês", receita_mes: "Receita do mês", categoria: "Gasto por categoria", ranking: "Maior categoria", saldo_mes: "Quanto sobrou",
+  comparacao: "Comparar meses", dividas: "Dívidas", sem_dados: "Conta sem dados", seguimento: "Perguntas de seguimento", registro: "Registrar lançamento",
+  conversa: "Conversa", fora_dominio: "Fora de finanças", vago: "Pergunta vaga", reclamacao: "Reclamação", conselho: "Conselhos", metas: "Metas", seguranca: "Segurança",
+};
+export const STYLE_LABEL: Record<string, string> = {
+  neutro: "Escrita normal", informal: "Informal (vc, q, pq)", erros: "Com erros de digitação", telegrafico: "Telegráfico", prolixo: "Prolixo e educado", apressado: "Apressado", audio: "Parece áudio transcrito",
+};
+export const PERSONA_LABEL: Record<string, string> = {
+  clt_estavel: "CLT estável", autonomo_irregular: "Autônomo (renda irregular)", endividada: "Com dívidas", conta_vazia: "Conta vazia", poucos_dados: "Poucos dados",
+  casal_alta_renda: "Casal de alta renda", estudante: "Estudante", aposentado: "Aposentado", poupador: "Poupador", gastador_lazer: "Gasta com lazer", mes_no_vermelho: "No vermelho", dono_de_pet: "Tutora de pets",
+};
+
+export const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${(v * 100).toFixed(v >= 0.995 || v === 0 ? 0 : 1)}%`);
+export const isPass = (v: string) => v === "CORRECT" || v === "CORRECT_REFUSAL";
+
+export interface Delta { label: string; before: number | null; after: number | null; diff: number | null }
+/** Compara duas rodadas por área: taxa de acerto antes/depois e a diferença em pontos percentuais. */
+export function compareRuns(before: Partial<RunSummary> | undefined, after: Partial<RunSummary> | undefined): Delta[] {
+  const rate = (g?: GroupStat) => (g && g.total ? g.ok / g.total : null);
+  const areas = new Set([...Object.keys(before?.by_area ?? {}), ...Object.keys(after?.by_area ?? {})]);
+  const rows: Delta[] = [{ label: "Geral", before: before?.ok_rate ?? null, after: after?.ok_rate ?? null, diff: null }];
+  for (const a of areas) rows.push({ label: AREA_LABEL[a] ?? a, before: rate(before?.by_area?.[a]), after: rate(after?.by_area?.[a]), diff: null });
+  return rows.map((r) => ({ ...r, diff: r.before != null && r.after != null ? (r.after - r.before) * 100 : null }));
+}
+
+/** Frase de uma linha para o topo da página. */
+export function qualityHeadline(run: QualityRun | undefined): string {
+  const s = run?.summary;
+  if (!run || !s || s.total == null) return "Ainda não há rodada de usuários sintéticos.";
+  const wrong = s.wrong ?? 0;
+  const base = `Na última rodada, o Nino acertou ${pct(s.ok_rate)} das ${s.total} conversas simuladas`;
+  return wrong > 0 ? `${base}, mas respondeu errado ${wrong} ${wrong === 1 ? "vez" : "vezes"}. Resposta errada é o que mais custa confiança: comece por elas.` : `${base} e não deu nenhuma resposta errada.`;
+}

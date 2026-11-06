@@ -39,8 +39,10 @@ export function scoreRegistration(expect, state, today) {
   d.setUTCDate(d.getUTCDate() + (want.day ?? 0));
   const wantDate = d.toISOString().slice(0, 10);
   if (tx.occurred_at !== wantDate) return { verdict: "WRONG", why: `data gravada ${tx.occurred_at} (esperado ${wantDate})` };
-  if (want.categories?.length && !want.categories.includes(tx.category)) return { verdict: "MISS", why: `categoria ${tx.category ?? "nenhuma"} (aceitas: ${want.categories.join("/")})` };
-  return { verdict: "CORRECT", why: "lançamento certo no banco" };
+  // O Nino classifica depois (worker assíncrono): sem categoria no ato não reprova, mas é medido à parte.
+  if (!tx.category) return { verdict: "CORRECT", why: "lançamento certo (categoria pendente)", categoria: "pendente" };
+  if (want.categories?.length && !want.categories.includes(tx.category)) return { verdict: "MISS", why: `categoria ${tx.category} (aceitas: ${want.categories.join("/")})`, categoria: "errada" };
+  return { verdict: "CORRECT", why: "lançamento certo no banco", categoria: "ok" };
 }
 
 export function scoreScenario({ expect, replies, state, truth, level, today }) {
@@ -70,7 +72,7 @@ export function scoreScenario({ expect, replies, state, truth, level, today }) {
 
   layers.regra = c.leak ? "WRONG" : c.dead_end ? "MISS" : "CORRECT";
   const nat = naturalness(replies, level);
-  return { verdict: res.verdict, why: res.why, layers: { ...layers, naturalidade: Number(nat.score.toFixed(2)), flags: nat.flags } };
+  return { verdict: res.verdict, why: res.why, layers: { ...layers, ...(res.categoria ? { categoria: res.categoria } : {}), naturalidade: Number(nat.score.toFixed(2)), flags: nat.flags } };
 }
 
 export function summarizeRun(results) {

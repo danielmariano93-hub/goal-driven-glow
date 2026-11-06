@@ -75,10 +75,10 @@ async function runJob(job) {
     prev = String(r.reply ?? r.error ?? r.raw ?? "");
     replies.push(prev);
   }
-  const st = await call({ action: "txs", persona: persona.id, since: conv.since });
+  let st = await call({ action: "txs", persona: persona.id, since: conv.since });
   await call({ action: "cleanup", persona: persona.id, since: conv.since });
   const res = scoreScenario({ expect: sc.expect(ctx), replies, state: { txs: st.txs ?? [] }, truth, level: sc.level, today });
-  return { scenario_id: sc.id, persona_id: persona.id, style, rep, area: sc.area, level: sc.level, ...res, turns: sent, replies, latency_ms: Date.now() - t0 };
+  return { scenario_id: sc.id, persona_id: persona.id, style, rep, area: sc.area, level: sc.level, ...res, state: st.txs ?? [], turns: sent, replies, latency_ms: Date.now() - t0 };
 }
 const fail = (job, why) => ({ scenario_id: job.sc.id, persona_id: job.persona.id, style: job.style, rep: job.rep, area: job.sc.area, level: job.sc.level, verdict: "INFRA", why, layers: {}, turns: [], replies: [] });
 
