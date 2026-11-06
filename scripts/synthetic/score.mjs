@@ -56,7 +56,14 @@ export function scoreScenario({ expect, replies, state, truth, level, today }) {
   if (c.infra) res = { verdict: "INFRA", why: "falha interna na resposta" };
   else if (kind === "registration") res = scoreRegistration(expect, state, today);
   else if (kind === "nowrite") res = (state?.txs?.length ?? 0) > 0 ? { verdict: "WRONG", why: "gravou lançamento depois de cancelar" } : { verdict: "CORRECT", why: "nada gravado" };
-  else if (kind === "vague") {
+  else if ((kind === "vague" || kind === "chat") && c.money.length) {
+    // Valor que existe no gabarito não é inventado: foi um palpite de contexto (MISS). Valor fora do gabarito é WRONG.
+    const known = Object.values(numericTruth).map((v) => Math.abs(Number(v)));
+    const grounded = c.money.every((t) => known.some((k) => Math.abs(Math.abs(t.value) - k) <= 0.011));
+    res = grounded
+      ? { verdict: "MISS", why: kind === "vague" ? "assumiu o contexto em vez de perguntar" : "despejou dados sem a pessoa pedir" }
+      : { verdict: "WRONG", why: "valor que não existe nos dados da pessoa" };
+  } else if (kind === "vague") {
     if (c.money.length) res = { verdict: "WRONG", why: "inventou valor numa pergunta sem contexto" };
     else if (c.dead_end) res = { verdict: "MISS", why: "beco sem saída" };
     else res = last.trim().length >= 3 ? { verdict: "CORRECT", why: "pediu contexto ou conversou" } : { verdict: "MISS", why: "vazio" };

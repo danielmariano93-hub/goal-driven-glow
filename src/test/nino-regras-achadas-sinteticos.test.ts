@@ -14,4 +14,8 @@ describe("regras nascidas de falhas dos usuários sintéticos", () => {
     expect(prompt).toMatch(/e no mês seguinte/);
     expect(prompt).toMatch(/e quanto gastei\?/);
   });
+  it("frase completa com período próprio não herda categoria nem estabelecimento", () => {
+    expect(prompt).toMatch(/35l4\. FRASE COMPLETA NÃO HERDA RECORTE/);
+    expect(prompt).toMatch(/Total do mês nunca pode sair com o valor de uma categoria só/);
+  });
 });

@@ -97,6 +97,12 @@ describe("usuários sintéticos: nota em camadas", () => {
     expect(scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["Foram R$ 300,00."], truth: {} }).verdict).toBe("WRONG");
     expect(scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["Quanto de quê? Me diz o período."], truth: {} }).verdict).toBe("CORRECT");
   });
+  it("palpite de contexto com valor real é MISS; valor que não existe nos dados é WRONG", () => {
+    const truth = { "exp:M0": 637.91 };
+    expect(scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["R$ 637,91 foi o total do mês."], truth }).verdict).toBe("MISS");
+    expect(scoreScenario({ ...base, expect: { kind: "vague" }, replies: ["R$ 999,00 foi o total do mês."], truth }).verdict).toBe("WRONG");
+    expect(scoreScenario({ ...base, expect: { kind: "chat" }, replies: ["R$ 637,91 nos últimos dias."], truth }).verdict).toBe("MISS");
+  });
   it("só perguntar nunca pode criar lançamento", () => {
     const r = scoreScenario({ ...base, expect: { kind: "answers" }, replies: ["Você gastou bastante com mercado esse mês, vale olhar."], state: { txs: [{ amount: 10, type: "expense" }] }, truth: {} });
     expect(r.verdict).toBe("WRONG");

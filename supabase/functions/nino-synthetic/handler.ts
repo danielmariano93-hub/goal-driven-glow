@@ -83,6 +83,10 @@ export async function handle(req: Request, opts: HandlerOptions = {}): Promise<R
     const { error } = await sb.from("synthetic_results").insert(rows);
     return error ? json({ error: error.message }, 500) : json({ inserted: rows.length });
   }
+  if (action === "run_delete") {
+    const { error } = await sb.from("synthetic_runs").delete().eq("id", String(body.run_id ?? ""));
+    return error ? json({ error: error.message }, 500) : json({ ok: true });
+  }
   if (action === "run_finish") {
     const { error } = await sb.from("synthetic_runs").update({ summary: body.summary ?? {}, finished_at: new Date().toISOString() }).eq("id", body.run_id);
     return error ? json({ error: error.message }, 500) : json({ ok: true });
