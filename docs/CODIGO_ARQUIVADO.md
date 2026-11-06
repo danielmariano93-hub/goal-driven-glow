@@ -42,6 +42,16 @@ O conteúdo completo continua no histórico do git; para ver um arquivo retirado
   Exceção por conta: linha em `mapa_access` (vale mais que a flag).
 - **Como recuperar o código:** `git log --diff-filter=D --oneline -- src/pages/HabitsV2.tsx` e `git show <commit>^:src/pages/HabitsV2.tsx`.
 
+## 06/11/2026 — `src/pages/admin/Cockpit.tsx` (402 linhas), rota `/admin/painel-antigo`
+
+- **O que era:** o painel "Visão geral" anterior do admin: clientes na base, novos, clientes usando o Nino, custo do assessor, tokens, latência P50/P95,
+  velocidade das telas (`ScreenSpeedStrip`) e taxa de falha de mensagens.
+- **Por que saiu:** rota escondida (sem link no menu) cuja fórmula de falha de mensagens divergia da usada nas demais telas (1,82% contra 0,37% no mesmo período)
+  e que repetia, com números diferentes, o que a Visão geral nova mostra. A Visão geral e "Nino & IA → Desempenho" cobrem tudo que era acionável.
+- **O que continua existindo:** `admin_v2_cockpit` (função do banco) segue disponível; `/admin/painel-antigo` agora redireciona para a Visão geral;
+  a velocidade das telas continua em Nino & IA → Desempenho (`ScreenPerformanceBoard`).
+- **Como recuperar:** `git log --diff-filter=D --oneline -- src/pages/admin/Cockpit.tsx` e `git show <commit>^:src/pages/admin/Cockpit.tsx`.
+
 ## Verificado e NÃO retirado
 
 - `src/pages/AssessorAcompanhamentoV2.tsx` e `src/pages/MapaPage.tsx`: em uso (`NinoHub.tsx` e `Emocoes.tsx`).

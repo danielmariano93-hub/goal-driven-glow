@@ -4,6 +4,7 @@ import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 import { BrainCircuit, Gauge, Loader2, Scale, ShieldCheck, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -272,7 +273,7 @@ export function AiProviderBenchmarkBoard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={b.daily ?? []}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} {...xAxisProps(30)} tickFormatter={dayTick} />
                     <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(Number(v) / 1000).toFixed(1)}s`} />
                     <Tooltip formatter={(v: number) => seconds(v)} />
                     <Legend />
@@ -295,7 +296,7 @@ export function AiProviderBenchmarkBoard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={b.daily ?? []}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} {...xAxisProps(30)} tickFormatter={dayTick} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(v: number) => number(v, 1)} />
                     <Legend />

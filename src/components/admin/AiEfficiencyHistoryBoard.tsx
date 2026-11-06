@@ -10,6 +10,7 @@ import {
   Area, AreaChart, CartesianGrid, Legend, Line, LineChart,
   ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
+import { dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 import { Activity, Gauge, Loader2, TrendingDown, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminMetricCard } from "@/components/admin/AdminMetricCard";
@@ -377,7 +378,7 @@ export function AiEfficiencyHistoryBoard() {
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={tokenSeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} {...xAxisProps(30)} tickFormatter={dayTick} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip content={<DayTooltip mode="tokens" />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -406,7 +407,7 @@ export function AiEfficiencyHistoryBoard() {
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={latencySeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+              <XAxis dataKey="day" tick={{ fontSize: 11 }} {...xAxisProps(30)} tickFormatter={dayTick} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false}
                 tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
               <Tooltip content={<DayTooltip mode="ai" />} />
@@ -434,7 +435,7 @@ export function AiEfficiencyHistoryBoard() {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={e2eSeries} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                <XAxis dataKey="day" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={24} />
+                <XAxis dataKey="day" tick={{ fontSize: 11 }} {...xAxisProps(30)} tickFormatter={dayTick} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}s`} />
                 <Tooltip content={<DayTooltip mode="e2e" />} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />

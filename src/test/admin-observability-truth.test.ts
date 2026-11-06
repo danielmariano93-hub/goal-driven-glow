@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 
 const migration = readFileSync("supabase/migrations/20260918211500_admin_observability_truth.sql", "utf8");
 const historyMigration = readFileSync("supabase/migrations/20260918211600_admin_ai_history_truth.sql", "utf8");
-const cockpit = readFileSync("src/pages/admin/Cockpit.tsx", "utf8");
+const overview = readFileSync("src/pages/admin/CentralDeComando.tsx", "utf8");
+const efficiency = readFileSync("src/components/admin/AiEfficiencyTruthBoard.tsx", "utf8");
 const aiCharts = readFileSync("src/components/admin/AiOpsCharts.tsx", "utf8");
 const truthBoard = readFileSync("src/components/admin/AiEfficiencyTruthBoard.tsx", "utf8");
 const trendChart = readFileSync("src/components/admin/kit/TrendChart.tsx", "utf8");
@@ -36,15 +37,11 @@ describe("admin observability truth", () => {
     expect(messages).toContain("spBoundary(f.to, true)");
   });
 
-  it("puts tokens and latency directly on the overview", () => {
-    expect(cockpit).toContain("IA e eficiência");
-    expect(cockpit).toContain("Tokens consumidos");
-    expect(cockpit).toContain("Tokens / interação");
-    expect(cockpit).toContain("Latência IA P50");
-    expect(cockpit).toContain("Latência IA P95");
-    expect(cockpit).toContain("Tempo total P95");
-    expect(cockpit).toContain("<AiOpsCharts");
-    expect(cockpit).toContain("series={aiOps?.series ?? []}");
+  it("mostra tempo de resposta na Visão geral e deixa custo/tokens como contexto recolhido", () => {
+    expect(overview).toContain('title="Tempo de resposta"');
+    expect(overview).toContain('data-testid="context-section"');
+    expect(overview).toContain("Tokens (todas as funções)");
+    expect(efficiency).toContain("<AiOpsCharts");
   });
 
   it("keeps all three reference-style AI charts and reuses them in overview and detail", () => {

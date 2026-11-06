@@ -188,7 +188,7 @@ function AiConsumptionPanels({ days }: { days: number }) {
 }
 
 /** Gráficos e rankings de desempenho da IA (latência, tokens, custo, modelos). */
-export function AiPerformance({ data }: { data: CommandCenterData }) {
+export function AiPerformance({ data, hideLatency = false }: { data: CommandCenterData; hideLatency?: boolean }) {
   const daily = data.daily;
   const latency: SmoothSeries[] = [
     { key: "p50", label: "Típica (mediana)", kind: "area", color: "hsl(var(--primary))", format: formatMs },
@@ -204,9 +204,11 @@ export function AiPerformance({ data }: { data: CommandCenterData }) {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Tempo de resposta" subtitle="Da pergunta até a resposta, por dia" legend={latency}>
-          <SmoothChart data={daily} xKey="day" series={latency} formatX={dayLabel} formatY={formatMs} />
-        </Panel>
+        {!hideLatency && (
+          <Panel title="Tempo de resposta" subtitle="Da pergunta até a resposta, por dia" legend={latency}>
+            <SmoothChart data={daily} xKey="day" series={latency} formatX={dayLabel} formatY={formatMs} />
+          </Panel>
+        )}
         <Panel title="Tokens e custo das conversas" subtitle={tokenData.some((d) => d.tokens > 0) ? `≈ ${formatUsd(perTurn)} por conversa · ${data.cost_note}` : "Nenhuma conversa usou IA neste período (o registro rápido resolveu). Veja abaixo o consumo de IA de todas as funções."} legend={tokens}>
           <SmoothChart data={tokenData} xKey="day" series={tokens} formatX={dayLabel} formatY={formatCompact} formatYRight={(v) => `$${v.toFixed(3).replace(".", ",")}`} />
         </Panel>
@@ -281,12 +283,15 @@ function Overview({ data }: { data: CommandCenterData }) {
     { key: "errors", label: "Com erro", kind: "line", color: "hsl(var(--destructive))", format: formatInt },
     { key: "undelivered", label: "Resposta não entregue", kind: "line", color: "hsl(var(--warning))", format: formatInt },
   ];
+  const latencySeries: SmoothSeries[] = [
+    { key: "p50", label: "Típica (mediana)", kind: "area", color: "hsl(var(--primary))", format: formatMs },
+    { key: "p95", label: "Mais lentas (95%)", kind: "line", color: "hsl(var(--warning))", dashed: true, format: formatMs },
+  ];
   const msg: SmoothSeries[] = [
     { key: "delivered", label: "Entregues", kind: "area", color: "hsl(var(--success))", format: formatInt },
     { key: "failed", label: "Falharam", kind: "line", color: "hsl(var(--destructive))", format: formatInt },
   ];
   const spark = (k: keyof CommandCenterData["daily"][number]) => daily.map((d) => Number(d[k] ?? 0));
-  const perTurn = t.turns > 0 ? t.cost / t.turns : 0;
 
   const ai = useAiConsumption(data.window_days || 7);
   // Falhas de IA em qualquer função entram junto das conversas com falha.
@@ -313,21 +318,12 @@ function Overview({ data }: { data: CommandCenterData }) {
       <OpsAlertsPanel />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} hint="reais: sem simulador e sem contas de teste" />
-        <MetricTile label="Pessoas que conversaram" value={formatInt(t.users)} deltaPct={pctDelta(t.users, t.users_prev)} polarity="higher_is_better" spark={spark("users")} />
+        <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} hint={`${formatInt(t.users)} pessoa${t.users === 1 ? "" : "s"} · reais: sem simulador e sem contas de teste`} />
         <MetricTile label="Conversas sem erro" value={formatPct(success)} deltaPct={pctDelta(success, successPrev)} polarity="higher_is_better" spark={daily.map((d) => (d.turns ? 100 - (d.errors / d.turns) * 100 : 100))} hint={`${formatInt(Math.round(t.err_rate * t.turns))} com erro · pedir um dado (ex.: faltou o valor) não conta como erro`} />
         <MetricTile label="Mensagens entregues" value={formatPct(data.messaging.total > 0 ? 1 - data.messaging.failed / data.messaging.total : 1)} polarity="higher_is_better" spark={data.messaging.daily.map((d) => (d.sent + d.failed > 0 ? 100 - (d.failed / Math.max(1, d.sent + d.failed)) * 100 : 100))} hint={data.messaging.failed > 0 ? `${formatInt(data.messaging.failed)} não chegaram` : "todas chegaram"} />
         <MetricTile label="Tempo típico" value={formatMs(t.p50)} deltaPct={pctDelta(t.p50, t.p50_prev)} polarity="lower_is_better" spark={spark("p50")} hint={`as mais lentas: ${formatMs(t.p95)}`} />
       </div>
 
-      <details className="surface-card px-4 py-3" data-testid="ai-cost-context">
-        <summary className="cursor-pointer text-sm font-semibold">Custo de IA (contexto, não é alerta)</summary>
-        <p className="mt-1 text-xs text-muted-foreground">Inclui todas as funções e o simulador: o que o simulador gasta também é dinheiro. Por isso estes números não batem com o de conversas reais.</p>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
-          <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
-        </div>
-      </details>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Conversas por dia" subtitle="Volume e quantas terminaram em falha" legend={volume}>
@@ -338,28 +334,42 @@ function Overview({ data }: { data: CommandCenterData }) {
         </Panel>
       </div>
 
-      <AiPerformance data={data} />
+      <Panel title="Tempo de resposta" subtitle="Da pergunta até a resposta, por dia: a linha tracejada são as mais lentas" legend={latencySeries}>
+        <SmoothChart data={daily} xKey="day" series={latencySeries} formatX={dayLabel} formatY={formatMs} />
+      </Panel>
+
+      <Panel title="O que mais dá errado" subtitle="Conversas e chamadas de IA que falharam, da causa mais frequente para a menos">
+        <RankedBars empty="Nenhuma falha no período, nas conversas nem nas chamadas de IA." rows={errorRows} />
+      </Panel>
 
       <SystemRoutines services={ops.data?.services ?? []} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="O que mais dá errado" subtitle="Conversas e chamadas de IA que falharam, da causa mais frequente para a menos">
-          <RankedBars empty="Nenhuma falha no período, nas conversas nem nas chamadas de IA." rows={errorRows} />
-        </Panel>
-        <Panel title="Por canal" subtitle="Onde as pessoas conversam com o Nino">
-          <RankedBars
-            empty="Sem conversas no período."
-            rows={data.by_channel.map((c) => ({
-              key: c.channel,
-              label: c.channel === "whatsapp" ? "WhatsApp" : c.channel === "app" ? "App" : c.channel,
-              value: c.turns,
-              valueLabel: formatInt(c.turns),
-              danger: c.error_rate >= 0.25,
-              meta: `lentas ${formatMs(c.p95)} · falha ${formatPct(c.error_rate)}`,
-            }))}
-          />
-        </Panel>
-      </div>
+      <details className="surface-card p-4 md:p-5" data-testid="context-section">
+        <summary className="cursor-pointer font-display text-base font-semibold">
+          Custo, eficiência e canais <span className="ml-1 text-xs font-normal text-muted-foreground">contexto, não é alerta</span>
+        </summary>
+        <p className="mt-1 text-xs text-muted-foreground">Inclui todas as funções e o simulador (o que o simulador gasta também é dinheiro), por isso não bate com o de conversas reais.</p>
+        <div className="mt-4 space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <MetricTile label="Tokens (todas as funções)" value={formatCompact(allTokens)} polarity="neutral" spark={(ai.data?.daily ?? []).map((d) => d.tokens_in + d.tokens_out)} hint={`conversas: ${formatCompact(t.tin + t.tout)}`} />
+            <MetricTile label="Custo de IA (todas as funções)" value={formatUsd(allCost)} polarity="lower_is_better" spark={(ai.data?.daily ?? []).map((d) => d.cost_usd)} hint={`conversas: ${formatUsd(t.cost)}`} />
+          </div>
+          <AiPerformance data={data} hideLatency />
+          <Panel title="Por canal" subtitle="Onde as pessoas conversam com o Nino">
+            <RankedBars
+              empty="Sem conversas no período."
+              rows={data.by_channel.map((c) => ({
+                key: c.channel,
+                label: c.channel === "whatsapp" ? "WhatsApp" : c.channel === "app" ? "App" : c.channel,
+                value: c.turns,
+                valueLabel: formatInt(c.turns),
+                danger: c.error_rate >= 0.25,
+                meta: `lentas ${formatMs(c.p95)} · falha ${formatPct(c.error_rate)}`,
+              }))}
+            />
+          </Panel>
+        </div>
+      </details>
     </div>
   );
 }

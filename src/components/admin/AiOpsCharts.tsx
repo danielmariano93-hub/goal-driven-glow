@@ -11,6 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { dayTick } from "@/lib/admin/chartFormat";
 
 export type AiOpsPoint = {
   day: string;
@@ -54,7 +55,7 @@ const C = {
   card: "hsl(var(--card))",
 };
 
-const axisDayLabel = (day: string) => String(day ?? "").slice(0, 10);
+const axisDayLabel = (day: string) => dayTick(day);
 const tooltipDayLabel = (day: string) => String(day ?? "").slice(0, 10);
 const int = (value: number | null | undefined) => value == null
   ? "—"
