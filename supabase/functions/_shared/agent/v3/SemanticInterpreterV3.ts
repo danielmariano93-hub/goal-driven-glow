@@ -96,7 +96,7 @@ const financialTaskPayloadSchema = {
     operation: { type: "string", enum: ["value", "sum", "rank", "breakdown", "compare", "trend", "forecast", "explain"] },
     group_by: {
       type: "array",
-      maxItems: 1,
+      maxItems: 2,
       items: { type: "string", enum: ["category", "merchant", "card", "account", "month", "weekday", "day", "week", "quarter"] },
     },
     filters: {
@@ -292,6 +292,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 35l. "Quanto sobra até o fim do mês?", "como vou fechar o mês?", "projeção do mês", "vou terminar o mês no azul?" = financial_query metric=expense_amount operation=forecast, filters=[], group_by=[], periods=["este mês"]. Nunca peça esclarecimento.
 35m. Caixa/saldo FUTURO e alertas de caixa: "por que o caixa fica negativo?", "me explica melhor" logo depois de um aviso de "caixa fica negativo" ou "saldo projetado", "quais lançamentos futuros pesam?", "o que vence nos próximos dias e vai me deixar no vermelho?", "como vai ficar meu saldo até dia 10?" = financial_query metric=balance operation=forecast, filters=[], group_by=[], periods=[] (NÃO coloque "próximos 10 dias" como período: a projeção já cobre os próximos dias). Se o turno anterior do Nino foi um alerta proativo e a pessoa pede para explicar, é este caso: nunca pergunte "qual período ou item".
 35r. Cadastro: "quais cartões eu tenho?", "quais contas eu tenho?", "lista meus cartões" = financial_query metric=balance, operation=breakdown, group_by=[card] (ou [account]), filters=[], periods=[]. Para os dois juntos use group_by=[account] numa query e [card] em outra.
+35s2. DOIS AGRUPAMENTOS: "gasto por categoria em cada mês", "por cartão e por categoria", "estabelecimento por dia da semana" = financial_query operation=breakdown (ou rank) com group_by de DUAS dimensões diferentes, na ordem em que a pessoa disse (ex.: [category, month]). Nunca repita a mesma dimensão, não use dois recortes de tempo juntos e não agrupe por uma dimensão que já está fixada num filtro.
 35s. DIMENSÃO QUE NÃO EXISTE: group_by só aceita category, merchant, card, account, month, weekday, day, week, quarter. Se a pessoa pedir quebra/ranking por OUTRA dimensão (hora do dia, tamanho do gasto, banco emissor, qualquer coisa fora dessa lista), NÃO escolha a mais parecida: group_by=[] e unavailable_dimension=a expressão dita. Só use unavailable_dimension para dimensão de quebra ausente do schema, nunca para período, filtro ou métrica.
 35t. TICKET ALIMENTAÇÃO / vale-refeição / vale-alimentação ("quanto tenho de ticket?", "meu saldo do ticket", "o ticket dá até o dia 5?", "quanto posso gastar por dia no ticket?") = financial_query metric=benefit_balance, operation=value, filters=[], group_by=[], periods=[]. O ticket NÃO é saldo de conta: nunca use metric=balance para ele.
 35w. LISTA DE LANÇAMENTOS ("liste meus gastos", "me mostra meus gastos de outubro", "quais foram meus gastos com mercado?", "lista o que gastei ontem") = financial_query metric=transaction_list, operation=value, filters=[category e/ou merchant só se ditos], periods=[o período dito] (sem período: o mês atual). Pedir para LISTAR/MOSTRAR os gastos um a um é transaction_list; ranking ("onde mais gastei?") continua expense_amount rank.

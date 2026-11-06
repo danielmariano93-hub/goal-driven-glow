@@ -2,6 +2,7 @@
 // proactive_multifinance.v1 — ranking determinístico e orçamento de atenção.
 // A cota de interrupção é escassa: fala quem tem maior impacto material,
 // urgência real, confiança suficiente e ação executável.
+import { normalizeSeverity } from "./severity.ts";
 import { insightValue, isAppTaskKind, materialityFloor } from "../intelligence/insightValue.ts";
 import { effectiveScore, shouldDeferByTiming } from "./behavioralTiming.ts";
 import { repeatedKind, type RecentDelivery } from "./repetition.ts";
@@ -34,6 +35,7 @@ export function scoreSituations(
   ctx: MultiFinanceProactiveContext,
 ): FinancialSituation[] {
   return situations
+    .map((raw) => normalizeSeverity(raw, ctx.monthly_income))
     .map((situation) => {
       const learning = ctx.learning[situation.communication_kind] ?? {
         dismissals: 0, actions: 0, false_positives: 0,

@@ -283,8 +283,10 @@ export async function computeNextBestAction(
         goal_id: null,
         goal_name: null,
       };
-      headline =
-        "Meu próximo passo é corrigir a verdade financeira primeiro. Enquanto houver divergência relevante, eu não vou te recomendar corte, aporte ou mudança de meta com base em um número inseguro.";
+      // Nunca beco sem saída: diz o que revisar (quantas divergências) e o que ainda dá para fazer enquanto isso.
+      headline = reconciliationIssues > 0
+        ? `Antes de recomendar corte ou aporte, preciso que você revise ${reconciliationIssues} divergência${reconciliationIssues === 1 ? "" : "s"} nos seus números (em Nino, na tela de conferência). Enquanto isso, o que posso afirmar com segurança é o que já está lançado: posso mostrar seus gastos por categoria e o que vence nos próximos dias.`
+        : "Os números do caixa ainda não estão confiáveis o bastante para eu recomendar corte ou aporte. Para destravar, confirme os saldos das suas contas. Enquanto isso, posso mostrar seus gastos por categoria e o que vence nos próximos dias.";
       break;
     }
 

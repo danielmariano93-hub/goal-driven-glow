@@ -32,6 +32,8 @@ export function normalizePaymentMethod(raw: string): "credit_card" | "account" |
   return null;
 }
 
+const TIME_DIMS = ["day", "week", "month", "quarter", "weekday"];
+
 export type GenericMapping = {
   tool: typeof GENERIC_AGGREGATE_TOOL;
   capability: "financial_analysis";
@@ -46,9 +48,15 @@ export function genericAggregateMapping(
   const metric = q.metric === "income_amount" ? "income" : q.metric === "expense_amount" ? "expense" : null;
   if (!metric) return null;
   if (!OPERATIONS.has(q.operation)) return null;
-  if (q.group_by.length > 1) return null;
-  const group = q.group_by[0] ?? null;
-  if (group && !(AGG_DIMENSIONS as readonly string[]).includes(group)) return null;
+  if (q.group_by.length > 2) return null;
+  const groups = q.group_by as string[];
+  if (groups.some((g) => !(AGG_DIMENSIONS as readonly string[]).includes(g))) return null;
+  // Dimensão repetida, dois recortes de tempo juntos ou mais de duas dimensões não têm leitura única.
+  if (new Set(groups).size !== groups.length) return null;
+  if (groups.filter((g) => TIME_DIMS.includes(g)).length > 1) return null;
+  const group = groups[0] ?? null;
+  // Dois agrupamentos pedem uma tabela (detalhamento/ranking); série e total não.
+  if (groups.length === 2 && !["breakdown", "rank"].includes(q.operation)) return null;
 
   const seen = new Set<string>();
   const scope: Record<string, string> = {};
@@ -64,18 +72,19 @@ export function genericAggregateMapping(
     scope[f.field] = value;
   }
   // Receita não tem categoria de despesa: o resolvedor de categoria é só de gasto.
-  if (metric === "income" && (scope.category || group === "category")) return null;
+  if (metric === "income" && (scope.category || groups.includes("category"))) return null;
   // Dimensão já fixada por filtro de igualdade não faz sentido agrupar.
-  if (group && seen.has(group)) return null;
+  if (groups.some((g) => seen.has(g))) return null;
 
   const period = q.period ?? ir.period;
   if (!period?.from || !period?.to) return null;
   const days = daysBetween(period.from, period.to);
   if (days < 1) return null;
-  if (group && MAX_DAYS_BY_GRAIN[group] && days > MAX_DAYS_BY_GRAIN[group]) return null;
+  if (groups.some((g) => MAX_DAYS_BY_GRAIN[g] && days > MAX_DAYS_BY_GRAIN[g])) return null;
 
-  const timeSeries = group != null && ["day", "week", "month", "quarter", "weekday"].includes(group);
-  const limit = timeSeries ? null : (q.limit ?? (q.operation === "rank" ? DEFAULT_RANK_LIMIT : null));
+  const timeSeries = groups.length === 1 && ["day", "week", "month", "quarter", "weekday"].includes(groups[0]);
+  // Tabela de duas dimensões cresce rápido: limite padrão de 20 linhas, com "outros N grupos" no texto.
+  const limit = timeSeries ? null : (q.limit ?? (groups.length === 2 ? 20 : q.operation === "rank" ? DEFAULT_RANK_LIMIT : null));
   // Tendência só existe como série: sem dimensão de tempo o motor devolveria um
   // total e a resposta seria de outra pergunta.
   // "Por dia da semana" chega às vezes como `trend`: o padrão por dia da semana é o
@@ -90,7 +99,7 @@ export function genericAggregateMapping(
     execution: "deterministic",
     args: {
       metric, from: period.from, to: period.to,
-      group_by: group ? [group] : [],
+      group_by: groups,
       ...scope,
       ...(limit ? { limit } : {}),
     },

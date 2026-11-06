@@ -92,6 +92,14 @@ function similarity(a: string, b: string): number {
   return hits / Math.max(setA.size, setB.size);
 }
 
+/** Quanto tempo um tópico aceita continuação por elipse. */
+export const TOPIC_FOLLOWUP_TTL_MS = 3 * 60 * 60 * 1000;
+export function topicIsFresh(updatedAt: string | null | undefined, nowMs: number): boolean {
+  const t = Date.parse(String(updatedAt ?? ""));
+  if (!Number.isFinite(t)) return true; // sem data: mantém o comportamento anterior
+  return nowMs - t <= TOPIC_FOLLOWUP_TTL_MS;
+}
+
 let topicSeq = 0;
 function newTopicId(): string {
   topicSeq = (topicSeq + 1) % 100000;
@@ -111,6 +119,8 @@ export function resolveTopicForTurn(args: {
   entities?: string[];
   explicit_period_override?: boolean;
   explicit_entity_override?: boolean;
+  /** Relógio injetável (teste). */
+  now_ms?: number;
 }): TopicResolution {
   const state = normalizeTopicState(args.state);
   const acts = args.acts ?? ["new_query"];
@@ -164,7 +174,10 @@ export function resolveTopicForTurn(args: {
   // "Por quê?" ou "Quais os estabelecimentos?" não pode derrubar o foco que já
   // estava resolvido. Novo tópico exige uma mensagem autossuficiente, não uma
   // elipse marcada como follow-up.
-  if (active && (isRepair || isConstraintUpdate || isFollowup)) {
+  // Assunto antigo não vence a última mensagem: uma elipse ("e por quê?") horas depois não se refere ao tópico de ontem.
+  // Passado o prazo, vira mensagem nova (e o agente pergunta do que se trata); "voltando ao assunto…" ainda retoma.
+  const activeIsFresh = !active || topicIsFresh(active.updated_at, args.now_ms ?? Date.now());
+  if (active && activeIsFresh && (isRepair || isConstraintUpdate || isFollowup)) {
     // Repair/follow-up mantém topic_id e herda período/entidades, salvo override explícito.
     const topic: ConversationTopic = {
       ...active,
