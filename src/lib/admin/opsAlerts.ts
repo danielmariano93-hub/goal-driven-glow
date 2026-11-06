@@ -18,6 +18,8 @@ export interface OpsAlertSettings {
   notify_whatsapp: boolean;
   renotify_minutes: number;
   whatsapp_to: string | null;
+  /** De quanto em quanto tempo o Nino confere se o servidor do WhatsApp está no ar (1 a 168 h). */
+  waha_check_hours: number;
 }
 
 export interface OpsAlertsData {
@@ -40,7 +42,7 @@ export function useSaveOpsAlertSettings() {
   return useMutation({
     mutationFn: (s: OpsAlertSettings) =>
       callAdminRpc("admin_ops_alert_settings_save", {
-        _enabled: s.enabled, _ntfy_topic: s.ntfy_topic, _notify_whatsapp: s.notify_whatsapp, _renotify_minutes: s.renotify_minutes, _whatsapp_to: s.whatsapp_to,
+        _enabled: s.enabled, _ntfy_topic: s.ntfy_topic, _notify_whatsapp: s.notify_whatsapp, _renotify_minutes: s.renotify_minutes, _whatsapp_to: s.whatsapp_to, _waha_check_hours: s.waha_check_hours,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-ops-alerts"] }),
   });

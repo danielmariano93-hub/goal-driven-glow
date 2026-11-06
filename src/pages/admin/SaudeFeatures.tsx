@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/admin/PageHeader";
 import { FeatureHealthPanel } from "@/components/admin/FeatureHealth";
+import { OpenAlertsList } from "@/components/admin/OpsAlerts";
 
 export default function SaudeFeatures() {
   return (
@@ -8,6 +9,7 @@ export default function SaudeFeatures() {
         title="Saúde das features"
         description="Cada linha responde se uma feature está entregando o que deveria. O que parar ou quebrar aparece aqui e chega até você no app e no WhatsApp."
       />
+      <OpenAlertsList />
       <FeatureHealthPanel />
     </div>
   );

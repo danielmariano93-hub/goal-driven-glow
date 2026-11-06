@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Copy, Shield, Sliders, Key, Info } from "lucide-react";
 import { today } from "@/lib/engine/ninoClock";
+import { OpsAlertsPanel } from "@/components/admin/OpsAlerts";
 
 const DENSE_KEY = "admin.density.dense";
 const COLLAPSED_KEY = "admin.sidebar.collapsed";
@@ -55,6 +56,8 @@ export default function Configuracoes() {
         title="Configurações"
         description="Preferências da plataforma e do seu acesso administrativo."
       />
+
+      <OpsAlertsPanel />
 
       <Section title="Sua conta administrativa" icon={Shield}>
         <div className="surface-card p-5 space-y-3 text-sm">

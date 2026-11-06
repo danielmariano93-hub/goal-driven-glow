@@ -11,8 +11,8 @@ import { PRESET_LABELS, resolvePreset, type PeriodPresetKey, type PeriodRange } 
 import { useCommandCenter, useOpsHealth } from "@/lib/admin/useCommandCenter";
 import { dict } from "@/lib/admin/displayDictionary";
 import { useAiConsumption, workloadLabel } from "@/lib/admin/aiConsumption";
-import { OpsAlertsPanel } from "@/components/admin/OpsAlerts";
 import { FeatureHealthStrip } from "@/components/admin/FeatureHealth";
+import { UndeliveredMessages } from "@/components/admin/UndeliveredMessages";
 import {
   buildAttention, errorLabel, modelName, serviceState, servicesAttention, type OpsService, formatCompact, formatInt, formatMs, formatPct, formatUsd, pathLabel, pctDelta,
   type AttentionItem, type CommandCenterData,
@@ -70,6 +70,12 @@ function AttentionBoard({ items }: { items: AttentionItem[] }) {
                 <p className={`text-[10px] font-bold uppercase tracking-wider ${s.tone}`}>{s.label}</p>
                 <p className="font-semibold leading-snug">{item.title}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
+                {item.expand === "undelivered" && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs font-semibold text-primary hover:underline">Ver o que aconteceu e o que fazer</summary>
+                    <UndeliveredMessages />
+                  </details>
+                )}
                 {item.to && (
                   <Link to={item.to} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
                     Ver e agir <ArrowRight size={12} aria-hidden />
@@ -315,7 +321,6 @@ function Overview({ data }: { data: CommandCenterData }) {
     <div className="space-y-6">
       <FeatureHealthStrip />
       <AttentionBoard items={attention} />
-      <OpsAlertsPanel />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="Conversas" value={formatInt(t.turns)} deltaPct={pctDelta(t.turns, t.turns_prev)} polarity="higher_is_better" spark={spark("turns")} hint={`${formatInt(t.users)} pessoa${t.users === 1 ? "" : "s"} · reais: sem simulador e sem contas de teste`} />

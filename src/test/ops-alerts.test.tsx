@@ -19,14 +19,14 @@ import { OpsAlertsBanner, OpsAlertsPanel } from "@/components/admin/OpsAlerts";
 const wrap = (ui: React.ReactElement) => <QueryClientProvider client={new QueryClient()}><MemoryRouter>{ui}</MemoryRouter></QueryClientProvider>;
 const base: OpsAlertsData = {
   open: [], recent: [],
-  settings: { enabled: true, ntfy_topic: null, notify_whatsapp: true, renotify_minutes: 120, whatsapp_to: null },
+  settings: { enabled: true, ntfy_topic: null, notify_whatsapp: true, renotify_minutes: 120, whatsapp_to: null, waha_check_hours: 12 },
 };
 
 describe("alertas de funcionamento no admin", () => {
   it("sem alerta aberto, a faixa não aparece e o painel diz que está tudo funcionando", async () => {
     current = base;
     const { container } = render(wrap(<><OpsAlertsBanner /><OpsAlertsPanel /></>));
-    await screen.findByText("Tudo funcionando agora.");
+    await screen.findByText("Nenhum aviso aberto agora.");
     expect(container.querySelector('[data-testid="ops-alerts-banner"]')).toBeNull();
   });
   it("com alerta crítico aberto, a faixa mostra o problema, o tempo e os outros alertas", async () => {

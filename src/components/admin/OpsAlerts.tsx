@@ -18,8 +18,29 @@ export function OpsAlertsBanner() {
         <p className="font-semibold">{first.title}</p>
         <p className="text-xs text-muted-foreground">{first.detail ?? ""} {sinceText(first.since)}{open.length > 1 ? ` · mais ${open.length - 1} alerta${open.length > 2 ? "s" : ""}` : ""}</p>
       </div>
-      <Link to="/admin" className="shrink-0 text-xs font-semibold text-primary hover:underline">Ver detalhes</Link>
+      <Link to="/admin/saude" className="shrink-0 text-xs font-semibold text-primary hover:underline">Ver detalhes</Link>
     </div>
+  );
+}
+
+/** Avisos de funcionamento abertos agora (some quando não há nenhum). Fica na página de saúde, não na home. */
+export function OpenAlertsList() {
+  const { data } = useOpsAlerts();
+  const open = data?.open ?? [];
+  if (open.length === 0) return null;
+  return (
+    <section aria-label="Avisos de funcionamento abertos" className="space-y-2" data-testid="open-alerts-list">
+      <h2 className="font-display text-sm font-semibold">Avisos de funcionamento abertos</h2>
+      <ul className="space-y-2">
+        {open.map((a) => (
+          <li key={a.key} className={`rounded-2xl border px-3.5 py-3 ${a.severity === "critical" ? "border-destructive/40 bg-destructive/5" : "border-warning/50 bg-warning/5"}`}>
+            <p className="text-sm font-semibold">{a.title}</p>
+            <p className="text-xs text-muted-foreground">{a.detail} · {sinceText(a.since)}</p>
+          </li>
+        ))}
+      </ul>
+      <Link to="/admin/administracao?secao=configuracoes" className="text-xs font-semibold text-primary hover:underline">Onde e com que frequência receber os avisos</Link>
+    </section>
   );
 }
 
@@ -39,12 +60,12 @@ export function OpsAlertsPanel() {
         <BellRing size={20} className="mt-0.5 shrink-0 text-primary" aria-hidden />
         <div>
           <h2 className="font-display text-base font-semibold">Alertas de funcionamento</h2>
-          <p className="text-xs text-muted-foreground">O Nino confere a cada 5 minutos se o WhatsApp, as rotinas e a IA estão funcionando e avisa você quando algo cai.</p>
+          <p className="text-xs text-muted-foreground">O Nino confere mensagens presas, rotinas e IA a cada 5 minutos (é barato) e se o servidor do WhatsApp está no ar no intervalo que você escolher abaixo. Quando algo cai, avisa você.</p>
         </div>
       </header>
 
       {data.open.length === 0 ? (
-        <p className="flex items-center gap-2 rounded-2xl bg-success/10 px-3 py-2.5 text-sm text-success"><CheckCircle2 size={16} aria-hidden /> Tudo funcionando agora.</p>
+        <p className="flex items-center gap-2 rounded-2xl bg-success/10 px-3 py-2.5 text-sm text-success"><CheckCircle2 size={16} aria-hidden /> Nenhum aviso aberto agora.</p>
       ) : (
         <ul className="space-y-2">
           {data.open.map((a) => (
@@ -67,6 +88,12 @@ export function OpsAlertsPanel() {
           <input className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" inputMode="tel" value={s.whatsapp_to ?? ""} maxLength={20} onChange={(e) => set({ whatsapp_to: e.target.value })} />
         </label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.notify_whatsapp} onChange={(e) => set({ notify_whatsapp: e.target.checked })} /> Também avisar no meu WhatsApp (não vale para falhas do próprio WhatsApp)</label>
+        <label className="block text-xs">Conferir se o servidor do WhatsApp está no ar a cada
+          <select className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" value={s.waha_check_hours ?? 12} onChange={(e) => set({ waha_check_hours: Number(e.target.value) })}>
+            {[1, 3, 6, 12, 24, 48, 168].map((h) => <option key={h} value={h}>{h === 168 ? "1 vez por semana" : h === 24 ? "1 vez por dia" : h === 48 ? "A cada 2 dias" : `A cada ${h} hora${h === 1 ? "" : "s"}`}</option>)}
+          </select>
+          <span className="mt-1 block text-muted-foreground">Se o WhatsApp cair, o Nino passa a conferir a cada 5 minutos até voltar.</span>
+        </label>
         <label className="block text-xs">Repetir o aviso enquanto o problema durar
           <select className="mt-1 h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" value={s.renotify_minutes} onChange={(e) => set({ renotify_minutes: Number(e.target.value) })}>
             <option value={0}>Não repetir</option>

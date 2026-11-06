@@ -1,5 +1,6 @@
 // Central de comando do admin: tipos do RPC admin_v4_command_center, regras de
 // "o que precisa de ação agora" e formatadores. Tudo puro para ser testável.
+import { failureExplained, jobProblemText } from "@/lib/admin/plainLanguage";
 
 export type CcTotals = {
   turns: number; turns_prev: number;
@@ -41,6 +42,8 @@ export type AttentionItem = {
   detail: string;
   /** Rota do admin onde a pessoa age. */
   to?: string;
+  /** Abre o detalhe no próprio lugar, sem mandar a pessoa para outra tela. */
+  expand?: "undelivered";
 };
 
 export const LIMITS = {
@@ -142,13 +145,12 @@ export function servicesAttention(services: OpsService[], label: (key: string) =
     const st = serviceState(s, now);
     if (st === "ok") continue;
     const hours = s.last_run_at ? Math.round((now - Date.parse(s.last_run_at)) / 3_600_000) : null;
+    const text = jobProblemText(label(s.job_key), s.job_key, hours, st !== "stale", s.last_error_code);
     items.push({
       key: `service_${s.job_key}`,
       severity: st === "stale" ? "critical" : "warning",
-      title: st === "stale"
-        ? `${label(s.job_key)} sem execução ${hours == null ? "comprovada" : `há ${hours} h`}`
-        : `${label(s.job_key)} falhou na última execução`,
-      detail: s.last_error_code ? `Erro: ${s.last_error_code}.` : st === "stale" ? "A rotina pode ter parado. Verifique o agendamento." : `${s.failed} item(ns) com falha.`,
+      title: text.title,
+      detail: text.detail,
     });
   }
   return items;
@@ -224,20 +226,22 @@ export function buildAttention(data: CommandCenterData, extra: AttentionItem[] =
   const m = data.messaging;
   if (m.failed > 0) {
     const share = m.total > 0 ? m.failed / m.total : 0;
+    const one = m.failed === 1;
+    const why = failureExplained(m.fail_reasons[0]?.reason);
     out.push({
       key: "delivery_failed",
       severity: share >= 0.1 ? "critical" : "warning",
-      title: `${m.failed} mensagen${m.failed === 1 ? "" : "s"} não ${m.failed === 1 ? "foi entregue" : "foram entregues"}`,
-      detail: m.fail_reasons[0] ? `Motivo mais comum: ${m.fail_reasons[0].reason}.` : "Veja o motivo na central de mensagens.",
-      to: "/admin/comunicacoes?aba=mensagens",
+      title: `${m.failed} mensage${one ? "m" : "ns"} do Nino ${one ? "não chegou" : "não chegaram"} ao celular`,
+      detail: `${why.what} ${why.means}`,
+      expand: "undelivered",
     });
   }
   if (m.stuck_queue > 0) {
     out.push({
       key: "stuck_queue",
       severity: "critical",
-      title: `${m.stuck_queue} mensagen${m.stuck_queue === 1 ? "" : "s"} parada${m.stuck_queue === 1 ? "" : "s"} na fila há mais de 15 min`,
-      detail: "O envio pode estar travado. Verifique o canal do WhatsApp.",
+      title: `${m.stuck_queue} mensagen${m.stuck_queue === 1 ? "" : "s"} esperando para sair há mais de 15 min`,
+      detail: "O envio pode estar travado: as mensagens estão na fila, mas o WhatsApp não está recebendo. Abra Mensageria e confira se a conexão do WhatsApp está ativa.",
       to: "/admin/comunicacoes?aba=mensagens",
     });
   }

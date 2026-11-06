@@ -137,7 +137,24 @@ Deno.serve(async (req) => {
       if (fhErr) console.warn("ops-feature-health", String(fhErr.message).slice(0, 160));
       else featureAlerts = (fh as Active[]) ?? [];
     } catch (e) { console.warn("ops-feature-health", String((e as Error)?.message ?? e).slice(0, 160)); }
-    const active: Active[] = [...((fromDb as Active[]) ?? []), ...featureAlerts, ...(await checkWaha(sb))];
+    // A checagem de rede do WhatsApp roda no intervalo configurado (padrão 12 h). Com aviso do WhatsApp aberto, roda a cada ciclo
+    // para perceber a volta rápido. As checagens de banco acima são baratas e seguem a cada ciclo.
+    let wahaAlerts: Active[] = [];
+    try {
+      const { data: st } = await sb.rpc("ops_waha_check_state");
+      const state = (st ?? {}) as { hours?: number; last_check_at?: string | null; open?: boolean };
+      const hours = Math.max(1, Math.min(168, Number(state.hours ?? 12)));
+      const last = state.last_check_at ? Date.parse(state.last_check_at) : 0;
+      const due = Boolean(state.open) || !last || Date.now() - last >= hours * 3_600_000;
+      if (due) {
+        wahaAlerts = await checkWaha(sb);
+        await sb.rpc("ops_waha_check_mark");
+      }
+    } catch (e) {
+      console.warn("ops-waha-check", String((e as Error)?.message ?? e).slice(0, 160));
+      wahaAlerts = await checkWaha(sb);
+    }
+    const active: Active[] = [...((fromDb as Active[]) ?? []), ...featureAlerts, ...wahaAlerts];
 
     const { data: synced, error: syncErr } = await sb.rpc("ops_alerts_sync", { _active: active });
     if (syncErr) throw new Error(`sync:${syncErr.message}`);

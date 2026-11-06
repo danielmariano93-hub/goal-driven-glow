@@ -44,7 +44,7 @@ export const ADMIN_RPC_ARGS = {
   admin_ai_consumption: ["_days"],
   admin_ops_alerts_get: [],
   admin_feature_health: [],
-  admin_ops_alert_settings_save: ["_enabled", "_ntfy_topic", "_notify_whatsapp", "_renotify_minutes", "_whatsapp_to"],
+  admin_ops_alert_settings_save: ["_enabled", "_ntfy_topic", "_notify_whatsapp", "_renotify_minutes", "_whatsapp_to", "_waha_check_hours"],
   admin_landing_plans_get: [],
   admin_landing_plans_save: ["_doc"],
 
