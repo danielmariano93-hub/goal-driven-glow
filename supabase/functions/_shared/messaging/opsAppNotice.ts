@@ -26,7 +26,7 @@ export function opsNoticeRows(
     type: "system",
     title: title.slice(0, 140),
     body: message.body.slice(0, 600),
-    action_url: "/admin/visao-geral",
+    action_url: n.key.startsWith("feature_") ? "/admin/saude" : "/admin/visao-geral",
     dedup_key: opsNoticeDedupKey(n, nowMs),
   }));
 }
