@@ -88,6 +88,8 @@ export function summarizeRun(results) {
   const nat = results.filter((r) => typeof r.layers?.naturalidade === "number");
   return {
     total, by, ok, ok_rate: total ? ok / total : 0, wrong: by.WRONG ?? 0, infra: by.INFRA ?? 0,
+    degraded: results.filter((r) => r.layers?.provedor === "degradado").length,
+    fail_in_degraded: results.filter((r) => r.layers?.provedor === "degradado" && !isPass(r.verdict)).length,
     natural_avg: nat.length ? nat.reduce((s, r) => s + r.layers.naturalidade, 0) / nat.length : null,
     by_area: group("area"), by_persona: group("persona_id"), by_style: group("style"), by_level: group("level"),
   };

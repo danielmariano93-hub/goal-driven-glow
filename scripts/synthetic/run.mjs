@@ -3,7 +3,7 @@
 //
 //   NINO_SYN_URL=https://<ref>.supabase.co/functions/v1/nino-synthetic NINO_SYN_TOKEN=<segredo> \
 //   node scripts/synthetic/run.mjs [--label=baseline] [--sha=<git>] [--personas=a,b] [--only=Q01,R01]
-//        [--styles=rotate|all|neutro,informal] [--reps=1] [--llm] [--record] [--out=resultado.json] [--no-seed]
+//        [--styles=rotate|all|neutro,informal] [--reps=1] [--tpm=150000] [--lanes=3] [--max-lanes=6] [--record] [--out=resultado.json] [--no-seed]
 //
 // Cada persona é uma conta sandbox própria: personas rodam em paralelo (memória é por pessoa), os cenários de
 // uma persona rodam em fila. Registros criados durante o cenário são conferidos no banco e apagados no fim.
@@ -12,6 +12,7 @@ import { PERSONAS, buildSpec, buildTruth, ymd } from "./personas.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 import { STYLES, applyStyle } from "./styles.mjs";
 import { scoreScenario, summarizeRun, consistency, isPass } from "./score.mjs";
+import { createGovernor, isDegraded } from "./governor.mjs";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, ...v] = a.replace(/^--/, "").split("="); return [k, v.length ? v.join("=") : "true"]; }));
 const URL_ = process.env.NINO_SYN_URL;
@@ -26,6 +27,8 @@ const styleMode = args.styles ?? "rotate";
 const now = new Date(Date.now() - 3 * 3600e3); // São Paulo
 const ref = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12));
 const today = ymd(ref);
+// Vazão: orçamento de tokens/min e concorrência adaptativa (o provedor de IA tem limite de TPM).
+const gov = createGovernor({ tokensPerMin: Number(args.tpm ?? 150000), startLimit: Number(args.lanes ?? 3), maxLimit: Number(args["max-lanes"] ?? 6) });
 
 async function call(body, tries = 2) {
   for (let i = 0; i < tries; i++) {
@@ -65,12 +68,16 @@ async function runJob(job) {
   const conv = await call({ action: "new", persona: persona.id });
   if (!conv.conversation_id) return fail(job, `não abriu conversa: ${conv.error ?? conv.raw ?? conv.status}`);
   const sent = [], replies = [];
-  let prev = "";
+  let prev = "", degradedTurns = 0;
   for (const turn of sc.turns(ctx)) {
     const item = typeof turn === "string" ? { text: turn, style: true } : { ...turn, style: false };
     if (item.ifReply && !item.ifReply.test(prev)) continue;
     const text = item.style ? applyStyle(item.text, style, `${persona.id}:${sc.id}:${rep}`) : item.text;
+    await gov.acquire();
     const r = await call({ action: "turn", persona: persona.id, conversation_id: conv.conversation_id, phone: conv.phone, text });
+    const degraded = isDegraded(r);
+    gov.release({ tokens: Number(r.run?.tokens_in ?? 0) + Number(r.run?.tokens_out ?? 0), degraded });
+    if (degraded) degradedTurns++;
     sent.push(text);
     prev = String(r.reply ?? r.error ?? r.raw ?? "");
     replies.push(prev);
@@ -78,7 +85,7 @@ async function runJob(job) {
   let st = await call({ action: "txs", persona: persona.id, since: conv.since });
   await call({ action: "cleanup", persona: persona.id, since: conv.since });
   const res = scoreScenario({ expect: sc.expect(ctx), replies, state: { txs: st.txs ?? [] }, truth, level: sc.level, today });
-  return { scenario_id: sc.id, persona_id: persona.id, style, rep, area: sc.area, level: sc.level, ...res, state: st.txs ?? [], turns: sent, replies, latency_ms: Date.now() - t0 };
+  return { scenario_id: sc.id, persona_id: persona.id, style, rep, area: sc.area, level: sc.level, ...res, layers: { ...res.layers, ...(degradedTurns ? { provedor: "degradado" } : {}) }, state: st.txs ?? [], turns: sent, replies, latency_ms: Date.now() - t0 };
 }
 const fail = (job, why) => ({ scenario_id: job.sc.id, persona_id: job.persona.id, style: job.style, rep: job.rep, area: job.sc.area, level: job.sc.level, verdict: "INFRA", why, layers: {}, turns: [], replies: [] });
 
@@ -113,7 +120,8 @@ async function main() {
   await flush(true);
   const summary = summarizeRun(results);
   summary.consistency = consistency(results);
-  console.log(JSON.stringify({ total: summary.total, ok_rate: +summary.ok_rate.toFixed(3), wrong: summary.wrong, infra: summary.infra, by: summary.by, natural_avg: summary.natural_avg && +summary.natural_avg.toFixed(2), consistency: summary.consistency }));
+  summary.governor = gov.snapshot();
+  console.log(JSON.stringify({ total: summary.total, ok_rate: +summary.ok_rate.toFixed(3), wrong: summary.wrong, infra: summary.infra, by: summary.by, natural_avg: summary.natural_avg && +summary.natural_avg.toFixed(2), consistency: summary.consistency, degradadas: summary.degraded, vazao: summary.governor }));
   if (runId) await call({ action: "run_finish", run_id: runId, summary });
   if (args.out) writeFileSync(args.out, JSON.stringify({ summary, results }, null, 1));
   process.exit(summary.wrong > 0 && args["allow-wrong"] !== "true" ? 2 : 0);

@@ -52,6 +52,11 @@ export default function Qualidade() {
             <div><dt className="text-muted-foreground">Naturalidade das respostas</dt><dd className="text-lg font-semibold tabular-nums">{pct(synthetic[0].summary.natural_avg)}</dd></div>
           </dl>
         ) : null}
+        {synthetic[0]?.summary.degraded ? (
+          <p className="rounded-xl bg-warning/10 px-3 py-2 text-xs" data-testid="degraded-note">
+            {synthetic[0].summary.degraded} conversas rodaram com o provedor de IA degradado (limite de tokens por minuto ou falha), e {synthetic[0].summary.fail_in_degraded ?? 0} das falhas estão entre elas. Rode de novo mais devagar antes de concluir que o erro é do Nino.
+          </p>
+        ) : null}
       </section>
 
       {trend.length > 1 ? (

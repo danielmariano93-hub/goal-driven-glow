@@ -13,6 +13,8 @@ export interface RunSummary {
   infra: number;
   natural_avg: number | null;
   consistency?: number | null;
+  degraded?: number;
+  fail_in_degraded?: number;
   by_area?: Record<string, GroupStat>;
   by_persona?: Record<string, GroupStat>;
   by_style?: Record<string, GroupStat>;

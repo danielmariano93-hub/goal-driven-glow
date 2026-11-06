@@ -164,3 +164,48 @@ describe("painel de qualidade: funções puras", () => {
     expect(monthName(REF, 1)).toBe("outubro");
   });
 });
+
+import { createGovernor, isDegraded } from "../../scripts/synthetic/governor.mjs";
+
+describe("usuários sintéticos: regulador de vazão (limite de tokens por minuto)", () => {
+  const fake = () => {
+    let now = 0;
+    return { clock: () => now, sleep: async (ms: number) => { now += ms; }, advance: (ms: number) => { now += ms; } };
+  };
+  it("segura novas chamadas quando o orçamento de tokens do minuto acaba e libera depois", async () => {
+    const f = fake();
+    const g = createGovernor({ tokensPerMin: 20_000, startLimit: 3, assumedTokensPerTurn: 1_000, clock: f.clock, sleep: f.sleep });
+    await g.acquire(); g.release({ tokens: 25_000 });
+    const before = f.clock();
+    await g.acquire(); // precisa esperar a janela de 60 s esvaziar
+    expect(f.clock() - before).toBeGreaterThanOrEqual(59_000);
+    expect(g.snapshot().peak_tokens_per_min).toBe(25_000);
+  });
+  it("degradação corta a concorrência pela metade e impõe pausa; turnos limpos fazem subir de novo", async () => {
+    const f = fake();
+    const g = createGovernor({ startLimit: 4, cooldownMs: 10_000, growAfter: 2, clock: f.clock, sleep: f.sleep });
+    await g.acquire(); g.release({ tokens: 100, degraded: true });
+    expect(g.limit).toBe(2);
+    const t0 = f.clock();
+    await g.acquire(); g.release({ tokens: 100 });
+    expect(f.clock() - t0).toBeGreaterThanOrEqual(10_000 - 1);
+    await g.acquire(); g.release({ tokens: 100 });
+    expect(g.limit).toBe(3);
+    expect(g.snapshot().degraded).toBe(1);
+  });
+  it("nunca passa do limite de concorrência", async () => {
+    const f = fake();
+    const g = createGovernor({ startLimit: 2, clock: f.clock, sleep: async (ms) => { f.advance(ms); if (g.active >= 2) g.release({ tokens: 10 }); } });
+    await g.acquire(); await g.acquire();
+    expect(g.active).toBe(2);
+    await g.acquire(); // só entra depois que uma saiu
+    expect(g.active).toBeLessThanOrEqual(2);
+  });
+  it("reconhece degradação: caminho de contingência, falha do provedor e resposta técnica", () => {
+    expect(isDegraded({ run: { model: "v3-fallback:qwen->x" }, reply: "ok" })).toBe(true);
+    expect(isDegraded({ run: { model: "deterministic:provider_recover" } })).toBe(true);
+    expect(isDegraded({ status: 429 })).toBe(true);
+    expect(isDegraded({ reply: "Não consegui processar isso com segurança agora." })).toBe(true);
+    expect(isDegraded({ run: { model: "v3-primary:qwen" }, reply: "Você gastou R$ 10." })).toBe(false);
+  });
+});
