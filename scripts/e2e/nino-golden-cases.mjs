@@ -8,6 +8,7 @@
 //   chat    : conversa sem dado; nenhum valor financeiro inventado.
 //   guard   : pedido que NÃO pode ser atendido (vazar instrução, dado de outra pessoa).
 // `any: N` em numbers exige ao menos N dos valores (para respostas que listam só parte).
+// "@M0" = mês corrente (resolvido pelo runner na data da rodada): casos de "esse mês" não envelhecem.
 const T = (...keys) => ({ numbers: keys });
 const ANY = (n, ...keys) => ({ numbers: keys, any: n });
 const ANSWERS = { kind: "answers" };
@@ -23,15 +24,15 @@ export const GOLDEN = [
   { id: "A04", area: "gasto_mes", turns: ["gastei quanto em agosto?"], expect: T("exp:2026-08") },
   { id: "A05", area: "gasto_mes", turns: ["gastos de agosto"], expect: T("exp:2026-08") },
   { id: "A06", area: "gasto_mes", turns: ["quanto gastei em outubro?"], expect: T("exp:2026-10") },
-  { id: "A07", area: "gasto_mes", turns: ["quanto gastei esse mês?"], expect: T("exp:2026-10") },
+  { id: "A07", area: "gasto_mes", turns: ["quanto gastei esse mês?"], expect: T("exp:@M0") },
   { id: "A08", area: "gasto_mes", turns: ["quanto gastei em julho?"], expect: T("exp:2026-07") },
   { id: "A09", area: "receita_mes", turns: ["quanto recebi em setembro?"], expect: T("inc:2026-09") },
   { id: "A10", area: "receita_mes", turns: ["quanto entrou em agosto?"], expect: T("inc:2026-08") },
-  { id: "A11", area: "receita_mes", turns: ["quanto recebi esse mês?"], expect: T("inc:2026-10") },
+  { id: "A11", area: "receita_mes", turns: ["quanto recebi esse mês?"], expect: T("inc:@M0") },
   { id: "A12", area: "categoria", turns: ["quanto gastei com Moradia em agosto?"], expect: T("cat:2026-08:Moradia") },
   { id: "A13", area: "categoria", turns: ["gastos com Transporte em setembro"], expect: T("cat:2026-09:Transporte") },
   { id: "A14", area: "categoria", turns: ["quanto gastei com lazer em outubro?"], expect: T("cat:2026-10:Lazer") },
-  { id: "A15", area: "categoria", turns: ["quanto gastei com alimentação esse mês?"], expect: T("cat:2026-10:Alimentação") },
+  { id: "A15", area: "categoria", turns: ["quanto gastei com alimentação esse mês?"], expect: T("cat:@M0:Alimentação") },
   { id: "A16", area: "categoria", turns: ["quanto foi de dízimo em setembro?"], expect: T("cat:2026-09:Dízimo") },
   { id: "A17", area: "categoria", turns: ["gastos com saúde em outubro"], expect: T("cat:2026-10:Saúde") },
   { id: "A18", area: "categoria", turns: ["quanto gastei com assinaturas em agosto?"], expect: T("cat:2026-08:Assinaturas") },

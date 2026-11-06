@@ -66,7 +66,7 @@ describe("integridade do conjunto dourado", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const c of GOLDEN as any[]) {
       expect(c.turns.length).toBeGreaterThan(0);
-      for (const key of c.expect?.numbers ?? []) expect(key).toMatch(/^(exp|inc):\d{4}-\d{2}$|^cat:\d{4}-\d{2}:.+$|^debt:(total|installments)$/);
+      for (const key of c.expect?.numbers ?? []) expect(key).toMatch(/^(exp|inc):(\d{4}-\d{2}|@M0)$|^cat:(\d{4}-\d{2}|@M0):.+$|^debt:(total|installments)$/);
     }
   });
 });

@@ -86,6 +86,7 @@ const AdminAdministracaoHub = lazyRoute(() => import("./pages/admin/Administraca
 const AdminComunicacaoProativa = lazyRoute(() => import("./pages/admin/ComunicacaoProativa"));
 const AdminNinoIA = lazyRoute(() => import("./pages/admin/NinoIA"));
 const AdminSaudeFeatures = lazyRoute(() => import("./pages/admin/SaudeFeatures"));
+const AdminQualidade = lazyRoute(() => import("./pages/admin/Qualidade"));
 
 
 
@@ -218,6 +219,7 @@ const App = () => (
                 <Route index element={<AdminCentralDeComando />} />
                 <Route path="visao-geral" element={<AdminCentralDeComando />} />
                 <Route path="saude" element={<AdminSaudeFeatures />} />
+                <Route path="qualidade" element={<AdminQualidade />} />
                 <Route path="painel-antigo" element={<Navigate to="/admin/visao-geral" replace />} />
                 <Route path="clientes" element={<AdminClientes />} />
                 <Route path="clientes/:pseudoId" element={<AdminClienteFicha />} />

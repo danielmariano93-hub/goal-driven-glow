@@ -56,7 +56,9 @@ async function runCase(testCase) {
   return { id: testCase.id, area: testCase.area, turns: testCase.turns, reply, replies, run_id: last?.run_id ?? null, run: last?.run ?? null, ...score(testCase, reply, truth) };
 }
 
-const queue = GOLDEN.filter((c) => !only.size || only.has(c.id));
+const M0 = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 7); // mês corrente (UTC-3)
+const withMonth = (c) => ({ ...c, expect: c.expect?.numbers ? { ...c.expect, numbers: c.expect.numbers.map((k) => k.replace("@M0", M0)) } : c.expect });
+const queue = GOLDEN.map(withMonth).filter((c) => !only.size || only.has(c.id));
 const results = [];
 await Promise.all(Array.from({ length: concurrency }, async () => {
   while (queue.length) {
