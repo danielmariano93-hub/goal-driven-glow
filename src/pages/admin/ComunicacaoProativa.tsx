@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Mail, Radio, ShieldAlert, DollarSign, MousePointerClick, BrainCircuit } from "lucide-react";
+import { Mail, Radio, BrainCircuit } from "lucide-react";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Section } from "@/components/admin/Section";
 import { StatCard, StatGrid } from "@/components/admin/StatCard";
@@ -138,10 +138,8 @@ function Overview() {
   const released = totals
     ? (totals.released ?? totals.queued + totals.sent + totals.delivered + totals.acted + totals.failed)
     : 0;
-  const releaseRate = totals && totals.generated > 0 ? Math.round((released / totals.generated) * 100) : 0;
   const suppressionRate = totals && totals.generated > 0
     ? Math.round((totals.suppressed / totals.generated) * 100) : 0;
-  const deliveryRate = released > 0 ? Math.round(((totals?.delivered ?? 0) / released) * 100) : 0;
   const actionRate = totals && totals.delivered > 0
     ? Math.round((totals.acted / totals.delivered) * 100) : 0;
 
@@ -185,15 +183,6 @@ function Overview() {
         <EmptyState title="Não foi possível carregar" description={(q.error as Error)?.message ?? "Erro desconhecido"} />
       ) : totals ? (
         <div className="space-y-6">
-          <Section title="Visão geral" icon={Bell}>
-            <StatGrid cols={4}>
-              <StatCard label="Candidatas geradas" value={totals.generated} tone="primary" hint="Oportunidades que o Nino detectou" />
-              <StatCard label="Liberadas para envio" value={released} hint={`${releaseRate}% das candidatas`} />
-              <StatCard label="Entregues" value={totals.delivered} tone="success" hint={`${deliveryRate}% das liberadas`} />
-              <StatCard label="Custo (USD)" value={`$${(totals.cost_usd ?? 0).toFixed(4)}`} />
-            </StatGrid>
-          </Section>
-
           <Section
             title="Funil de comunicação"
             icon={Radio}
@@ -210,12 +199,14 @@ function Overview() {
               caption={`${suppressionRate}% das candidatas foram retidas por regra de convivência e ${actionRate}% das entregues geraram ação.`}
             />
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
               {[
                 { label: "Retidas por regra", value: totals.suppressed },
                 { label: "Aguardando confirmação do canal", value: totals.queued },
                 { label: "Enviadas sem confirmação", value: totals.sent },
                 { label: "Falhas de envio", value: totals.failed },
+                { label: "Pediram para parar (opt-out)", value: totals.opt_out },
+                { label: "Dispensadas pela pessoa", value: totals.dismissed },
               ].map((item) => (
                 <div key={item.label} className="rounded-xl border border-border bg-card px-3 py-2">
                   <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{item.label}</p>
@@ -279,29 +270,19 @@ function Overview() {
           </Section>
 
 
-          <Section title="Preferências e dispensa" icon={ShieldAlert}>
-            <StatGrid cols={3}>
-              <StatCard label="Opt-out (usuário)" value={totals.opt_out} />
-              <StatCard label="Dispensadas" value={totals.dismissed} />
-              <StatCard label="Retidas no total" value={totals.suppressed} />
-            </StatGrid>
-          </Section>
-
-          {quality.data && (
+          {quality.data && (quality.data.communications.useful + quality.data.communications.not_useful) > 0 && (
             <Section
-              title="Qualidade e aprendizado"
+              title="As pessoas acharam útil?"
               icon={BrainCircuit}
-              description="Confirmações do usuário, falsos positivos e acompanhamento do assessor."
+              description="Resposta direta das pessoas aos alertas. Muitos “não úteis” de um tipo é sinal para desligar ou reescrever esse tipo."
             >
-              <StatGrid cols={4}>
-                <StatCard label="Alertas úteis" value={quality.data.communications.useful} tone="success" />
+              <StatGrid cols={2}>
+                <StatCard label="Úteis" value={quality.data.communications.useful} tone="success" />
                 <StatCard
                   label="Não úteis"
                   value={quality.data.communications.not_useful}
                   tone={quality.data.communications.not_useful > 0 ? "warning" : "default"}
                 />
-                <StatCard label="Hipóteses confirmadas" value={quality.data.behavior.confirmed} />
-                <StatCard label="Revisões concluídas" value={quality.data.advisor.completed} />
               </StatGrid>
             </Section>
           )}
@@ -334,31 +315,16 @@ function Overview() {
             )}
           </Section>
 
-          <Section title="Por canal" icon={MousePointerClick}>
-            {q.data!.by_channel.length === 0 ? (
-              <EmptyState title="Sem entregas" description="Nenhum canal registrou envio nesta janela." />
-            ) : (
-              <StatGrid cols={(q.data!.by_channel.length >= 3 ? 3 : 2) as 2 | 3}>
-                {q.data!.by_channel.map((c) => (
-                  <StatCard
-                    key={c.channel}
-                    label={dict.channel(c.channel)}
-                    value={c.total}
-
-                    hint={`${c.delivered} entregues · ${c.failed} falhas`}
-                  />
-                ))}
-              </StatGrid>
-            )}
-          </Section>
-
           {totals.cost_usd > 0 && (
-            <Section title="Custo" icon={DollarSign} description="Quanto o Nino gastou para comunicar no período.">
+            <details className="surface-card p-4 md:p-5">
+              <summary className="cursor-pointer font-display text-base font-semibold">
+                Custo de comunicar <span className="ml-1 text-xs font-normal text-muted-foreground">contexto, não é alerta</span>
+              </summary>
               <StatGrid cols={2}>
                 <StatCard label="Custo no período" value={`$${totals.cost_usd.toFixed(4)}`} />
                 <StatCard label="Custo médio por entrega" value={`$${(totals.delivered > 0 ? totals.cost_usd / totals.delivered : 0).toFixed(6)}`} />
               </StatGrid>
-            </Section>
+            </details>
           )}
         </div>
       ) : (

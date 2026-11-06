@@ -10,6 +10,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { dayFull, dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 
 export type Tone = "primary" | "success" | "danger" | "muted";
 
@@ -74,9 +75,9 @@ export function TrendChart({
           {kind === "bar" ? (
             <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} tickMargin={8} />
+              <XAxis dataKey={xKey} tick={axis} {...xAxisProps(data.length)} tickFormatter={dayTick} />
               <YAxis tick={axis} tickLine={false} axisLine={false} width={60} tickMargin={6} />
-              <Tooltip {...tooltip} />
+              <Tooltip {...tooltip} labelFormatter={dayFull} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {series.map((s) => (
                 <Bar
@@ -100,9 +101,9 @@ export function TrendChart({
                 ))}
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={20} tickMargin={8} />
+              <XAxis dataKey={xKey} tick={axis} {...xAxisProps(data.length)} tickFormatter={dayTick} />
               <YAxis tick={axis} tickLine={false} axisLine={false} width={60} tickMargin={6} />
-              <Tooltip {...tooltip} />
+              <Tooltip {...tooltip} labelFormatter={dayFull} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {series.map((s) => (
                 <Area

@@ -59,9 +59,8 @@ describe("indicador Tela pronta no admin", () => {
     render(wrap(<ScreenPerformanceBoard days={7} />));
     await waitFor(() => expect(screen.getByText(/Ainda sem medições/)).toBeTruthy());
   });
-  it("o painel está no Cockpit e em Nino IA → Desempenho; a RPC é só para admin e a tabela não tem leitura direta", () => {
+  it("o painel está em Nino IA → Desempenho; a RPC é só para admin e a tabela não tem leitura direta", () => {
     expect(readFileSync("src/pages/admin/CustoLatencia.tsx", "utf8")).toContain("<ScreenPerformanceBoard");
-    expect(readFileSync("src/pages/admin/Cockpit.tsx", "utf8")).toContain("<ScreenSpeedStrip />");
     const sql = readFileSync("supabase/migrations/20261019130000_client_perf_telas.sql", "utf8");
     expect(sql).toContain("is_current_user_admin()");
     expect(sql).toContain("enable row level security");

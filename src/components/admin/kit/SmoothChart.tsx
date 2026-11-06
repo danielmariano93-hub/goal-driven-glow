@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { dayFull, dayTick, xAxisProps } from "@/lib/admin/chartFormat";
 import {
   Area, Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -79,7 +80,7 @@ export function SmoothChart({
   return (
     <div style={{ height }} role="img" aria-label={`Gráfico: ${series.map((s) => s.label).join(", ")}`}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 8, right: hasRight ? 4 : 8, left: -14, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: hasRight ? 4 : 8, left: -14, bottom: 4 }}>
           <defs>
             {series.map((s, i) => (
               <linearGradient key={s.key} id={`${uid}-${s.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -89,10 +90,10 @@ export function SmoothChart({
             ))}
           </defs>
           <CartesianGrid strokeDasharray="3 6" vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.7} />
-          <XAxis dataKey={xKey} tick={axis} tickLine={false} axisLine={false} minTickGap={22} tickFormatter={formatX} />
+          <XAxis dataKey={xKey} tick={axis} {...xAxisProps(data.length)} tickFormatter={formatX ?? dayTick} />
           <YAxis yAxisId="left" tick={axis} tickLine={false} axisLine={false} width={48} allowDecimals={false} tickFormatter={formatY} />
           {hasRight && <YAxis yAxisId="right" orientation="right" tick={axis} tickLine={false} axisLine={false} width={52} tickFormatter={formatYRight} />}
-          <Tooltip cursor={{ stroke: "hsl(var(--border))", strokeDasharray: "3 3" }} content={<ChartTooltip series={series} formatLabel={formatX} />} />
+          <Tooltip cursor={{ stroke: "hsl(var(--border))", strokeDasharray: "3 3" }} content={<ChartTooltip series={series} formatLabel={(v) => (formatX ? formatX(v) : dayFull(v))} />} />
           {series.map((s, i) => {
             const color = colorOf(s, i);
             const yAxisId = s.axis === "right" ? "right" : "left";
