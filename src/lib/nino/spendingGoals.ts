@@ -51,20 +51,21 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   return data as T;
 }
 
+/** Opções da leitura única (hook e aquecimento usam a MESMA consulta, senão o cache não é aproveitado). */
+export const goalsOverviewOptions = (userId: string | undefined) => ({
+  queryKey: [KEY, userId] as const,
+  staleTime: 60_000,
+  retry: 1,
+  queryFn: async (): Promise<GoalsOverview> => {
+    const res = await invoke<GoalsResponse>({ action: "goals" });
+    return { goals: res.goals ?? [], history: res.history ?? null, adjustments: res.adjustments ?? [] };
+  },
+});
+
 /** Uma única leitura do servidor: metas do mês (com submetas) + histórico. */
 function useGoalsOverview<T>(select: (data: GoalsOverview) => T) {
   const { user } = useAuth();
-  return useQuery<GoalsOverview, Error, T>({
-    queryKey: [KEY, user?.id],
-    enabled: !!user,
-    staleTime: 60_000,
-    retry: 1,
-    queryFn: async () => {
-      const res = await invoke<GoalsResponse>({ action: "goals" });
-      return { goals: res.goals ?? [], history: res.history ?? null, adjustments: res.adjustments ?? [] };
-    },
-    select,
-  });
+  return useQuery<GoalsOverview, Error, T>({ ...goalsOverviewOptions(user?.id), enabled: !!user, select });
 }
 
 /** Leitura das metas de gasto (categoria + submetas + Outros). */

@@ -75,6 +75,12 @@ async function fetchServedSnapshot(period: DateRange): Promise<SnapshotQueryResu
  * Realtime invalida esta query. O próximo read passa exclusivamente pela Edge
  * canônica, que só reaproveita cache da MESMA versão do ledger e do MESMO deploy.
  */
+/** Consulta do snapshot servido (hook e aquecimento usam a mesma chave). */
+export const snapshotQueryOptions = (userId: string | undefined, period: DateRange) => ({
+  queryKey: [...qk.homeSnapshot, userId, period.start, period.end, todayISO()] as const,
+  queryFn: () => fetchServedSnapshot(period),
+});
+
 export function useFinancialSnapshot(period: DateRange): {
   data: FinancialSnapshot | null;
   loading: boolean;
@@ -96,9 +102,8 @@ export function useFinancialSnapshot(period: DateRange): {
   const { user } = useAuth();
 
   const serverQuery = useQuery({
-    queryKey: [...qk.homeSnapshot, user?.id, period.start, period.end, todayISO()],
+    ...snapshotQueryOptions(user?.id, period),
     enabled: !!user,
-    queryFn: () => fetchServedSnapshot(period),
     // Mobile Safari pode suspender WebSocket em background. Ao voltar para o app
     // ou recuperar a rede, sempre confirma o snapshot vigente no servidor.
     staleTime: 0,

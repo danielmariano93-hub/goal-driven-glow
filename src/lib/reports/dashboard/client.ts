@@ -109,26 +109,37 @@ export function useDashboardQuery() {
   return { query, update, today };
 }
 
+/** Consulta padrão ao abrir Relatórios: este mês até hoje contra o período anterior, sem filtros. */
+export function defaultDashboardQuery(today: string): DashboardQuery {
+  const range = presetRange("month", today);
+  return { preset: "month", start: range.start, end: range.end, compare: "previous", categoryIds: [], merchant: "" };
+}
+
+/** Opções do painel (hook e aquecimento usam a MESMA chave). */
+export const dashboardQueryOptions = (userId: string | undefined, query: DashboardQuery) => ({
+  queryKey: ["report-dashboard", userId, query.start, query.end, query.compare, query.categoryIds.join(","), query.merchant] as const,
+  staleTime: 60_000,
+  retry: 1,
+  queryFn: async (): Promise<ReportDashboard> => {
+    const { data, error } = await supabase.functions.invoke("nino-insights", {
+      body: {
+        action: "dashboard", start: query.start, end: query.end, compare: query.compare,
+        category_ids: query.categoryIds, merchant: query.merchant,
+      },
+    });
+    if (error) throw error;
+    const dashboard = (data as { dashboard?: ReportDashboard } | null)?.dashboard;
+    if (!dashboard || dashboard.version !== "report_dashboard.v1") throw new Error("Painel em formato inesperado.");
+    return dashboard;
+  },
+});
+
 export function useReportDashboard(query: DashboardQuery) {
   const { user } = useAuth();
   return useQuery<ReportDashboard>({
-    queryKey: ["report-dashboard", user?.id, query.start, query.end, query.compare, query.categoryIds.join(","), query.merchant],
+    ...dashboardQueryOptions(user?.id, query),
     enabled: !!user,
-    staleTime: 60_000,
-    retry: 1,
     // Trocar de período mantém o painel anterior na tela até o novo chegar.
     placeholderData: keepPreviousData,
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("nino-insights", {
-        body: {
-          action: "dashboard", start: query.start, end: query.end, compare: query.compare,
-          category_ids: query.categoryIds, merchant: query.merchant,
-        },
-      });
-      if (error) throw error;
-      const dashboard = (data as { dashboard?: ReportDashboard } | null)?.dashboard;
-      if (!dashboard || dashboard.version !== "report_dashboard.v1") throw new Error("Painel em formato inesperado.");
-      return dashboard;
-    },
   });
 }
