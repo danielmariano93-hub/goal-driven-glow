@@ -245,7 +245,7 @@ export function validateFinancialIRv3(value: unknown): string[] {
     if (!METRICS.has(String(q.metric))) errors.push(`${id}_metric_invalid`);
     if (!GRAINS.has(String(q.grain))) errors.push(`${id}_grain_invalid`);
     if (!REDUCES.has(String(q.reduce))) errors.push(`${id}_reduce_invalid`);
-    if (!Array.isArray(q.group_by) || q.group_by.length > 1 || q.group_by.some((d) => !DIMS.has(String(d)))) {
+    if (!Array.isArray(q.group_by) || q.group_by.length > 2 || q.group_by.some((d) => !DIMS.has(String(d)))) {
       errors.push(`${id}_group_by_invalid`);
     }
     if (!Array.isArray(q.filters)) errors.push(`${id}_filters_invalid`);

@@ -64,7 +64,7 @@ export const GOLDEN: Case[] = [
     query: q({ filters: [f("merchant", "Thales"), f("card", "Nubank")] }) },
   { ask: "gastos por estabelecimento no cartão Nubank", family: "estab_agrupado_filtro_cartao", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["merchant"], filters: [f("card", "Nubank")] }) },
-  { ask: "gasto mensal por categoria", family: "dois_agrupamentos", status: "gap",
+  { ask: "gasto mensal por categoria", family: "dois_agrupamentos", status: "gap", withGeneric: "mapped",
     query: q({ operation: "breakdown", group_by: ["month", "category"] }) },
   { ask: "total de lazer por semana no cartão Nubank", family: "serie_semanal_cartao", status: "gap", withGeneric: "mapped",
     query: q({ operation: "trend", group_by: ["week"], filters: [f("category", "Lazer"), f("card", "Nubank")] }) },

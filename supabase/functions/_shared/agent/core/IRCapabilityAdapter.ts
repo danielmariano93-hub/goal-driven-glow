@@ -437,7 +437,8 @@ export function mappingForQuery(
   // Mais de uma categoria só existe na comparação; nos outros motores o recorte usaria só a primeira
   // e a resposta seria de outra pergunta. Sem mapeamento, vira recusa/autocorreção, nunca número errado.
   if (categoryValues(q).length > 1 && q.operation !== "compare") return null;
-  const dedicated = mapQuery(q, ir as FinancialQueryIR);
+  // Dois agrupamentos só o executor genérico sabe fazer; os motores dedicados leriam só o primeiro.
+  const dedicated = q.group_by.length > 1 ? null : mapQuery(q, ir as FinancialQueryIR);
   if (dedicated) return dedicated;
   // Executor genérico: só onde NÃO há motor dedicado e só com a opção ligada.
   return ir.execution_options?.generic_aggregate ? genericAggregateMapping(q, ir) : null;

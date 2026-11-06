@@ -117,7 +117,7 @@ export function validateFinancialIR(value: unknown): string[] {
   if (!q || typeof q !== "object") return [...errors, "q0_invalid"];
   if (!METRICS.has(String(q.metric))) errors.push("q0_metric_invalid");
   if (!OPS.has(String(q.operation))) errors.push("q0_operation_invalid");
-  if (!Array.isArray(q.group_by) || q.group_by.length > 1 || q.group_by.some((d) => !DIMS.has(String(d)))) {
+  if (!Array.isArray(q.group_by) || q.group_by.length > 2 || q.group_by.some((d) => !DIMS.has(String(d)))) {
     errors.push("q0_group_by_invalid");
   }
   if (!Array.isArray(q.filters)) {
@@ -459,7 +459,7 @@ export function validateFinancialIRv2(value: unknown): string[] {
     ids.add(id);
     if (!METRICS.has(String(q.metric))) errors.push(`${id}_metric_invalid`);
     if (!OPS.has(String(q.operation))) errors.push(`${id}_operation_invalid`);
-    if (!Array.isArray(q.group_by) || q.group_by.length > 1 || q.group_by.some((d) => !DIMS.has(String(d)))) {
+    if (!Array.isArray(q.group_by) || q.group_by.length > 2 || q.group_by.some((d) => !DIMS.has(String(d)))) {
       errors.push(`${id}_group_by_invalid`);
     }
     if (!Array.isArray(q.filters)) errors.push(`${id}_filters_invalid`);
