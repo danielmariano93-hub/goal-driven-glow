@@ -214,6 +214,25 @@ function humanTechnicalFallback(
   return { contract, telemetry: fallbackTelemetry(telemetry, reason) };
 }
 
+/**
+ * Pergunta específica quando as duas leituras divergem num REGISTRO. Nada é gravado, mas a pessoa não deve
+ * receber a mesma pergunta genérica depois de ter dito o valor, nem depois de um "sim" ao oferecimento do Nino.
+ */
+export function writeDisagreementQuestion(text: unknown): string {
+  const raw = String(text ?? "").trim();
+  const norm = raw.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  if (/^(sim|s|isso|isso mesmo|pode|pode sim|confirmo|ok|claro|bora|manda|fechado|certo)\b[\s.!]*$/.test(norm)) {
+    return "Não consegui ligar o seu “sim” a um lançamento. Me manda de novo o valor e onde foi, por exemplo: “gastei 35 no almoço hoje”.";
+  }
+  const m = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?)(?:\s*(?:reais|conto|pila|contos))?/.exec(norm);
+  const amount = m ? Number(m[1].replace(/\./g, "").replace(",", ".")) : NaN;
+  if (Number.isFinite(amount) && amount > 0) {
+    const brl = amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return `Entendi o valor de ${brl}. Só preciso confirmar: foi um gasto ou um recebimento, e onde (ou de quem) foi?`;
+  }
+  return "Quero registrar certinho. Pode me dizer o valor e onde foi o gasto? Por exemplo: “gastei 35 no almoço hoje”.";
+}
+
 function humanSemanticClarification(
   input: AuthorityInput,
   reason: string,
@@ -361,7 +380,7 @@ export async function interpretConversationTurn(input: AuthorityInput): Promise<
   if (/semantic_tier_disagreement/.test(reason)) {
     return humanSemanticClarification(
       input, reason, semantic.telemetry,
-      "Quero registrar certinho. Pode me dizer o valor e onde foi o gasto? Por exemplo: “gastei 35 no almoço hoje”.",
+      writeDisagreementQuestion(input.text),
     );
   }
   if (isProviderCapacityFailure(reason) || isProviderStructuredFailure(reason)) {

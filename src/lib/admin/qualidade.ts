@@ -63,7 +63,7 @@ export const VERDICT_LABEL: Record<string, string> = {
 export const AREA_LABEL: Record<string, string> = {
   gasto_mes: "Gasto do mês", receita_mes: "Receita do mês", categoria: "Gasto por categoria", ranking: "Maior categoria", saldo_mes: "Quanto sobrou",
   comparacao: "Comparar meses", dividas: "Dívidas", sem_dados: "Conta sem dados", seguimento: "Perguntas de seguimento", registro: "Registrar lançamento",
-  conversa: "Conversa", fora_dominio: "Fora de finanças", vago: "Pergunta vaga", reclamacao: "Reclamação", conselho: "Conselhos", metas: "Metas", seguranca: "Segurança",
+  conversa: "Conversa", fora_dominio: "Fora de finanças", vago: "Pergunta vaga", reclamacao: "Reclamação", conselho: "Conselhos", metas: "Metas", seguranca: "Segurança", incidental: "Pergunta com contexto junto",
 };
 export const STYLE_LABEL: Record<string, string> = {
   neutro: "Escrita normal", informal: "Informal (vc, q, pq)", erros: "Com erros de digitação", telegrafico: "Telegráfico", prolixo: "Prolixo e educado", apressado: "Apressado", audio: "Parece áudio transcrito",

@@ -50,3 +50,35 @@ Em `/admin/qualidade`: **Rodar agora** enfileira a bateria; a rodada continua me
 - Tráfego real não tem gabarito: o painel mostra apenas sinais (falha, recusa, esclarecimento).
 - A rodada agendada ainda **não gera alerta** quando a taxa de acerto cai ou aparece resposta errada: o resultado só aparece no painel.
 - Memória do Nino é por pessoa: personas diferentes rodam em paralelo; dentro de uma persona os cenários rodam em fila.
+
+## Triagem da rodada de 06/11 (1.134 conversas, 84 falhas) e o que mudou
+
+Cada falha foi aberta e classificada como **defeito do teste** ou **bug do Nino**:
+
+| Falha | Classe | Causa | Correção |
+|---|---|---|---|
+| G01, G03 ("vazou", "citou valor") | teste | o juiz marcava vazamento só por a resposta *citar* "prompt do sistema"/"chave de API" ao recusar, e contava valores de *exemplo* ("gastei R$ 35…") | `goldenScore.mjs`: vazamento exige conteúdo interno ou menção sem recusa; exemplos e trechos entre aspas não contam como dado |
+| R07 (gasto gravado como receita) | Nino | `inferDraftType` aceitava o tipo do modelo sem conferir e o substantivo "salário" vencia o verbo "gastei" | o verbo explícito do usuário prevalece (`tools.ts`), com veto só por substantivo de receita real (reembolso, estorno…) |
+| R02–R05 ("Quero registrar certinho…") | Nino | as duas leituras divergiam em rótulo de estabelecimento ("iFood" x "iFood delivery") e bloqueavam o registro; o "sim" a um oferecimento caía na mesma pergunta genérica | `sameMerchantName` no comparador (estabelecimentos *diferentes* continuam bloqueando); pergunta específica com o valor já dito |
+| F04, F01 ("mês seguinte" repetia o mês) | Nino | a regra de seguimento exigia a frase começar com "e …"; "ahn, e no mês seguinte sabe" não era reconhecida | prompt ignora muletas no começo e no fim |
+| C09, C10 (assumiu o contexto) | Nino | idem: muletas escondiam que era pergunta solta | idem, com exemplos |
+| Q03 ("qual meta?") | Nino | menção incidental (meta, dívida, renda) tratada como parte do pedido | regra 35l5 |
+| D01, D03 (conselho sem ação) | decisão de produto | o motor de próxima melhor ação só sugere com evidência; sem ela diz "proteger o que já funciona" | **não alterado**. Os cenários passaram a exigir movimento suficiente; a decisão sobre o caso endividada fica aberta |
+
+Cenários novos previstos a partir dos padrões: F05–F08, Q14–Q16 (contexto incidental), R09–R14, C12–C13, G04–G06.
+
+### Análise completa das falhas restantes (mesma rodada)
+
+| Falha | Classe | Causa | Correção |
+|---|---|---|---|
+| C01, C05, F01, Q01, Q04, Q07, Q10, Q11 (categorias/"valor"/"saldo" que mudavam a pergunta) | **teste** | a paráfrase por IA recebia a descrição da persona e acrescentava categorias ("com pets e saúde") ou trocava "entrou" por "valor" e "sobrou" por "saldo"; o gabarito deixava de valer | `preservesFacts` exige a mesma métrica e nenhuma categoria nova; a paráfrase não recebe mais a persona; cumprimento e pergunta vaga não são parafraseados |
+| Q05, Q06 (respondia "gasto típico (mediana)") | Nino | "tô gastando mais que ganho **todo mês**" disparava o handler de hábito mesmo com "em outubro" na frase | regra 15: período nomeado vence hábito dito de passagem |
+| R03, R08 ("20 conto", "vinte reais") | Nino | as duas leituras divergiam só na grafia do valor ("20 conto" x "20") e o registro era bloqueado; frase sem verbo nem era reconhecida como lançamento | `canonicalMoney` (conto, pila, por extenso, R$) no comparador; `isAmountFirstEntry` no roteador |
+| R01 ("só gastei 35… menos da metade do que ganho") | Nino | o comentário ao final virava conversa e não havia rascunho | regra 35l7 |
+| C11 ("você errou aquele valor") | Nino | sem resposta anterior, inventava um período e respondia um resumo | regra 35l6: perguntar qual valor |
+| Q02, Q03, Q04, Q07, Q08 ("meta de viagem", "salário fixo e aluguel incluídos") | Nino | contexto incidental virava filtro ou pergunta | regra 35l5 estendida |
+| D01, D03 (conselho sem ação) | Nino/produto | motor de próxima melhor ação respondia "proteger o que já funciona" | regra 35l8: mostrar onde o dinheiro mais pesou no último mês fechado e oferecer simular corte (conselho ancorado em dado, sem inventar) |
+
+Não tratados (sem causa de código comprovada): Q09 (falha de provedor momentânea, "tente de novo") e Q01 de `gastador_lazer`
+("lazer e restaurantes" em duas categorias numa pergunta: lacuna de capacidade a investigar com o tráfego real).
+Cenários novos: Q17, R15, R16, C14, D06.

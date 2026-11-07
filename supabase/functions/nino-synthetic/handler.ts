@@ -44,7 +44,7 @@ async function paraphrase(body: any) {
   const n = Math.max(1, Math.min(5, Number(body.count ?? 3)));
   const prompt = `Você simula pessoas reais que falam com um assistente financeiro no WhatsApp, em português do Brasil.\n` +
     `Reescreva a pergunta abaixo de ${n} jeitos diferentes, como pessoas diferentes escreveriam: ${String(body.style ?? "natural")}.\n` +
-    `Regras: mantenha EXATAMENTE os mesmos números, valores e meses da pergunta; não responda a pergunta; não explique.\n` +
+    `Regras: mantenha EXATAMENTE os mesmos números, valores e meses; mantenha o MESMO pedido e a mesma métrica (se perguntou quanto GASTOU, não vire "valor"; se perguntou quanto RECEBEU ou quanto SOBROU, mantenha); NÃO acrescente categorias, estabelecimentos nem fatos novos; só varie o tom e as palavras; não responda a pergunta; não explique.\n` +
     `Responda só com um array JSON de ${n} strings.\nPergunta: ${JSON.stringify(String(body.text ?? "").slice(0, 300))}`;
   const res = await fetch(aiEndpoint(cfg, "/chat/completions"), {
     method: "POST", headers: aiJsonHeaders(cfg),

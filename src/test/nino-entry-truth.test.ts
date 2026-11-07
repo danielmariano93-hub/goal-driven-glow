@@ -79,8 +79,15 @@ describe("tipo do lançamento é inferido", () => {
   it("detecta receita", () => {
     expect(inferDraftType(undefined, "recebi meu salário hoje")).toBe("income");
   });
-  it("respeita o tipo informado", () => {
-    expect(inferDraftType("income", "gastei no mercado")).toBe("income");
+  it("respeita o tipo informado quando o texto não o contradiz", () => {
+    expect(inferDraftType("income", "caiu um dinheiro do mercado")).toBe("income");
+    expect(inferDraftType("expense", "lançamento do mercado")).toBe("expense");
+  });
+  it("o verbo explícito vence o tipo errado do modelo e o 'salário' incidental (regressão R07)", () => {
+    expect(inferDraftType("income", "Acabei de gastar 4,90 no pão hoje, dentro da minha rotina de salário fixo e aluguel pago.")).toBe("expense");
+    expect(inferDraftType(undefined, "gastei 4,90 no pão, meu salário fixo cobre")).toBe("expense");
+    expect(inferDraftType("expense", "recebi 1500 de um freela hoje")).toBe("income");
+    expect(inferDraftType("income", "paguei e depois veio o reembolso do mercado")).toBe("income");
   });
 });
 
