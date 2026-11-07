@@ -712,16 +712,26 @@ export function inferDraftType(
   provided: unknown,
   userText?: string | null,
 ): "income" | "expense" | null {
-  if (provided === "income" || provided === "expense") return provided;
   const t = String(userText ?? "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
+  // O VERBO que a pessoa usou manda. "Gastei 4,90 no pão, dentro do meu salário fixo" é despesa, mesmo que o
+  // modelo (ou um substantivo incidental como "salário") sugira receita. Só contradiz o tipo recebido quando
+  // há verbo explícito de um lado e nenhum do outro.
+  const incomeVerb = /\b(recebi|ganhei|entrou|caiu|me pagaram|me pagou|me depositaram|depositaram|me transferiram|vendi|faturei|embolsei|cairam)\b/.test(t);
+  const expenseVerb = /\b(gastei|paguei|comprei|torrei|debitou|debitei|desembolsei|gasto de|gastando|gastar)\b/.test(t);
+  // Substantivos de receita que justificam duvidar do verbo ("gastei antes, foi estorno/reembolso"). "Salário" fica
+  // de fora de propósito: costuma ser contexto ("meu salário fixo"), não o lançamento.
+  const incomeNoun = /\b(receb\w*|reembolso|estorno|devolu\w*|rendimento|comissao|freela|deposito|venda)\b/.test(t);
+  if (expenseVerb && !incomeVerb && !(provided === "income" && incomeNoun)) return "expense";
+  if (incomeVerb && !expenseVerb) return "income";
+  if (provided === "income" || provided === "expense") return provided;
   if (!t.trim()) return "expense";
-  if (/\b(recebi|receb\w*|ganhei|entrou|caiu|salario|pro labore|pro-labore|reembolso|rendimento|comissao|freela|deposito recebido|pix recebido|venda)\b/.test(t)) {
+  if (/\b(receb\w*|salario|pro labore|pro-labore|reembolso|rendimento|comissao|freela|deposito recebido|pix recebido|venda)\b/.test(t)) {
     return "income";
   }
-  if (/\b(gastei|paguei|comprei|torrei|debitou|debitei|assinatura|conta|boleto|almoc\w*|jantar|mercado|uber|lancamento|registr\w*|anot\w*)\b/.test(t)) {
+  if (/\b(assinatura|conta|boleto|almoc\w*|jantar|mercado|uber|lancamento|registr\w*|anot\w*)\b/.test(t)) {
     return "expense";
   }
   // Sem sinal nenhum: despesa é o caso dominante em lançamento manual.

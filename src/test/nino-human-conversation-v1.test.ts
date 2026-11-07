@@ -169,6 +169,19 @@ describe("scenario semantics in TurnSpec V3", () => {
     const c = semanticSignatureV3(task([{ ...cutDelivery, options: ["qualquer texto"] } as SemanticTaskV3]));
     expect(compareSemanticSignaturesV3(a, c).semantic_match).toBe(true);
   });
+
+  it("writes: rótulo de estabelecimento diferente não bloqueia, valor diferente sim (R03 'iFood')", () => {
+    const write = (slots: Record<string, string>) => task([
+      { kind: "financial_write", family: "financial.write", action: "transaction.create", slots } as unknown as SemanticTaskV3,
+    ]);
+    const a = semanticSignatureV3(write({ amount: "20", merchant: "iFood", date: "hoje" }));
+    const sameMoneyOtherLabel = semanticSignatureV3(write({ amount: "20,00", merchant: "iFood delivery" }));
+    expect(compareSemanticSignaturesV3(a, sameMoneyOtherLabel).semantic_match).toBe(true);
+    const otherAmount = semanticSignatureV3(write({ amount: "200", merchant: "iFood" }));
+    expect(compareSemanticSignaturesV3(a, otherAmount).semantic_match).toBe(false);
+    const otherDate = semanticSignatureV3(write({ amount: "20", merchant: "iFood", date: "ontem" }));
+    expect(compareSemanticSignaturesV3(a, otherDate).semantic_match).toBe(false);
+  });
 });
 
 describe("advisor reasoning", () => {

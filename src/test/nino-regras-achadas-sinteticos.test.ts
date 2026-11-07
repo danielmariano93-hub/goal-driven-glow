@@ -18,8 +18,35 @@ describe("regras nascidas de falhas dos usuários sintéticos", () => {
     expect(prompt).toMatch(/NÃO é seguimento: agradecimento, saudação, confirmação e conversa \("valeu"/);
     expect(prompt).toMatch(/pergunta solta sem marcador nem período \("quanto foi\?"/);
   });
+  it("muletas de áudio/pressa não escondem o seguimento nem viram consulta (regressão F04/C09/C10)", () => {
+    expect(prompt).toMatch(/IGNORE interjeições e muletas no começo e no fim/);
+    expect(prompt).toMatch(/"ahn, e no mês seguinte sabe" É seguimento/);
+    expect(prompt).toMatch(/"e aí rápido pfv"/);
+    expect(prompt).toMatch(/"ahn, quanto foi sabe"/);
+  });
+  it("contexto incidental na frase não vira filtro nem pergunta (regressão Q03: 'qual meta?')", () => {
+    expect(prompt).toMatch(/35l5\. CONTEXTO INCIDENTAL NÃO É O PEDIDO/);
+    expect(prompt).toMatch(/NÃO viram filtro nem pedem esclarecimento \("qual meta\?"\)/);
+  });
   it("frase completa com período próprio não herda categoria nem estabelecimento", () => {
     expect(prompt).toMatch(/35l4\. FRASE COMPLETA NÃO HERDA RECORTE/);
     expect(prompt).toMatch(/Total do mês nunca pode sair com o valor de uma categoria só/);
+  });
+});
+
+import { writeDisagreementQuestion } from "../../supabase/functions/_shared/agent/core/ConversationAuthority";
+
+describe("pergunta quando as leituras divergem num registro (R02–R05)", () => {
+  it("usa o valor que a pessoa já disse", () => {
+    expect(writeDisagreementQuestion("20 conto no iFood")).toMatch(/R\$\s*20,00/);
+    expect(writeDisagreementQuestion("Paguei R$120 de luz ontem.")).toMatch(/R\$\s*120,00/);
+    expect(writeDisagreementQuestion("gastei 4,90 no pão")).toMatch(/R\$\s*4,90/);
+  });
+  it("um 'sim' solto recebe resposta honesta, não a pergunta genérica", () => {
+    expect(writeDisagreementQuestion("sim")).toMatch(/ligar o seu “sim”/);
+    expect(writeDisagreementQuestion("pode")).toMatch(/ligar o seu “sim”/);
+  });
+  it("sem valor, mantém a pergunta genérica", () => {
+    expect(writeDisagreementQuestion("anota aí")).toMatch(/Quero registrar certinho/);
   });
 });

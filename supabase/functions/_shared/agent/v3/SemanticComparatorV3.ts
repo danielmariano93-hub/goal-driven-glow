@@ -159,6 +159,20 @@ function normalizedWriteSlots(slots: Record<string, unknown> | null | undefined)
   return [...out.entries()].sort(([a], [b]) => a.localeCompare(b));
 }
 
+function compactName(value: string): string {
+  return norm(value).replace(/[^a-z0-9]+/g, "");
+}
+
+/** Mesmo estabelecimento escrito de jeitos diferentes: igual ou um nome contido no outro (mín. 3 letras). */
+export function sameMerchantName(a: string, b: string): boolean {
+  const x = compactName(a);
+  const y = compactName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.length >= 3 && long.includes(short);
+}
+
 /**
  * Two write readings are compatible when the action matches, every critical
  * slot is present in both with the same value, and no optional slot stated by
@@ -178,6 +192,9 @@ function compatibleWriteShapes(a: Record<string, unknown>, b: Record<string, unk
     // A categoria é reclassificada pelo motor de categorização e aparece no rascunho
     // para confirmação: rótulos diferentes ("Alimentação" x "Restaurante") não movem dinheiro.
     if (key === "category") continue;
+    // Estabelecimentos DIFERENTES ("Uber" x "99") continuam bloqueando. Mas variações do MESMO nome
+    // ("iFood" x "iFood delivery" x "Ifood") são só rótulo: aparecem no rascunho e não movem dinheiro.
+    if (key === "merchant" && slotsB.has(key) && sameMerchantName(value, slotsB.get(key)!)) continue;
     if (slotsB.has(key) && slotsB.get(key) !== value) return false;
   }
   return true;
