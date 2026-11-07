@@ -7,6 +7,7 @@
 
 import type { TurnSpecV3, SemanticTaskV3 } from "./TurnSpecV3.ts";
 import { resolvePeriodExpressionV3 } from "./TemporalContractV3.ts";
+import { parseAmountInWords } from "../amountWords.ts";
 
 export type SemanticSignatureV3 = {
   kind: TurnSpecV3["kind"];
@@ -129,7 +130,32 @@ function isoFromDateText(text: string): string | null {
   return null;
 }
 
+/**
+ * "20 conto", "vinte reais", "R$ 20", "20,00" e "20" são o mesmo valor. Antes, duas leituras corretas que só
+ * diferiam na grafia do valor ("20 conto" x "20") divergiam e o registro era bloqueado.
+ */
+export function canonicalMoney(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  // Por extenso só com a unidade ("vinte reais"): sem ela, "um monte" viraria 1.
+  const words = /\b(reais|real|centavos?)\b/.test(raw) ? parseAmountInWords(raw) : null;
+  if (words != null && Number.isFinite(words)) return String(words);
+  const stripped = raw
+    .replace(/r\$\s*/g, "")
+    .replace(/\b(reais|real|contos?|pilas?|paus?|mangos?)\b/g, "")
+    .trim();
+  const n = normalizeSlotValue(stripped);
+  return /^-?\d+(?:\.\d+)?$/.test(n) ? n : null;
+}
+
+const MONEY_SLOT_KEYS = new Set(["amount", "target_amount", "initial_contribution"]);
+
 function normalizeWriteSlotValue(key: string, value: unknown): string {
+  if (MONEY_SLOT_KEYS.has(key)) {
+    const money = canonicalMoney(value);
+    if (money != null) return money;
+  }
   const normalized = normalizeSlotValue(value);
   if (key === "date") {
     // "hoje" e "2026-10-02" (ou "02/10/2026") são a mesma data: sem isso as duas leituras "divergiam".

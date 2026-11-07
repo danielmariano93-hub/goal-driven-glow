@@ -72,7 +72,7 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
       turn: async (persona: string, conv: any, text: string) => deps.runTurn(sb, await userOf(persona), conv.conversation_id, conv.phone, text),
       txs: async (persona: string, since: string) => deps.listTxs(sb, await userOf(persona), since),
       cleanup: async (persona: string, since: string) => deps.cleanupTxs(sb, await userOf(persona), since),
-      paraphrase: cfg.llm ? async (text: string, c: any) => ((await deps.paraphrase({ text, style: `${c.style}; ${c.persona}`, count: 1 })).variants ?? [])[0] ?? null : undefined,
+      paraphrase: cfg.llm ? async (text: string, c: any) => ((await deps.paraphrase({ text, style: String(c.style), count: 1 })).variants ?? [])[0] ?? null : undefined,
     };
     const lanes = Math.max(1, Math.min(4, Number(settings?.lanes ?? 2)));
     const gov = createGovernor({ tokensPerMin: Number(settings?.tpm ?? 120_000), startLimit: lanes, maxLimit: lanes });

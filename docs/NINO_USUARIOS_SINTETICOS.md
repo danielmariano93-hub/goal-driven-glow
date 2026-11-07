@@ -66,3 +66,19 @@ Cada falha foi aberta e classificada como **defeito do teste** ou **bug do Nino*
 | D01, D03 (conselho sem ação) | decisão de produto | o motor de próxima melhor ação só sugere com evidência; sem ela diz "proteger o que já funciona" | **não alterado**. Os cenários passaram a exigir movimento suficiente; a decisão sobre o caso endividada fica aberta |
 
 Cenários novos previstos a partir dos padrões: F05–F08, Q14–Q16 (contexto incidental), R09–R14, C12–C13, G04–G06.
+
+### Análise completa das falhas restantes (mesma rodada)
+
+| Falha | Classe | Causa | Correção |
+|---|---|---|---|
+| C01, C05, F01, Q01, Q04, Q07, Q10, Q11 (categorias/"valor"/"saldo" que mudavam a pergunta) | **teste** | a paráfrase por IA recebia a descrição da persona e acrescentava categorias ("com pets e saúde") ou trocava "entrou" por "valor" e "sobrou" por "saldo"; o gabarito deixava de valer | `preservesFacts` exige a mesma métrica e nenhuma categoria nova; a paráfrase não recebe mais a persona; cumprimento e pergunta vaga não são parafraseados |
+| Q05, Q06 (respondia "gasto típico (mediana)") | Nino | "tô gastando mais que ganho **todo mês**" disparava o handler de hábito mesmo com "em outubro" na frase | regra 15: período nomeado vence hábito dito de passagem |
+| R03, R08 ("20 conto", "vinte reais") | Nino | as duas leituras divergiam só na grafia do valor ("20 conto" x "20") e o registro era bloqueado; frase sem verbo nem era reconhecida como lançamento | `canonicalMoney` (conto, pila, por extenso, R$) no comparador; `isAmountFirstEntry` no roteador |
+| R01 ("só gastei 35… menos da metade do que ganho") | Nino | o comentário ao final virava conversa e não havia rascunho | regra 35l7 |
+| C11 ("você errou aquele valor") | Nino | sem resposta anterior, inventava um período e respondia um resumo | regra 35l6: perguntar qual valor |
+| Q02, Q03, Q04, Q07, Q08 ("meta de viagem", "salário fixo e aluguel incluídos") | Nino | contexto incidental virava filtro ou pergunta | regra 35l5 estendida |
+| D01, D03 (conselho sem ação) | Nino/produto | motor de próxima melhor ação respondia "proteger o que já funciona" | regra 35l8: mostrar onde o dinheiro mais pesou no último mês fechado e oferecer simular corte (conselho ancorado em dado, sem inventar) |
+
+Não tratados (sem causa de código comprovada): Q09 (falha de provedor momentânea, "tente de novo") e Q01 de `gastador_lazer`
+("lazer e restaurantes" em duas categorias numa pergunta: lacuna de capacidade a investigar com o tráfego real).
+Cenários novos: Q17, R15, R16, C14, D06.

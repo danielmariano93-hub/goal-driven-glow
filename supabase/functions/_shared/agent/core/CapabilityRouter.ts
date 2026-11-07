@@ -11,6 +11,7 @@ import {
   candidateFeelingTerm, parseEmotionCorrection, parseEmotionFromText, resolveEmotionTerm,
 } from "../../intelligence/emotionParse.ts";
 import { detectCategory } from "./ConversationMemory.ts";
+import { parseAmountInWords } from "../amountWords.ts";
 import { resolveReadIntent } from "./IntentResolver.ts";
 
 
@@ -269,7 +270,22 @@ export function hasEntryIntent(text: string): boolean {
   if (/\b(quanto|qual|quais|onde|quando|como|por que|porque|me mostra|resumo)\b/.test(q) || /\?\s*$/.test(text.trim())) return false;
   // Hipótese/simulação ("se eu tivesse 3 mil por mês") nunca é registro.
   if (!allowsEntryDraft(text)) return false;
-  return /\b(registr\w*|lanc\w*|lança\w*|anot\w*|adicion\w*|gastei|paguei|comprei|recebi|ganhei|torrei)\b/.test(normalize(text));
+  if (/\b(registr\w*|lanc\w*|lança\w*|anot\w*|adicion\w*|gastei|paguei|comprei|recebi|ganhei|torrei)\b/.test(normalize(text))) return true;
+  return isAmountFirstEntry(text);
+}
+
+/**
+ * Lançamento sem verbo, o jeito mais comum de escrever no WhatsApp: a frase COMEÇA pelo valor e diz onde foi
+ * ("20 conto no iFood", "vinte reais de uber ontem", "R$ 35 de farmácia"). Curta, sem pergunta e sem hipótese.
+ */
+export function isAmountFirstEntry(text: string): boolean {
+  const q = normalize(text).replace(/[.!]+$/, "").trim();
+  if (!q || q.split(/\s+/).length > 9) return false;
+  const where = "(?:no|na|nos|nas|em|de|do|da|pro|pra|para|com)\\s+[a-z0-9]";
+  const digits = new RegExp(`^(?:r\\$\\s*)?\\d{1,3}(?:\\.\\d{3})*(?:,\\d{1,2})?(?:\\s*(?:reais|real|conto|contos|pila|pilas))?\\s+${where}`);
+  if (digits.test(q)) return true;
+  const words = new RegExp(`^((?:[a-z]+\\s+){1,5}?)(?:reais|real)\\s+${where}`).exec(q);
+  return !!words && parseAmountInWords(words[1] + "reais") != null;
 }
 
 

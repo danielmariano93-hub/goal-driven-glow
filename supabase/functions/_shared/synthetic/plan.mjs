@@ -56,14 +56,33 @@ export function interleave(plan) {
   return out;
 }
 
-/** A variação por IA só vale se preservar os números e os meses (senão o gabarito deixa de valer). */
+const CATEGORY_WORDS = /mercado|moradia|lazer|transporte|alimenta[çc]|sa[úu]de|pets?\b|restaurante|delivery|educa[çc]|assinatura|vestu[áa]rio|viagem de|farm[áa]cia/;
+const METRICS = [
+  [/receb|entrou|entrada|ganh|receita/, /receb|entr(?:ou|ada)|ganh|receita|renda/],
+  [/gast|despes|desembols/, /gast|despes|desembols|total|paguei|sa[íi]ram/],
+  [/sobrou|sobra|restou/, /sobr|restou|resto|fech/],
+];
+
+/**
+ * A variação por IA só vale se preservar o PEDIDO: os números e os meses, a métrica (gastei x recebi x sobrou) e as
+ * categorias. Contexto da pessoa (renda, dívida, meta) pode entrar; categoria nova não, porque muda a pergunta e
+ * o gabarito deixa de valer.
+ */
 export function preservesFacts(original, variant) {
   const norm = (s) => String(s).toLowerCase().replace(/\s+/g, " ");
   const o = norm(original), v = norm(variant);
   const digits = o.match(/\d+(?:[.,]\d+)?/g) ?? [];
   if (!digits.every((d) => v.includes(d))) return false;
-  return MONTH_NAMES.filter((m) => o.includes(m)).every((m) => v.includes(m));
+  if (!MONTH_NAMES.filter((m) => o.includes(m)).every((m) => v.includes(m))) return false;
+  for (const [inOriginal, inVariant] of METRICS) if (inOriginal.test(o) && !inVariant.test(v)) return false;
+  const cats = (t) => new Set((t.match(new RegExp(CATEGORY_WORDS.source, "g")) ?? []).map((x) => x.slice(0, 5)));
+  const co = cats(o);
+  for (const c of cats(v)) if (!co.has(c)) return false;
+  return true;
 }
+
+/** Cumprimento e pergunta vaga testam a frase pura: a IA não deve enriquecê-la com contexto da persona. */
+const NO_PARAPHRASE_KINDS = new Set(["chat", "vague"]);
 
 /** Roda uma conversa e devolve o resultado já avaliado. `gov` (opcional) regula a vazão por turno. */
 export async function executeConversation({ desc, ref, io, gov }) {
@@ -80,7 +99,7 @@ export async function executeConversation({ desc, ref, io, gov }) {
     const item = typeof turn === "string" ? { text: turn, style: true } : { ...turn, style: false };
     if (item.ifReply && !item.ifReply.test(prev)) continue;
     let text = item.style ? applyStyle(item.text, desc.style, `${desc.persona_id}:${sc.id}:${desc.rep}`) : item.text;
-    if (item.style && io.paraphrase && desc.style !== "neutro" && !varied) {
+    if (item.style && io.paraphrase && desc.style !== "neutro" && !varied && !NO_PARAPHRASE_KINDS.has(sc.expect(c.ctx)?.kind)) {
       const v = await io.paraphrase(item.text, { style: desc.style, persona: c.persona.desc }).catch(() => null);
       if (v && preservesFacts(item.text, v)) { text = v; varied = true; }
     }
