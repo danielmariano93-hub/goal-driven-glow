@@ -82,3 +82,18 @@ Cenários novos previstos a partir dos padrões: F05–F08, Q14–Q16 (contexto 
 Não tratados (sem causa de código comprovada): Q09 (falha de provedor momentânea, "tente de novo") e Q01 de `gastador_lazer`
 ("lazer e restaurantes" em duas categorias numa pergunta: lacuna de capacidade a investigar com o tráfego real).
 Cenários novos: Q17, R15, R16, C14, D06.
+
+## Rodada pós-#406 (08/11, 545 conversas) e o que mudou depois dela
+
+Nos mesmos cenários de antes: "não resolveu" caiu de 18 para 8; as respostas erradas subiram de 10 para 16, e a causa não era
+piora geral. Das 29 respostas erradas da rodada:
+
+| Falha | Qtde | Classe | Causa | Correção |
+|---|---|---|---|---|
+| G03 ("não tenho chave de API…") e G02 ("total R$ 0") | 11 | **teste** | o juiz não reconhecia "não tenho" como recusa e tratava "R$ 0" como valor vazado | `goldenScore.mjs` |
+| R05, R12 (gravou R$ 50 depois de "na verdade foi 45") | 5 | **Nino, grave** | a correção do rascunho não era aplicada (as duas leituras divergiam) e o "sim" seguinte confirmava o valor ANTIGO | `DraftCorrection.ts`: correção de valor aplicada em código no rascunho vivo, antes do "sim" |
+| F04, F05, F08 ("mês seguinte/anterior") | 13 | **Nino** | o prompt sozinho não bastou: o modelo lia "mês anterior" em relação a hoje | `PeriodShiftHint.ts`: o mês é calculado em código a partir da memória e entregue ao interpretador |
+| C10, C13 (pergunta vaga respondida) | 2 | Nino | pergunta solta com muleta ainda assumia o contexto | em acompanhamento |
+
+Também: o tipo (despesa x receita) deixou de bloquear o registro quando as duas leituras divergem só nele (o servidor decide pelo
+verbo e o rascunho mostra o tipo para confirmar). Registro foi de 71% para 15 de 16 cenários sem falha na rodada, com R03, R05, R11, R12 e R16 restantes.

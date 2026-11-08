@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { findPending, confirmationExecutor, type PendingRow } from "./PendingConfirmations.ts";
 import { confirmAndBuildReceipt } from "./ConfirmAndReceipt.ts";
+import { applyAmountCorrection, correctionReply, parseAmountCorrection } from "./DraftCorrection.ts";
 import { classifyConfirmationAct, type ConfirmationAct } from "./ConfirmationVocabulary.ts";
 
 export type PendingState = "fresh" | "expired" | "confirmed" | "cancelled" | "none";
@@ -81,6 +82,28 @@ export async function runConfirmationFastPath(
     text: string;
   },
 ): Promise<FastPathOutcome> {
+  // Correção de valor do rascunho vivo ("na verdade foi 45"): aplicada em código, nunca deixada para o "sim" seguinte
+  // confirmar o valor antigo.
+  const corrected = parseAmountCorrection(args.text);
+  if (corrected != null) {
+    const { state: s0, row: r0 } = await resolvePendingState(sb, args.conversation_id, args.user_id);
+    if (s0 === "fresh" && r0?.kind === "transaction") {
+      const applied = applyAmountCorrection(r0.payload as Record<string, unknown>, r0.summary_text, corrected);
+      if (applied) {
+        const { error } = await sb.from("pending_confirmations")
+          .update({ payload: applied.payload, summary_text: applied.summary, expires_at: new Date(Date.now() + 15 * 60_000).toISOString() })
+          .eq("id", r0.id).eq("status", "pending");
+        if (!error) {
+          return {
+            handled: true, reply: correctionReply(applied.summary, applied.previous, corrected), reply_kind: "question",
+            act: null, pending_state: s0, pending_id: r0.id, pending_kind: r0.kind,
+            execution_ms: 0, llm_calls: 0, tokens: 0, error: null,
+          };
+        }
+      }
+    }
+  }
+
   const act = classifyConfirmationAct(args.text);
   if (act === "unrelated") return idle();
 
