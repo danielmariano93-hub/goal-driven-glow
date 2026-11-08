@@ -266,3 +266,31 @@ describe("paráfrase: mais dois desvios de sentido (R03 '20k', R11 'saber se foi
     expect(preservesFacts("caiu 300 de reembolso hoje", "Oi Nino, tudo bem? Então, queria saber uma coisa: caiu 300 de reembolso hoje")).toBe(true);
   });
 });
+
+import { formatGoalsOverview } from "../../supabase/functions/_shared/agent/core/DeterministicAnswersImpl";
+
+describe("meta de gasto da categoria: quanto posso gastar por dia (conversa real de 08/11)", () => {
+  const result = (over: Record<string, unknown> = {}) => ({
+    category_filter: { requested: "alimentação", applied: true, matched: 1 },
+    items: [], shared_goals: [],
+    category_goals: [{ name: "Alimentação", target: 681.77, achieved: 89.04, remaining: 592.73, used_pct: 13, over_limit: false, remaining_days: 23, daily_allowance: 25.77, period_end: "2026-11-30", ...over }],
+  });
+  it("diz o limite, o usado, o que resta e quanto dá por dia", () => {
+    const text = formatGoalsOverview(result()).replace(/ /g, " ");
+    expect(text).toMatch(/usou R\$ 89,04 de R\$ 681,77/);
+    expect(text).toMatch(/R\$ 592,73 disponíveis/);
+    expect(text).toMatch(/cerca de \*R\$ 25,77 por dia\* nos 23 dias que faltam \(até 30\/11\/2026\)/);
+  });
+  it("não inventa 'por dia' quando já estourou o limite ou não há dias restantes", () => {
+    expect(formatGoalsOverview(result({ over_limit: true, remaining: -10 }))).not.toMatch(/por dia/);
+    expect(formatGoalsOverview(result({ remaining_days: 0 }))).not.toMatch(/por dia/);
+    expect(formatGoalsOverview(result({ daily_allowance: null }))).not.toMatch(/por dia/);
+  });
+  it("a ferramenta entrega remaining_days e daily_allowance, e o prompt manda a pergunta para a meta de gasto", () => {
+    const tools = readFileSync("supabase/functions/_shared/agent/tools.ts", "utf8");
+    expect(tools).toMatch(/remaining_days: Number\(\(goal as any\)\.remaining_days/);
+    expect(tools).toMatch(/daily_allowance: \(goal as any\)\.supports_daily_budget === false/);
+    expect(prompt).toMatch(/35l9\. META DE GASTO DE UMA CATEGORIA/);
+    expect(prompt).toMatch(/nunca responda com outra meta \(ex\.: "Dízimo"\)/);
+  });
+});

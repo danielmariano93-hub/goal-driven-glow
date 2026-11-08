@@ -123,6 +123,15 @@ A correção de valor passou a funcionar ao vivo (R05: de 0 para 5 de 6) e a lim
 | F05 ("como na conversa anterior"), R16 ("duplicou: 2 lançamentos") | **teste** | duas conversas da mesma persona rodavam ao mesmo tempo e dividiam sessão e lançamentos | o worker roda em série as conversas da mesma persona |
 | C10 ("quanto foi rápido pfv" responde o total de outubro) | produto | o Nino assume "último mês fechado" e diz o período; o cenário espera pergunta | decisão em aberto |
 
+## Achado do uso real (08/11): "considerando a minha meta em alimentação, quanto posso gastar por dia?"
+
+Texto e áudio, mesma pergunta, duas respostas erradas: o texto respondeu sobre a meta de poupança "Dízimo"; o áudio ignorou a meta e disse só o
+total gasto em Alimentação (R$ 89,04). A resposta certa existe: a meta de gasto de Alimentação (limite de R$ 681,77) menos o usado dá o que resta,
+e dividido pelos dias que faltam, cerca de R$ 25,77 por dia. O motor da meta já calculava `daily_allowance`; o resumo `get_goals_overview` não o entregava.
+
+Correção: o resumo da meta por categoria passa a trazer `remaining_days`, `daily_allowance` e `period_end`; o formatador diz "dá para gastar cerca de R$ X por dia
+nos N dias que faltam"; o interpretador manda a pergunta para a meta de GASTO da categoria (regra 35l9), nunca para outra meta.
+Fica de fora: cenário sintético equivalente, porque o semeador ainda não cria metas de gasto por categoria (precisaria de migração).
 ## Recorte pós-#409 (08/11, 188 conversas): fechamento
 
 Nos 12 cenários: 51% de acerto (antes da #407), 74% (#407), 94% (#408), **96% (#409)**; respostas erradas 29, 18, 3, 2.
