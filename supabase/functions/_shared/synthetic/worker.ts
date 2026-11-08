@@ -83,8 +83,17 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
       const { data: cur } = await sb.from("synthetic_jobs").select("status").eq("id", job.id).maybeSingle();
       if (cur?.status === "cancelled") { cancelled = true; break; }
       const batch = plan.slice(index, index + lanes);
-      const results = await Promise.all(batch.map((desc: any) =>
-        executeConversation({ desc, ref, io, gov }).catch((e: unknown) => ({ ...desc, verdict: "INFRA", why: String((e as Error)?.message ?? e).slice(0, 100), layers: {}, turns: [], replies: [] }))));
+      // Duas conversas da MESMA persona nunca rodam ao mesmo tempo: elas dividem a sessão (memória) e os lançamentos do
+      // usuário sandbox, e uma contaminava a outra ("como na conversa anterior", "duplicou: 2 lançamentos").
+      const groups = new Map<string, any[]>();
+      for (const desc of batch) groups.set(desc.persona_id, [...(groups.get(desc.persona_id) ?? []), desc]);
+      const results = (await Promise.all([...groups.values()].map(async (group) => {
+        const out: any[] = [];
+        for (const desc of group) {
+          out.push(await executeConversation({ desc, ref, io, gov }).catch((e: unknown) => ({ ...desc, verdict: "INFRA", why: String((e as Error)?.message ?? e).slice(0, 100), layers: {}, turns: [], replies: [] })));
+        }
+        return out;
+      }))).flat();
       const rows = results.map((r: any) => ({
         run_id: job.run_id, scenario_id: r.scenario_id, persona_id: r.persona_id, style: r.style, rep: r.rep ?? 1, area: r.area ?? null,
         verdict: r.verdict, layers: r.layers ?? {}, why: r.why ?? null, turns: r.turns ?? [], replies: r.replies ?? [], latency_ms: r.latency_ms ?? null,
