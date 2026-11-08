@@ -76,6 +76,8 @@ export function preservesFacts(original, variant) {
   if (!MONTH_NAMES.filter((m) => o.includes(m)).every((m) => v.includes(m))) return false;
   for (const [inOriginal, inVariant] of METRICS) if (inOriginal.test(o) && !inVariant.test(v)) return false;
   const cats = (t) => new Set((t.match(new RegExp(CATEGORY_WORDS.source, "g")) ?? []).map((x) => x.slice(0, 5)));
+  // Uma frase de lançamento ("20 conto no iFood") não pode virar pergunta ("...quanto gastei?"): o Nino responderia a consulta.
+  if (/\b(quanto|qual|quais|quando|onde)\b|\?/.test(v) && !/\b(quanto|qual|quais|quando|onde)\b|\?/.test(o)) return false;
   const co = cats(o);
   for (const c of cats(v)) if (!co.has(c)) return false;
   return true;

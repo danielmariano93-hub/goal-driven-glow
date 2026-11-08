@@ -61,6 +61,10 @@ async function paraphrase(body: any) {
 }
 
 export async function newConversation(sb: any, userId: string) {
+  // Cada cenário começa do zero: a sessão (memória de período, categoria, última análise) é por usuário e canal e
+  // sobrevivia ao cenário anterior ("o lançamento que você corrigiu foi R$ 45" aparecendo em "quanto foi?").
+  // Só roda para contas sandbox: `userId` vem de `personaUser`, que confere is_test e is_sandbox.
+  await sb.from("agent_sessions").delete().eq("user_id", userId);
   for (let i = 0; i < 25; i++) {
     const phone = `+55119999${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
     const { data, error } = await sb.from("conversations").insert({ user_id: userId, source: "whatsapp", phone_e164: phone, last_message_at: new Date().toISOString() }).select("id").single();

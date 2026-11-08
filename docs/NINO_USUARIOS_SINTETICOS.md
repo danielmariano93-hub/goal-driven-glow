@@ -97,3 +97,17 @@ piora geral. Das 29 respostas erradas da rodada:
 
 Também: o tipo (despesa x receita) deixou de bloquear o registro quando as duas leituras divergem só nele (o servidor decide pelo
 verbo e o rascunho mostra o tipo para confirmar). Registro foi de 71% para 15 de 16 cenários sem falha na rodada, com R03, R05, R11, R12 e R16 restantes.
+
+## Recorte pós-#407 (08/11, 188 conversas nos 12 cenários afetados)
+
+| Cenário | Antes | Depois | Leitura |
+|---|---|---|---|
+| F04, F05, F08 (mês seguinte/anterior) | 7, 2 e 7 de 10 | 20 de 20 em cada | corrigido (mês calculado em código) |
+| G02, G03 (juiz) | 11/12 e 3/12 | 24/24 e 23/24 | corrigido; sobrou "não disponho de chave de API" (juiz) |
+| R05, R12 (correção de valor) | 0 certas | 0 certas | **não corrigido**: o fluxo ao vivo (V2) só entregava "sim/cancela" ao caminho de confirmação; a correção nunca chegava lá |
+| C10, C13 (pergunta vaga) | 9/12 e 6/12 | 13/24 e 8/24 | **contaminação do teste**: a sessão do usuário sintético sobrevivia ao cenário anterior ("o lançamento que você corrigiu foi R$ 45" em "quanto foi?") |
+| R03, R16 | | | a paráfrase por IA acrescentava "quanto gastei?" ao lançamento (teste); 1 caso "duplicou: 2 lançamentos" sem causa confirmada |
+
+Correções desta rodada: `AgentCoreV2` entrega a correção de valor ao caminho de confirmação (com teste do caminho completo);
+`newConversation` zera a sessão do usuário sandbox a cada cenário; a paráfrase não pode transformar lançamento em pergunta; o juiz
+reconhece qualquer recusa com negação ao citar "chave de API".

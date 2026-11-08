@@ -92,6 +92,7 @@ import { executeCategoryReading, executePeriodReview } from "../v3/PeriodReviewV
 import {
   capSeriesWindow, loadScopedSeries, SCOPED_SERIES_ENGINE, scopedSeriesExecutedIR, scopedSeriesText,
 } from "./handlers/ScopedSeriesHandler.ts";
+import { parseAmountCorrection } from "./DraftCorrection.ts";
 import { isScopedSeriesGrain } from "./SeriesGrain.ts";
 
 const BRAIN_MODEL = "openai/gpt-oss-120b";
@@ -479,6 +480,11 @@ export async function handleTurnV2(input: HandleTurnInput): Promise<HandleTurnRe
   const pending = await findPending(sb, input.conversation_id, input.user_id).catch(() => null);
   const confirmationAct = classifyConfirmationAct(input.text);
   if (pending && (confirmationAct === "confirm" || confirmationAct === "cancel" || confirmationAct === "ambiguous")) {
+    return await handleLegacyTurn(input);
+  }
+  // "Na verdade foi 45" com um rascunho de lançamento vivo: o caminho de confirmação corrige o valor em código. Sem
+  // isso o interpretador divergia, nada mudava e o "sim" seguinte gravava o valor ANTIGO.
+  if (pending?.kind === "transaction" && parseAmountCorrection(input.text) != null) {
     return await handleLegacyTurn(input);
   }
 
