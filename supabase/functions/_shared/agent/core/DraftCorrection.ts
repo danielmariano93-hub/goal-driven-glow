@@ -7,9 +7,10 @@ const plain = (s: string) => String(s ?? "").toLowerCase().normalize("NFD").repl
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
 /** Pista de correção ("na verdade", "errei", "foi", "foram", "era", "corrige"…). */
-const CUE = /\b(na verdade|na verade|errei|errado|erro meu|me enganei|corrig\w+|ajust\w+|melhor|era|foi|foram|seria|na real)\b/;
+const CUE = /\b(na verdade|na verade|errei|errado|erro meu|me enganei|corrig\w+|ajust\w+|melhor|era|foi|foram|sao|seria|na real)\b/;
 /** Se a frase pede outra coisa, não é correção. */
-const OTHER_INTENT = /\b(quanto|qual|quais|onde|quando|como|por que|cancel\w*|nao registr\w*|nao salv\w*|apaga\w*|exclu\w*)\b|\?/;
+// "?" só veta quando fecha a frase: "Oi Nino, tudo bem? … errei, foram 45" tem "?" no meio e é correção.
+const OTHER_INTENT = /\b(quanto|qual|quais|onde|quando|como|por que|cancel\w*|nao registr\w*|nao salv\w*|apaga\w*|exclu\w*)\b|\?\s*$/;
 
 /** Valor corrigido, ou null se a frase não é uma correção de valor com exatamente um número. */
 export function parseAmountCorrection(text: string): number | null {

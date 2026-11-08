@@ -132,3 +132,15 @@ e dividido pelos dias que faltam, cerca de R$ 25,77 por dia. O motor da meta já
 Correção: o resumo da meta por categoria passa a trazer `remaining_days`, `daily_allowance` e `period_end`; o formatador diz "dá para gastar cerca de R$ X por dia
 nos N dias que faltam"; o interpretador manda a pergunta para a meta de GASTO da categoria (regra 35l9), nunca para outra meta.
 Fica de fora: cenário sintético equivalente, porque o semeador ainda não cria metas de gasto por categoria (precisaria de migração).
+## Recorte pós-#409 (08/11, 188 conversas): fechamento
+
+Nos 12 cenários: 51% de acerto (antes da #407), 74% (#407), 94% (#408), **96% (#409)**; respostas erradas 29, 18, 3, 2.
+R05 (correção de valor) 6 de 6; R16 6 de 6 (sem "duplicou"); F04, F05, F08, G02, G03 e C13 100%.
+
+Sobrou, e o que mudou:
+- **R12 (2 erradas, grave):** "Desculpa, são 45…" (sem a palavra "foi/foram") e "Oi Nino, tudo bem? … errei, foram 45…" (o "?" da saudação vetava a correção). "são" vira pista de correção e o "?" só veta no fim da frase.
+- **R03, R11 (teste):** a paráfrase trocou "20 conto" por "20k" e o lançamento por "queria saber se o reembolso foi registrado". `preservesFacts` rejeita as duas coisas.
+- **C10 (4 de 24, produto):** "quanto foi rápido pfv" responde o total do último mês fechado dizendo o período; o cenário espera pergunta. Decisão em aberto.
+
+Limite conhecido: a correção de valor só reconhece frases com uma pista ("na verdade", "errei", "foi", "foram", "são"…) e um único número.
+Se a frase não for reconhecida, o rascunho antigo segue vivo e um "sim" o confirma.

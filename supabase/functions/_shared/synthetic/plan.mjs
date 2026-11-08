@@ -77,7 +77,10 @@ export function preservesFacts(original, variant) {
   for (const [inOriginal, inVariant] of METRICS) if (inOriginal.test(o) && !inVariant.test(v)) return false;
   const cats = (t) => new Set((t.match(new RegExp(CATEGORY_WORDS.source, "g")) ?? []).map((x) => x.slice(0, 5)));
   // Uma frase de lançamento ("20 conto no iFood") não pode virar pergunta ("...quanto gastei?"): o Nino responderia a consulta.
-  if (/\b(quanto|qual|quais|quando|onde)\b|\?/.test(v) && !/\b(quanto|qual|quais|quando|onde)\b|\?/.test(o)) return false;
+  if (/\b(quanto|qual|quais|quando|onde)\b|\?\s*$/.test(v) && !/\b(quanto|qual|quais|quando|onde)\b|\?\s*$/.test(o)) return false;
+  // "20 conto" não pode virar "20k" (20 mil) nem o lançamento virar "queria saber SE o reembolso foi registrado".
+  if (/\d\s*(?:k|mil)\b/.test(v) && !/\d\s*(?:k|mil)\b/.test(o)) return false;
+  if (/\bsaber se\b|\bfoi registrad|\bjá (?:foi|está) registrad/.test(v) && !/\bsaber se\b|\bregistrad/.test(o)) return false;
   const co = cats(o);
   for (const c of cats(v)) if (!co.has(c)) return false;
   return true;

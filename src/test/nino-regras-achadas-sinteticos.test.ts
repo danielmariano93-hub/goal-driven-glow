@@ -236,7 +236,10 @@ describe("paráfrase e juiz: mais dois defeitos do teste (R03/R16/G03 da rodada 
 describe("correção de valor em frase longa e educada (R12 prolixo da rodada pós-#408)", () => {
   it("reconhece a correção dentro de uma mensagem comprida", () => {
     expect(parseAmountCorrection("Opa, eu estava aqui pensando e queria te perguntar: errei, foram 45 rápido pfv Obrigado desde já.")).toBe(45);
-    expect(parseAmountCorrection("Oi Nino, tudo bem? Então, queria te falar uma coisa: na verdade foi 45, desculpa o erro. Obrigado desde já!")).toBeNull(); // tem "?" (pergunta)
+    // "?" no meio (saudação) não veta; só veta quando a frase termina em pergunta.
+    expect(parseAmountCorrection("Oi Nino, tudo bem? Então, queria saber uma coisa: errei, foram 45 rápido pfv Se puder me explicar direitinho eu agradeço!")).toBe(45);
+    expect(parseAmountCorrection("Desculpa, são 45, me manda rápido, por favor.")).toBe(45);
+    expect(parseAmountCorrection("foi 45 mesmo?")).toBeNull();
     expect(parseAmountCorrection("Bom dia! Desculpa incomodar, mas na verdade foram 45 reais, é pra eu me organizar melhor.")).toBe(45);
   });
 });
@@ -281,5 +284,10 @@ describe("meta de gasto da categoria: quanto posso gastar por dia (conversa real
     expect(tools).toMatch(/daily_allowance: \(goal as any\)\.supports_daily_budget === false/);
     expect(prompt).toMatch(/35l9\. META DE GASTO DE UMA CATEGORIA/);
     expect(prompt).toMatch(/nunca responda com outra meta \(ex\.: "Dízimo"\)/);
+describe("paráfrase: mais dois desvios de sentido (R03 '20k', R11 'saber se foi registrado')", () => {
+  it("rejeita virar mil e virar pergunta de consulta", () => {
+    expect(preservesFacts("20 conto no iFood", "20k no iFood")).toBe(false);
+    expect(preservesFacts("caiu 300 de reembolso hoje", "Gostaria de saber se o reembolso de 300 reais foi registrado hoje.")).toBe(false);
+    expect(preservesFacts("caiu 300 de reembolso hoje", "Oi Nino, tudo bem? Então, queria saber uma coisa: caiu 300 de reembolso hoje")).toBe(true);
   });
 });
