@@ -17,6 +17,7 @@ import { trustedActivePeriod } from "./ConversationMemory.ts";
 import { interpretWithSingleSemanticAuthorityV3 } from "../v3/SemanticAuthorityV3.ts";
 import { bridgeTurnSpecV3ToRuntime, bridgeTurnSpecV3ToRuntimePlan } from "../v3/V3RuntimeBridge.ts";
 import type { TurnSpecV3 } from "../v3/TurnSpecV3.ts";
+import { periodShiftHint } from "./PeriodShiftHint.ts";
 import { actionForTool } from "./ActionIR.ts";
 
 export { dialogueActsFromContract } from "./ConversationBrain.ts";
@@ -77,6 +78,7 @@ function typedContextText(input: AuthorityInput): string {
     relationship_context: input.user_context ? String(input.user_context).slice(0, 3200) : null,
     recent_proactive_message: input.recent_proactive ?? null,
     repair_hint: input.repair_hint ?? null,
+    period_shift_hint: periodShiftHint(input.text, trustedPeriod.period),
     conversation_state: memory ? {
       current_topic: memory.current_topic ?? null,
       conversation_summary: memory.conversation_summary ?? null,

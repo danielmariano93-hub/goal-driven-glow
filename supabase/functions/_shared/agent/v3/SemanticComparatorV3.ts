@@ -218,6 +218,8 @@ function compatibleWriteShapes(a: Record<string, unknown>, b: Record<string, unk
     // A categoria é reclassificada pelo motor de categorização e aparece no rascunho
     // para confirmação: rótulos diferentes ("Alimentação" x "Restaurante") não movem dinheiro.
     if (key === "category") continue;
+    // Despesa x receita é decidido no servidor pelo verbo da pessoa (`inferDraftType`) e aparece no rascunho para confirmar.
+    if (key === "type") continue;
     // Estabelecimentos DIFERENTES ("Uber" x "99") continuam bloqueando. Mas variações do MESMO nome
     // ("iFood" x "iFood delivery" x "Ifood") são só rótulo: aparecem no rascunho e não movem dinheiro.
     if (key === "merchant" && slotsB.has(key) && sameMerchantName(value, slotsB.get(key)!)) continue;
