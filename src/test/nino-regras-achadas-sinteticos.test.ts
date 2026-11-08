@@ -259,6 +259,14 @@ describe("receita sem estabelecimento tem descrição (R11 'caiu 300 de reembols
   });
 });
 
+describe("paráfrase: mais dois desvios de sentido (R03 '20k', R11 'saber se foi registrado')", () => {
+  it("rejeita virar mil e virar pergunta de consulta", () => {
+    expect(preservesFacts("20 conto no iFood", "20k no iFood")).toBe(false);
+    expect(preservesFacts("caiu 300 de reembolso hoje", "Gostaria de saber se o reembolso de 300 reais foi registrado hoje.")).toBe(false);
+    expect(preservesFacts("caiu 300 de reembolso hoje", "Oi Nino, tudo bem? Então, queria saber uma coisa: caiu 300 de reembolso hoje")).toBe(true);
+  });
+});
+
 import { formatGoalsOverview } from "../../supabase/functions/_shared/agent/core/DeterministicAnswersImpl";
 
 describe("meta de gasto da categoria: quanto posso gastar por dia (conversa real de 08/11)", () => {
@@ -284,10 +292,5 @@ describe("meta de gasto da categoria: quanto posso gastar por dia (conversa real
     expect(tools).toMatch(/daily_allowance: \(goal as any\)\.supports_daily_budget === false/);
     expect(prompt).toMatch(/35l9\. META DE GASTO DE UMA CATEGORIA/);
     expect(prompt).toMatch(/nunca responda com outra meta \(ex\.: "Dízimo"\)/);
-describe("paráfrase: mais dois desvios de sentido (R03 '20k', R11 'saber se foi registrado')", () => {
-  it("rejeita virar mil e virar pergunta de consulta", () => {
-    expect(preservesFacts("20 conto no iFood", "20k no iFood")).toBe(false);
-    expect(preservesFacts("caiu 300 de reembolso hoje", "Gostaria de saber se o reembolso de 300 reais foi registrado hoje.")).toBe(false);
-    expect(preservesFacts("caiu 300 de reembolso hoje", "Oi Nino, tudo bem? Então, queria saber uma coisa: caiu 300 de reembolso hoje")).toBe(true);
   });
 });
