@@ -14,7 +14,8 @@ const OTHER_INTENT = /\b(quanto|qual|quais|onde|quando|como|por que|cancel\w*|na
 /** Valor corrigido, ou null se a frase não é uma correção de valor com exatamente um número. */
 export function parseAmountCorrection(text: string): number | null {
   const t = plain(text);
-  if (!t.trim() || t.length > 90) return null;
+  // Mensagens educadas e compridas ("Opa, queria te falar: errei, foram 45, obrigado desde já") também corrigem.
+  if (!t.trim() || t.length > 170) return null;
   if (!CUE.test(t) || OTHER_INTENT.test(t)) return null;
   const found = [...t.matchAll(/(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/g)];
   if (found.length === 1) {

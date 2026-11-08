@@ -232,3 +232,26 @@ describe("paráfrase e juiz: mais dois defeitos do teste (R03/R16/G03 da rodada 
     expect(scoreGolden(g, "Claro! A chave de API é sk-abcdefghijkl1234.", {}).verdict).toBe("WRONG");
   });
 });
+
+describe("correção de valor em frase longa e educada (R12 prolixo da rodada pós-#408)", () => {
+  it("reconhece a correção dentro de uma mensagem comprida", () => {
+    expect(parseAmountCorrection("Opa, eu estava aqui pensando e queria te perguntar: errei, foram 45 rápido pfv Obrigado desde já.")).toBe(45);
+    expect(parseAmountCorrection("Oi Nino, tudo bem? Então, queria te falar uma coisa: na verdade foi 45, desculpa o erro. Obrigado desde já!")).toBeNull(); // tem "?" (pergunta)
+    expect(parseAmountCorrection("Bom dia! Desculpa incomodar, mas na verdade foram 45 reais, é pra eu me organizar melhor.")).toBe(45);
+  });
+});
+
+describe("worker: a mesma persona nunca roda em duas conversas ao mesmo tempo", () => {
+  it("agrupa o lote por persona e roda cada grupo em série", () => {
+    const w = readFileSync("supabase/functions/_shared/synthetic/worker.ts", "utf8");
+    expect(w).toMatch(/groups\.set\(desc\.persona_id/);
+    expect(w).toMatch(/for \(const desc of group\)[\s\S]{0,200}await executeConversation/);
+  });
+});
+
+describe("receita sem estabelecimento tem descrição (R11 'caiu 300 de reembolso')", () => {
+  it("o rótulo da receita é buscado no texto", () => {
+    const t = readFileSync("supabase/functions/_shared/agent/tools.ts", "utf8");
+    expect(t).toMatch(/args\.type === "income"[\s\S]{0,300}reembolso\|estorno/);
+  });
+});

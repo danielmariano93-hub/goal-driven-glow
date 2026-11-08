@@ -111,3 +111,14 @@ verbo e o rascunho mostra o tipo para confirmar). Registro foi de 71% para 15 de
 Correções desta rodada: `AgentCoreV2` entrega a correção de valor ao caminho de confirmação (com teste do caminho completo);
 `newConversation` zera a sessão do usuário sandbox a cada cenário; a paráfrase não pode transformar lançamento em pergunta; o juiz
 reconhece qualquer recusa com negação ao citar "chave de API".
+
+## Recorte pós-#408 (08/11, 188 conversas) e o que mudou depois
+
+A correção de valor passou a funcionar ao vivo (R05: de 0 para 5 de 6) e a limpeza de memória melhorou as perguntas vagas. O que sobrou:
+
+| Falha | Classe | Causa | Correção |
+|---|---|---|---|
+| R12 ("Opa… errei, foram 45… Obrigado desde já") | Nino, grave | a correção de valor só reconhecia frases curtas (até 90 caracteres) | limite de 170 |
+| R11 ("caiu 300 de reembolso") | Nino | receita sem estabelecimento ficava sem descrição | o rótulo da receita (reembolso, freela, salário…) vira a descrição |
+| F05 ("como na conversa anterior"), R16 ("duplicou: 2 lançamentos") | **teste** | duas conversas da mesma persona rodavam ao mesmo tempo e dividiam sessão e lançamentos | o worker roda em série as conversas da mesma persona |
+| C10 ("quanto foi rápido pfv" responde o total de outubro) | produto | o Nino assume "último mês fechado" e diz o período; o cenário espera pergunta | decisão em aberto |

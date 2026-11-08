@@ -785,6 +785,11 @@ export async function create_transaction_draft(ctx: ToolContext, args: {
   // "gastei 96 em adega" — "adega" é DESCRIÇÃO/estabelecimento, não categoria.
   // Se o modelo mandou isso como categoria (e não foi pedido explicitamente),
   // aproveitamos como descrição em vez de descartar a informação do usuário.
+  // Receita sem estabelecimento ("caiu 300 de reembolso", "recebi 1500 de freela"): o próprio rótulo da receita descreve.
+  if (!rawDesc && args.type === "income") {
+    const label = /\b(reembolso|estorno|sal[áa]rio|freela|b[ôo]nus|comiss[ãa]o|rendimento|mesada|venda|13[ºo]?)\b/i.exec(String(ctx.user_text ?? ""));
+    if (label) rawDesc = label[1].charAt(0).toUpperCase() + label[1].slice(1).toLowerCase();
+  }
   if (!rawDesc) {
     const fromCategoryArg = !explicitCategoryHint && args.category ? String(args.category).trim() : "";
     const merchant = extractMerchantFromText(ctx.user_text);
