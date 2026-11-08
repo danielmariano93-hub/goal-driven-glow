@@ -57,6 +57,11 @@ export function formatGoalsOverview(result: any): string {
         ? `passou do limite em ${money(Math.abs(Number(item.remaining ?? 0)))}`
         : `ainda ${money(item.remaining)} disponíveis`;
       lines.push(`Meta de ${item.name}: você usou ${money(item.achieved)} de ${money(item.target)} (${used}%) — ${state}.`);
+      const perDay = Number(item.daily_allowance);
+      const daysLeft = Number(item.remaining_days);
+      if (!item.over_limit && Number.isFinite(perDay) && perDay > 0 && Number.isFinite(daysLeft) && daysLeft > 0) {
+        lines.push(`Para fechar dentro do limite, dá para gastar cerca de *${money(perDay)} por dia* nos ${daysLeft} dia${daysLeft === 1 ? "" : "s"} que faltam${item.period_end ? ` (até ${String(item.period_end).split("-").reverse().join("/")})` : ""}.`);
+      }
     }
     for (const item of own.slice(0, 3)) {
       lines.push(`Meta ${item.name}: ${money(item.achieved)} de ${money(item.target)} (${PCT.format(Number(item.attainment_pct ?? 0))}%). Falta ${money(item.remaining)}.`);

@@ -1457,6 +1457,10 @@ export async function get_goals_overview(ctx: ToolContext, args: { category?: st
       target: goal.target_amount, achieved: goal.actual_spend,
       attainment_pct: goal.actual_spend <= goal.target_amount ? 100 : Math.max(0, Math.round(goal.target_amount / Math.max(1, goal.actual_spend) * 10000) / 100),
       remaining: goal.remaining_amount,
+      // "Quanto posso gastar por dia?": a conta já existe no motor da meta; faltava entregá-la à resposta.
+      remaining_days: Number((goal as any).remaining_days ?? 0),
+      period_end: (goal as any).period_end ?? null,
+      daily_allowance: (goal as any).supports_daily_budget === false ? null : Number((goal as any).daily_allowance ?? 0),
     }));
 
     const memberGoalIds = [...new Set(((memberRes.data ?? []) as any[]).map((m) => m.goal_id).filter(Boolean))];
