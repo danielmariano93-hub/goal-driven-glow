@@ -104,6 +104,10 @@ export const SCENARIOS = [
   { id: "R16", area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "estudante", "conta_vazia"], turns: () => ["vinte reais de uber hoje", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 20, day: 0, categories: ["Transporte"] } }) },
   { id: "C14", area: "reclamacao", level: 3, applies: ALL, turns: () => ["esse valor tá errado, confere de novo"], expect: () => ({ kind: "vague" }) },
   { id: "D06", area: "conselho", level: 3, applies: enoughData, turns: () => ["preciso cortar algo urgente, onde eu começo?"], expect: () => ({ kind: "answers" }) },
+  // Famílias das falhas das perguntas novas (H04/H07/H11, H20, H05), com OUTRA redação, fora do conjunto H.
+  { id: "Q18", area: "multi_passo", level: 2, applies: (c) => hasKey(c.t, "sum3:exp"), turns: (c) => [`qual o total gasto em ${monthName(c.ref, 3)}, ${monthName(c.ref, 2)} e ${monthName(c.ref, 1)} juntando tudo?`], expect: (c) => num(c.t, "sum3:exp") },
+  { id: "Q19", area: "receita_mes", level: 2, applies: (c) => c.t["cnt:M2"] > 0, turns: () => ["quanto entrou de dinheiro no mês retrasado?"], expect: (c) => num(c.t, "inc:M2") },
+  { id: "Q20", area: "multi_passo", level: 3, applies: (c) => hasKey(c.t, "avg3:exp"), turns: (c) => [`de ${monthName(c.ref, 3)} a ${monthName(c.ref, 1)}, quanto gastei por mês em média?`], expect: (c) => num(c.t, "avg3:exp") },
   // ---------- Conjunto de perguntas novas (held-out) ----------
   // REGRA: estes cenários medem o Nino em frases que NUNCA serviram para criar regra. Não se corrige o Nino para uma frase
   // daqui. Quando um deles falhar, a correção tem de cobrir a família do erro e a prova é um cenário novo (fora de "H").

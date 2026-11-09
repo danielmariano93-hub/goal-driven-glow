@@ -123,6 +123,17 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
       complete: false, kind: "range",
     };
   }
+  // "Mês retrasado" = dois meses atrás (em 09/11: setembro). Antes caía em "qual período?" ou no mês corrente.
+  if (/\b(mes retrasado|antepenultimo mes)\b/.test(t)) {
+    const idx = year * 12 + (month - 1) - 2;
+    const p = monthPeriod(Math.floor(idx / 12), (((idx % 12) + 12) % 12) + 1, today, true);
+    return { ...p, label: "mês retrasado", matched: "mês retrasado" };
+  }
+  if (/\b(semana retrasada|antepenultima semana)\b/.test(t)) {
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const thisMonday = shift(today, -((dow + 6) % 7));
+    return { from: shift(thisMonday, -14), to: shift(thisMonday, -8), label: "semana retrasada", matched: "semana retrasada", complete: true, kind: "week" };
+  }
   if (/\b(mes passado|mes anterior)\b/.test(t)) {
     const prevMonth = month === 1 ? 12 : month - 1;
     const prevYear = month === 1 ? year - 1 : year;

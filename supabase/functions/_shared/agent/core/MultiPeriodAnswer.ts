@@ -30,6 +30,47 @@ function money(value: number): string {
   return `R$ ${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+const SUM_INTENT = /\b(som(?:ando|ar|a|em|ado|ados|adas)|junt(?:ando|os|as|e)|no total|ao todo|em conjunto|acumulad[oa]|totalizando|total geral|total d[eo]s?)\b/;
+
+/** O usuário pediu para SOMAR os períodos ("somando agosto, setembro e outubro", "juntos", "no total")? */
+export function wantsPeriodSum(text: string): boolean {
+  const t = String(text ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+  return SUM_INTENT.test(t);
+}
+
+type PeriodBlock = { label: string; text: string; total: number | null };
+
+function collectBlocks(args: {
+  outcomes: MultiPeriodOutcome[];
+  labels: Record<string, string>;
+  periodOrder: string[];
+}): PeriodBlock[] {
+  const blocks: PeriodBlock[] = [];
+  for (const label of args.periodOrder) {
+    for (const outcome of args.outcomes) {
+      if (args.labels[outcome.query_id] !== label) continue;
+      if (outcome.status !== "ok") continue;
+      const text = semanticBlockText(outcome.engine, outcome.result);
+      if (!text || !text.trim()) continue;
+      blocks.push({ label, text: text.trim(), total: totalOf(outcome.result) });
+    }
+  }
+  return blocks;
+}
+
+/** Soma dos totais já apresentados, só quando TODOS os períodos trouxeram total (nunca soma parcial em silêncio). */
+export function periodSumValue(args: {
+  outcomes: MultiPeriodOutcome[];
+  labels: Record<string, string>;
+  periodOrder: string[];
+}): number | null {
+  const blocks = collectBlocks(args);
+  if (blocks.length < 2 || blocks.some((b) => b.total == null)) return null;
+  return Math.round(blocks.reduce((acc, b) => acc + (b.total as number), 0) * 100) / 100;
+}
+
+const COUNT_WORDS = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez"];
+
 /**
  * Texto rotulado por período. `null` quando não há bloco utilizável — nesse caso
  * o chamador segue com o texto determinístico normal.
@@ -40,17 +81,10 @@ export function multiPeriodText(args: {
   /** Ordem dos períodos pedida pelo usuário. */
   periodOrder: string[];
   comparison_intent: boolean;
+  /** O usuário pediu a soma dos períodos: o total sai derivado dos números já mostrados. */
+  sum_intent?: boolean;
 }): string | null {
-  const blocks: Array<{ label: string; text: string; total: number | null }> = [];
-  for (const label of args.periodOrder) {
-    for (const outcome of args.outcomes) {
-      if (args.labels[outcome.query_id] !== label) continue;
-      if (outcome.status !== "ok") continue;
-      const text = semanticBlockText(outcome.engine, outcome.result);
-      if (!text || !text.trim()) continue;
-      blocks.push({ label, text: text.trim(), total: totalOf(outcome.result) });
-    }
-  }
+  const blocks = collectBlocks(args);
   if (blocks.length < 2) return null;
 
   const lines = blocks.map((b) => `*${titleCase(b.label)}*\n${b.text}`);
@@ -67,6 +101,15 @@ export function multiPeriodText(args: {
       );
     } else {
       lines.push(`Os dois períodos ficaram praticamente iguais.`);
+    }
+  }
+
+  // Soma pedida ("somando", "juntos", "no total"): o total dos períodos vem dos mesmos números mostrados acima.
+  if (args.sum_intent && !args.comparison_intent) {
+    const sum = periodSumValue(args);
+    if (sum != null) {
+      const count = COUNT_WORDS[blocks.length] ?? String(blocks.length);
+      lines.push(`*Somando os ${count} períodos: ${money(sum)}.*`);
     }
   }
 
