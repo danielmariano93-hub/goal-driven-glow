@@ -144,3 +144,12 @@ Sobrou, e o que mudou:
 
 Limite conhecido: a correção de valor só reconhece frases com uma pista ("na verdade", "errei", "foi", "foram", "são"…) e um único número.
 Se a frase não for reconhecida, o rascunho antigo segue vivo e um "sim" o confirma.
+
+## Perguntas novas (held-out) e repetição
+
+Até aqui, todo cenário nascia de uma falha já vista, então o placar media o que já corrigimos. O conjunto **H01–H24** mede o contrário: frases que nunca serviram para criar regra.
+
+- **O que tem:** redação diferente dos cenários Q/F/R/C ("quanto saiu da minha conta", "fechei outubro com quanto no bolso"), perguntas de vários passos (soma de 3 meses, média, diferença entre meses, categoria somada em 2 meses), mudança de assunto no meio da conversa ("não, eu quis dizer em setembro"), conversa, pedido fora do assunto, três registros e conta vazia.
+- **Gabaritos derivados** (`personas.mjs`): `sum3:exp|inc|net`, `avg3:exp`, `diff12:exp`, `catsum12:<categoria>`, calculados da própria lista semeada.
+- **Regra de uso:** não se corrige o Nino para uma frase de H. Se H falhar, a correção cobre a família do erro e a prova é um cenário novo fora de H. Um teste garante que a frase medida de H nunca repete a de um cenário de correção.
+- **Como rodar:** `only` = ids H (exportados como `HELDOUT_IDS`), `reps` = 3. O resumo da rodada traz `consistency` (pass^k): um cenário só conta como consistente se acertou nas 3 repetições.
