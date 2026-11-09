@@ -660,6 +660,10 @@ async function persistRun(
       }).catch((error) => console.warn("[proactive] day plan offer not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
     }
     if ((situation.type === "weekend_recap" || situation.type === "day_plan_recap") && Array.isArray(evidence.commitment_outcomes)) {
+      // Só fecha o combinado quando a mensagem foi de fato liberada no WhatsApp. Se o WhatsApp a segurou (limite, janela),
+      // o combinado continua aberto e o fechamento volta no próximo ciclo, em vez de ficar "avaliado" sem a pessoa saber.
+      const whatsappDecisions = decisions.filter((d) => d.fingerprint === situation.fingerprint && d.channel === "whatsapp");
+      if (whatsappDecisions.length && !whatsappDecisions.some((d) => d.decision === "deliver")) continue;
       await recordCommitmentOutcomes(sb, userId, evidence.commitment_outcomes)
         .catch((error) => console.warn("[proactive] weekend outcome not persisted", String((error as Error)?.message ?? error).slice(0, 160)));
     }

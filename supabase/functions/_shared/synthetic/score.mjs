@@ -21,6 +21,7 @@ export function naturalness(replies, level = 1) {
   return { score: Math.max(0, 1 - 0.34 * flags.length), flags };
 }
 
+const DERIVED_KEY = /^(sum3|avg3|diff12|catsum12)\b/;
 const RANK = { WRONG: 4, INFRA: 3, UNVERIFIED: 2, MISS: 1, CORRECT_REFUSAL: 0, CORRECT: 0 };
 const worst = (a, b) => ((RANK[b.verdict] ?? 0) > (RANK[a.verdict] ?? 0) ? b : a);
 export const isPass = (v) => v === "CORRECT" || v === "CORRECT_REFUSAL";
@@ -45,8 +46,13 @@ export function scoreRegistration(expect, state, today) {
   return { verdict: "CORRECT", why: "lançamento certo no banco", categoria: "ok" };
 }
 
-export function scoreScenario({ expect, replies, state, truth, level, today, known }) {
-  const last = String(replies.at(-1) ?? "");
+export function scoreScenario({ expect, replies, state, truth, level, today, known, asked = [] }) {
+  const reply = String(replies.at(-1) ?? "");
+  // Valor que a própria pessoa digitou ("me empresta 500 reais?") não é valor inventado quando o Nino o repete.
+  const typed = new Set((asked.map((t) => (typeof t === "string" ? t : t?.text ?? "")).join(" ").match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => Math.abs(Number(n.replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")))));
+  const last = typed.size && !(expect.numbers ?? []).length
+    ? reply.replace(/R\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?/gi, (m, int, dec) => (typed.has(Number(`${String(int).replace(/\./g, "")}${dec ? `.${dec}` : ""}`)) ? "esse valor" : m))
+    : reply;
   const c = classify(last);
   const kind = expect.kind ?? (expect.numbers ? "numbers" : "answers");
   const layers = { fato: null, estado: null, regra: null };
@@ -68,6 +74,13 @@ export function scoreScenario({ expect, replies, state, truth, level, today, kno
     else if (c.dead_end) res = { verdict: "MISS", why: "beco sem saída" };
     else res = last.trim().length >= 3 ? { verdict: "CORRECT", why: "pediu contexto ou conversou" } : { verdict: "MISS", why: "vazio" };
   } else res = goldenScore({ expect: { ...expect, kind } }, last, numericTruth);
+  // Conta de vários passos (soma, média, diferença): citar só os valores de cada mês, todos reais, sem entregar o total, é uma
+  // resposta incompleta (MISS), não um valor errado. Um valor que não existe nos dados continua sendo WRONG.
+  if (res.verdict === "WRONG" && kind === "numbers" && (expect.numbers ?? []).length && expect.numbers.every((k) => DERIVED_KEY.test(k))) {
+    const knownVals = known ?? Object.values(numericTruth).map((v) => Math.abs(Number(v)));
+    const parts = c.money.length > 0 && c.money.every((t) => knownVals.some((k) => Math.abs(Math.abs(t.value) - k) <= 0.011));
+    if (parts) res = { verdict: "MISS", why: "deu os valores de cada mês, mas não a conta pedida" };
+  }
   layers.fato = res.verdict;
 
   // Estado: perguntar nunca pode criar lançamento.

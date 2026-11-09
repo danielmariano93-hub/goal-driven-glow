@@ -113,3 +113,30 @@ describe("nino_comm.v1 — relatório com conclusão executiva", () => {
     expect(presented.body).toContain("Antes de concluir");
   });
 });
+
+describe("relatório semanal: concordância e queda de gasto", () => {
+  const base: any = (over: Record<string, unknown>) => ({
+    reportType: "weekly",
+    payload: { totals: { income: 2800, expense: 100, flexibleTotal: 0, expenseDeltaPct: -50, previousExpense: 200, ...over }, partial: null, categories: [] },
+    highlights: [], healthScore: 7,
+  });
+  it("fala 'nesta semana', não 'neste semana'", async () => {
+    const { whatsappMessage, deterministicSummary } = await import("@/lib/reports/intelligent/narrative");
+    expect(whatsappMessage(base({}), null)).toContain("nesta semana");
+    expect(whatsappMessage(base({}), null)).not.toContain("neste semana");
+    expect(deterministicSummary(base({}))).toContain("nesta semana");
+  });
+  it("nunca diz que os gastos caíram mais de 100% e não compara quando o gasto líquido é zero ou negativo", async () => {
+    const { whatsappMessage } = await import("@/lib/reports/intelligent/narrative");
+    expect(whatsappMessage(base({ expense: -20, expenseDeltaPct: -110 }), null)).not.toMatch(/caíram/);
+    expect(whatsappMessage(base({ expense: 5, expenseDeltaPct: -140 }), null)).toContain("caíram 100%");
+  });
+});
+
+describe("relatório semanal: alta de gasto acima de 100% continua exata", () => {
+  it("'subiram 240%' não é limitado a 100%", async () => {
+    const { whatsappMessage } = await import("@/lib/reports/intelligent/narrative");
+    const report: any = { reportType: "weekly", payload: { totals: { income: 1000, expense: 340, flexibleTotal: 0, expenseDeltaPct: 240, previousExpense: 100 }, partial: null, categories: [] }, highlights: [], healthScore: 6 };
+    expect(whatsappMessage(report, null)).toContain("subiram 240%");
+  });
+});

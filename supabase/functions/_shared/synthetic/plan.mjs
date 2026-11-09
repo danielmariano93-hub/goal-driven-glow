@@ -120,6 +120,6 @@ export async function executeConversation({ desc, ref, io, gov }) {
   }
   const txs = await io.txs(desc.persona_id, conv.since);
   await io.cleanup(desc.persona_id, conv.since);
-  const res = scoreScenario({ expect: sc.expect(c.ctx), replies, state: { txs }, truth: c.truth, level: sc.level, today: ymd(ref), known: c.known });
+  const res = scoreScenario({ expect: sc.expect(c.ctx), replies, state: { txs }, truth: c.truth, level: sc.level, today: ymd(ref), known: c.known, asked: sent });
   return { ...base, ...res, layers: { ...res.layers, ...(degradedTurns ? { provedor: "degradado" } : {}), ...(varied ? { variacao: "ia" } : {}) }, state: txs, turns: sent, replies, latency_ms: Date.now() - t0, tokens, degraded: degradedTurns };
 }

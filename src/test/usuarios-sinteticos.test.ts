@@ -104,6 +104,26 @@ describe("usuários sintéticos: conjunto de perguntas novas (held-out)", () => 
   });
 });
 
+describe("usuários sintéticos: conta de vários meses e estilo telegráfico", () => {
+  const truth = { "sum3:exp": 6511.69, "exp:M1": 2101.07, "exp:M2": 2074.15, "exp:M3": 2336.47 };
+  const base = { state: { txs: [] }, truth, level: 2, today: "2026-11-09", known: [6511.69, 2101.07, 2074.15, 2336.47] };
+  const expectSum = { numbers: ["sum3:exp"] };
+  it("citar só os valores reais de cada mês, sem o total, é MISS; o total certo é CORRECT; valor inventado é WRONG", () => {
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Você gastou R$ 2.336,47 em agosto, R$ 2.074,15 em setembro e R$ 2.101,07 em outubro."] }).verdict).toBe("MISS");
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Nos três meses você gastou R$ 6.511,69."] }).verdict).toBe("CORRECT");
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Nos três meses você gastou R$ 7.000,00."] }).verdict).toBe("WRONG");
+  });
+  it("valor real de um mês só afrouxa a nota nas contas derivadas, não numa pergunta simples", () => {
+    const simple = { numbers: ["exp:M1"] };
+    expect(scoreScenario({ ...base, expect: simple, replies: ["Você gastou R$ 2.074,15."] }).verdict).toBe("WRONG");
+  });
+  it("o telegráfico tira 'quanto' só da abertura e não quebra frases como 'fechei com quanto no bolso'", () => {
+    const out = applyStyle("fechei outubro com quanto no bolso?", "telegrafico", "x");
+    expect(out).toContain("quanto");
+    expect(applyStyle("quanto gastei em outubro?", "telegrafico", "x")).not.toMatch(/^quanto/);
+  });
+});
+
 describe("usuários sintéticos: estilos de escrita", () => {
   it("preserva números e meses, que sustentam o gabarito", () => {
     const base = "Quanto eu gastei com mercado em setembro, 35 reais?";
@@ -274,5 +294,26 @@ describe("valores conhecidos da persona e agrupamento das falhas", () => {
   });
   it("resumo de clientes reais soma a janela fixa", () => {
     expect(summarizeReal([{ semana: "2026-10-26", respostas: 10, falhas: 1, recusas: 2, esclarecimentos: 0 }, { semana: "2026-11-02", respostas: 30, falhas: 0, recusas: 1, esclarecimentos: 1 }])).toEqual({ respostas: 40, falhas: 1, recusas: 3, esclarecimentos: 1 });
+  });
+});
+
+describe("usuários sintéticos: valor repetido da própria pergunta", () => {
+  it("repetir o 'R$ 500' que a pessoa digitou não é valor inventado; valor novo continua sendo", () => {
+    const base = { state: { txs: [] }, truth: { "exp:M1": 100 }, level: 2, today: "2026-11-09", known: [100] };
+    const ok = scoreScenario({ ...base, expect: { kind: "chat" }, asked: ["me empresta 500 reais?"], replies: ["Não faço empréstimo, mas posso te ajudar a montar um plano para guardar R$ 500."] });
+    expect(ok.verdict).toBe("CORRECT");
+    const bad = scoreScenario({ ...base, expect: { kind: "chat" }, asked: ["me empresta 500 reais?"], replies: ["Você tem R$ 9.999,00 de saldo."] });
+    expect(bad.verdict).toBe("WRONG");
+  });
+});
+
+describe("usuários sintéticos: estilos preservam o valor decimal", () => {
+  it("'27,50' e '1.234,56' nunca viram '2750' ou '123456' em nenhum estilo", () => {
+    for (const st of STYLES) {
+      const out = applyStyle("comprei um remédio por 27,50 hoje", st, "x");
+      expect(out, st).toContain("27,50");
+    }
+    expect(applyStyle("paguei 1.234,56 de aluguel", "informal", "x")).toContain("1.234,56");
+    expect(applyStyle("quanto gastei?", "informal", "x")).not.toMatch(/\?/);
   });
 });
