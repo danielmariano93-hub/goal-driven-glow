@@ -185,3 +185,53 @@ describe("Ticket Alimentação — padrão desde os primeiros dias", () => {
     expect(ids).not.toContain("weekday_cap");
   });
 });
+
+describe("Ticket Alimentação — gastar durante o dia não bagunça ritmo e ideal", () => {
+  // Ciclo de 27/10 a 27/11, hoje 09/11 (18 dias contando hoje). Saldo de abertura R$ 17,45 + crédito R$ 1.227,16 − gastos R$ 569,36 = R$ 675,25.
+  const w: BenefitWalletConfig = { monthly_credit: 1227.16, credit_day: 27, carries_over: true };
+  const T = "2026-11-09";
+  const base: BenefitEntry[] = [e("balance_reading", 17.45, "2026-10-26")];
+  const days = ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"];
+  days.forEach((d, i) => base.push(e("spend", i === 12 ? 569.36 - 12 * 43.8 : 43.8, d)));
+
+  it("de manhã (nada gasto hoje): ideal = saldo ÷ dias que faltam, ritmo só com dias fechados", () => {
+    const s = computeBenefitState(w, base, T);
+    expect(s.balance).toBe(675.25);
+    expect(s.cycle.days_left).toBe(18);
+    expect(s.spent_today).toBe(0);
+    expect(s.day_start_balance).toBe(675.25);
+    expect(s.ideal_per_day).toBe(37.51);
+    expect(s.today_remaining).toBe(37.51);
+    expect(s.rate.per_day).toBe(40.67);
+  });
+
+  it("gastar R$ 26 hoje não muda ideal, ritmo, cobertura nem o que falta: só mostra quanto ainda cabe hoje", () => {
+    const before = computeBenefitState(w, base, T);
+    const after = computeBenefitState(w, [...base, e("spend", 26, T)], T);
+    expect(after.balance).toBe(649.25);
+    expect(after.day_start_balance).toBe(675.25);
+    expect(after.ideal_per_day).toBe(before.ideal_per_day);
+    expect(after.rate).toEqual(before.rate);
+    expect(after.projection).toEqual(before.projection);
+    expect(after.spent_today).toBe(26);
+    expect(after.today_remaining).toBe(11.51);
+    expect(whatIf(after, 37.51)).toEqual(whatIf(before, 37.51));
+  });
+
+  it("gastar mais que o ideal hoje zera o que cabe hoje (nunca negativo)", () => {
+    const s = computeBenefitState(w, [...base, e("spend", 50, T)], T);
+    expect(s.today_remaining).toBe(0);
+    expect(s.ideal_per_day).toBe(37.51);
+  });
+
+  it("no dia seguinte o ideal sobe, porque o que sobrou hoje se espalha pelos dias restantes", () => {
+    const tomorrow = computeBenefitState(w, [...base, e("spend", 26, T)], "2026-11-10");
+    expect(tomorrow.cycle.days_left).toBe(17);
+    expect(tomorrow.ideal_per_day).toBe(38.19);
+  });
+
+  it("o ritmo ignora o gasto parcial de hoje (só dias fechados)", () => {
+    const withToday = computeRate(w, [...base, e("spend", 300, T)], T);
+    expect(withToday).toEqual(computeRate(w, base, T));
+  });
+});
