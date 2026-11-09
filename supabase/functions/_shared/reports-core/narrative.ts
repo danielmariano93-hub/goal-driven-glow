@@ -41,7 +41,7 @@ export function deterministicSummary(report: IntelligentReport): string {
     const base = partial ? "o mesmo intervalo anterior" : "o período anterior";
     parts.push(
       t.expenseDeltaPct >= 0
-        ? `O sinal de atenção é que seus gastos subiram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação a ${base}.`
+        ? `O sinal de atenção é que seus gastos subiram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação a ${base}.`
         : `A boa notícia é que seus gastos caíram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação a ${base}.`,
     );
   }
@@ -105,7 +105,7 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
   const lines = [firstLine];
   if (t.expenseDeltaPct !== null && Number(t.expense || 0) > 0) {
     lines.push(t.expenseDeltaPct >= 0
-      ? `Os gastos subiram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação ao período anterior.`
+      ? `Os gastos subiram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação ao período anterior.`
       : `A boa notícia é que os gastos caíram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação ao período anterior.`);
   }
   const first = report.highlights[0];

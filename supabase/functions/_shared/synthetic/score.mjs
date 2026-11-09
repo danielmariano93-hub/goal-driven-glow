@@ -46,8 +46,13 @@ export function scoreRegistration(expect, state, today) {
   return { verdict: "CORRECT", why: "lançamento certo no banco", categoria: "ok" };
 }
 
-export function scoreScenario({ expect, replies, state, truth, level, today, known }) {
-  const last = String(replies.at(-1) ?? "");
+export function scoreScenario({ expect, replies, state, truth, level, today, known, asked = [] }) {
+  const reply = String(replies.at(-1) ?? "");
+  // Valor que a própria pessoa digitou ("me empresta 500 reais?") não é valor inventado quando o Nino o repete.
+  const typed = new Set((asked.map((t) => (typeof t === "string" ? t : t?.text ?? "")).join(" ").match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => Math.abs(Number(n.replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")))));
+  const last = typed.size && !(expect.numbers ?? []).length
+    ? reply.replace(/R\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?/gi, (m, int, dec) => (typed.has(Number(`${String(int).replace(/\./g, "")}${dec ? `.${dec}` : ""}`)) ? "esse valor" : m))
+    : reply;
   const c = classify(last);
   const kind = expect.kind ?? (expect.numbers ? "numbers" : "answers");
   const layers = { fato: null, estado: null, regra: null };

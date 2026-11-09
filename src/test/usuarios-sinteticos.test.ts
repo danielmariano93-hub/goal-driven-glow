@@ -296,3 +296,24 @@ describe("valores conhecidos da persona e agrupamento das falhas", () => {
     expect(summarizeReal([{ semana: "2026-10-26", respostas: 10, falhas: 1, recusas: 2, esclarecimentos: 0 }, { semana: "2026-11-02", respostas: 30, falhas: 0, recusas: 1, esclarecimentos: 1 }])).toEqual({ respostas: 40, falhas: 1, recusas: 3, esclarecimentos: 1 });
   });
 });
+
+describe("usuários sintéticos: valor repetido da própria pergunta", () => {
+  it("repetir o 'R$ 500' que a pessoa digitou não é valor inventado; valor novo continua sendo", () => {
+    const base = { state: { txs: [] }, truth: { "exp:M1": 100 }, level: 2, today: "2026-11-09", known: [100] };
+    const ok = scoreScenario({ ...base, expect: { kind: "chat" }, asked: ["me empresta 500 reais?"], replies: ["Não faço empréstimo, mas posso te ajudar a montar um plano para guardar R$ 500."] });
+    expect(ok.verdict).toBe("CORRECT");
+    const bad = scoreScenario({ ...base, expect: { kind: "chat" }, asked: ["me empresta 500 reais?"], replies: ["Você tem R$ 9.999,00 de saldo."] });
+    expect(bad.verdict).toBe("WRONG");
+  });
+});
+
+describe("usuários sintéticos: estilos preservam o valor decimal", () => {
+  it("'27,50' e '1.234,56' nunca viram '2750' ou '123456' em nenhum estilo", () => {
+    for (const st of STYLES) {
+      const out = applyStyle("comprei um remédio por 27,50 hoje", st, "x");
+      expect(out, st).toContain("27,50");
+    }
+    expect(applyStyle("paguei 1.234,56 de aluguel", "informal", "x")).toContain("1.234,56");
+    expect(applyStyle("quanto gastei?", "informal", "x")).not.toMatch(/\?/);
+  });
+});

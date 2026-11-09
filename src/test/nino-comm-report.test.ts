@@ -132,3 +132,11 @@ describe("relatório semanal: concordância e queda de gasto", () => {
     expect(whatsappMessage(base({ expense: 5, expenseDeltaPct: -140 }), null)).toContain("caíram 100%");
   });
 });
+
+describe("relatório semanal: alta de gasto acima de 100% continua exata", () => {
+  it("'subiram 240%' não é limitado a 100%", async () => {
+    const { whatsappMessage } = await import("@/lib/reports/intelligent/narrative");
+    const report: any = { reportType: "weekly", payload: { totals: { income: 1000, expense: 340, flexibleTotal: 0, expenseDeltaPct: 240, previousExpense: 100 }, partial: null, categories: [] }, highlights: [], healthScore: 6 };
+    expect(whatsappMessage(report, null)).toContain("subiram 240%");
+  });
+});

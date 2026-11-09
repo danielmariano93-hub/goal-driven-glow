@@ -18,12 +18,15 @@ function typo(word, r) {
 
 const INFORMAL = [[/\bvocê\b/gi, "vc"], [/\bque\b/gi, "q"], [/\bquanto\b/gi, "qnto"], [/\bpara\b/gi, "pra"], [/\btambém\b/gi, "tb"], [/\bmuito\b/gi, "mt"], [/\bnão\b/gi, "n"], [/\bestou\b/gi, "to"], [/\bcomigo\b/gi, "cmg"]];
 
+/** Tira pontuação, mas preserva a vírgula ou o ponto entre dígitos: "27,50" não pode virar "2750". */
+const stripPunct = (t) => String(t).replace(/(?<!\d)[?!.,]+|[?!.,]+(?!\d)/g, "");
+
 export function applyStyle(text, style, seed = "") {
   const r = rng(`${style}:${seed}:${text}`);
   const raw = String(text);
   switch (style) {
     case "informal": {
-      let s = raw.toLowerCase().replace(/[?!.,]+/g, "");
+      let s = stripPunct(raw.toLowerCase());
       for (const [re, to] of INFORMAL) if (r() < 0.8) s = s.replace(re, to);
       return s.trim();
     }
@@ -31,7 +34,7 @@ export function applyStyle(text, style, seed = "") {
       return raw.split(" ").map((w) => (r() < 0.45 ? typo(w, r) : w)).join(" ");
     // "quanto"/"qual" só saem na abertura da frase: no meio dela são parte do sentido ("fechei com quanto no bolso").
     case "telegrafico":
-      return raw.toLowerCase().replace(/^(quanto|qual)\b/, "").replace(/\b(que|eu|meu|minha|me diz|me diga|por favor|pode|você|vc|nino)\b/g, "").replace(/[?!.,]+/g, "").replace(/\s+/g, " ").trim() || raw;
+      return raw.toLowerCase().replace(/^(quanto|qual)\b/, "").replace(/\b(que|eu|meu|minha|me diz|me diga|por favor|pode|você|vc|nino)\b/g, "").replace(/(?<!\d)[?!.,]+|[?!.,]+(?!\d)/g, "").replace(/\s+/g, " ").trim() || raw;
     case "prolixo": {
       const pre = ["Oi Nino, tudo bem? Então, queria saber uma coisa: ", "Bom dia! Desculpa incomodar, mas ", "Opa, eu estava aqui pensando e queria te perguntar: "][Math.floor(r() * 3)];
       const post = [" Se puder me explicar direitinho eu agradeço!", " Obrigado desde já.", " É pra eu me organizar melhor."][Math.floor(r() * 3)];
@@ -40,7 +43,7 @@ export function applyStyle(text, style, seed = "") {
     case "apressado":
       return `${raw.replace(/[?.]+$/, "")} rápido pfv`;
     case "audio":
-      return ["é... então, ", "tipo assim, ", "ahn, "][Math.floor(r() * 3)] + raw.toLowerCase().replace(/[?!.,]+/g, "") + " sabe";
+      return ["é... então, ", "tipo assim, ", "ahn, "][Math.floor(r() * 3)] + stripPunct(raw.toLowerCase()) + " sabe";
     default:
       return raw;
   }
