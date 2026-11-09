@@ -11,6 +11,14 @@ import { resultLineLabel, resultLineValue, resultShape } from "../copy/resultWor
 import { humanizeJargon } from "../copy/ninoVoice.ts";
 import type { IntelligentReport } from "./types.ts";
 
+/** "neste mês", "neste período", mas "nesta semana". */
+const neste = (word: string) => `${word === "semana" ? "nesta" : "neste"} ${word}`;
+const deste = (word: string) => `${word === "semana" ? "desta" : "deste"} ${word}`;
+const oa = (word: string) => (word === "semana" ? "a" : "o");
+
+/** Queda de gasto nunca passa de 100% (gasto líquido negativo, por estorno, daria "caíram 101%"); sem gasto no período, não há o que comparar. */
+const dropPct = (delta: number) => Math.min(100, Math.abs(delta));
+
 export function deterministicSummary(report: IntelligentReport): string {
   const t = report.payload.totals;
   const partial = report.payload.partial;
@@ -22,19 +30,19 @@ export function deterministicSummary(report: IntelligentReport): string {
   const value = compactBRL(Math.abs(Number(t.income || 0) - Number(t.expense || 0)));
   parts.push(
     shape === "gap"
-      ? `Você gastou ${value} acima do que recebeu neste ${periodWord}.`
+      ? `Você gastou ${value} acima do que recebeu ${neste(periodWord)}.`
       : shape === "surplus"
-        ? `Sobraram ${value} neste ${periodWord}.`
-        : `Receitas e gastos empataram neste ${periodWord}.`,
+        ? `Sobraram ${value} ${neste(periodWord)}.`
+        : `Receitas e gastos empataram ${neste(periodWord)}.`,
   );
 
   // 2) Contexto — o que mudou em relação ao período anterior.
-  if (t.expenseDeltaPct !== null) {
+  if (t.expenseDeltaPct !== null && Number(t.expense || 0) > 0) {
     const base = partial ? "o mesmo intervalo anterior" : "o período anterior";
     parts.push(
       t.expenseDeltaPct >= 0
-        ? `O sinal de atenção é que seus gastos subiram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação a ${base}.`
-        : `A boa notícia é que seus gastos caíram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação a ${base}.`,
+        ? `O sinal de atenção é que seus gastos subiram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação a ${base}.`
+        : `A boa notícia é que seus gastos caíram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação a ${base}.`,
     );
   }
 
@@ -68,9 +76,9 @@ export function deterministicDetails(report: IntelligentReport): string[] {
     lines.push(`Foram ${t.daysWithExpense} dias com gasto, média de ${exactBRL(t.dailyAvgExpense)} por dia ativo.`);
   }
   if (partial) {
-    lines.push(`Mantido esse ritmo, o ${periodWord} pode fechar perto de ${exactBRL(partial.projectedExpense)} em gastos.`);
+    lines.push(`Mantido esse ritmo, ${oa(periodWord)} ${periodWord} pode fechar perto de ${exactBRL(partial.projectedExpense)} em gastos.`);
   }
-  lines.push(`Nota de saúde financeira deste ${periodWord}: ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} de 10.`);
+  lines.push(`Nota de saúde financeira ${deste(periodWord)}: ${report.healthScore.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} de 10.`);
   return lines;
 }
 
@@ -90,15 +98,15 @@ export function whatsappMessage(report: IntelligentReport, link: string | null):
   const shape = resultShape(t.income, t.expense);
   const difference = Math.abs(Number(t.income || 0) - Number(t.expense || 0));
   const firstLine = shape === "gap"
-    ? `Você gastou ${compactBRL(difference)} a mais do que recebeu neste ${word}.`
+    ? `Você gastou ${compactBRL(difference)} a mais do que recebeu ${neste(word)}.`
     : shape === "surplus"
-      ? `Sobraram ${compactBRL(difference)} neste ${word}.`
-      : `Receitas e gastos empataram neste ${word}.`;
+      ? `Sobraram ${compactBRL(difference)} ${neste(word)}.`
+      : `Receitas e gastos empataram ${neste(word)}.`;
   const lines = [firstLine];
-  if (t.expenseDeltaPct !== null) {
+  if (t.expenseDeltaPct !== null && Number(t.expense || 0) > 0) {
     lines.push(t.expenseDeltaPct >= 0
-      ? `Os gastos subiram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação ao período anterior.`
-      : `A boa notícia é que os gastos caíram ${pct(Math.abs(t.expenseDeltaPct), "summary")} em relação ao período anterior.`);
+      ? `Os gastos subiram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação ao período anterior.`
+      : `A boa notícia é que os gastos caíram ${pct(dropPct(t.expenseDeltaPct), "summary")} em relação ao período anterior.`);
   }
   const first = report.highlights[0];
   if (first) {

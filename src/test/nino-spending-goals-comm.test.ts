@@ -99,7 +99,9 @@ describe("comunicação ativa das metas de gasto", () => {
     const sgMon = sgContext(monday, rows, [appsTarget], [goal("g-transp", TRANSPORTE, 600, 900)]);
     const weekly = spendingGoalSituations(ctx(monday), sgMon, readGoals(sgMon)).find((s) => s.type === "spending_goal_weekly")!;
     expect(weekly.body).toContain("Transporte:");
-    expect(weekly.body).toContain("Para a semana: até");
+    expect(weekly.body).toContain("Para a próxima semana, o ideal é gastar até");
+    // Texto de WhatsApp legível: sem a sopa de "·", sem jargão e sem o nome cru do maior lançamento.
+    expect(weekly.body).not.toMatch(/ · |projeção .* para limite|frente à referência|quem mais pesou|submetas:/);
     expect(meetsSituationMateriality(weekly, ctx(monday))).toBe(true);
 
     const first = "2026-09-01";

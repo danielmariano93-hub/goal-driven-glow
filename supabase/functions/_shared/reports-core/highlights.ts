@@ -6,6 +6,9 @@ import { round2 } from "../finance-core/facts.ts";
 import { compactBRL, pct } from "../copy/numbers.ts";
 import { resultHeadline } from "../copy/resultWording.ts";
 import { isFlexibleCategory } from "./engine.ts";
+
+/** "neste mês", "neste período", mas "nesta semana". */
+const neste = (word: string) => `${word === "semana" ? "nesta" : "neste"} ${word}`;
 import type { ReportHighlight, ReportPayload } from "./types.ts";
 
 const BRL = (n: number) => compactBRL(n);
@@ -22,7 +25,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
       detectorKey: "negative_result",
       type: "risk",
       title: resultHeadline(t.income, t.expense, periodWord),
-      body: `O ajuste mais rápido costuma estar nos gastos que dão pra ajustar. Eles somaram ${BRL(t.flexibleTotal)} neste ${periodWord}.`,
+      body: `O ajuste mais rápido costuma estar nos gastos que dão pra ajustar. Eles somaram ${BRL(t.flexibleTotal)} ${neste(periodWord)}.`,
       priority: 100,
       confidence: t.income > 0 ? "high" : "medium",
       evidence: { net: t.net, income: t.income, expense: t.expense },
@@ -36,7 +39,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "strong_savings",
       type: "win",
-      title: `Sobrou dinheiro neste ${periodWord}.`,
+      title: `Sobrou dinheiro ${neste(periodWord)}.`,
       body: `Você terminou com ${BRL(t.net)} livre. Vale direcionar uma parte para a meta mais importante.`,
       priority: 70,
       confidence: "high",
@@ -53,7 +56,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "installment_anticipation",
       type: "win",
-      title: `Você antecipou ${BRL(antic.amount)} em parcelas neste ${periodWord}.`,
+      title: `Você antecipou ${BRL(antic.amount)} em parcelas ${neste(periodWord)}.`,
       body: `Antecipar é pagar dívida antes do prazo, não gasto novo: esse valor fica fora dos gastos do ${periodWord} e sua dívida a vencer caiu ${BRL(antic.amount)}.`,
       priority: 88,
       confidence: "high",
@@ -69,7 +72,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "expense_spike",
       type: "risk",
-      title: `Seus gastos subiram neste ${periodWord}.`,
+      title: `Seus gastos subiram ${neste(periodWord)}.`,
       body: `Foram ${BRL(t.expense)} agora, contra ${BRL(t.previousExpense)} antes. Vale separar o que foi pontual do que virou rotina.`,
       priority: 92,
       confidence: "high",
@@ -83,7 +86,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "expense_drop",
       type: "win",
-      title: `Seus gastos caíram neste ${periodWord}.`,
+      title: `Seus gastos caíram ${neste(periodWord)}.`,
       body: `Foram ${BRL(t.expense)} agora, contra ${BRL(t.previousExpense)} antes. Vale entender o que mudou para repetir.`,
       priority: 60,
       confidence: "high",
@@ -216,7 +219,7 @@ export function detectHighlights(payload: ReportPayload): ReportHighlight[] {
     out.push({
       detectorKey: "no_activity",
       type: "info",
-      title: `Nenhum gasto registrado neste ${periodWord}`,
+      title: `Nenhum gasto registrado ${neste(periodWord)}`,
       body: `Sem lançamentos não é possível ler padrões. Registrar pelo WhatsApp leva segundos e devolve o relatório com leitura real.`,
       priority: 99,
       confidence: "low",

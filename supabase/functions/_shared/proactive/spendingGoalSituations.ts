@@ -216,37 +216,30 @@ function weeklySituation(ctx: MultiFinanceProactiveContext, readings: GoalReadin
   const open = readings.filter((r) => OPEN.has(r.status) && r.breakdown.elapsed_days >= 3);
   if (!open.length) return null;
   const weekStart = addDays(ctx.as_of, -7);
-  const lines = open.slice(0, 4).map((r) => {
-    const b = r.breakdown;
-    const weekSpend = sg.entries
-      .filter((e) => e.category_id === r.category_id && e.date >= weekStart && e.date < ctx.as_of)
-      .reduce((acc, e) => acc + e.amount, 0);
-    const weeksLeft = Math.max(1, Math.ceil(b.remaining_days / 7));
-    const perWeek = Math.max(0, r.limit - r.actual) / weeksLeft;
-    const pieces = [
-      `${r.category_name}: ${pct(b.consumed_share)} usado com ${pct(b.elapsed_share)} do período`,
-      `projeção ${brl(r.projected)} para limite ${brl(r.limit)}`,
-      `na semana, ${brl(weekSpend)}`,
-    ];
-    if (b.main_driver) pieces.push(`quem mais pesou: ${b.main_driver.label}`);
-    const sub = b.targets.filter((t) => t.limit != null).slice(0, 2)
-      .map((t) => `${t.label} ${brl(t.actual)} de ${brl(t.limit ?? 0)}`);
-    if (sub.length) pieces.push(`submetas: ${sub.join(", ")}`);
-    if (r.baseline && r.baseline > 0) {
-      const saving = r.baseline - r.projected;
-      pieces.push(saving >= 0 ? `economia projetada de ${brl(saving)} frente à referência` : `${brl(-saving)} acima da referência`);
-    }
-    const advice = r.limit - r.actual > 0
-      ? `Para a semana: até ${brl(perWeek)} em ${r.category_name}.`
-      : `Para a semana: segurar novos gastos em ${r.category_name}.`;
-    return `${pieces.join(" · ")}. ${advice}`;
-  });
+  // Texto de WhatsApp: uma frase curta por meta, em português comum. Sem "projeção para limite", sem "referência" e sem o
+  // nome do maior lançamento (vinha cru do extrato, ex.: "Enviado <nome de pessoa>"). O detalhe fica no app.
+  const lines = [...open]
+    .sort((a, b) => b.projected_overage - a.projected_overage)
+    .slice(0, 3)
+    .map((r) => {
+      const b = r.breakdown;
+      const weeksLeft = Math.max(1, Math.ceil(b.remaining_days / 7));
+      const perWeek = Math.max(0, r.limit - r.actual) / weeksLeft;
+      const used = `${r.category_name}: você já gastou ${brl(r.actual)} de ${brl(r.limit)} (${pct(b.consumed_share)} da meta).`;
+      const pace = r.projected_overage > 0
+        ? `No ritmo atual, deve fechar em ${brl(r.projected)}, ${brl(r.projected_overage)} acima do limite.`
+        : "No ritmo atual, deve fechar dentro do limite.";
+      const advice = r.limit - r.actual > 0
+        ? `Para a próxima semana, o ideal é gastar até ${brl(perWeek)}.`
+        : "Para a próxima semana, evite novos gastos nessa categoria.";
+      return `${used} ${pace} ${advice}`;
+    });
   const risk = open.filter((r) => r.projected_overage > 0).length;
   return make(ctx, {
     type: "spending_goal_weekly",
     communication_kind: "spending_goal_weekly",
-    title: risk ? `Resumo da semana: ${risk} meta${risk > 1 ? "s" : ""} acima do ritmo` : "Resumo da semana: metas no ritmo",
-    body: lines.join("\n"),
+    title: risk ? `Resumo da semana: ${risk} meta${risk > 1 ? "s podem passar" : " pode passar"} do limite` : "Resumo da semana: suas metas estão no ritmo",
+    body: lines.join("\n\n"),
     anchor: ctx.as_of,
     severity: "info",
     impact: open.reduce((acc, r) => acc + Math.max(0, r.projected_overage), 0),
