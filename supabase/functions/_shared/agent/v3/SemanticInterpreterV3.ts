@@ -245,7 +245,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 2. Memória só preenche informação ausente. Nunca sobrescreve informação explícita do turno atual.
 2b. Quando o turno atual nomeia um estabelecimento ou categoria NOVO, não herde filtros de OUTRA dimensão do assunto anterior: "quanto gastei no estabelecimento Thales" depois de falar de Lazer = filtro merchant=Thales SÓ (sem category=Lazer). Só combine os dois se o usuário disser ("nessa categoria", "em Lazer no Thales").
 2c. Pedido curto que só muda período, grão ou formato ("mês a mês nos últimos 5 meses", "e em agosto?", "dia a dia", "em gráfico", "me traga isso por mês") é follow_up: herde os filtros do turno anterior (source=memory) e NÃO peça esclarecimento de categoria/estabelecimento.
-3. Períodos são slots temporais. "esse mês", "mês passado", "hoje" e equivalentes NUNCA são referências a categoria/estabelecimento/meta/dívida.
+3. Períodos são slots temporais. "esse mês", "mês passado", "mês retrasado" (dois meses atrás), "hoje" e equivalentes NUNCA são referências a categoria/estabelecimento/meta/dívida.
 4. Referências só existem para anáforas reais: "ela", "essa categoria", "delas", "aquele estabelecimento", "essa meta", "essa dívida", mensagem citada etc.
 5. Não escolha nome de ferramenta/função. Escolha somente uma das famílias/tarefas semânticas permitidas pelo schema.
 6. Perguntas compostas devem gerar múltiplas tasks dentro do mesmo turno, preservando uma única interpretação.

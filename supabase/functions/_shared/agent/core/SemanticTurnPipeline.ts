@@ -43,9 +43,10 @@ import {
   type FinancialQueryIRv3, type FinancialQueryV3,
 } from "./FinancialIRv3.ts";
 import { applyTurnAspect } from "./SemanticAspectOverlay.ts";
+import { resolvePeriodPt } from "../../analytics/periodResolver.ts";
 import { repairSeriesGrain } from "./SeriesGrainRepair.ts";
 import { expandIRForPeriods, type MultiPeriodExpansion } from "./MultiPeriodPlan.ts";
-import { multiPeriodText } from "./MultiPeriodAnswer.ts";
+import { multiPeriodText, periodSumValue, wantsPeriodSum } from "./MultiPeriodAnswer.ts";
 import { CANONICAL_DEGRADED_NOTE, degradeForCanonicalRead } from "./CanonicalReadFallback.ts";
 import { executedIRFrom } from "./ExecutedIRBridge.ts";
 import {
@@ -123,6 +124,29 @@ export type SemanticPipelineDeps = {
     result: unknown;
   } | { domain_error: "category_not_found" | "category_ambiguous" } | null>;
 };
+
+/**
+ * Gasto médio/típico por mês com intervalo de meses nomeados no texto ("entre agosto e outubro", "de julho a setembro"):
+ * a janela passa a ser exatamente esse intervalo (meses fechados) e a conta é a média dele. Sem isso a pergunta virava a
+ * estatística padrão dos últimos 6 meses e devolvia um número de outro período.
+ */
+export function withExplicitMonthRange(query: FinancialQueryV3, text: string, now: Date = new Date()): FinancialQueryV3 {
+  if (!isTypicalMonthlyShape(query)) return query;
+  const period = resolvePeriodPt(text, now);
+  if (!period || period.kind !== "range") return query;
+  const label = String(period.label ?? "").toLowerCase();
+  if (!/^\S+ a \S+$/.test(label)) return query; // só "agosto a outubro" (intervalo nomeado), não "últimos N meses"
+  const [y1, m1] = period.from.slice(0, 7).split("-").map(Number);
+  const [y2, m2] = period.to.slice(0, 7).split("-").map(Number);
+  const months = (y2 * 12 + m2) - (y1 * 12 + m1) + 1;
+  if (!(months >= 2 && months <= 24)) return query;
+  const wantsMean = /\bm[eé]dia\b/i.test(text);
+  return {
+    ...query,
+    reduce: wantsMean ? "mean" : query.reduce,
+    time: { ...query.time, aspect: "last_n_complete", from: period.from, to: period.to, n: months, label: period.label },
+  };
+}
 
 export type SemanticPipelineInput = {
   text: string;
@@ -509,10 +533,12 @@ export async function runSemanticTurn(
   // "quanto eu gasto por mês com alimentação?" não é soma de recorte: é
   // estatística de meses FECHADOS, com mediana declarada e ressalva de
   // cobertura. Antes essa pergunta era respondida com o mês corrente parcial.
-  const typicalQuery = irV3?.queries.length === 1
+  const typicalBase = irV3?.queries.length === 1
     && (isTypicalMonthlyShape(irV3.queries[0]) || isMonthlySeriesShape(irV3.queries[0]) || isScopedSeriesShape(irV3.queries[0]))
     ? irV3.queries[0]
     : null;
+  // "Média de gasto por mês entre agosto e outubro": o intervalo de meses dito vale mais que a janela padrão de 6 meses.
+  const typicalQuery = typicalBase ? withExplicitMonthRange(typicalBase, input.text) : null;
   if (typicalQuery && input.typical_monthly_enabled && deps.runTypicalMonthly) {
     let handlerFailed = false;
     const handled = await deps.runTypicalMonthly(typicalQuery).catch(() => {
@@ -646,14 +672,29 @@ export async function runSemanticTurn(
   }
 
   // ---- 8. Resposta determinística + Grounding ----------------------------
+  const multiOutcomes = execution.outcomes.map((o) => ({
+    query_id: o.query_id, engine: o.engine, status: o.status, result: o.result,
+  }));
+  // "Somando agosto, setembro e outubro": o total é derivado dos totais já executados e entra como claim,
+  // para o grounding aceitá-lo como evidência (soma exata de números do motor, nunca estimativa).
+  const sumIntent = !!multiPeriod && multiPeriod.mode === "fanout"
+    && input.comparison_intent !== true && wantsPeriodSum(input.text);
+  if (sumIntent && multiPeriod) {
+    const sum = periodSumValue({ outcomes: multiOutcomes, labels: multiPeriod.labels, periodOrder: multiPeriod.periods.map((p) => p.label) });
+    if (sum != null) {
+      claims = {
+        ...claims,
+        claims: [...claims.claims, { id: "c_period_sum", query_id: "multi_period_sum", type: "money", value: sum, label: "sum_of_periods", rank: null, engine: null }],
+      };
+    }
+  }
   const labeled = multiPeriod && multiPeriod.mode === "fanout"
     ? multiPeriodText({
-      outcomes: execution.outcomes.map((o) => ({
-        query_id: o.query_id, engine: o.engine, status: o.status, result: o.result,
-      })),
+      outcomes: multiOutcomes,
       labels: multiPeriod.labels,
       periodOrder: multiPeriod.periods.map((p) => p.label),
       comparison_intent: input.comparison_intent === true,
+      sum_intent: sumIntent,
     })
     : null;
   const body = labeled ?? deterministicTextOf(execution);
