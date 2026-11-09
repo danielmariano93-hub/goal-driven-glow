@@ -104,6 +104,26 @@ describe("usuários sintéticos: conjunto de perguntas novas (held-out)", () => 
   });
 });
 
+describe("usuários sintéticos: conta de vários meses e estilo telegráfico", () => {
+  const truth = { "sum3:exp": 6511.69, "exp:M1": 2101.07, "exp:M2": 2074.15, "exp:M3": 2336.47 };
+  const base = { state: { txs: [] }, truth, level: 2, today: "2026-11-09", known: [6511.69, 2101.07, 2074.15, 2336.47] };
+  const expectSum = { numbers: ["sum3:exp"] };
+  it("citar só os valores reais de cada mês, sem o total, é MISS; o total certo é CORRECT; valor inventado é WRONG", () => {
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Você gastou R$ 2.336,47 em agosto, R$ 2.074,15 em setembro e R$ 2.101,07 em outubro."] }).verdict).toBe("MISS");
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Nos três meses você gastou R$ 6.511,69."] }).verdict).toBe("CORRECT");
+    expect(scoreScenario({ ...base, expect: expectSum, replies: ["Nos três meses você gastou R$ 7.000,00."] }).verdict).toBe("WRONG");
+  });
+  it("valor real de um mês só afrouxa a nota nas contas derivadas, não numa pergunta simples", () => {
+    const simple = { numbers: ["exp:M1"] };
+    expect(scoreScenario({ ...base, expect: simple, replies: ["Você gastou R$ 2.074,15."] }).verdict).toBe("WRONG");
+  });
+  it("o telegráfico tira 'quanto' só da abertura e não quebra frases como 'fechei com quanto no bolso'", () => {
+    const out = applyStyle("fechei outubro com quanto no bolso?", "telegrafico", "x");
+    expect(out).toContain("quanto");
+    expect(applyStyle("quanto gastei em outubro?", "telegrafico", "x")).not.toMatch(/^quanto/);
+  });
+});
+
 describe("usuários sintéticos: estilos de escrita", () => {
   it("preserva números e meses, que sustentam o gabarito", () => {
     const base = "Quanto eu gastei com mercado em setembro, 35 reais?";

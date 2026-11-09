@@ -29,8 +29,9 @@ export function applyStyle(text, style, seed = "") {
     }
     case "erros":
       return raw.split(" ").map((w) => (r() < 0.45 ? typo(w, r) : w)).join(" ");
+    // "quanto"/"qual" só saem na abertura da frase: no meio dela são parte do sentido ("fechei com quanto no bolso").
     case "telegrafico":
-      return raw.toLowerCase().replace(/\b(quanto|qual|que|eu|meu|minha|me diz|me diga|por favor|pode|você|vc|nino)\b/g, "").replace(/[?!.,]+/g, "").replace(/\s+/g, " ").trim() || raw;
+      return raw.toLowerCase().replace(/^(quanto|qual)\b/, "").replace(/\b(que|eu|meu|minha|me diz|me diga|por favor|pode|você|vc|nino)\b/g, "").replace(/[?!.,]+/g, "").replace(/\s+/g, " ").trim() || raw;
     case "prolixo": {
       const pre = ["Oi Nino, tudo bem? Então, queria saber uma coisa: ", "Bom dia! Desculpa incomodar, mas ", "Opa, eu estava aqui pensando e queria te perguntar: "][Math.floor(r() * 3)];
       const post = [" Se puder me explicar direitinho eu agradeço!", " Obrigado desde já.", " É pra eu me organizar melhor."][Math.floor(r() * 3)];
