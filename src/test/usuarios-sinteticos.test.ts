@@ -71,6 +71,39 @@ describe("usuários sintéticos: cenários", () => {
   });
 });
 
+describe("usuários sintéticos: conjunto de perguntas novas (held-out)", () => {
+  const ctxFor = (p: any) => ({ p, t: buildTruth(buildSpec(p, REF), REF), ref: REF });
+  const held = SCENARIOS.filter((s: any) => s.heldout);
+  it("existe, tem ids H e cobre vários passos, seguimento, registro e conta sem dados", () => {
+    expect(held.length).toBeGreaterThanOrEqual(20);
+    for (const s of held) expect(s.id, s.id).toMatch(/^H\d{2}$/);
+    const areas = new Set(held.map((s: any) => s.area));
+    for (const a of ["multi_passo", "seguimento", "registro", "sem_dados", "conversa"]) expect(areas.has(a), a).toBe(true);
+  });
+  it("nenhuma frase é igual a uma frase dos cenários usados para criar regras", () => {
+    for (const p of PERSONAS) {
+      const c = ctxFor(p);
+      const seen = new Set<string>();
+      for (const s of SCENARIOS) if (!s.heldout && (!s.only || s.only.includes(p.id)) && s.applies(c)) for (const t of s.turns(c)) seen.add(String(typeof t === "string" ? t : t.text).toLowerCase());
+      for (const s of held) if ((!s.only || s.only.includes(p.id)) && s.applies(c)) {
+        // A abertura de uma conversa pode repetir uma pergunta comum; a frase que é medida (a última pergunta) tem de ser nova.
+        const turns = s.turns(c).map((t: any) => String(typeof t === "string" ? t : t.text).toLowerCase()).filter((t: string) => t !== "sim");
+        const text = turns.at(-1)!;
+        expect(seen.has(text), `${s.id}/${p.id}: ${text}`).toBe(false);
+      }
+    }
+  });
+  it("gabaritos derivados batem com a soma dos meses semeados", () => {
+    const t = ctxFor(PERSONAS.find((x: any) => x.id === "clt_estavel")).t as Record<string, number>;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    expect(t["sum3:exp"]).toBe(r2(t["exp:M1"] + t["exp:M2"] + t["exp:M3"]));
+    expect(t["avg3:exp"]).toBe(r2(t["sum3:exp"] / 3));
+    expect(t["sum3:net"]).toBe(r2(t["sum3:inc"] - t["sum3:exp"]));
+    expect(t["diff12:exp"]).toBe(r2(Math.abs(t["exp:M1"] - t["exp:M2"])));
+    expect(t["catsum12:Mercado"]).toBe(r2(t["cat:M1:Mercado"] + t["cat:M2:Mercado"]));
+  });
+});
+
 describe("usuários sintéticos: estilos de escrita", () => {
   it("preserva números e meses, que sustentam o gabarito", () => {
     const base = "Quanto eu gastei com mercado em setembro, 35 reais?";

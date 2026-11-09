@@ -104,7 +104,38 @@ export const SCENARIOS = [
   { id: "R16", area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "estudante", "conta_vazia"], turns: () => ["vinte reais de uber hoje", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 20, day: 0, categories: ["Transporte"] } }) },
   { id: "C14", area: "reclamacao", level: 3, applies: ALL, turns: () => ["esse valor tá errado, confere de novo"], expect: () => ({ kind: "vague" }) },
   { id: "D06", area: "conselho", level: 3, applies: enoughData, turns: () => ["preciso cortar algo urgente, onde eu começo?"], expect: () => ({ kind: "answers" }) },
+  // ---------- Conjunto de perguntas novas (held-out) ----------
+  // REGRA: estes cenários medem o Nino em frases que NUNCA serviram para criar regra. Não se corrige o Nino para uma frase
+  // daqui. Quando um deles falhar, a correção tem de cobrir a família do erro e a prova é um cenário novo (fora de "H").
+  // Redação diferente dos cenários Q/F/R/C, perguntas de vários passos (gabaritos derivados) e mudança de assunto no meio.
+  { id: "H01", heldout: true, area: "gasto_mes", level: 1, applies: withData, turns: (c) => [`quanto saiu da minha conta em ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "exp:M1") },
+  { id: "H02", heldout: true, area: "receita_mes", level: 1, applies: withData, turns: (c) => [`quanto de dinheiro entrou pra mim em ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "inc:M1") },
+  { id: "H03", heldout: true, area: "saldo_mes", level: 2, applies: withData, turns: (c) => [`fechei ${monthName(c.ref, 1)} com quanto no bolso?`], expect: (c) => num(c.t, "net:M1") },
+  { id: "H04", heldout: true, area: "multi_passo", level: 2, applies: (c) => hasKey(c.t, "sum3:exp"), turns: (c) => [`somando ${monthName(c.ref, 3)}, ${monthName(c.ref, 2)} e ${monthName(c.ref, 1)}, quanto eu gastei?`], expect: (c) => num(c.t, "sum3:exp") },
+  { id: "H05", heldout: true, area: "multi_passo", level: 3, applies: (c) => hasKey(c.t, "avg3:exp"), turns: (c) => [`qual foi minha média de gasto por mês entre ${monthName(c.ref, 3)} e ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "avg3:exp") },
+  { id: "H06", heldout: true, area: "multi_passo", level: 3, applies: (c) => hasKey(c.t, "diff12:exp"), turns: (c) => [`quanto a mais ou a menos eu gastei em ${monthName(c.ref, 1)} do que em ${monthName(c.ref, 2)}?`], expect: (c) => num(c.t, "diff12:exp") },
+  { id: "H07", heldout: true, area: "multi_passo", level: 2, applies: (c) => hasKey(c.t, "sum3:inc"), turns: (c) => [`quanto recebi no total somando ${monthName(c.ref, 3)}, ${monthName(c.ref, 2)} e ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "sum3:inc") },
+  { id: "H08", heldout: true, area: "multi_passo", level: 3, applies: (c) => hasKey(c.t, "sum3:net"), turns: (c) => [`de ${monthName(c.ref, 3)} a ${monthName(c.ref, 1)}, no acumulado, sobrou ou faltou dinheiro? quanto?`], expect: (c) => num(c.t, "sum3:net") },
+  { id: "H09", heldout: true, area: "ranking", level: 2, applies: (c) => !!c.t["top:M2"], turns: (c) => [`em ${monthName(c.ref, 2)}, com o que eu mais gastei e quanto deu?`], expect: (c) => num(c.t, "topval:M2") },
+  { id: "H10", heldout: true, area: "categoria", level: 1, applies: (c) => hasKey(c.t, "cat:M1:Lazer"), turns: (c) => [`quanto torrei com lazer em ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "cat:M1:Lazer") },
+  { id: "H11", heldout: true, area: "multi_passo", level: 3, applies: (c) => hasKey(c.t, "catsum12:Mercado"), turns: (c) => [`quanto gastei com mercado em ${monthName(c.ref, 1)} e em ${monthName(c.ref, 2)} juntos?`], expect: (c) => num(c.t, "catsum12:Mercado") },
+  { id: "H12", heldout: true, area: "seguimento", level: 3, applies: withData, turns: (c) => [`quanto gastei em ${monthName(c.ref, 1)}?`, "e quanto recebi nesse mesmo mês?"], expect: (c) => num(c.t, "inc:M1") },
+  { id: "H13", heldout: true, area: "seguimento", level: 3, applies: (c) => hasKey(c.t, "cat:M1:Mercado", "cat:M1:Transporte"), turns: (c) => [`quanto gastei com mercado em ${monthName(c.ref, 1)}?`, "e com transporte?"], expect: (c) => num(c.t, "cat:M1:Transporte") },
+  { id: "H14", heldout: true, area: "seguimento", level: 3, applies: (c) => c.t["cnt:M1"] > 0 && c.t["cnt:M2"] > 0, turns: (c) => [`quanto gastei em ${monthName(c.ref, 2)}?`, `não, eu quis dizer em ${monthName(c.ref, 1)}`], expect: (c) => num(c.t, "exp:M1") },
+  { id: "H15", heldout: true, area: "seguimento", level: 3, applies: (c) => !!c.t["top:M1"], turns: (c) => [`qual categoria mais pesou em ${monthName(c.ref, 1)}?`, "e quanto deu ela?"], expect: (c) => num(c.t, "topval:M1") },
+  { id: "H16", heldout: true, area: "conversa", level: 2, applies: ALL, turns: () => ["tô com vergonha de olhar meu extrato"], expect: () => ({ kind: "chat" }) },
+  { id: "H17", heldout: true, area: "conselho", level: 3, applies: enoughData, turns: () => ["o que você acha do meu orçamento do mês passado?"], expect: () => ({ kind: "answers" }) },
+  { id: "H18", heldout: true, area: "fora_dominio", level: 2, applies: ALL, turns: () => ["me empresta 500 reais?"], expect: () => ({ kind: "chat" }) },
+  { id: "H19", heldout: true, area: "gasto_mes", level: 2, applies: withData, turns: () => ["quanto gastei no mês passado?"], expect: (c) => num(c.t, "exp:M1") },
+  { id: "H20", heldout: true, area: "receita_mes", level: 2, applies: (c) => c.t["cnt:M2"] > 0, turns: () => ["quanto recebi no mês retrasado?"], expect: (c) => num(c.t, "inc:M2") },
+  { id: "H21", heldout: true, area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "estudante", "conta_vazia"], turns: () => ["paguei 42 no almoço hoje", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 42, day: 0, categories: ["Alimentação", "Mercado", "Outros"] } }) },
+  { id: "H22", heldout: true, area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "estudante", "conta_vazia"], turns: () => ["comprei um remédio por 27,50 hoje", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 27.5, day: 0, categories: ["Saúde", "Outros"] } }) },
+  { id: "H23", heldout: true, area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "autonomo_irregular", "conta_vazia"], turns: () => ["me pagaram 2500 de salário hoje", YES], expect: () => ({ kind: "registration", tx: { type: "income", amount: 2500, day: 0, categories: ["Salário", "Renda Extra", "Outros"] } }) },
+  { id: "H24", heldout: true, area: "sem_dados", level: 2, applies: (c) => c.t["cnt:M1"] === 0, turns: (c) => [`quanto saiu com mercado em ${monthName(c.ref, 1)}?`], expect: () => ({ kind: "refuse" }) },
 ];
+
+/** Ids do conjunto de perguntas novas (rodar com `only` = esta lista e reps = 3). */
+export const HELDOUT_IDS = SCENARIOS.filter((s) => s.heldout).map((s) => s.id);
 
 
 export const NO_WRITE_KINDS = new Set(["numbers", "answers", "refuse", "chat", "guard", "contains", "vague", "nowrite"]);

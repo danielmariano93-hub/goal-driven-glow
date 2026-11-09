@@ -107,7 +107,8 @@ export function buildSpec(persona, ref = new Date()) {
 }
 
 /** Gabarito calculado da lista semeada (confirmados; transferências não existem aqui). Chaves: exp:M0, inc:M1,
- *  cat:M1:Mercado, net:M1, top:M1 (nome da maior categoria), debt:total, debt:installments, cnt:M0. */
+ *  cat:M1:Mercado, net:M1, top:M1 (nome da maior categoria), topval:M1, debt:total, debt:installments, cnt:M0.
+ *  Derivados (só com M1..M3 preenchidos): sum3:exp|inc|net, avg3:exp, diff12:exp, catsum12:<categoria>. */
 export function buildTruth(spec, ref = new Date()) {
   const t = {};
   const idx = (offset) => monthKey(monthAt(ref, offset));
@@ -132,6 +133,19 @@ export function buildTruth(spec, ref = new Date()) {
     for (const [c, v] of Object.entries(cats)) t[`cat:M${off}:${c}`] = v;
     const top = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
     if (top) { t[`top:M${off}`] = top[0]; t[`topval:M${off}`] = top[1]; }
+  }
+  // Derivados (perguntas de vários passos): somas e médias de M3..M1, diferença M1 x M2, categoria somada em M1 e M2.
+  if (["exp", "inc"].every((k) => [1, 2, 3].every((m) => typeof t[`${k}:M${m}`] === "number"))) {
+    const sum3 = (k) => round2([1, 2, 3].reduce((a, m) => a + t[`${k}:M${m}`], 0));
+    t["sum3:exp"] = sum3("exp");
+    t["avg3:exp"] = round2(sum3("exp") / 3);
+    t["sum3:inc"] = sum3("inc");
+    t["sum3:net"] = round2(sum3("inc") - sum3("exp"));
+    t["diff12:exp"] = round2(Math.abs(t["exp:M1"] - t["exp:M2"]));
+    for (const key of Object.keys(t)) {
+      const m = key.match(/^cat:M1:(.+)$/);
+      if (m && typeof t[`cat:M2:${m[1]}`] === "number") t[`catsum12:${m[1]}`] = round2(t[key] + t[`cat:M2:${m[1]}`]);
+    }
   }
   t["debt:total"] = round2((spec.debts ?? []).reduce((s, d) => s + d.outstanding_balance, 0));
   t["debt:installments"] = round2((spec.debts ?? []).reduce((s, d) => s + d.installment_amount, 0));
