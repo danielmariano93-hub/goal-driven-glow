@@ -137,13 +137,17 @@ export interface RateResult {
   days_observed: number;
 }
 
-/** Ritmo diário: gastos lançados nos últimos 14 dias; sem gastos lançados, a diferença entre duas leituras de saldo. */
+/**
+ * Ritmo diário: gastos lançados nos últimos 14 dias FECHADOS (de ontem para trás); sem gastos lançados, a diferença
+ * entre duas leituras de saldo. Hoje fica de fora: o dia ainda não acabou, e contá-lo como um dia inteiro com o gasto
+ * parcial fazia o ritmo SUBIR quando a pessoa gastava menos que a média (e parecer baixo de manhã, antes do primeiro gasto).
+ */
 export function computeRate(w: BenefitWalletConfig, entries: BenefitEntry[], today: string, windowDays = 14): RateResult {
   if (!entries.length) return { per_day: 0, source: "none", days_observed: 0 };
   const first = entries.reduce((min, e) => (e.occurred_on < min ? e.occurred_on : min), entries[0].occurred_on);
-  const observed = Math.max(0, Math.min(windowDays, daysBetween(first, today) + 1));
-  const from = benefitAddDays(today, -(windowDays - 1));
-  const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on >= from && e.occurred_on <= today);
+  const observed = Math.max(0, Math.min(windowDays, daysBetween(first, today)));
+  const from = benefitAddDays(today, -windowDays);
+  const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on >= from && e.occurred_on < today);
   if (spends.length > 0 && observed >= 3) {
     const total = spends.reduce((s, e) => s + e.amount, 0);
     return { per_day: round2(total / observed), source: "spends", days_observed: observed };
@@ -206,8 +210,14 @@ export interface BenefitState {
   needs_reading: boolean;
   inconsistent: boolean;
   rate: RateResult;
-  /** Quanto dá para gastar por dia até o próximo crédito. */
+  /** Saldo do INÍCIO do dia (saldo agora + o que já foi gasto hoje): base estável do ideal e da projeção durante o dia. */
+  day_start_balance: number | null;
+  /** Quanto dá para gastar por dia até o próximo crédito (saldo do início do dia ÷ dias que faltam, contando hoje). */
   ideal_per_day: number | null;
+  /** Gasto lançado hoje. */
+  spent_today: number;
+  /** Quanto ainda cabe hoje dentro do ideal (nunca negativo). */
+  today_remaining: number | null;
   projection: Projection | null;
   /** Gastos lançados no ciclo atual. */
   spent_in_cycle: number;
@@ -228,6 +238,10 @@ export function computeBenefitState(w: BenefitWalletConfig, entries: BenefitEntr
     carryIn = 0;
   }
   const balance = bal.balance;
+  const spentToday = round2(entries.filter((e) => e.kind === "spend" && e.occurred_on === today).reduce((sum, e) => sum + e.amount, 0));
+  // Ideal e projeção partem do saldo do início do dia: gastar hoje não muda o "ideal" de hoje, só mostra quanto ainda cabe.
+  const dayStart = balance === null ? null : round2(balance + spentToday);
+  const ideal = dayStart === null ? null : round2(dayStart / Math.max(1, cycle.days_left));
   return {
     version: BENEFIT_ENGINE_VERSION,
     today,
@@ -238,8 +252,11 @@ export function computeBenefitState(w: BenefitWalletConfig, entries: BenefitEntr
     needs_reading: balance === null,
     inconsistent: bal.inconsistent,
     rate,
-    ideal_per_day: balance === null ? null : round2(balance / Math.max(1, cycle.days_left)),
-    projection: balance === null ? null : project(balance, cycle.days_left, rate.per_day, today),
+    day_start_balance: dayStart,
+    ideal_per_day: ideal,
+    spent_today: spentToday,
+    today_remaining: ideal === null ? null : round2(Math.max(0, ideal - spentToday)),
+    projection: dayStart === null ? null : project(dayStart, cycle.days_left, rate.per_day, today),
     spent_in_cycle: spentInCycle,
     carry_in: carryIn,
   };
@@ -247,8 +264,8 @@ export function computeBenefitState(w: BenefitWalletConfig, entries: BenefitEntr
 
 /** "E se eu gastar R$ X por dia?" */
 export function whatIf(state: BenefitState, perDay: number): Projection | null {
-  if (state.balance === null) return null;
-  return project(state.balance, state.cycle.days_left, perDay, state.today);
+  if (state.day_start_balance === null) return null;
+  return project(state.day_start_balance, state.cycle.days_left, perDay, state.today);
 }
 
 /** Saldo dia a dia no ciclo atual (null antes da primeira leitura). */

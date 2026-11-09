@@ -160,6 +160,13 @@ export default function TicketAlimentacao() {
                   <div key={k} className="surface-card p-3"><div className="text-xs text-muted-foreground">{k}</div><div className="mt-1 text-base font-bold">{v}</div><div className="text-[11px] text-muted-foreground">{s}</div></div>
                 ))}
               </div>
+              {state.today_remaining !== null && state.ideal_per_day !== null && (
+                <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-today-remaining">
+                  {state.spent_today > 0
+                    ? `Hoje você já gastou ${brl2(state.spent_today)}: ainda cabem ${brl2(state.today_remaining)} dos ${brl2(state.ideal_per_day)} do dia.`
+                    : `Hoje cabem ${brl2(state.ideal_per_day)} para fechar o ciclo no crédito de ${dm(state.cycle.next)}.`}
+                </p>
+              )}
 
               <section className="surface-card flex flex-col gap-3 p-5">
                 <div className="flex items-baseline justify-between"><h2 className="font-bold">Como o mês fecha</h2><span className="text-xs text-muted-foreground">{dm(state.cycle.start)} a {dm(state.cycle.next)}</span></div>
