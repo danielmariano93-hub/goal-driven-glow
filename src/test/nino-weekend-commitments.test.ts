@@ -152,6 +152,31 @@ describe("fechamento de segunda com combinado", () => {
     expect(sit.body).not.toMatch(/\*/);
   });
 
+  it("cumpriu: diz quanto o experimento já tirou do mês e vai ao WhatsApp (severidade de atenção)", () => {
+    const [recap] = buildWeekendRecaps([{ forecast }], [{ occurred_at: "2026-10-10", amount: 50, category: "Lazer" }], "2026-10-12", {}, { Lazer: { target_amount: 170 } });
+    const sit = weekendRecapSituation(recap, ctx, monday)!;
+    const wa = (sit.evidence as any).whatsapp.body as string;
+    expect(wa).toMatch(/Sem o combinado, a projeção era de R\$ [\d.]+: o experimento já tirou \*\d+%\* do mês \(R\$ [\d.]+\)\./);
+    expect(sit.severity).toBe("attention");
+  });
+
+  it("o combinado aceito lidera o fechamento, mesmo que outra categoria tenha sido mostrada primeiro", () => {
+    const other = { ...forecast, category: "Transporte" };
+    const recaps = buildWeekendRecaps([{ forecast: other }, { forecast }], [{ occurred_at: "2026-10-10", amount: 100, category: "Lazer" }], "2026-10-12", {}, { Lazer: { target_amount: 170 } });
+    expect(recaps[0].category).toBe("Lazer");
+    expect(recaps[0].commitment_kept).toBe(true);
+    const sit = weekendRecapSituation(recaps, ctx, monday)!;
+    expect(sit.title).toBe("✅ Combinado cumprido: Lazer");
+    expect(sit.fingerprint).toContain(":Lazer:");
+  });
+
+  it("sem combinado e sem ultrapassar o padrão, o fechamento segue informativo e sem a frase do experimento", () => {
+    const [recap] = buildWeekendRecaps([{ forecast }], [{ occurred_at: "2026-10-10", amount: 120, category: "Lazer" }], "2026-10-12");
+    const sit = weekendRecapSituation(recap, ctx, monday)!;
+    expect(((sit.evidence as any).whatsapp.body as string)).not.toContain("o experimento já tirou");
+    expect(sit.severity).toBe("info");
+  });
+
   it("não cumpriu: sem julgamento, mostra o quanto passou e o novo fechamento", () => {
     const [recap] = buildWeekendRecaps([{ forecast }], [{ occurred_at: "2026-10-10", amount: 300, category: "Lazer" }], "2026-10-12", {}, { Lazer: { target_amount: 170 } });
     expect(recap.commitment_kept).toBe(false);

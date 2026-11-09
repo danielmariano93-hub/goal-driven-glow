@@ -90,6 +90,19 @@ describe("comunicação ativa das metas de gasto", () => {
     expect(threshold.body).toContain("por dia");
   });
 
+  it("meta de um mês só (próximo mês / este mês) também tem fechamento quando o período dela foi o mês que acabou", () => {
+    const rows = [tx("2026-10-05", 120, "Uber"), tx("2026-10-20", 90, "99")];
+    const once = { ...goal("g-once", TRANSPORTE, 300, 500), period_type: "next_month", start_date: "2026-10-01", end_date: "2026-10-31", frequency: "once" };
+    const first = "2026-11-02";
+    const sg = sgContext(first, rows, [], [once as never]);
+    const monthly = spendingGoalSituations(ctx(first), sg, readGoals(sg)).find((s) => s.type === "spending_goal_monthly");
+    expect(monthly?.title).toBe("Fechamento de outubro: 1 de 1 meta cumprida");
+    // Meta de um mês só de OUTRO mês não entra.
+    const other = { ...once, start_date: "2026-09-01", end_date: "2026-09-30" };
+    const sgOther = sgContext(first, rows, [], [other as never]);
+    expect(spendingGoalSituations(ctx(first), sgOther, readGoals(sgOther)).find((s) => s.type === "spending_goal_monthly")).toBeUndefined();
+  });
+
   it("segunda-feira traz o resumo da semana; dia 1 traz o fechamento com a economia", () => {
     const rows = [
       tx("2026-08-05", 100, "Uber"), tx("2026-08-20", 90, "99"), tx("2026-08-12", 150, "Autopass"),

@@ -76,10 +76,12 @@ export function buildWeekendRecaps(
 ): WeekendRecap[] {
   if (dow(today) !== 1) return [];
   const friday = addDays(today, -3);
-  return delivered
+  const recaps = delivered
     .map((d) => d.forecast)
     .filter((f) => f && f.friday === friday)
     .map((f) => recapOf(f, transactions, today, friday, goals[f.category]?.actual, commitments[f.category]));
+  // A categoria que a pessoa combinou lidera o fechamento; as demais previsões ficam como linha de apoio (ordem estável).
+  return [...recaps.filter((r) => r.commitment_target != null), ...recaps.filter((r) => r.commitment_target == null)];
 }
 
 export function buildWeekendRecap(
@@ -150,7 +152,18 @@ function monthBlock(recap: WeekendRecap): string | null {
   const where = gap > 0
     ? `${bold(`${money0(gap)} acima`)} da ${anchorWord(f)} (${money0(f.anchor.amount)})`
     : `${bold(`${money0(-gap)} abaixo`)} da ${anchorWord(f)} (${money0(f.anchor.amount)})`;
-  return `📅 Com isso, o mês de ${f.category} fecha em ${bold(money0(recap.projected_after))}, ${where}.`;
+  return `📅 Com isso, o mês de ${f.category} fecha em ${bold(money0(recap.projected_after))}, ${where}.${experimentEffect(recap)}`;
+}
+
+/** Quanto o combinado cumprido já tirou da projeção do mês, frente ao padrão (estimativa, não uma medição do contrafactual). */
+function experimentEffect(recap: WeekendRecap): string {
+  if (recap.commitment_kept !== true) return "";
+  const before = recap.forecast.projected_month;
+  const saved = round2(before - recap.projected_after);
+  if (!(before > 0) || !(saved > 0)) return "";
+  const share = Math.round((saved / before) * 100);
+  if (share < 1) return "";
+  return ` Sem o combinado, a projeção era de ${money0(before)}: o experimento já tirou ${bold(`${share}%`)} do mês (${money0(saved)}).`;
 }
 
 function extraLine(recap: WeekendRecap): string {
@@ -214,7 +227,8 @@ export function weekendRecapSituation(
     fingerprint: `${WEEKEND_RECAP_VERSION}:${recap.category}:${recap.friday}`,
     type: "weekend_recap",
     communication_kind: "weekend_spending_risk",
-    severity: list.some((r) => r.verdict === "above" && r.commitment_kept !== true) ? "attention" : "info",
+    // O resultado de um combinado fecha algo que a pessoa aceitou: vai ao WhatsApp mesmo sendo boa notícia.
+    severity: list.some((r) => (r.verdict === "above" && r.commitment_kept !== true) || r.commitment_target != null) ? "attention" : "info",
     title: message.title,
     body: message.body,
     primary_domain: "patterns",

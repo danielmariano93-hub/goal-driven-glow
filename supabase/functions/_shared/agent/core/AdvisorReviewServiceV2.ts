@@ -610,7 +610,10 @@ export async function generateAdvisorReviews(
     if (error) throw new Error(`advisor_upsert:${error.message}`);
 
     counts[review.period_kind]++;
-    await sb.from("pending_proactive_suggestions").upsert({
+    // Período sem nenhum lançamento (ex.: o mês ou a semana que acabou de começar) não tem o que dizer: a revisão fica salva,
+    // mas não vira mensagem. Antes saía um texto genérico, sem número, sobre um período vazio.
+    const hasMovement = (review.period_kind === "weekly" ? weeklyFacts : monthlyFacts).transactionCount > 0;
+    if (hasMovement) await sb.from("pending_proactive_suggestions").upsert({
       user_id: userId,
       kind: `advisor_review_${review.period_kind}`,
       severity: "info",

@@ -255,7 +255,13 @@ function monthlySituation(ctx: MultiFinanceProactiveContext, sg: SpendingGoalCon
   const month = shiftMonth(ctx.as_of.slice(0, 7), -1);
   const names = new Map(sg.categories.map((c) => [c.id, c.name]));
   const summaries = sg.goals
-    .filter((g) => g.status === "active" && (g.period_type ?? "monthly_recurring") === "monthly_recurring" && g.start_date.slice(0, 7) <= month)
+    .filter((g) => {
+      if (g.status !== "active") return false;
+      const recurring = (g.period_type ?? "monthly_recurring") === "monthly_recurring";
+      if (recurring) return g.start_date.slice(0, 7) <= month;
+      // Meta de um mês só ("este mês" / "próximo mês"): também fecha, quando o período dela foi o mês que acabou.
+      return g.start_date.slice(0, 7) === month && String(g.end_date ?? "").slice(0, 7) === month;
+    })
     .map((g) => summarizeClosedCycle({
       goal: { id: g.id, category_id: g.category_id, limit: Number(g.computed_limit || 0), baseline: g.baseline_value ?? null, name: names.get(g.category_id) ?? "Categoria" },
       month,
