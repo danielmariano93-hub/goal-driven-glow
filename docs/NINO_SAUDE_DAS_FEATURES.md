@@ -21,9 +21,9 @@ faixa na Visão geral (some quando tudo está bem).
 | Chave | Pergunta | Alerta | Amostra mínima |
 |---|---|---|---|
 | proactive_engine | O motor proativo está decidindo? | 0 decisões em 6 h | ≥1 usuário com WhatsApp |
-| proactive_delivery | O que ele decide enviar sai? | 0 entregas em 72 h (crítico se houve decisão de enviar) | idem |
+| proactive_delivery | O que ele decide enviar sai? | 0 entregas (proativas + lembretes de contas) em 72 h; crítico se houve decisão de enviar por WhatsApp | idem |
 | proactive_failure_rate | Quanto falha na entrega? | ≥25% aviso, ≥50% crítico | 5 tentativas em 7 dias |
-| proactive_budget_choke | Algum limite barra tudo? | ≥10 retenções por limite e 0 entregas em 24 h | idem |
+| proactive_budget_choke | Algum limite barra tudo? | ≥10 retenções por teto diário ou cota de pilar (WhatsApp) e 0 mensagens (proativas + lembretes) em 24 h. Horário silencioso, intervalo de 2 h e severidade mínima não contam: o motor já os respeita ao decidir | idem |
 | proactive_engagement | As mensagens geram resposta? | <5% respondidas em 2 h | 10 entregas desde 05/11 22:40 UTC |
 | agent_error_rate | O agente responde? | ≥15% aviso, ≥30% crítico (pedir valor, `needs_*`, não é falha) | 5 conversas em 24 h |
 | agent_silent | Quem escreve é atendido? | mensagens recebidas e 0 conversas em 24 h | 3 mensagens |
