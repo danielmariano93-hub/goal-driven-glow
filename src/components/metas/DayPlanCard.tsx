@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import { useHabitsV2Enabled } from "@/lib/behavioral/habitsV2Flag";
 import {
-  dayMonth, gradedPlans, openPlan, resolvePlans, useCancelDayPlan, useDayPlans, weekdayName,
+  dayMonth, gradedPlans, openPlan, planCoverage, planDates, planTitle, resolvePlans, useCancelDayPlan, useDayPlans,
   type DayPlanBand, type DayPlanRow,
 } from "@/lib/behavioral/dayPlan";
 import { StatusPill, type PillTone } from "./StatusPill";
@@ -27,7 +27,7 @@ export function summaryLine(rows: DayPlanRow[], today: string): string {
   const open = openPlan(rows, today);
   const graded = gradedPlans(rows);
   if (open) {
-    return `Plano de ${weekdayName(open.friday)} ${open.status === "accepted" ? "combinado" : "proposto"} · ${open.category}, teto de ${formatBRL(open.target_amount!)}`;
+    return `Plano do ${planCoverage(open.friday)} ${open.status === "accepted" ? "combinado" : "proposto"} · ${open.category}, teto de ${formatBRL(open.target_amount!)}`;
   }
   if (graded.length === 0) return "Nenhum plano ainda. Crie um ou espere a sugestão do Nino.";
   const last = graded[0]!.grade;
@@ -61,6 +61,7 @@ export function DayPlansAccordionView({ rows, today, canCreate = false, onCreate
   const avgReal = withTypical.length ? withTypical.reduce((s, g) => s + g.realized_amount!, 0) / withTypical.length : 0;
   const avgTypical = withTypical.length ? withTypical.reduce((s, g) => s + g.expected_amount!, 0) / withTypical.length : 0;
   const last = graded[0];
+  const older = graded.slice(1, 5);
 
   return (
     <section aria-label="Planos e experimentos" data-testid="day-plans" className="mb-3 overflow-hidden rounded-[14px] border border-border">
@@ -83,8 +84,8 @@ export function DayPlansAccordionView({ rows, today, canCreate = false, onCreate
             <div data-testid="day-plan-open" className="border-t border-border px-4 py-3.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[15px] font-semibold leading-[22px]">Plano de {weekdayName(open.friday)}</p>
-                  <p className="text-[12px] leading-4 text-muted-foreground">{open.category} · {dayMonth(open.friday)}</p>
+                  <p className="text-[15px] font-semibold leading-[22px]">{planTitle(open)}</p>
+                  <p className="text-[12px] leading-4 text-muted-foreground">{planDates(open.friday)}{open.status === "accepted" ? " · em andamento" : " · sugestão do Nino"}</p>
                 </div>
                 <StatusPill tone={open.status === "accepted" ? "success" : "muted"}>{open.status === "accepted" ? "Combinado" : "Proposto"}</StatusPill>
               </div>
@@ -105,19 +106,31 @@ export function DayPlansAccordionView({ rows, today, canCreate = false, onCreate
             <div className="border-t border-border px-4 py-3.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-[15px] font-semibold leading-[22px]">Plano de {weekdayName(last.friday)}</p>
-                  <p className="text-[12px] leading-4 text-muted-foreground">{last.category} · {dayMonth(last.friday)} · último resultado</p>
+                  <p className="text-[15px] font-semibold leading-[22px]">{planTitle(last)}</p>
+                  <p className="text-[12px] leading-4 text-muted-foreground">{planDates(last.friday)} · último resultado</p>
                 </div>
                 <StatusPill tone={BAND[last.grade.band].tone}>{BAND[last.grade.band].label}</StatusPill>
               </div>
               <p data-testid="day-plan-last" className="mt-2.5 text-[13px] leading-5 text-muted-foreground">{last.grade.reading}</p>
-              <ul data-testid="day-plan-history" className="mt-2.5 flex flex-wrap gap-1.5" aria-label="Resultados anteriores">
-                {graded.slice(0, 4).map((g) => (
-                  <li key={`${g.friday}-${g.category}`} className="rounded-full bg-muted px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
-                    {dayMonth(g.friday)} · {g.grade.vs_typical_pct == null ? formatBRL(g.realized_amount!) : `${g.grade.vs_typical_pct >= 0 ? "−" : "+"}${Math.abs(g.grade.vs_typical_pct)}% do padrão`}
-                  </li>
-                ))}
-              </ul>
+              <dl data-testid="day-plan-numbers" className="mt-2.5 grid grid-cols-3 gap-2 text-[12px] leading-4">
+                <div><dt className="text-muted-foreground">Combinado</dt><dd className="mt-0.5 font-semibold tabular-nums">até {formatBRL(last.target_amount!)}</dd></div>
+                <div><dt className="text-muted-foreground">Você gastou</dt><dd className="mt-0.5 font-semibold tabular-nums">{formatBRL(last.realized_amount!)}</dd></div>
+                {last.expected_amount != null ? (
+                  <div><dt className="text-muted-foreground">Seu padrão</dt><dd className="mt-0.5 font-semibold tabular-nums">{formatBRL(last.expected_amount)}</dd></div>
+                ) : null}
+              </dl>
+              {older.length > 0 ? (
+                <div className="mt-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Anteriores</p>
+                  <ul data-testid="day-plan-history" className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Resultados anteriores">
+                    {older.map((g) => (
+                      <li key={`${g.friday}-${g.category}`} className="rounded-full bg-muted px-2.5 py-1 text-[11px] tabular-nums text-muted-foreground">
+                        {g.category} · {planDates(g.friday)} · {g.grade.vs_typical_pct == null ? formatBRL(g.realized_amount!) : `${g.grade.vs_typical_pct >= 0 ? "−" : "+"}${Math.abs(g.grade.vs_typical_pct)}% do padrão`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {withTypical.length >= MIN_PLANS_FOR_AVERAGE ? (
                 <p data-testid="day-plan-average" className="mt-2.5 text-[12px] leading-4 text-muted-foreground">
                   Nos {withTypical.length} planos medidos você gastou em média {formatBRL(avgReal)}, contra um padrão de {formatBRL(avgTypical)}.

@@ -30,6 +30,37 @@ export function weekdayName(iso: string): string {
 
 export const dayMonth = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
+function addIsoDays(iso: string, delta: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Plano de sexta cobre o fim de semana (sexta a domingo); qualquer outro plano é de um dia só. */
+export const isWeekendPlan = (iso: string) => weekdayName(iso) === "sexta";
+
+/** Último dia em que o plano ainda vale. */
+export function planLastDay(iso: string): string {
+  return isWeekendPlan(iso) ? addIsoDays(iso, 2) : iso;
+}
+
+/** "fim de semana" ou "quarta": o que o plano cobre, em palavras. */
+export function planCoverage(iso: string): string {
+  return isWeekendPlan(iso) ? "fim de semana" : weekdayName(iso);
+}
+
+/** "06 a 08/11" para o fim de semana; "05/11" para um dia. */
+export function planDates(iso: string): string {
+  return isWeekendPlan(iso) ? `${iso.slice(8, 10)} a ${dayMonth(planLastDay(iso))}` : dayMonth(iso);
+}
+
+/** "Lazer no fim de semana", "Transporte na quarta", "Lazer no sábado". */
+export function planTitle(row: { friday: string; category: string }): string {
+  const coverage = planCoverage(row.friday);
+  const prep = coverage === "fim de semana" || coverage === "sábado" || coverage === "domingo" ? "no" : "na";
+  return `${row.category} ${prep} ${coverage}`;
+}
+
 export type DayPlanBand = "met" | "partial" | "missed";
 
 export type DayPlanGrade = {
@@ -80,13 +111,19 @@ export function gradedPlans(rows: DayPlanRow[]): Array<DayPlanRow & { grade: Day
     .map((r) => ({ ...r, grade: gradeDayPlan({ target: r.target_amount!, expected: r.expected_amount, realized: r.realized_amount! }) }));
 }
 
-/** Plano ainda aberto (proposto ou combinado), preferindo o já combinado. */
+/**
+ * Plano ainda aberto (proposto ou combinado), preferindo o já combinado.
+ * Uma OFERTA só vale enquanto o período dela não acabou (fim de semana: até domingo). Depois disso é página virada:
+ * continuava aparecendo como "Proposto", pedindo "topo" no WhatsApp para um fim de semana que já passou.
+ * O combinado segue aberto até ser medido (o resultado entra em `gradedPlans`).
+ */
 export function openPlan(rows: DayPlanRow[], today: string, windowDays = 4): DayPlanRow | null {
-  const since = new Date(`${today}T12:00:00Z`);
-  since.setUTCDate(since.getUTCDate() - windowDays);
-  const from = since.toISOString().slice(0, 10);
-  const open = rows.filter((r) => (r.status === "offered" || r.status === "accepted") && r.target_amount != null && r.friday >= from)
-    .sort((a, b) => b.friday.localeCompare(a.friday));
+  const from = addIsoDays(today, -windowDays);
+  const open = rows.filter((r) => {
+    if (r.target_amount == null) return false;
+    if (r.status === "accepted") return r.friday >= from;
+    return r.status === "offered" && planLastDay(r.friday) >= today;
+  }).sort((a, b) => b.friday.localeCompare(a.friday));
   return open.find((r) => r.status === "accepted") ?? open[0] ?? null;
 }
 
