@@ -59,8 +59,9 @@ export default function Progresso() {
       ) : (
         <>
           <section className="mt-4 rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Resumo do período">
-            <p className="text-[14px] font-medium text-white/75">Dias cumpridos nos últimos {win} dias</p>
+            <p className="text-[14px] font-medium text-white/75">Constância nos últimos {win} dias</p>
             <p className="mt-1 font-display text-[64px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{m.adh == null ? "-" : Math.round(m.adh * 100)}{m.adh == null ? null : <span className="text-[28px] text-white/70">%</span>}</p>
+            <p className="mt-2 text-[12.5px] leading-[18px] text-white/65">Dia completo vale 1 e versão mínima vale 0,6. O dia de hoje só entra quando fecha.</p>
             <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
               <div>
                 <dd className="font-display text-xl font-semibold tabular-nums">{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp} pts`}</dd>

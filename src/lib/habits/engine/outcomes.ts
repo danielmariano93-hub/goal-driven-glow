@@ -5,6 +5,8 @@ import { addDays, diffDays, dow, eachDay, maxDate, weekStart } from "./dates";
 import type { DayRow, HabitDef, LogRow, Outcome, PauseRange, WeekRow } from "./types";
 
 export const MINIMUM_WEIGHT = 0.6;
+/** Quantidade parcial: a partir de metade da meta, um dia fechado conta como versão mínima. */
+export const PARTIAL_MINIMUM_FROM = 0.5;
 
 /** Hábitos de meta semanal (X por semana, ou quantidade por semana) são avaliados por semana, não por dia. */
 export const isWeeklyModel = (h: HabitDef): boolean =>
@@ -50,7 +52,16 @@ function logOutcome(h: HabitDef, log: LogRow): Outcome {
 
 export function dayOutcome(h: HabitDef, log: LogRow | undefined, date: string, today: string, pauses: PauseRange[] = []): Outcome {
   if (!isExpectedDay(h, date, pauses) || date > today) return "not_expected";
-  if (log) return logOutcome(h, log);
+  if (log) {
+    // Quantidade abaixo da meta: hoje o dia ainda está aberto (a pessoa pode seguir registrando); num dia fechado,
+    // metade da meta ou mais vale como versão mínima e menos que isso não conta.
+    if (log.status === "quantity" && h.direction !== "at_most" && h.direction !== "track" && (h.quantity_target ?? 0) > 0) {
+      const q = log.quantity ?? 0;
+      const target = h.quantity_target as number;
+      if (q > 0 && q < target) return date === today ? "unlogged" : q >= target * PARTIAL_MINIMUM_FROM ? "minimum" : "missed";
+    }
+    return logOutcome(h, log);
+  }
   if (date === today) return "unlogged";
   // Teto: sem registro num dia fechado significa que não passou do limite.
   return h.implicit_ok ? "done" : "missed";
