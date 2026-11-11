@@ -31,10 +31,16 @@ function Heatmap({ view, today, logs, weeks }: { view: HabitView; today: string;
     const rows = dayRows(view.def, logs, first, addDays(lastWeek, 6), today, view.pauses);
     return rows;
   }, [view, logs, today, weeks]);
+  const size = weeks <= 10 ? 22 : weeks <= 14 ? 18 : 13;
   return (
     <div>
-      <div className="grid grid-flow-col grid-rows-7 gap-[3px]" style={{ gridTemplateColumns: `repeat(${weeks}, minmax(0, 1fr))` }} role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma célula por dia`}>
-        {cells.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block aspect-square rounded-[3px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} />)}
+      <div className="flex gap-2">
+        <div className="grid text-[10px] leading-none text-muted-foreground" style={{ gridTemplateRows: `repeat(7, ${size}px)`, rowGap: 4 }} aria-hidden>
+          {["S", "T", "Q", "Q", "S", "S", "D"].map((d, i) => <span key={i} className="grid place-items-center">{d}</span>)}
+        </div>
+        <div className="grid" style={{ gridAutoFlow: "column", gridTemplateRows: `repeat(7, ${size}px)`, gridAutoColumns: `${size}px`, gap: 4 }} role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma célula por dia`}>
+          {cells.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block rounded-[5px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} />)}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
         {(["done", "minimum", "rest", "missed", "not_expected"] as const).map((o) => (
