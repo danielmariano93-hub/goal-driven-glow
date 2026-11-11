@@ -31,30 +31,76 @@ function Heatmap({ view, today, logs, weeks }: { view: HabitView; today: string;
     const rows = dayRows(view.def, logs, first, addDays(lastWeek, 6), today, view.pauses);
     return rows;
   }, [view, logs, today, weeks]);
-  const size = weeks <= 8 ? 30 : 20;
-  const rows: (typeof cells)[] = [];
-  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+  const cellClass = (c: (typeof cells)[number]) => cn("block rounded-[5px]", OUTCOME_CELL[c.outcome], (c.date > today || c.date < view.habit.started_on) && "opacity-0");
+  const label = (c: (typeof cells)[number]) => `${c.date}: ${OUTCOME_LABEL[c.outcome]}`;
+  const DAYS = ["S", "T", "Q", "Q", "S", "S", "D"];
+  // Poucas semanas: calendário (uma linha por semana). Muitas: estilo "contribuições" (uma coluna por semana),
+  // com a célula limitada a 24px e a largura total acompanhando o número de semanas, para nunca ficar alto nem largo demais.
+  if (weeks <= 4) {
+    const rows: (typeof cells)[] = [];
+    for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+    return (
+      <div>
+        <div role="img" aria-label={`Mapa de ${weeks} semanas, uma linha por semana`} className="mx-auto" style={{ maxWidth: 44 + 7 * 40 }}>
+          <div className="mb-1.5 grid gap-1.5 text-[10px] text-muted-foreground" style={{ gridTemplateColumns: "40px repeat(7, minmax(0, 1fr))" }} aria-hidden>
+            <span />
+            {DAYS.map((d, i) => <span key={i} className="text-center">{d}</span>)}
+          </div>
+          <div className="grid gap-1.5">
+            {rows.map((r) => (
+              <div key={r[0].date} className="grid items-center gap-1.5" style={{ gridTemplateColumns: "40px repeat(7, minmax(0, 1fr))" }}>
+                <span className="text-[10px] tabular-nums text-muted-foreground" aria-hidden>{r[0].date.slice(8, 10)}/{r[0].date.slice(5, 7)}</span>
+                {r.map((c) => <i key={c.date} title={label(c)} className={cn(cellClass(c), "aspect-square")} />)}
+              </div>
+            ))}
+          </div>
+        </div>
+        <Legend />
+      </div>
+    );
+  }
+  const cols: (typeof cells)[] = [];
+  for (let i = 0; i < cells.length; i += 7) cols.push(cells.slice(i, i + 7));
+  const gap = 3;
+  const cell = Math.min(24, Math.floor((310 - (weeks - 1) * gap) / weeks));
+  const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+  const monthLabels = (() => {
+    let lastIdx = -99;
+    return cols.map((c, i) => {
+      const m = Number(c[0].date.slice(5, 7)) - 1;
+      const prev = i > 0 ? Number(cols[i - 1][0].date.slice(5, 7)) - 1 : -1;
+      // só rotula na virada do mês e se o rótulo anterior já saiu do caminho (≈3 colunas)
+      if (m === prev || i - lastIdx < 3 || (cols.length - i) < 2 && i > 0) return "";
+      lastIdx = i;
+      return MONTHS[m];
+    });
+  })();
   return (
     <div>
-      <div role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma linha por semana`}>
-        <div className="mb-1.5 grid items-center gap-1.5 text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `44px repeat(7, ${size}px)` }} aria-hidden>
-          <span />
-          {["S", "T", "Q", "Q", "S", "S", "D"].map((d, i) => <span key={i} className="text-center">{d}</span>)}
+      <div role="img" aria-label={`Mapa de ${weeks} semanas, uma coluna por semana`} className="flex items-start gap-1.5">
+        <div className="grid text-[10px] leading-none text-muted-foreground" style={{ gridTemplateRows: `repeat(7, ${cell}px)`, rowGap: gap, marginTop: 15, width: 10 }} aria-hidden>
+          {DAYS.map((d, i) => <span key={i} className="grid place-items-center">{i % 2 === 0 ? d : ""}</span>)}
         </div>
-        <div className="grid gap-1.5">
-          {rows.map((r) => (
-            <div key={r[0].date} className="grid items-center gap-1.5" style={{ gridTemplateColumns: `44px repeat(7, ${size}px)` }}>
-              <span className="text-[10px] text-muted-foreground tabular-nums" aria-hidden>{r[0].date.slice(8, 10)}/{r[0].date.slice(5, 7)}</span>
-              {r.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block rounded-[6px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} style={{ height: size }} />)}
-            </div>
-          ))}
+        <div>
+          <div className="mb-1 grid h-[11px] text-[10px] leading-[11px] text-muted-foreground" style={{ gridTemplateColumns: `repeat(${weeks}, ${cell}px)`, columnGap: gap }} aria-hidden>
+            {cols.map((c, i) => <span key={c[0].date} className="overflow-visible whitespace-nowrap">{monthLabels[i]}</span>)}
+          </div>
+          <div className="grid" style={{ gridAutoFlow: "column", gridTemplateRows: `repeat(7, ${cell}px)`, gridAutoColumns: `${cell}px`, gap }}>
+            {cells.map((c) => <i key={c.date} title={label(c)} className={cn(cellClass(c), "rounded-[4px]")} />)}
+          </div>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
-        {(["done", "minimum", "rest", "missed", "not_expected"] as const).map((o) => (
-          <span key={o} className="inline-flex items-center gap-1.5"><i className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", OUTCOME_CELL[o])} />{OUTCOME_LABEL[o]}</span>
-        ))}
-      </div>
+      <Legend />
+    </div>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
+      {(["done", "minimum", "rest", "missed", "not_expected"] as const).map((o) => (
+        <span key={o} className="inline-flex items-center gap-1.5"><i className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", OUTCOME_CELL[o])} />{OUTCOME_LABEL[o]}</span>
+      ))}
     </div>
   );
 }
@@ -85,7 +131,7 @@ export default function Detalhe() {
   const weekly = summary.model === "weekly";
   const recurring = view.form === "recurring";
   // Hábito novo não precisa de 20 semanas vazias: o mapa cresce com o hábito (mínimo 4).
-  const heatWeeks = Math.min(20, Math.max(4, Math.ceil((diffDays(habit.started_on, today) + 1) / 7) + 1));
+  const heatWeeks = Math.min(20, Math.max(1, diffDays(weekStart(habit.started_on), weekStart(today)) / 7 + 1));
   const enough = summary.closed_count >= (weekly ? 2 : 7);
   const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
   const recentRows = dayRows(view.def, logs, recent[0], today, today, view.pauses);
@@ -185,7 +231,7 @@ export default function Detalhe() {
       </section>}
 
       {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label={`Mapa de ${heatWeeks} semanas`}>
-        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">{heatWeeks === 20 ? "Últimas 20 semanas" : `Desde o início (${heatWeeks} semanas)`}</h2>
+        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">{heatWeeks === 20 ? "Últimas 20 semanas" : heatWeeks === 1 ? "Esta semana" : `Desde o início (${heatWeeks} semanas)`}</h2>
         <Heatmap view={view} today={today} logs={logs} weeks={heatWeeks} />
       </section>}
 
