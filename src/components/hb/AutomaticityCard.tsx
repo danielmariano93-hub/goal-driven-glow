@@ -26,7 +26,7 @@ export function AutomaticityCard({ view, compact = false }: { view: HabitView; c
       </div>
       {view.auto_due ? (
         <>
-          <p className="mt-2 text-[15px] font-semibold leading-6">“{habit.title}” já acontece quase sem você pensar?</p>
+          <p className="mt-2 text-[15px] font-medium leading-6">“{habit.title}” já acontece quase sem você pensar?</p>
           <div className="mt-3 grid grid-cols-7 gap-1.5" role="group" aria-label="De 1 a 7">
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <button key={n} type="button" disabled={answer.isPending} onClick={() => void send(n)} aria-label={`${n}${LABEL[n] ? `, ${LABEL[n]}` : ""}`} className={cn("h-11 rounded-xl border border-border bg-card font-display text-base font-semibold hover:bg-muted")}>{n}</button>
@@ -39,7 +39,7 @@ export function AutomaticityCard({ view, compact = false }: { view: HabitView; c
         <>
           <p className="mt-2 font-display text-[34px] font-semibold leading-none tabular-nums">{auto.latest}<span className="text-base font-semibold text-muted-foreground"> de 7</span></p>
           {!compact && trend ? <p className="mt-1 text-xs text-muted-foreground">{trend}.</p> : null}
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">Eu pergunto de novo a cada 2 semanas. Quanto mais automático, menos lembretes você recebe.</p>
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">Eu pergunto de novo a cada 2 semanas. Quanto mais automático, menos lembretes você recebe.</p>
         </>
       ) : (
         <p className="mt-2 text-sm leading-5 text-muted-foreground">Depois de 2 semanas eu pergunto o quanto o hábito já está automático. Isso ajuda a reduzir lembretes quando você não precisa mais deles.</p>

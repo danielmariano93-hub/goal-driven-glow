@@ -28,7 +28,7 @@ export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { h
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="text-left">
-            <DrawerTitle className="font-display text-xl">Acontece. Vamos anotar.</DrawerTitle>
+            <DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">Acontece. Vamos anotar.</DrawerTitle>
             <p className="text-sm text-muted-foreground">{title}: um escorregão não apaga o que você já construiu.</p>
           </DrawerHeader>
           <div className="flex flex-col gap-4 px-4">
@@ -41,8 +41,8 @@ export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { h
                 })}
               </div>
             </div>
-            <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
-            <Button variant="outline" className="h-12 rounded-full text-[15px] font-semibold" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
+            <Button className="h-12 rounded-full text-[15px] font-medium" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
+            <Button variant="outline" className="h-12 rounded-full text-[15px] font-medium" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
             <p className="text-center text-xs text-muted-foreground">Seu recorde e o total de dias sem continuam guardados.</p>
           </div>
         </div>

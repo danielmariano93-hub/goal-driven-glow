@@ -8,10 +8,10 @@ const AREA_ICON: Record<HbArea, typeof Activity> = { body: Activity, mind: Brain
 const SLEEP_SLUGS = /dormir|sono/i;
 
 /** Ícone de área em um quadrado suave. É a única cor das listas: o destaque fica no que importa. */
-export function AreaTile({ area, title, size = 44 }: { area: HbArea; title?: string; size?: number }) {
+export function AreaTile({ area, title, size = 44, onDark = false }: { area: HbArea; title?: string; size?: number; onDark?: boolean }) {
   const Icon = title && SLEEP_SLUGS.test(title) ? Moon : AREA_ICON[area] ?? CircleDot;
   return (
-    <span className="grid shrink-0 place-items-center rounded-xl bg-primary/10 text-primary" style={{ width: size, height: size }} aria-hidden="true">
+    <span className={cn("grid shrink-0 place-items-center rounded-xl", onDark ? "bg-white/15 text-white" : "bg-primary/10 text-primary")} style={{ width: size, height: size }} aria-hidden="true">
       <Icon width={size * 0.45} height={size * 0.45} strokeWidth={1.75} />
     </span>
   );
@@ -41,6 +41,25 @@ export function Steps({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex gap-1.5" role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={current + 1} aria-label={`Passo ${current + 1} de ${total}`}>
       {Array.from({ length: total }, (_, i) => <i key={i} className={cn("h-1 flex-1 rounded-full transition-colors duration-300", i <= current ? "bg-primary" : "bg-muted")} />)}
+    </div>
+  );
+}
+
+/** Trilha até o próximo marco: de onde a pessoa veio, onde está e quanto falta. */
+export function MilestoneTrack({ days, milestones }: { days: number; milestones: readonly number[] }) {
+  const prev = [...milestones].reverse().find((m) => m <= days) ?? 0;
+  const next = milestones.find((m) => m > days) ?? null;
+  const pct = next == null ? 100 : Math.round(((days - prev) / (next - prev)) * 100);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-[13px] tabular-nums">
+        <span className="text-muted-foreground">{prev} {prev === 1 ? "dia" : "dias"}</span>
+        <span className="font-medium">{next == null ? "Todos os marcos" : `${next} dias`}</span>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Caminho até o próximo marco">
+        <div className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="mt-2 text-[13px] text-muted-foreground">{next == null ? "Você passou de 1 ano. Isso é seu." : `Faltam ${next - days} ${next - days === 1 ? "dia" : "dias"} para o próximo marco.`}</p>
     </div>
   );
 }

@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
+import { MilestoneTrack } from "@/components/hb/kit";
 import { RelapseSheet } from "@/components/hb/RelapseSheet";
 import { hbErrorMessage, useArchiveHabit, useCraving, useCravingAnswer, useHabitViews, useQuitMoney } from "@/lib/habits/api";
 import { QUIT_MILESTONES } from "@/lib/habits/engine";
@@ -70,7 +70,7 @@ export default function Largar() {
         <p className="text-[14px] font-medium text-white/75">Dias sem</p>
         <p className="mt-1 font-display text-[88px] font-semibold leading-[0.9] tracking-[-0.05em] tabular-nums">{stats.days_clean}</p>
         <p className="mt-2 text-[13px] text-white/80">
-          {stats.next_milestone != null ? `Próximo marco: ${dias(stats.next_milestone)}` : "Você passou de 1 ano. Isso é seu."}
+          {stats.next_milestone != null ? `Dias sem. Próximo marco em ${dias(stats.next_milestone)}` : "Você passou de 1 ano. Isso é seu."}
         </p>
       </section>
 
@@ -81,10 +81,8 @@ export default function Largar() {
       </dl>
 
       <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Marcos">
-        <h2 className="text-[13px] font-medium text-muted-foreground">Marcos</h2>
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {QUIT_MILESTONES.map((m) => <li key={m} className={cn("rounded-full border px-3 py-1 text-xs font-medium tabular-nums", stats.days_clean >= m ? "border-success bg-success/15 text-foreground" : "border-border text-muted-foreground")}>{m}</li>)}
-        </ul>
+        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">Próximo marco</h2>
+        <MilestoneTrack days={stats.days_clean} milestones={QUIT_MILESTONES} />
       </section>
 
       <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Dinheiro">

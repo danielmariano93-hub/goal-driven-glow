@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/hb/ui";
+import { AreaTile, RowCard, SectionLabel } from "@/components/hb/kit";
 import { Switch } from "@/components/ui/switch";
 import { hbErrorMessage, useGrantConsent, useHabitViews, useHbPrefs, useRevokeConsent, useSetHbMode, useSetHbPrefs } from "@/lib/habits/api";
 
@@ -24,39 +25,51 @@ export default function Mais() {
     setPrefs.mutate(patch, { onError: (e) => toast.error(hbErrorMessage(e)) });
   return (
     <div className="px-4 pb-6">
-      <PageHeader title="Mais" subtitle="Como funciona o Nino Hábitos" />
-      <section className="mb-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Lembretes e WhatsApp">
-        <h2 className="font-display text-base font-semibold">Lembretes e WhatsApp</h2>
-        <div className="mt-3 flex items-center justify-between gap-4">
-          <div className="min-w-0"><p id="hb-pref-nudges" className="text-[15px] font-semibold">Lembretes dos meus hábitos</p><p className="text-xs leading-4 text-muted-foreground">Até 2 por dia, só depois do horário combinado, sem passar das 22h. Se você ignorar 3 seguidos, eu paro.</p></div>
+      <PageHeader title="Mais" subtitle="Lembretes, privacidade e como o Nino Hábitos funciona" />
+
+      <SectionLabel className="mt-2">Lembretes e WhatsApp</SectionLabel>
+      <section className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card" aria-label="Lembretes e WhatsApp">
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div className="min-w-0"><p id="hb-pref-nudges" className="text-[15px] font-medium">Lembretes dos meus hábitos</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Até 2 por dia, só depois do horário combinado, sem passar das 22h. Se você ignorar 3 seguidos, eu paro.</p></div>
           <Switch aria-labelledby="hb-pref-nudges" checked={prefs.nudges_enabled} onCheckedChange={(v) => change({ nudges_enabled: v })} />
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4 border-t border-border pt-4">
-          <div className="min-w-0"><p id="hb-pref-wa" className="text-[15px] font-semibold">Marcar pelo WhatsApp</p><p className="text-xs leading-4 text-muted-foreground">Mande “meditei”, “feito” ou “como estão meus hábitos?”. Para desfazer, “desfaz”.</p></div>
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div className="min-w-0"><p id="hb-pref-wa" className="text-[15px] font-medium">Marcar pelo WhatsApp</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Mande “meditei”, “feito” ou “como estão meus hábitos?”. Para desfazer, “desfaz”.</p></div>
           <Switch aria-labelledby="hb-pref-wa" checked={prefs.whatsapp_logging} onCheckedChange={(v) => change({ whatsapp_logging: v })} />
         </div>
       </section>
-      <section className="mb-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Saúde e privacidade">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0"><p id="hb-pref-consent" className="text-[15px] font-semibold">Hábitos de saúde e substâncias</p><p className="text-xs leading-4 text-muted-foreground">Autoriza o Nino a guardar e lembrar de hábitos como largar cigarro ou bebida. Só você vê. Pode retirar quando quiser.</p></div>
+
+      <SectionLabel>Privacidade</SectionLabel>
+      <section className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card" aria-label="Saúde e privacidade">
+        <div className="flex items-center justify-between gap-4 p-4">
+          <div className="min-w-0"><p id="hb-pref-consent" className="text-[15px] font-medium">Hábitos de saúde e substâncias</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Autoriza o Nino a guardar e lembrar de hábitos como largar cigarro ou bebida. Só você vê. Pode retirar quando quiser.</p></div>
           <Switch aria-labelledby="hb-pref-consent" checked={consent} disabled={grant.isPending || revoke.isPending} onCheckedChange={(v) => (v ? grant : revoke).mutate(undefined, { onError: (e) => toast.error(hbErrorMessage(e)) })} />
         </div>
       </section>
-      <Link to="/h/dinheiro" className="mb-4 block rounded-2xl border border-border/60 bg-card p-4 shadow-card"><p className="font-display text-base font-semibold">Hábitos e dinheiro</p><p className="text-sm leading-5 text-muted-foreground">O que o Nino mede pelos seus lançamentos e o que dá para ver junto com o gasto.</p></Link>
-      <ul className="flex flex-col gap-2">
+
+      <SectionLabel>Dinheiro</SectionLabel>
+      <Link to="/h/dinheiro" className="block">
+        <RowCard lead={<AreaTile area="money" />} title="Hábitos e dinheiro" hint="O que o Nino mede pelos seus lançamentos e o que dá para ver junto com o gasto." />
+      </Link>
+
+      <SectionLabel>Como os números funcionam</SectionLabel>
+      <ul className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
         {ITEMS.map((i) => (
-          <li key={i.title} className="rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">{i.tag}</span>
-            <p className="mt-2 font-display text-[17px] font-semibold tracking-[-0.01em]">{i.title}</p>
-            <p className="mt-0.5 text-sm leading-5 text-muted-foreground">{i.text}</p>
+          <li key={i.title} className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-display text-[16px] font-semibold tracking-[-0.01em]">{i.title}</p>
+              <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-[12px] font-medium text-primary">{i.tag}</span>
+            </div>
+            <p className="mt-1 text-[14px] leading-5 text-muted-foreground">{i.text}</p>
           </li>
         ))}
       </ul>
-      <div className="mt-5 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-        <p className="font-display text-base font-semibold">Sem pontos, sem ranking</p>
-        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">Falhar um dia não quebra nada. O que importa é voltar. Um hábito costuma levar semanas ou meses para ficar automático, e varia muito de pessoa para pessoa.</p>
+
+      <div className="mt-6 rounded-2xl bg-primary/5 p-5">
+        <p className="font-display text-[17px] font-semibold tracking-[-0.01em]">Sem pontos, sem ranking</p>
+        <p className="mt-1 text-[14px] leading-6 text-muted-foreground">Falhar um dia não quebra nada. O que importa é voltar. Um hábito costuma levar semanas ou meses para ficar automático, e varia muito de pessoa para pessoa.</p>
       </div>
-      <Button variant="outline" className="mt-5 h-12 w-full rounded-full text-[15px] font-semibold" onClick={() => { setMode.mutate("money"); navigate("/app"); }}>Voltar para o Nino Dinheiro</Button>
+      <Button variant="outline" className="mt-6 h-12 w-full rounded-full text-[15px] font-medium" onClick={() => { setMode.mutate("money"); navigate("/app"); }}>Voltar para o Nino Dinheiro</Button>
     </div>
   );
 }
