@@ -20,6 +20,11 @@ do $$ begin
   end if;
 end $$;
 
+-- Meta zero só faz sentido quando se acompanha um valor ou se limita algo (teto de zero pedidos); fazer "pelo menos zero" não.
+alter table public.hb_habits drop constraint if exists hb_habits_quantity_target_check;
+alter table public.hb_habits add constraint hb_habits_quantity_target_check
+  check (quantity_target is null or quantity_target > 0 or (quantity_target = 0 and direction in ('track','at_most')));
+
 -- ===== Projetos (livro, curso, reserva): total, avanço e conclusão =====
 create table if not exists public.hb_projects (
   id uuid primary key default gen_random_uuid(),
