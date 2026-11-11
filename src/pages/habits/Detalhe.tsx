@@ -12,27 +12,28 @@ import { BackfillSheet } from "@/components/hb/BackfillSheet";
 import { EditPlanSheet } from "@/components/hb/EditPlanSheet";
 import { OUTCOME_CELL, OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
 import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
-import { AreaTile } from "@/components/hb/kit";
+import { HabitTile } from "@/components/hb/kit";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
 import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
+import { diffDays } from "@/lib/habits/engine/dates";
 
 const WEEKDAY_SHORT = ["D", "S", "T", "Q", "Q", "S", "S"];
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
 
-function Heatmap({ view, today, logs }: { view: HabitView; today: string; logs: ReturnType<typeof useHabitViews>["logs"] }) {
+function Heatmap({ view, today, logs, weeks }: { view: HabitView; today: string; logs: ReturnType<typeof useHabitViews>["logs"]; weeks: number }) {
   const cells = useMemo(() => {
     const lastWeek = weekStart(today);
-    const first = addDays(lastWeek, -7 * 19);
+    const first = addDays(lastWeek, -7 * (weeks - 1));
     const rows = dayRows(view.def, logs, first, addDays(lastWeek, 6), today, view.pauses);
     return rows;
-  }, [view, logs, today]);
+  }, [view, logs, today, weeks]);
   return (
     <div>
-      <div className="grid grid-flow-col grid-rows-7 gap-[3px]" style={{ gridTemplateColumns: "repeat(20, minmax(0, 1fr))" }} role="img" aria-label="Mapa das últimas 20 semanas, uma célula por dia">
+      <div className="grid grid-flow-col grid-rows-7 gap-[3px]" style={{ gridTemplateColumns: `repeat(${weeks}, minmax(0, 1fr))` }} role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma célula por dia`}>
         {cells.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block aspect-square rounded-[3px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} />)}
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
@@ -69,6 +70,9 @@ export default function Detalhe() {
   const { habit, summary } = view;
   const weekly = summary.model === "weekly";
   const recurring = view.form === "recurring";
+  // Hábito novo não precisa de 20 semanas vazias: o mapa cresce com o hábito (mínimo 4).
+  const heatWeeks = Math.min(20, Math.max(4, Math.ceil((diffDays(habit.started_on, today) + 1) / 7) + 1));
+  const enough = summary.closed_count >= (weekly ? 2 : 7);
   const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
   const recentRows = dayRows(view.def, logs, recent[0], today, today, view.pauses);
   const strengthNote = summary.strength == null
@@ -103,7 +107,7 @@ export default function Detalhe() {
           <button type="button" onClick={openEdit} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-medium text-white transition-colors hover:bg-white/10">Editar</button>
         </div>
         <div className="mt-1 flex items-center gap-3">
-          <AreaTile area={habit.area} title={habit.title} size={44} onDark />
+          <HabitTile area={habit.area} title={habit.title} form={view.form} size={44} onDark />
           <div className="min-w-0">
             <h1 className="truncate font-display text-[26px] font-semibold leading-[1.1] tracking-[-0.02em]">{habit.title}</h1>
             {habit.cue_text ? <p className="truncate text-[14px] text-white/75">{habit.cue_text}</p> : null}
@@ -111,8 +115,8 @@ export default function Detalhe() {
         </div>
         {recurring ? null : (
           <>
-            <div className="mt-6"><StrengthRing value={summary.strength} /></div>
-            <div className="mt-4 flex items-center justify-center gap-2"><PhaseChip phase={summary.phase} /><span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span></div>
+            {summary.strength != null ? <div className="mt-6"><StrengthRing value={summary.strength} /></div> : null}
+            <div className={cn("flex items-center justify-center gap-2", summary.strength != null ? "mt-4" : "mt-5")}><PhaseChip phase={summary.phase} />{summary.strength != null ? <span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span> : null}</div>
             <p className="mx-auto mt-3 max-w-[300px] text-center text-[13px] leading-5 text-white/75">{strengthNote}</p>
           </>
         )}
@@ -129,16 +133,18 @@ export default function Detalhe() {
 
       <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /></div>
 
-      {recurring ? null : <dl className="mt-4 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
-        {[
-          { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
-          { k: "recorde", v: String(summary.best_streak) },
-          { k: weekly ? "folgas" : `folga${summary.rests_left_this_week === 1 ? "" : "s"} na semana`, v: weekly ? "-" : String(summary.rests_left_this_week) },
-          { k: "últimos 30 dias", v: pct(summary.adherence30) },
-        ].map((i) => (
-          <div key={i.k}><dd className="font-display text-xl font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
-        ))}
-      </dl>}
+      {recurring ? null : (
+        <dl className={cn("mt-4 grid gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card", weekly ? "grid-cols-3" : "grid-cols-4")}>
+          {[
+            { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
+            { k: "recorde", v: String(summary.best_streak) },
+            ...(weekly ? [] : [{ k: `folga${summary.rests_left_this_week === 1 ? "" : "s"} na semana`, v: String(summary.rests_left_this_week) }]),
+            { k: "últimos 30 dias", v: enough ? pct(summary.adherence30) : "-" },
+          ].map((i) => (
+            <div key={i.k}><dd className="font-display text-xl font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
+          ))}
+        </dl>
+      )}
 
       {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
         <div className="flex items-center justify-between gap-2"><h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>{view.form !== "steps" ? <button type="button" onClick={() => setBackfillOpen(true)} className="shrink-0 rounded-full px-2 py-1 text-[12.5px] font-medium text-primary hover:bg-primary/5">Dia anterior</button> : null}</div>
@@ -164,9 +170,9 @@ export default function Detalhe() {
         </ul>
       </section>}
 
-      {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Mapa de 20 semanas">
-        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">Últimas 20 semanas</h2>
-        <Heatmap view={view} today={today} logs={logs} />
+      {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label={`Mapa de ${heatWeeks} semanas`}>
+        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">{heatWeeks === 20 ? "Últimas 20 semanas" : `Desde o início (${heatWeeks} semanas)`}</h2>
+        <Heatmap view={view} today={today} logs={logs} weeks={heatWeeks} />
       </section>}
 
       <div className="mt-3"><AchievementsCard view={view} today={today} logs={logs} /></div>

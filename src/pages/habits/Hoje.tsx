@@ -8,7 +8,7 @@ import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { QuickLogSheet } from "@/components/hb/QuickLogSheet";
-import { countsDone, dayFraction, formSubtitle, paceNote, paceOf, recurringLine } from "@/lib/habits/present";
+import { countsDone, dayFraction, formSubtitle, paceNote, paceOf, paceShort, paceTone, recurringLine } from "@/lib/habits/present";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
 import { AreaTile, RowCard, SectionLabel, WeekSteps } from "@/components/hb/kit";
 import { sentenceCase } from "@/lib/habits/format";
@@ -40,15 +40,15 @@ export default function Hoje() {
     // Hábito semanal entra na conta como um item: "em dia" ou "meta batida" conta como feito; atrasado fica pendente.
     const weeklyAll = views.filter((v) => v.summary.model === "weekly");
     const weeklyPace = weeklyAll.map((v) => ({ v, p: paceOf(v, today) }));
-    const behindWeekly = weeklyPace.filter((x) => x.p?.state === "behind").map((x) => x.v);
+    const pendingWeekly = weeklyPace.filter((x) => x.p && x.p.state !== "met" && x.p.state !== "on_track").map((x) => ({ v: x.v, p: x.p }));
     const total = counted.filter((v) => v.summary.today.outcome !== "rest").length + weeklyAll.length;
-    const done = counted.filter(countsDone).length + weeklyPace.filter((x) => x.p && x.p.state !== "behind").length;
+    const done = counted.filter(countsDone).length + weeklyPace.filter((x) => x.p && (x.p.state === "met" || x.p.state === "on_track")).length;
     return {
-      days, total, done, behindWeekly,
+      days, total, done, pendingWeekly,
       dueToday,
       weekly: views.filter((v) => v.summary.model === "weekly"),
       notToday: daily.filter((v) => v.summary.today.outcome === "not_expected"),
-      adherence30: aggregateAdherence(rows, today, 30),
+      adherence30: aggregateAdherence(rows, today, 30, 7),
       longest: daily.reduce((m, v) => Math.max(m, v.summary.streak), 0),
       firm: views.filter((v) => v.summary.phase === "firm" || v.summary.phase === "maintenance").length,
     };
@@ -121,7 +121,8 @@ export default function Hoje() {
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
           <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
-          <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}{paceNote(paceOf(v, today)) ? <span className={cn(paceOf(v, today)?.state === "behind" ? "font-medium text-amber-700" : "")}> · {paceNote(paceOf(v, today))}</span> : null}</p>
+          <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}</p>
+          {paceOf(v, today) ? <span className={cn("mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[11.5px] font-medium leading-4", paceTone(paceOf(v, today)!.state))}>{paceNote(paceOf(v, today))}</span> : null}
         </Link>
         <Dots rows={dotsFor(v)} />
         <button
@@ -149,7 +150,12 @@ export default function Hoje() {
         {views.length > 0 ? (
           <>
             <div className="mx-auto mt-1 max-w-[720px]"><Dial days={model.days} done={model.done} total={model.total} withWeekly={model.weekly.length > 0} /></div>
-            {model.behindWeekly.length > 0 ? <p className="mx-auto -mt-1 mb-1 max-w-[720px] text-center text-[13px] font-medium text-white/90">Atrasado: {model.behindWeekly.map((v) => v.habit.title).join(", ")}</p> : null}
+            {model.pendingWeekly.length > 0 ? (
+              <ul className="mx-auto -mt-1 mb-2 flex max-w-[720px] flex-wrap justify-center gap-1.5" aria-label="Metas semanais que pedem atenção">
+                {model.pendingWeekly.slice(0, 2).map(({ v, p }) => <li key={v.habit.id} className="rounded-full bg-white/15 px-3 py-1 text-[12.5px] font-medium text-white">{v.habit.title}: {paceShort(p)}</li>)}
+                {model.pendingWeekly.length > 2 ? <li className="rounded-full bg-white/15 px-3 py-1 text-[12.5px] font-medium text-white">+{model.pendingWeekly.length - 2}</li> : null}
+              </ul>
+            ) : null}
             {outsideCount > 0 ? <p className="mx-auto -mt-1 mb-2 max-w-[720px] text-center text-[12.5px] text-white/65">{outsideText}</p> : null}
             <dl className="mx-auto -mt-1 flex max-w-[720px] justify-center gap-6 text-[13px]">
               <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-[15px]">{model.adherence30 == null ? "-" : `${Math.round(model.adherence30 * 100)}%`}</b> <span className="text-white/75">em 30 dias</span></dd></div>

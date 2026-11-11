@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
-import { AreaTile, SectionLabel } from "@/components/hb/kit";
+import { PageHeader, PhaseChip } from "@/components/hb/ui";
+import { HabitTile, SectionLabel } from "@/components/hb/kit";
+import { paceOf, paceTone } from "@/lib/habits/present";
 import { targetText } from "@/lib/habits/present";
 import { useHabitViews, type HabitView } from "@/lib/habits/api";
 
@@ -24,7 +25,7 @@ const cadence = (v: HabitView): string => {
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
 
 export default function Habitos() {
-  const { views, paused, quitViews, activeCount, isLoading } = useHabitViews();
+  const { views, paused, quitViews, activeCount, isLoading, today } = useHabitViews();
   const full = activeCount >= MAX_ACTIVE_HABITS;
   return (
     <div className="px-4">
@@ -46,26 +47,31 @@ export default function Habitos() {
           <Button asChild className="mt-4 rounded-full"><Link to="/h/novo">Criar um hábito</Link></Button>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {views.map((v) => (
-            <li key={v.habit.id}>
-              <Link to={`/h/habito/${v.habit.id}`} className="block rounded-2xl border border-border/60 bg-card p-4 shadow-card transition-colors hover:bg-muted/50">
-                <div className="flex items-start gap-3.5">
-                  <AreaTile area={v.habit.area} title={v.habit.title} />
+        <ul className="flex flex-col gap-2.5">
+          {views.map((v) => {
+            const pace = paceOf(v, today ?? "");
+            const weekly = v.summary.model === "weekly";
+            const enough = v.summary.closed_count >= (weekly ? 2 : 7);
+            const streak = v.summary.streak;
+            return (
+              <li key={v.habit.id}>
+                <Link to={`/h/habito/${v.habit.id}`} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3.5 shadow-card transition-colors hover:bg-muted/50">
+                  <HabitTile title={v.habit.title} form={v.form} area={v.habit.area} size={42} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-display text-[17px] font-semibold leading-6 tracking-[-0.01em]">{v.habit.title}</p>
-                    <p className="text-[13px] leading-[18px] text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
+                    <p className="truncate font-display text-[16px] font-semibold leading-5 tracking-[-0.01em]">{v.habit.title}</p>
+                    <p className="truncate text-[12.5px] leading-[17px] text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
+                    <p className="mt-0.5 truncate text-[12px] leading-4 text-muted-foreground">
+                      {streak > 0 ? <><b className="font-semibold text-foreground">{streak}</b> {weekly ? (streak === 1 ? "semana seguida" : "semanas seguidas") : streak === 1 ? "dia seguido" : "dias seguidos"}</> : "Sem sequência ainda"}
+                      {enough ? <> · <b className="font-semibold text-foreground">{pct(v.summary.adherence30)}</b> em 30 dias</> : null}
+                    </p>
                   </div>
-                  <PhaseChip phase={v.summary.phase} />
-                </div>
-                <div className="mt-3"><StrengthBar value={v.summary.strength} /></div>
-                <dl className="mt-3 flex gap-6 text-xs text-muted-foreground">
-                  <div><dt className="sr-only">Sequência</dt><dd><b className="text-sm text-foreground">{v.summary.streak}</b> {v.summary.model === "weekly" ? (v.summary.streak === 1 ? "semana seguida" : "sem. seguidas") : v.summary.streak === 1 ? "dia seguido" : "dias seguidos"}</dd></div>
-                  <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-sm text-foreground">{pct(v.summary.adherence30)}</b> em 30 dias</dd></div>
-                </dl>
-              </Link>
-            </li>
-          ))}
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    {pace ? <span className={`rounded-full px-2 py-0.5 text-[11.5px] font-medium ${paceTone(pace.state)}`}>{pace.state === "met" ? "Meta batida" : pace.state === "on_track" ? "Em dia" : pace.state === "due_today" ? "Hoje é dia" : pace.state === "behind" ? "Atrasado" : "Fora de alcance"}</span> : v.summary.phase !== "starting" ? <PhaseChip phase={v.summary.phase} /> : null}
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
       {quitViews.length > 0 ? (

@@ -1,6 +1,8 @@
 import { Activity, Brain, ChevronRight, CircleDot, Moon, Sun, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HbArea } from "@/lib/habits/api";
+import { HabitIcon } from "@/components/hb/icons";
+import { habitIconKey } from "@/lib/habits/catalog";
 
 /** Primitivos visuais do lado Hábitos: um jeito só de fazer cartão, rótulo e ícone de área. */
 
@@ -13,6 +15,15 @@ export function AreaTile({ area, title, size = 44, onDark = false }: { area: HbA
   return (
     <span className={cn("grid shrink-0 place-items-center rounded-xl", onDark ? "bg-white/15 text-white" : "bg-primary/10 text-primary")} style={{ width: size, height: size }} aria-hidden="true">
       <Icon width={size * 0.45} height={size * 0.45} strokeWidth={1.75} />
+    </span>
+  );
+}
+
+/** Ícone do hábito (pelo nome e pela forma de medir) em um quadrado suave. */
+export function HabitTile({ title, form, area, size = 44, onDark = false }: { title: string; form: string; area: HbArea; size?: number; onDark?: boolean }) {
+  return (
+    <span className={cn("grid shrink-0 place-items-center rounded-xl", onDark ? "bg-white/15 text-white" : "bg-primary/10 text-primary")} style={{ width: size, height: size }} aria-hidden="true">
+      <HabitIcon name={habitIconKey(title, form, area)} size={Math.round(size * 0.45)} />
     </span>
   );
 }

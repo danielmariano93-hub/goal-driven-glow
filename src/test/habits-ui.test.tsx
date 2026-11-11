@@ -187,8 +187,8 @@ describe("tela Hoje", () => {
     render(<MemoryRouter><Hoje /></MemoryRouter>);
     expect(screen.getByRole("img", { name: /1 de 2 hábitos de hoje feitos/ })).toBeTruthy();
     expect(screen.getByText("em dia hoje")).toBeTruthy();
-    expect(screen.getByText("Atrasado: Treinar")).toBeTruthy();
-    expect(screen.getByText(/Atrasado: faltam 7 em 6 dias/)).toBeTruthy();
+    expect(screen.getByText("Treinar: fora de alcance")).toBeTruthy();
+    expect(screen.getByText(/Fora de alcance: faltam 7 em 6 dias/)).toBeTruthy();
   });
   it("hábito semanal em dia conta como feito no contador", () => {
     const t = row({ id: "t", title: "Treinar", kind: "do_weekly_count", weekly_target: 3, started_on: "2026-11-09" });

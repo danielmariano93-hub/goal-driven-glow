@@ -105,14 +105,40 @@ import { weekPace, type WeekPace } from "@/lib/habits/engine/pace";
 export function paceOf(v: HabitView, today: string): WeekPace | null {
   const w = v.summary.week;
   if (v.summary.model !== "weekly" || !w) return null;
-  return weekPace(w, v.habit.started_on, today, v.habit.kind === "do_weekly_count");
+  const o = v.summary.today.outcome;
+  return weekPace(w, v.habit.started_on, today, v.habit.kind === "do_weekly_count", o === "done" || o === "minimum");
 }
 
-/** Texto curto do ritmo: "Em dia", "Meta batida" ou "Atrasado: faltam 2 em 3 dias". */
+const diasTxt = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
+
+/** Texto do ritmo, claro o bastante para saber o que fazer: "Em dia", "Hoje é dia: faltam 5 em 5 dias"... */
 export function paceNote(p: WeekPace | null): string | null {
   if (!p) return null;
-  if (p.state === "met") return "Meta batida";
-  if (p.state === "on_track") return "Em dia";
   const n = Math.ceil(p.needed - 1e-9);
-  return `Atrasado: faltam ${n} em ${p.days_left} ${p.days_left === 1 ? "dia" : "dias"}`;
+  switch (p.state) {
+    case "met": return "Meta da semana batida";
+    case "on_track": return "Em dia";
+    case "due_today": return `Hoje é dia: faltam ${n} em ${diasTxt(p.days_left)}`;
+    case "behind": return `Atrasado: faltam ${n} em ${diasTxt(p.days_left)}`;
+    case "out_of_reach": return `Fora de alcance: faltam ${n} em ${diasTxt(p.days_left)}`;
+  }
 }
+
+/** Palavra curta para o aviso do topo. */
+export function paceShort(p: WeekPace | null): string | null {
+  if (!p) return null;
+  return p.state === "due_today" ? "hoje é dia" : p.state === "behind" ? "atrasado" : p.state === "out_of_reach" ? "fora de alcance" : null;
+}
+
+/** Cores da etiqueta de ritmo. Âmbar só para o que pede atenção; o resto é calmo. */
+export function paceTone(state: WeekPace["state"]): string {
+  switch (state) {
+    case "met": return "bg-success/15 text-success";
+    case "on_track": return "bg-success/10 text-success";
+    case "due_today": return "bg-primary/10 text-primary";
+    default: return "bg-warning/20 text-amber-800";
+  }
+}
+
+/** Fora de alcance: o que fazer. */
+export const OUT_OF_REACH_HINT = "A meta desta semana já não fecha. Se quiser, ajuste em Editar; a próxima semana começa do zero.";

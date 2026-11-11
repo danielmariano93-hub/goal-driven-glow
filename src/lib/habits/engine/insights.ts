@@ -2,7 +2,7 @@
 // Regra de ouro: nenhum insight sai sem amostra mínima, e todo insight vem com "associação, não causa" na tela.
 import { addDays, weekStart } from "./dates";
 import { adherence } from "./metrics";
-import { dayRows } from "./outcomes";
+import { dayRows, weekRows } from "./outcomes";
 import type { HabitDef, LogRow, PauseRange } from "./types";
 
 /** Marcação medida pelo Nino (regra sobre as transações) vira marcação comum, mas só onde a pessoa não marcou nada. */
@@ -18,23 +18,39 @@ export interface WeeklyReviewRow {
   expected: number;
   prev_done: number;
   prev_expected: number;
+  /** Hábito de meta semanal: conta vezes na semana, não dias. */
+  weekly?: boolean;
 }
 
 const doneCount = (rows: ReturnType<typeof dayRows>) => rows.filter((r) => r.outcome === "done" || r.outcome === "minimum").length;
 const expectedCount = (rows: ReturnType<typeof dayRows>) => rows.filter((r) => r.outcome === "done" || r.outcome === "minimum" || r.outcome === "missed" || r.outcome === "unlogged").length;
 
-/** Semana corrente (segunda até hoje) contra a semana anterior inteira, só para hábitos de modelo diário. */
+/**
+ * Semana corrente (segunda até hoje) contra a semana anterior inteira.
+ * Hábito diário conta dias; hábito de meta semanal conta vezes na semana. Cuidado periódico (consulta, revisão) fica de fora.
+ */
 export function weeklyReview(defs: Array<{ def: HabitDef; pauses?: PauseRange[] }>, logs: LogRow[], today: string): WeeklyReviewRow[] {
   const ws = weekStart(today);
   const pws = addDays(ws, -7);
-  return defs
-    .filter(({ def }) => def.kind === "do_daily")
-    .map(({ def, pauses }) => {
-      const cur = dayRows(def, logs, ws, today, today, pauses ?? []);
-      const prev = dayRows(def, logs, pws, addDays(ws, -1), today, pauses ?? []);
-      return { habit_id: def.id, done: doneCount(cur), expected: expectedCount(cur), prev_done: doneCount(prev), prev_expected: expectedCount(prev) };
-    })
-    .filter((r) => r.expected > 0 || r.prev_expected > 0);
+  const out: WeeklyReviewRow[] = [];
+  for (const { def, pauses } of defs) {
+    if (def.form === "recurring") continue;
+    if (def.kind === "do_weekly_count") {
+      const weeks = weekRows(def, logs, today, pauses ?? []);
+      const cur = weeks.find((w) => w.week_start === ws);
+      const prev = weeks.find((w) => w.week_start === pws);
+      const r1 = (n: number) => Math.round(n * 10) / 10;
+      const row: WeeklyReviewRow = { habit_id: def.id, weekly: true, done: r1(cur?.count ?? 0), expected: cur?.target ?? 0, prev_done: r1(prev?.count ?? 0), prev_expected: prev?.target ?? 0 };
+      if (row.expected > 0 || row.prev_expected > 0) out.push(row);
+      continue;
+    }
+    if (def.kind !== "do_daily") continue;
+    const cur = dayRows(def, logs, ws, today, today, pauses ?? []);
+    const prev = dayRows(def, logs, pws, addDays(ws, -1), today, pauses ?? []);
+    const row: WeeklyReviewRow = { habit_id: def.id, done: doneCount(cur), expected: expectedCount(cur), prev_done: doneCount(prev), prev_expected: expectedCount(prev) };
+    if (row.expected > 0 || row.prev_expected > 0) out.push(row);
+  }
+  return out;
 }
 
 /** Texto fixo da revisão: só números que a pessoa marcou, sem pontos e sem culpa. */
@@ -42,7 +58,8 @@ export function reviewText(rows: WeeklyReviewRow[], titleOf: (id: string) => str
   if (rows.length === 0) return "";
   const lines = rows.map((r) => {
     const trend = r.prev_expected > 0 ? (r.done > r.prev_done ? " Melhor que a semana passada." : r.done === r.prev_done ? " Igual à semana passada." : "") : "";
-    return `${titleOf(r.habit_id)}: ${r.done} de ${r.expected} dias.${trend}`;
+    const unit = r.weekly ? (r.expected === 1 ? "vez" : "vezes") : "dias";
+    return `${titleOf(r.habit_id)}: ${String(r.done).replace(".", ",")} de ${r.expected} ${unit}.${trend}`;
   });
   return `Sua semana nos hábitos:\n${lines.join("\n")}\nSemana que vem é um novo começo.`;
 }

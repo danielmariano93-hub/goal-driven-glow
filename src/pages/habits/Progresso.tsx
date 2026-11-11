@@ -23,7 +23,7 @@ export default function Progresso() {
     if (!today) return null;
     const inputs = views.map((v) => ({ def: v.def, pauses: v.pauses }));
     const rows = rowsFor(inputs, logs, addDays(today, -(win * 2 + 90)), today, today);
-    const adh = aggregateAdherence(rows, today, win);
+    const adh = aggregateAdherence(rows, today, win, 7);
     const delta = windowDelta(rows, today, win);
     const weekdays = weekdayAdherence(rowsFor(inputs, logs, addDays(today, -83), today, today), today, 84, 4);
     return { adh, delta, weekdays, hasWeekdays: weekdays.some((w) => w.adherence != null) };
@@ -31,7 +31,7 @@ export default function Progresso() {
 
   if (isLoading || !today || !m) return <div className="grid min-h-[50vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>;
 
-  const perHabit = (v: (typeof views)[number]) => (win === 7 ? v.summary.adherence7 : win === 30 ? v.summary.adherence30 : v.summary.adherence90);
+  const perHabit = (v: (typeof views)[number]) => (v.summary.closed_count < (v.summary.model === "weekly" ? 2 : 7) ? null : win === 7 ? v.summary.adherence7 : win === 30 ? v.summary.adherence30 : v.summary.adherence90);
   const review = weeklyReview(views.filter((v) => v.habit.sensitivity === "normal").map((v) => ({ def: v.def, pauses: v.pauses })), logs, today);
   const reviewBody = reviewText(review, (id) => views.find((v) => v.habit.id === id)?.habit.title ?? "Hábito");
   const askAi = async () => {
@@ -95,7 +95,7 @@ export default function Progresso() {
                   <li key={v.habit.id} className="flex items-center gap-3 border-t border-border py-2.5 first:border-t-0">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{v.habit.title}</span>
                     <span className="h-1.5 w-24 overflow-hidden rounded-full bg-muted" aria-hidden="true"><i className="block h-full rounded-full bg-primary" style={{ width: `${Math.round((a ?? 0) * 100)}%` }} /></span>
-                    <span className="w-10 text-right text-sm font-semibold tabular-nums">{pct(a)}</span>
+                    {a == null ? <span className="w-16 text-right text-xs text-muted-foreground">sem dados</span> : <span className="w-16 text-right text-sm font-semibold tabular-nums">{pct(a)}</span>}
                   </li>
                 );
               })}
