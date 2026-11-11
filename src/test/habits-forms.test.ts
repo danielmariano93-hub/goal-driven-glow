@@ -91,3 +91,23 @@ describe("atalhos do primeiro acesso", () => {
     }
   });
 });
+
+describe("hoje: parcial não conta como feito", () => {
+  const mk = (form: string, outcome: string, quantity: number | null, extra: Record<string, unknown> = {}) => ({
+    form, steps: [] as unknown[], steps_today: [] as string[],
+    habit: { quantity_target: 2, ...(extra.habit as object ?? {}) },
+    summary: { today: { outcome, quantity } },
+    ...extra,
+  }) as never;
+  it("quantidade parcial não vira feito e mostra a fração", async () => {
+    const { countsDone, dayFraction, logLabel } = await import("@/lib/habits/present");
+    expect(countsDone(mk("amount", "minimum", 0.75))).toBe(false);
+    expect(dayFraction(mk("amount", "minimum", 0.75))).toBeCloseTo(0.375);
+    expect(countsDone(mk("amount", "done", 2))).toBe(true);
+    expect(dayFraction(mk("amount", "done", 3))).toBe(1);
+    expect(countsDone(mk("check", "minimum", null))).toBe(true);
+    expect(countsDone(mk("steps", "minimum", null))).toBe(false);
+    expect(dayFraction(mk("steps", "minimum", null, { steps: [1, 2, 3, 4], steps_today: ["a"] }))).toBe(0.25);
+    expect(logLabel("amount")).toBe("Registrar o que consumi");
+  });
+});

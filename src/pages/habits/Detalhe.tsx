@@ -16,6 +16,7 @@ import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
 import { AreaTile } from "@/components/hb/kit";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
+import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
@@ -69,6 +70,7 @@ export default function Detalhe() {
 
   const { habit, summary } = view;
   const weekly = summary.model === "weekly";
+  const recurring = view.form === "recurring";
   const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
   const recentRows = dayRows(view.def, logs, recent[0], today, today, view.pauses);
   const strengthNote = summary.strength == null
@@ -109,7 +111,7 @@ export default function Detalhe() {
 
   return (
     <div className="px-4 pb-6">
-      <section className="-mx-4 -mt-0 rounded-b-[32px] bg-gradient-hero px-5 pb-7 pt-3 text-primary-foreground" aria-label="Força do hábito">
+      <section className="-mx-4 max-w-none rounded-b-[32px] bg-gradient-hero px-5 pb-7 pt-3 text-primary-foreground" aria-label="Força do hábito">
         <div className="flex items-center justify-between">
           <Link to="/h/habitos" aria-label="Voltar" className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link>
           <button type="button" onClick={openEdit} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-medium text-white transition-colors hover:bg-white/10">Editar</button>
@@ -121,11 +123,16 @@ export default function Detalhe() {
             {habit.cue_text ? <p className="truncate text-[14px] text-white/75">{habit.cue_text}</p> : null}
           </div>
         </div>
-        <div className="mt-6"><StrengthRing value={summary.strength} /></div>
-        <div className="mt-4 flex items-center justify-center gap-2"><PhaseChip phase={summary.phase} /><span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span></div>
-        <p className="mx-auto mt-3 max-w-[300px] text-center text-[13px] leading-5 text-white/75">{strengthNote}</p>
+        {recurring ? null : (
+          <>
+            <div className="mt-6"><StrengthRing value={summary.strength} /></div>
+            <div className="mt-4 flex items-center justify-center gap-2"><PhaseChip phase={summary.phase} /><span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span></div>
+            <p className="mx-auto mt-3 max-w-[300px] text-center text-[13px] leading-5 text-white/75">{strengthNote}</p>
+          </>
+        )}
       </section>
-      {habit.minimum_text ? <p className="mt-4 px-1 text-[14px] text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
+      <div className="mt-4"><TodayAction view={view} today={today} logs={logs} paused={habit.status === "paused"} /></div>
+      {habit.minimum_text ? <p className="mt-3 px-1 text-[14px] text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
 
       {isPaused ? (
         <div role="status" className="mt-3 rounded-2xl bg-warning/15 p-4 text-sm leading-5">
@@ -136,7 +143,7 @@ export default function Detalhe() {
 
       <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /></div>
 
-      <dl className="mt-4 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
+      {recurring ? null : <dl className="mt-4 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
         {[
           { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
           { k: "recorde", v: String(summary.best_streak) },
@@ -145,9 +152,9 @@ export default function Detalhe() {
         ].map((i) => (
           <div key={i.k}><dd className="font-display text-xl font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
         ))}
-      </dl>
+      </dl>}
 
-      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
+      {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
         <h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>
         <ul className="mt-3 grid grid-cols-7 gap-1.5">
           {recent.map((d, i) => {
@@ -169,12 +176,12 @@ export default function Detalhe() {
             );
           })}
         </ul>
-      </section>
+      </section>}
 
-      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Mapa de 20 semanas">
+      {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Mapa de 20 semanas">
         <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">Últimas 20 semanas</h2>
         <Heatmap view={view} today={today} logs={logs} />
-      </section>
+      </section>}
 
       <div className="mt-3"><AchievementsCard view={view} today={today} logs={logs} /></div>
       {!isPaused && view.form !== "recurring" ? <div className="mt-3"><AutomaticityCard view={view} /></div> : null}

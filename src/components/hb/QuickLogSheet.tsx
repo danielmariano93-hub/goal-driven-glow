@@ -18,6 +18,13 @@ const STEP_BY_UNIT = (v: HabitView): { step: number; quick: number[] } => {
   return { step: 1, quick: [1, 5, 10] };
 };
 const num = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
+const chipText = (v: HabitView, n: number): string => {
+  const u = (v.habit.quantity_unit ?? "").toLowerCase();
+  if (v.form === "duration") return `+${num(n)} min`;
+  if (u.includes("litro")) return n < 1 ? `+${Math.round(n * 1000)} ml` : `+${num(n)} L`;
+  if (u.includes("copo")) return `+${num(n)} ${n === 1 ? "copo" : "copos"}`;
+  return `+${num(n)}`;
+};
 
 /** Registro do dia para as formas que não são só "feito": quantidade, duração, horário, teto, valor, projeto, passos e recorrente. */
 export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitView; date: string; open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -28,9 +35,11 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
   const { habit, summary } = view;
   const current = summary.today.quantity ?? 0;
   const { step, quick } = STEP_BY_UNIT(view);
-  const [qty, setQty] = useState<number>(current);
-  const [text, setText] = useState("");
-  const [time, setTime] = useState("");
+  const [qty, setQtyRaw] = useState<number>(current);
+  const [qtyText, setQtyText] = useState<string>(String(Math.round(current * 100) / 100).replace(".", ","));
+  const setQty = (n: number) => { setQtyRaw(n); setQtyText(String(Math.round(n * 100) / 100).replace(".", ",")); };
+  const [text, setText] = useState(view.form === "value" && current > 0 ? num(current) : "");
+  const [time, setTime] = useState(view.form === "time" && current > 0 ? hhmm(current % 1440) : "");
   const [pages, setPages] = useState("");
   const [pTitle, setPTitle] = useState("");
   const [pTotal, setPTotal] = useState("");
@@ -85,7 +94,7 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
           <DrawerHeader className="px-5 pb-1 text-left">
             <DrawerTitle className="font-display text-[22px] font-semibold leading-[26px] tracking-[-0.02em]">{habit.title}</DrawerTitle>
             <p className="text-[13px] text-muted-foreground">
-              {view.form === "project" ? (proj ? proj.title : "Nenhum projeto em andamento") : view.form === "steps" ? "Marque o que você já fez" : view.form === "recurring" ? "Cuidado recorrente" : `Meta: ${targetText(view)}`}
+              {view.form === "project" ? (proj ? proj.title : "Nenhum projeto em andamento") : view.form === "steps" ? "Marque o que você já fez" : view.form === "recurring" ? "Cuidado recorrente" : view.habit.direction === "track" ? "Sem meta: só acompanhar" : `Meta: ${targetText(view)}`}
             </p>
           </DrawerHeader>
 
@@ -93,11 +102,25 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
             {["amount", "duration", "ceiling"].includes(view.form) ? (
               <>
                 <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-card p-2">
-                  <button type="button" aria-label="Menos" onClick={() => setQty(Math.max(0, Math.round((qty - step) * 100) / 100))} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg active:scale-95">−</button>
-                  <div className="text-center"><p className="font-display text-[28px] font-semibold leading-8 tracking-[-0.03em] tabular-nums">{view.form === "duration" ? num(qty) : num(qty)}</p><p className="text-[12px] text-muted-foreground">{view.form === "duration" ? "minutos hoje" : `${unit} hoje`}</p></div>
-                  <button type="button" aria-label="Mais" onClick={() => setQty(Math.round((qty + step) * 100) / 100)} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg active:scale-95">+</button>
+                  <button type="button" aria-label="Menos" onClick={() => setQty(Math.max(0, Math.round((qty - step) * 100) / 100))} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-xl active:scale-95">−</button>
+                  <div className="min-w-0 flex-1 text-center">
+                    <p className="font-display text-[30px] font-semibold leading-9 tracking-[-0.03em] tabular-nums" aria-live="polite">{num(qty)}</p>
+                    <p className="text-[12px] text-muted-foreground">{view.form === "duration" ? "minutos hoje" : `${unit} hoje`}</p>
+                  </div>
+                  <button type="button" aria-label="Mais" onClick={() => setQty(Math.round((qty + step) * 100) / 100)} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-xl active:scale-95">+</button>
                 </div>
-                {quick.length > 0 ? <div className="flex gap-1.5">{quick.map((n) => <button key={n} type="button" onClick={() => setQty(Math.round((qty + n) * 100) / 100)} className="h-9 flex-1 rounded-full border border-border bg-card text-[14px] font-medium active:scale-95">+{num(n)}</button>)}</div> : null}
+                {quick.length > 0 ? <div className="flex gap-1.5">{quick.map((n) => <button key={n} type="button" onClick={() => setQty(Math.round((qty + n) * 100) / 100)} className="h-10 flex-1 rounded-full border border-border bg-card text-[13.5px] font-medium active:scale-95">{chipText(view, n)}</button>)}</div> : null}
+                <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5">
+                  <span className="shrink-0 text-[13px] text-muted-foreground">Ou digite o total do dia</span>
+                  <input
+                    value={qtyText}
+                    onChange={(e) => { const t = e.target.value.replace(/[^0-9.,]/g, ""); setQtyText(t); const n = Number(t.replace(",", ".")); if (Number.isFinite(n)) setQtyRaw(n); }}
+                    onBlur={() => setQtyText(num(qty))}
+                    inputMode="decimal"
+                    aria-label="Total de hoje"
+                    className="h-11 min-w-0 flex-1 bg-transparent text-right font-medium tabular-nums outline-none"
+                  />
+                </label>
                 <Button className="h-12 rounded-full text-[15px] font-medium" disabled={log.isPending} onClick={() => void saveQty(qty)}>{log.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Salvar"}</Button>
                 {view.form === "ceiling" ? <Button variant="outline" className="h-11 rounded-full" disabled={log.isPending} onClick={() => void saveQty(0)}>Nada hoje</Button> : null}
               </>

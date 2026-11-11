@@ -41,7 +41,7 @@ export function formSubtitle(v: HabitView, today: string): string {
       if (summary.model === "weekly" && summary.week) parts.push(`${Math.min(Math.round(summary.week.count * 10) / 10, 99)} de ${summary.week.target} esta semana`);
       else if (habit.cue_text) parts.push(habit.cue_text);
   }
-  if (summary.streak >= 2 && v.form !== "ceiling") parts.push(`${summary.streak} ${summary.model === "weekly" ? "semanas" : "dias"} seguidos`);
+  if (summary.streak >= 2 && v.form !== "ceiling") parts.push(summary.model === "weekly" ? `${summary.streak} sem. seguidas` : `${summary.streak} seguidos`);
   return parts.join(" · ");
 }
 
@@ -51,4 +51,36 @@ export function recurringLine(v: HabitView, lastDone: string | null, today: stri
   if (st.state === "overdue") return { text: `Atrasado há ${Math.abs(d)} ${Math.abs(d) === 1 ? "dia" : "dias"}`, tone: "overdue" };
   if (d === 0) return { text: "É hoje", tone: "soon" };
   return { text: `Próximo em ${d} ${d === 1 ? "dia" : "dias"}`, tone: st.state === "soon" ? "soon" : "ok" };
+}
+
+/** O dia de hoje conta como concluído? Parcial de quantidade, horário ou passos ainda não conta. */
+export function countsDone(v: HabitView): boolean {
+  const o = v.summary.today.outcome;
+  if (o === "done") return true;
+  return o === "minimum" && (v.form === "check" || v.form === "weekly");
+}
+
+/** Quanto do dia já foi feito (0 a 1), para as formas que têm um total diário. Nulo nas demais. */
+export function dayFraction(v: HabitView): number | null {
+  const q = v.summary.today.quantity ?? 0;
+  const target = v.habit.quantity_target ?? 0;
+  if ((v.form === "amount" || v.form === "duration" || v.form === "project") && target > 0) return Math.max(0, Math.min(1, q / target));
+  if (v.form === "steps" && v.steps.length > 0) return v.steps_today.length / v.steps.length;
+  return null;
+}
+
+/** Texto do botão de registrar de cada forma. */
+export function logLabel(form: HabitView["form"]): string {
+  switch (form) {
+    case "amount": return "Registrar o que consumi";
+    case "duration": return "Registrar minutos";
+    case "time": return "Registrar o horário";
+    case "ceiling": return "Registrar o consumo";
+    case "value": return "Registrar o valor de hoje";
+    case "project": return "Registrar o avanço";
+    case "steps": return "Marcar os passos";
+    case "recurring": return "Fiz hoje";
+    case "weekly": return "Marcar hoje";
+    default: return "Marcar como feito";
+  }
 }
