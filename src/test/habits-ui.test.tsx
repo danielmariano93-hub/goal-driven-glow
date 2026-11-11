@@ -59,7 +59,7 @@ const view = (habit: HbHabitRow, logs: LogRow[], today = "2026-11-10") => {
     id: habit.id, kind: habit.kind, started_on: habit.started_on, days_of_week: habit.days_of_week, weekly_target: habit.weekly_target,
     quantity_target: habit.quantity_target, quantity_period: habit.quantity_period, rest_per_week: habit.rest_per_week,
   };
-  return { habit, def, pauses: [], auto: { latest: null, first: null, delta: null, answers: 0, consecutive_high: 0, series: [] }, auto_due: false, summary: summarizeHabit(def, logs, today, []) };
+  return { habit, def, pauses: [], form: "check", project: null, projects_done: [], steps: [], steps_today: [], auto: { latest: null, first: null, delta: null, answers: 0, consecutive_high: 0, series: [] }, auto_due: false, summary: summarizeHabit(def, logs, today, []) };
 };
 const L = (habit_id: string, local_date: string, status: LogRow["status"] = "done"): LogRow => ({ habit_id, local_date, status, quantity: null });
 
