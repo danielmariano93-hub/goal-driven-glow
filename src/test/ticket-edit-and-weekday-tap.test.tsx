@@ -71,3 +71,20 @@ describe("corrigir um lançamento do Ticket", () => {
     expect(isEditableBenefitEntry({ kind: "adjustment" })).toBe(false);
   });
 });
+
+describe("registrar gasto no Ticket", () => {
+  beforeEach(() => { editMutate.mockClear(); addMutate.mockClear(); });
+  it("aberto pelo botão Registrar gasto, já vem na aba Gastei e salva como gasto", async () => {
+    render(<EntrySheet open onOpenChange={() => {}} walletId="w1" today="2026-11-05" initialMode="spend" />);
+    expect(screen.getByRole("tab", { name: "Gastei" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.change(screen.getByLabelText("Quanto você gastou?"), { target: { value: "38,90" } });
+    fireEvent.change(screen.getByLabelText(/Onde\?/), { target: { value: "Mercado" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar gasto" }));
+    await waitFor(() => expect(addMutate).toHaveBeenCalledTimes(1));
+    expect(addMutate.mock.calls[0]![0]).toMatchObject({ wallet_id: "w1", kind: "spend", amount: 38.9, merchant: "Mercado", occurred_on: "2026-11-05" });
+  });
+  it("sem initialMode abre em Saldo agora (comportamento antigo)", () => {
+    render(<EntrySheet open onOpenChange={() => {}} walletId="w1" today="2026-11-05" />);
+    expect(screen.getByRole("tab", { name: "Saldo agora" }).getAttribute("aria-selected")).toBe("true");
+  });
+});

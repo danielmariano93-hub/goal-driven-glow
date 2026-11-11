@@ -11,7 +11,7 @@ import {
 import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
-import { EntrySheet, isEditableBenefitEntry } from "@/components/ticket/EntrySheet";
+import { EntrySheet, isEditableBenefitEntry, type Mode as EntryMode } from "@/components/ticket/EntrySheet";
 import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
 
@@ -36,6 +36,8 @@ export default function TicketAlimentacao() {
   const today = todayISO();
   const [tab, setTab] = useState<"resumo" | "padroes">("resumo");
   const [sheet, setSheet] = useState(false);
+  const [sheetMode, setSheetMode] = useState<EntryMode>("spend");
+  const openSheet = (m: EntryMode) => { setSheetMode(m); setSheet(true); };
   const [editing, setEditing] = useState<BenefitEntryRow | null>(null);
   const [importing, setImporting] = useState(false);
   const [rate, setRate] = useState<number | null>(null);
@@ -67,7 +69,7 @@ export default function TicketAlimentacao() {
       {wallet && (
         <div className="flex items-center gap-2">
           <button onClick={() => setImporting(true)} className="min-h-11 rounded-full border border-border px-3 text-sm font-semibold">Importar extrato</button>
-          <button onClick={() => setSheet(true)} aria-label="Registrar" className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground"><Plus size={20} /></button>
+          <button onClick={() => openSheet("spend")} aria-label="Registrar gasto" className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground"><Plus size={20} /></button>
         </div>
       )}
     </header>
@@ -125,7 +127,7 @@ export default function TicketAlimentacao() {
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${pill.cls}`}><span className={`h-2 w-2 rounded-full ${pill.dot}`} />{pill.text}</span>
             </div>
             {state.balance === null ? (
-              <button onClick={() => setSheet(true)} className="btn-brand min-h-12">Informar o saldo de hoje</button>
+              <button onClick={() => openSheet("reading")} className="btn-brand min-h-12">Informar o saldo de hoje</button>
             ) : (
               <>
                 <div>
@@ -149,6 +151,12 @@ export default function TicketAlimentacao() {
               </>
             )}
           </section>
+
+          <div className="grid grid-cols-3 gap-2" role="group" aria-label="Registrar no Ticket">
+            <button type="button" onClick={() => openSheet("spend")} className="btn-brand min-h-12 px-2 text-sm">Registrar gasto</button>
+            <button type="button" onClick={() => openSheet("reading")} className="min-h-12 rounded-xl border border-border bg-card px-2 text-sm font-semibold">Saldo agora</button>
+            <button type="button" onClick={() => openSheet("credit")} className="min-h-12 rounded-xl border border-border bg-card px-2 text-sm font-semibold">Entrou crédito</button>
+          </div>
 
           {state.balance !== null && (
             <>
@@ -283,7 +291,7 @@ export default function TicketAlimentacao() {
       )}
 
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">Este saldo fica separado do seu caixa livre, da renda e do patrimônio. Só alimenta esta tela.</p>
-      <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} />
+      <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} initialMode={sheetMode} />
       <EntrySheet open={!!editing} onOpenChange={(v) => { if (!v) setEditing(null); }} walletId={wallet.id} today={today} entry={editing} />
       <StatementImportSheet open={importing} onOpenChange={setImporting} walletId={wallet.id} entries={entries} />
     </div>
