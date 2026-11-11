@@ -60,6 +60,11 @@ export function dayOutcome(h: HabitDef, log: LogRow | undefined, date: string, t
       const target = h.quantity_target as number;
       if (q > 0 && q < target) return date === today ? "unlogged" : q >= target * PARTIAL_MINIMUM_FROM ? "minimum" : "missed";
     }
+    // Teto (tempo de tela, cafés): enquanto o dia está aberto e o limite não foi passado, o resultado ainda pode mudar.
+    // Passou do limite, já não tem volta e o resultado vale na hora.
+    if (h.form === "ceiling" && log.status === "quantity" && date === today && (log.quantity ?? 0) <= (h.quantity_target ?? 0)) return "unlogged";
+    // Rotina em passos: com só parte dos passos o dia ainda está aberto; só fecha como versão mínima à meia-noite.
+    if (h.form === "steps" && log.status === "minimum" && date === today) return "unlogged";
     return logOutcome(h, log);
   }
   if (date === today) return "unlogged";

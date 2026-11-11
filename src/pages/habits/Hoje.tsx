@@ -35,8 +35,10 @@ export default function Hoje() {
     const days = dayAggregates(rows, from, today, today);
     const daily = views.filter((v) => v.summary.model === "daily");
     const dueToday = daily.filter((v) => v.summary.today.outcome !== "not_expected");
-    const total = dueToday.filter((v) => v.summary.today.outcome !== "rest").length;
-    const done = dueToday.filter(countsDone).length;
+    // Teto só fecha no fim do dia, então não entra na contagem de "feitos hoje".
+    const counted = dueToday.filter((v) => v.form !== "ceiling");
+    const total = counted.filter((v) => v.summary.today.outcome !== "rest").length;
+    const done = counted.filter(countsDone).length;
     return {
       days, total, done,
       dueToday,
