@@ -91,6 +91,9 @@ export default function Hoje() {
   const active = sheet ? views.find((v) => v.habit.id === sheet.id) : undefined;
   const quickView = quick ? views.find((v) => v.habit.id === quick) : undefined;
   const recurring = views.filter((v) => v.summary.model === "recurring");
+  const outsideParts = [model.weekly.length > 0 ? `${model.weekly.length} ${model.weekly.length === 1 ? "hábito semanal" : "hábitos semanais"}` : null, recurring.length > 0 ? `${recurring.length} ${recurring.length === 1 ? "cuidado" : "cuidados"}` : null].filter(Boolean) as string[];
+  const outsideCount = outsideParts.length;
+  const outsideText = `Fora desta conta: ${outsideParts.join(" e ")}.`;
 
   const renderRow = (v: HabitView) => {
     const o = v.summary.today.outcome;
@@ -141,6 +144,7 @@ export default function Hoje() {
         {views.length > 0 ? (
           <>
             <div className="mx-auto mt-1 max-w-[720px]"><Dial days={model.days} done={model.done} total={model.total} /></div>
+            {outsideCount > 0 ? <p className="mx-auto -mt-1 mb-2 max-w-[720px] text-center text-[12.5px] text-white/65">{outsideText}</p> : null}
             <dl className="mx-auto -mt-1 flex max-w-[720px] justify-center gap-6 text-[13px]">
               <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-[15px]">{model.adherence30 == null ? "-" : `${Math.round(model.adherence30 * 100)}%`}</b> <span className="text-white/75">em 30 dias</span></dd></div>
               <div><dt className="sr-only">Maior sequência</dt><dd><b className="text-[15px]">{pluralDias(model.longest)}</b> <span className="text-white/75">seguidos</span></dd></div>
