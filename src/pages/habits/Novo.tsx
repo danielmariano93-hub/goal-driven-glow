@@ -12,7 +12,7 @@ import {
 } from "@/lib/habits/draft";
 
 import { hhmm, minutesOf } from "@/lib/habits/engine";
-import { composeCue, normalizeCue, PERIODS, splitCue, type PeriodId } from "@/lib/habits/period";
+import { ANCHORS, composeCue, normalizeCue, PERIODS, splitCue, switchPeriod, type PeriodId } from "@/lib/habits/period";
 
 const PERIOD_ICON: Record<PeriodId, typeof Sun> = { "Manhã": Sunrise, "Tarde": Sun, "Noite": Moon, "Durante o dia": Clock };
 const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -269,14 +269,19 @@ export default function Novo() {
                     const on = cue.period === p.id;
                     const Icon = PERIOD_ICON[p.id];
                     return (
-                      <button key={p.id} type="button" aria-pressed={on} onClick={() => set({ cue_text: composeCue(p.id, cue.anchor) })} className={cn("flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors active:scale-[0.98]", on ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
+                      <button key={p.id} type="button" aria-pressed={on} onClick={() => set({ cue_text: switchPeriod(d.cue_text, p.id) })} className={cn("flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors active:scale-[0.98]", on ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
                         <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl", on ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary")} aria-hidden="true"><Icon className="h-[18px] w-[18px]" strokeWidth={1.9} /></span>
                         <span className="min-w-0"><span className="block text-[15px] font-semibold leading-5">{p.id}</span><span className="block truncate text-[12px] leading-4 text-muted-foreground">{p.hint}</span></span>
                       </button>
                     );
                   })}
                 </div>
-                <input value={cue.anchor} disabled={!cue.period} onChange={(e) => set({ cue_text: composeCue(cue.period, e.target.value) })} placeholder="Ligar a algo que você já faz? Ex.: depois do café" aria-label="Ligar a algo que você já faz (opcional)" maxLength={80} className={cn(field, "disabled:opacity-50")} />
+                {cue.period && ANCHORS[cue.period].length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Ligar a algo que você já faz">
+                    {ANCHORS[cue.period].map((a) => <button key={a} type="button" aria-pressed={cue.anchor.toLowerCase() === a} onClick={() => set({ cue_text: composeCue(cue.period, cue.anchor.toLowerCase() === a ? "" : a) })} className={chip(cue.anchor.toLowerCase() === a)}>{a[0].toUpperCase() + a.slice(1)}</button>)}
+                  </div>
+                ) : null}
+                <input value={cue.anchor} disabled={!cue.period} onChange={(e) => set({ cue_text: composeCue(cue.period, e.target.value) })} placeholder="Ou escreva o seu gatilho (opcional)" aria-label="Ligar a algo que você já faz (opcional)" maxLength={80} className={cn(field, "disabled:opacity-50")} />
                 <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askAi()} className="inline-flex min-h-10 items-center gap-2 self-start px-1 text-[13px] font-medium text-primary disabled:opacity-40">
                   {suggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Sugerir gatilho e versão mínima (IA)
                 </button>
