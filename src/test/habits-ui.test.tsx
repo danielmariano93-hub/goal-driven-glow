@@ -213,6 +213,30 @@ describe("tela Novo hábito", () => {
     fireEvent.change(screen.getByLabelText(/Nome do hábito/), { target: { value: "Beber 3 L de água" } });
     expect((screen.getByLabelText(/Nome do hábito/) as HTMLInputElement).value).toBe("Beber 3 L de água");
   });
+  it("Cuidados ficam numa aba própria, fora dos hábitos do dia a dia", () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "Revisão do carro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dentista" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cuidados" }));
+    expect(screen.getByRole("button", { name: "Revisão do carro" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Meditar" })).toBeNull();
+  });
+  it("cuidado pula o período do dia e a versão mínima, e cria como recorrente", async () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /><Route path="/h/hoje" element={<p>hoje</p>} /></Routes></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Cuidados" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dentista" }));
+    expect(screen.getByText("De quanto em quanto tempo?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Criar cuidado" }));
+    await waitFor(() => expect(h.createAsync).toHaveBeenCalled());
+    expect(h.createAsync.mock.calls[0][0]).toMatchObject({ form: "recurring", title: "Dentista", interval_days: 180 });
+  });
+  it("a barra de abas aparece na escolha inicial e some nos passos seguintes", () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
+    expect(screen.getByRole("navigation", { name: "Navegação de Hábitos" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Meditar" }));
+    expect(screen.queryByRole("navigation", { name: "Navegação de Hábitos" })).toBeNull();
+  });
   it("Largar tem fluxo próprio", () => {
     render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: "Largar algo" }));

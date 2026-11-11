@@ -12,6 +12,7 @@ import {
 } from "@/lib/habits/draft";
 
 import { hhmm, minutesOf } from "@/lib/habits/engine";
+import { HabitsTabBar } from "@/components/hb/HabitsShell";
 import { ANCHORS, composeCue, normalizeCue, PERIODS, splitCue, switchPeriod, type PeriodId } from "@/lib/habits/period";
 
 const PERIOD_ICON: Record<PeriodId, typeof Sun> = { "Manhã": Sunrise, "Tarde": Sun, "Noite": Moon, "Durante o dia": Clock };
@@ -27,7 +28,12 @@ const CUSTOM: CatalogItem = {
   ],
 };
 
+type Mode = "do" | "care" | "quit";
 type Screen = "choose" | "cue" | "min" | "measure" | "plan" | "cost" | "done";
+
+/** Cuidados são coisas que se repetem de tempos em tempos (consulta, revisão), não hábitos do dia a dia. */
+const isCareItem = (it: CatalogItem) => it.options[0]?.form === "recurring";
+const CARE_CUSTOM: CatalogItem = { id: "care-custom", label: "", area: "routine", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 30, step: 7, min: 1, max: 3650 }] };
 
 const chip = (on: boolean) => cn("h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted");
 const field = "h-11 w-full rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none transition-colors focus:border-primary";
@@ -101,8 +107,8 @@ export default function Novo() {
   const suggest = useSuggestPlan();
   const wanted = params.get("t");
   const initial = useMemo(() => (wanted ? findCatalog(wanted) ?? null : null), [wanted]);
-  const [mode, setMode] = useState<"do" | "quit">("do");
-  const [screen, setScreen] = useState<Screen>(initial ? "cue" : "choose");
+  const [mode, setMode] = useState<Mode>(initial && isCareItem(initial) ? "care" : "do");
+  const [screen, setScreen] = useState<Screen>(initial ? (isCareItem(initial) ? "measure" : "cue") : "choose");
   const [item, setItem] = useState<CatalogItem | null>(initial);
   const [d, setD] = useState<Draft>(initial ? fromCatalog(initial) : EMPTY);
   const [q, setQ] = useState<QuitDraft>(EMPTY_QUIT);
@@ -112,13 +118,14 @@ export default function Novo() {
   void categories;
 
   const isQuit = mode === "quit";
-  const seq: Screen[] = isQuit ? ["choose", "plan", "cost", "done"] : ["choose", "cue", "min", "measure", "done"];
+  const isCare = mode === "care";
+  const seq: Screen[] = isQuit ? ["choose", "plan", "cost", "done"] : isCare ? ["choose", "measure", "done"] : ["choose", "cue", "min", "measure", "done"];
   const idx = Math.max(0, seq.indexOf(screen));
   const err = isQuit ? quitDraftError(q) : draftError(d);
-  const options = (item ?? CUSTOM).options;
+  const options = (item ?? (isCare ? CARE_CUSTOM : CUSTOM)).options;
   const opt = options[d.option_index] ?? options[0];
 
-  const pickItem = (it: CatalogItem) => { setItem(it); setD(fromCatalog(it)); setScreen("cue"); };
+  const pickItem = (it: CatalogItem) => { setItem(it); setD(fromCatalog(it)); setScreen(isCareItem(it) ? "measure" : "cue"); };
   const pickQuit = (id: string) => {
     const it = QUIT_CATALOG.find((x) => x.id === id);
     if (!it) return;
@@ -127,6 +134,7 @@ export default function Novo() {
   };
   const startOwn = (name: string) => {
     if (isQuit) { setQuit({ title: name }); setScreen("plan"); return; }
+    if (isCare) { setItem(CARE_CUSTOM); setD({ ...fromCatalog(CARE_CUSTOM), title: name }); setScreen("measure"); return; }
     setItem(null);
     setD({ ...EMPTY, title: name, option_index: 0 });
     setScreen("cue");
@@ -140,7 +148,7 @@ export default function Novo() {
     if (isQuit && needsConsent(q) && !consent && !granted) return setConsentOpen(true);
     try {
       await create.mutateAsync(isQuit ? quitDraftToInput(q) : draftToInput(d));
-      toast.success(isQuit ? "Pronto. A contagem começou hoje." : d.start_today ? "Hábito criado. Comece hoje." : "Hábito criado. Começa amanhã.");
+      toast.success(isQuit ? "Pronto. A contagem começou hoje." : isCare ? "Cuidado criado. Eu aviso quando estiver perto." : d.start_today ? "Hábito criado. Comece hoje." : "Hábito criado. Começa amanhã.");
       navigate("/h/hoje", { replace: true });
     } catch (e) {
       toast.error(hbErrorMessage(e));
@@ -166,14 +174,14 @@ export default function Novo() {
   // ------------------------------------------------------------ cartão do hábito (monta enquanto a pessoa responde)
   const name = isQuit ? q.title : d.title;
   const icon: IconKey = isQuit ? (QUIT_CATALOG.find((x) => x.label === q.title)?.icon ?? "smoke") : d.icon;
-  const line = isQuit ? (q.craving_plan ? `Na vontade: ${q.craving_plan.toLowerCase()}` : "Defina o seu plano para a vontade") : d.cue_text ? `${d.cue_text} · ${measureText(d)}` : "Defina o momento do dia";
+  const line = isQuit ? (q.craving_plan ? `Na vontade: ${q.craving_plan.toLowerCase()}` : "Defina o seu plano para a vontade") : isCare ? (d.form === "recurring" ? measureText(d) : "Defina o intervalo") : d.cue_text ? `${d.cue_text} · ${measureText(d)}` : "Defina o momento do dia";
   const meta = isQuit ? "a contagem começa hoje" : d.minimum_text ? `Dia ruim: ${d.minimum_text.toLowerCase()}` : "";
   const dots = Array.from({ length: 7 }, (_, i) => (isQuit ? !!q.craving_plan : !!d.cue_text && (d.form === "weekly" ? i < d.target : d.days.length === 0 || d.days.includes(i))));
   const titles: Record<Screen, [string, string]> = {
-    choose: [isQuit ? "O que você quer largar?" : "O que você quer criar?", isQuit ? "Um plano pronto para a hora da vontade faz a diferença." : "Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba."],
+    choose: [isQuit ? "O que você quer largar?" : isCare ? "O que você quer cuidar?" : "O que você quer criar?", isQuit ? "Um plano pronto para a hora da vontade faz a diferença." : isCare ? "Coisas que se repetem de tempos em tempos, como consulta ou revisão. Eu aviso quando estiver perto." : "Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba."],
     cue: ["Em que parte do dia?", "Escolha o período em que isso cabe. O nome acima também é editável."],
     min: ["E nos dias difíceis?", "Defina o mínimo que ainda conta como feito."],
-    measure: ["Como acompanhar?", "Cada hábito se mede de um jeito. Pode ajustar depois, sem perder o histórico."],
+    measure: [isCare ? "De quanto em quanto tempo?" : "Como acompanhar?", isCare ? "Eu marco o próximo e lembro quando estiver perto. Pode ajustar depois." : "Cada hábito se mede de um jeito. Pode ajustar depois, sem perder o histórico."],
     plan: ["Quando bater a vontade?", "O que você vai fazer em vez de ceder."],
     cost: ["Quanto isso custa?", "Opcional. Serve para estimar o que ficou com você."],
     done: ["Tudo certo?", "Toque em qualquer linha para ajustar."],
@@ -190,6 +198,8 @@ export default function Novo() {
   })();
   const summary: Array<[string, string, Screen]> = isQuit
     ? [["Largar", q.title, "choose"], ["Na vontade", q.craving_plan, "plan"], ["Custo", q.daily_cost ? `R$ ${q.daily_cost} por dia` : q.category_id ? "Pela minha categoria" : "Não informado", "cost"]]
+    : isCare
+    ? [["Cuidado", d.title, "choose"], ["Repetir", measureText(d), "measure"]]
     : [["Hábito", d.title, "choose"], ["Quando", d.cue_text, "cue"], ["Dia ruim", d.minimum_text || "Sem versão mínima", "min"], ["Acompanhar", measureText(d), "measure"]];
 
   return (
@@ -211,14 +221,14 @@ export default function Novo() {
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={isQuit ? "O que você quer largar" : "Seu hábito"}
+                  placeholder={isQuit ? "O que você quer largar" : isCare ? "Seu cuidado" : "Seu hábito"}
                   aria-label="Nome do hábito (toque para editar)"
                   maxLength={80}
                   className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 font-display text-[15px] font-semibold leading-[19px] tracking-[-0.01em] text-white outline-none placeholder:text-white/55"
                 />
                 <Pencil className="h-3 w-3 shrink-0 text-white/65" aria-hidden="true" />
               </label>
-              <p className={cn("truncate text-[12px] leading-4", (isQuit ? q.craving_plan : d.cue_text) ? "text-white/85" : "text-white/50")}>{line}</p>
+              <p className={cn("truncate text-[12px] leading-4", (isQuit ? q.craving_plan : isCare ? d.form === "recurring" : d.cue_text) ? "text-white/85" : "text-white/50")}>{line}</p>
             </div>
           </div>
           <div className="flex items-center justify-between">
@@ -237,10 +247,10 @@ export default function Novo() {
           <div className="mt-3.5 flex-1 overflow-y-auto pb-3">
             {screen === "choose" ? (
               <div className="flex flex-col gap-3">
-                <Segmented value={mode} label="Tipo de hábito" options={[["do", "Começar a fazer"], ["quit", "Largar algo"]]} onChange={(m) => { setMode(m); setItem(null); setD(EMPTY); setQ(EMPTY_QUIT); }} />
+                <Segmented value={mode} label="Tipo de hábito" options={[["do", "Começar a fazer"], ["care", "Cuidados"], ["quit", "Largar algo"]] as Array<[Mode, string]>} onChange={(m) => { setMode(m); setItem(null); setD(EMPTY); setQ(EMPTY_QUIT); }} />
                 <form onSubmit={(e) => { e.preventDefault(); const v = (new FormData(e.currentTarget).get("own") as string ?? "").trim(); if (v.length >= 2) startOwn(v); }} className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card pl-3.5 pr-1.5">
                   <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <input name="own" placeholder={isQuit ? "Escreva o que quer largar" : "Escreva o seu próprio hábito"} aria-label="Nome do hábito" maxLength={80} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
+                  <input name="own" placeholder={isQuit ? "Escreva o que quer largar" : isCare ? "Escreva o seu cuidado" : "Escreva o seu próprio hábito"} aria-label="Nome do hábito" maxLength={80} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
                   <button type="submit" aria-label="Continuar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"><ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
                 </form>
                 <p className="text-[12px] text-muted-foreground">Ou comece por uma sugestão</p>
@@ -252,13 +262,14 @@ export default function Novo() {
                           <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
                         </button>
                       ))
-                    : CATALOG.map((it) => (
+                    : CATALOG.filter((it) => (isCare ? isCareItem(it) : !isCareItem(it))).map((it) => (
                         <button key={it.id} type="button" aria-label={it.label} onClick={() => pickItem(it)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
                           <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
                         </button>
                       ))}
                 </div>
+                <div className="h-20" aria-hidden="true" />
               </div>
             ) : null}
 
@@ -384,7 +395,7 @@ export default function Novo() {
                     </button>
                   ))}
                 </div>
-                {!isQuit ? <Segmented value={d.start_today ? "today" : "tomorrow"} label="Quando começa" options={[["today", "Começar hoje"], ["tomorrow", "Começar amanhã"]]} onChange={(v) => set({ start_today: v === "today" })} /> : null}
+                {!isQuit && !isCare ? <Segmented value={d.start_today ? "today" : "tomorrow"} label="Quando começa" options={[["today", "Começar hoje"], ["tomorrow", "Começar amanhã"]]} onChange={(v) => set({ start_today: v === "today" })} /> : null}
                 {activeCount >= 5 ? <p className="text-[12px] text-destructive">Você já tem 5 hábitos ativos. Arquive um antes de criar outro.</p> : null}
               </div>
             ) : null}
@@ -398,7 +409,7 @@ export default function Novo() {
                 onClick={next}
                 className="flex h-[46px] w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-primary-foreground transition-all active:scale-[0.98] disabled:bg-muted-foreground/30"
               >
-                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : screen === "done" ? (isQuit ? "Começar a contagem" : "Criar hábito") : "Continuar"}
+                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : screen === "done" ? (isQuit ? "Começar a contagem" : isCare ? "Criar cuidado" : "Criar hábito") : "Continuar"}
               </button>
               {screen === "min" ? <button type="button" onClick={() => { set({ minimum_text: "" }); setScreen("measure"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
               {screen === "cost" ? <button type="button" onClick={() => { setQuit({ daily_cost: "" }); setScreen("done"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
@@ -407,6 +418,7 @@ export default function Novo() {
           ) : null}
         </div>
       </section>
+      {screen === "choose" ? <HabitsTabBar /> : null}
       <ConsentSheet open={consentOpen} onOpenChange={setConsentOpen} onGranted={() => { setConsentOpen(false); void submit(true); }} />
     </div>
   );
