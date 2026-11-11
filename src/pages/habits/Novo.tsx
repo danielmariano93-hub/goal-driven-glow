@@ -11,6 +11,7 @@ import {
   draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, measureText, needsConsent, quitDraftError, quitDraftToInput, quitFromItem, withOption, type Draft, type QuitDraft,
 } from "@/lib/habits/draft";
 
+import { hhmm, minutesOf } from "@/lib/habits/engine";
 import { composeCue, normalizeCue, PERIODS, splitCue, type PeriodId } from "@/lib/habits/period";
 
 const PERIOD_ICON: Record<PeriodId, typeof Sun> = { "Manhã": Sunrise, "Tarde": Sun, "Noite": Moon, "Durante o dia": Clock };
@@ -22,6 +23,7 @@ const CUSTOM: CatalogItem = {
     { form: "check", label: "Feito ou não", unit: "", target: 0, step: 1 },
     { form: "weekly", label: "Vezes na semana", unit: "vezes por semana", target: 3, step: 1, min: 1, max: 7 },
     { form: "amount", label: "Quantidade", unit: "vezes por dia", target: 1, step: 1, min: 1 },
+    { form: "duration", label: "Minutos", unit: "minutos por dia", target: 20, step: 5, min: 1 },
   ],
 };
 
@@ -41,16 +43,51 @@ function Segmented<T extends string | number>({ value, options, onChange, label 
 }
 
 function Stepper({ value, onChange, step, min, max, big, unit }: { value: number; onChange: (n: number) => void; step: number; min?: number; max?: number; big?: string; unit: string }) {
+  const [typing, setTyping] = useState(false);
+  const [text, setText] = useState("");
   const clamp = (n: number) => Math.min(max ?? 99999, Math.max(min ?? 0, Math.round(n * 100) / 100));
   const shown = big ?? String(value).replace(".", ",");
+  const commit = () => {
+    const n = Number(text.replace(",", "."));
+    if (text.trim() !== "" && Number.isFinite(n)) onChange(clamp(n));
+    setTyping(false);
+  };
   return (
     <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-card p-2 shadow-card">
       <button type="button" aria-label="Menos" onClick={() => onChange(clamp(value - step))} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg transition-transform active:scale-95">−</button>
-      <div className="text-center">
-        <p className="font-display text-[26px] font-semibold leading-7 tracking-[-0.03em] tabular-nums">{shown}</p>
-        <p className="text-[12px] text-muted-foreground">{unit}</p>
+      <div className="min-w-0 flex-1 text-center">
+        {typing ? (
+          <input autoFocus value={text} inputMode="decimal" aria-label="Digitar o valor" onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} className="mx-auto h-9 w-28 rounded-lg border border-primary bg-card text-center font-display font-semibold tabular-nums outline-none" />
+        ) : (
+          <button type="button" aria-label={`${shown} ${unit}. Toque para digitar outro valor`} onClick={() => { setText(String(value).replace(".", ",")); setTyping(true); }} className="mx-auto block rounded-lg px-2 active:bg-muted">
+            <span className="block font-display text-[26px] font-semibold leading-7 tracking-[-0.03em] tabular-nums">{shown}</span>
+          </button>
+        )}
+        <p className="text-[12px] text-muted-foreground">{typing ? "Digite e toque fora" : `${unit} · toque no número para digitar`}</p>
       </div>
       <button type="button" aria-label="Mais" onClick={() => onChange(clamp(value + step))} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg transition-transform active:scale-95">+</button>
+    </div>
+  );
+}
+
+/** Horário alvo (ex.: deitar até 22:30). O alvo fica em horas decimais no rascunho. */
+function TimeTarget({ value, onChange, unit }: { value: number; onChange: (n: number) => void; unit: string }) {
+  const total = Math.round(value * 60);
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-card">
+      <input
+        type="time"
+        value={hhmm(total % 1440)}
+        aria-label="Horário alvo"
+        onChange={(e) => {
+          const m = minutesOf(e.target.value);
+          if (m == null) return;
+          // Depois da meia-noite vale como a mesma noite (00:30 = 24:30), quando o alvo é noturno.
+          onChange((value >= 18 && m < 720 ? m + 1440 : m) / 60);
+        }}
+        className="h-12 w-full rounded-xl border border-border/70 bg-card px-4 text-center font-display text-[26px] font-semibold tabular-nums"
+      />
+      <p className="mt-2 text-center text-[12px] text-muted-foreground">{unit.startsWith("acordar") ? "Acordar até esse horário conta como feito" : "Deitar até esse horário conta como feito"}</p>
     </div>
   );
 }
@@ -263,8 +300,8 @@ export default function Novo() {
             {screen === "measure" ? (
               <div className="flex flex-col gap-3.5">
                 {options.length > 1 ? <Segmented value={d.option_index} label="Como acompanhar" options={options.map((o, i) => [i, o.label] as [number, string])} onChange={(i) => setD((p) => withOption(p, item ?? CUSTOM, i))} /> : null}
-                {["weekly", "amount", "duration", "time", "ceiling", "value", "recurring"].includes(d.form) ? (
-                  <Stepper value={d.target} onChange={(n) => set({ target: n })} step={opt.step} min={opt.min ?? (opt.step < 1 ? opt.step : 0)} max={opt.max} unit={d.form === "value" ? `${d.unit} · sua meta (opcional)` : d.unit.replace("__", String(d.target)) || ""} big={d.form === "time" ? `${d.target}h` : d.form === "weekly" ? `${d.target}x` : undefined} />
+                {d.form === "time" ? <TimeTarget value={d.target} onChange={(n) => set({ target: n })} unit={d.unit} /> : ["weekly", "amount", "duration", "ceiling", "value", "recurring"].includes(d.form) ? (
+                  <Stepper value={d.target} onChange={(n) => set({ target: n })} step={opt.step} min={opt.min ?? (opt.step < 1 ? opt.step : 0)} max={opt.max} unit={d.form === "value" ? `${d.unit} · sua meta (opcional)` : d.unit.replace("__", String(d.target)) || ""} big={d.form === "weekly" ? `${d.target}x` : undefined} />
                 ) : null}
                 {["check", "amount", "duration", "time", "ceiling", "value", "steps"].includes(d.form) ? (
                   <div>

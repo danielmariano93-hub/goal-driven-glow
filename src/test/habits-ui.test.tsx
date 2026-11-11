@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { HbHabitRow } from "@/lib/habits/api";
-import { draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, needsConsent, quitDraftError, quitDraftToInput, withOption } from "@/lib/habits/draft";
+import { draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, measureText, needsConsent, quitDraftError, quitDraftToInput, withOption } from "@/lib/habits/draft";
 import { CATALOG, findCatalog } from "@/lib/habits/catalog";
 import { isMoneyTabRoot } from "@/lib/habits/modeRoutes";
 import { summarizeHabit, type LogRow } from "@/lib/habits/engine";
@@ -290,5 +290,18 @@ describe("hábitos e dinheiro (F5)", () => {
     go();
     expect(screen.getByText(/Ainda é cedo/)).toBeTruthy();
     expect(screen.getByText(/Não vou tirar conclusão/)).toBeTruthy();
+  });
+});
+
+describe("valores livres na criação", () => {
+  it("horário aceita minutos (22:30) e vira minutos desde a meia-noite", () => {
+    const cat = findCatalog("dormir")!;
+    const d = { ...fromCatalog(cat), target: 22.5 };
+    expect(draftToInput(d)).toMatchObject({ form: "time", quantity_target: 1350 });
+    expect(measureText(d)).toContain("22:30");
+  });
+  it("páginas por dia aceita qualquer valor, não só os degraus", () => {
+    const cat = findCatalog("ler")!;
+    expect(draftToInput({ ...fromCatalog(cat), target: 17 })).toMatchObject({ form: "project", quantity_target: 17 });
   });
 });

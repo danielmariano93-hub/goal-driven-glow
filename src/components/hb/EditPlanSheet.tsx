@@ -36,6 +36,7 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
   const [since, setSince] = useState(habit.started_on);
   const [projTitle, setProjTitle] = useState(view.project?.title ?? "");
   const [projTotal, setProjTotal] = useState(numText(view.project?.total));
+  const [projCurrent, setProjCurrent] = useState(numText(view.project?.current));
   const parts = splitCue(cue);
 
   const isWeekly = form === "weekly";
@@ -84,10 +85,12 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
     }
     try {
       if (Object.keys(patch).length > 0) await update.mutateAsync({ id: habit.id, patch });
-      if (view.project && (projTitle.trim() !== view.project.title || toNum(projTotal) !== view.project.total)) {
+      if (view.project && (projTitle.trim() !== view.project.title || toNum(projTotal) !== view.project.total || toNum(projCurrent) !== view.project.current)) {
         const total = toNum(projTotal);
+        const current = toNum(projCurrent);
         if (!(total > 0)) return toast.error("Informe o total do projeto.");
-        await projUpdate.mutateAsync({ id: view.project.id, title: projTitle.trim() || undefined, total });
+        if (!(current >= 0) || current > total) return toast.error("O avanço precisa estar entre 0 e o total.");
+        await projUpdate.mutateAsync({ id: view.project.id, title: projTitle.trim() || undefined, total, current });
       }
       toast.success("Plano atualizado");
       onOpenChange(false);
@@ -137,6 +140,7 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
               <>
                 <Field label="Nome do projeto"><Input value={projTitle} maxLength={120} onChange={(e) => setProjTitle(e.target.value)} className="h-12 rounded-2xl" /></Field>
                 <Field label={`Total (${view.project.unit ?? ""})`}><Input value={projTotal} inputMode="decimal" onChange={(e) => setProjTotal(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-12 rounded-2xl" /></Field>
+                <Field label={`Onde você está agora (${view.project.unit ?? ""})`} hint="Corrige o avanço se você anotou errado."><Input value={projCurrent} inputMode="decimal" onChange={(e) => setProjCurrent(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-12 rounded-2xl" /></Field>
               </>
             ) : null}
 
