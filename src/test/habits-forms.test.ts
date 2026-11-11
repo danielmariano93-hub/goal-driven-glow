@@ -170,3 +170,44 @@ describe("período e detalhe andam juntos", () => {
     for (const [p, list] of Object.entries(ANCHORS)) for (const a of list) expect(periodOfText(a), a).toBe(p);
   });
 });
+
+describe("ritmo da semana (hábito semanal)", () => {
+  it("4x por semana, semana completa", async () => {
+    const { weekPace } = await import("@/lib/habits/engine/pace");
+    const wk = (count: number, target = 4) => ({ week_start: "2026-11-09", target, count });
+    // segunda: ainda nada esperado
+    expect(weekPace(wk(0), "2026-11-01", "2026-11-09").state).toBe("on_track");
+    // quarta: no ritmo se fez 1; atrasado se fez 0; meta batida aos 4
+    expect(weekPace(wk(1), "2026-11-01", "2026-11-11").state).toBe("on_track");
+    expect(weekPace(wk(0), "2026-11-01", "2026-11-11").state).toBe("behind");
+    expect(weekPace(wk(2), "2026-11-01", "2026-11-11").state).toBe("on_track");
+    expect(weekPace(wk(4), "2026-11-01", "2026-11-11").state).toBe("met");
+  });
+  it("sem folga: faltam tantos quanto os dias que restam, contando hoje", async () => {
+    const { weekPace } = await import("@/lib/habits/engine/pace");
+    // 3x, domingo, fez 2: falta 1 e só resta hoje
+    const p = weekPace({ week_start: "2026-11-09", target: 3, count: 2 }, "2026-11-01", "2026-11-15");
+    expect(p.state).toBe("behind");
+    expect(p.days_left).toBe(1);
+  });
+  it("7x por semana se comporta como diário", async () => {
+    const { weekPace } = await import("@/lib/habits/engine/pace");
+    const wk = (count: number) => ({ week_start: "2026-11-09", target: 7, count });
+    expect(weekPace(wk(0), "2026-11-01", "2026-11-09").state).toBe("behind"); // segunda, nada feito: precisa hoje
+    expect(weekPace(wk(1), "2026-11-01", "2026-11-09").state).toBe("on_track"); // segunda, já treinou
+    expect(weekPace(wk(1), "2026-11-01", "2026-11-10").state).toBe("behind"); // terça, só 1: precisa hoje
+    expect(weekPace(wk(2), "2026-11-01", "2026-11-10").state).toBe("on_track");
+  });
+  it("primeira semana proporcional: começou na quarta, meta 3", async () => {
+    const { weekPace } = await import("@/lib/habits/engine/pace");
+    expect(weekPace({ week_start: "2026-11-09", target: 3, count: 0 }, "2026-11-11", "2026-11-11").state).toBe("on_track");
+  });
+  it("texto do ritmo", async () => {
+    const { paceNote } = await import("@/lib/habits/present");
+    expect(paceNote(null)).toBeNull();
+    expect(paceNote({ state: "met", needed: 0, days_left: 3, expected: 2 })).toBe("Meta batida");
+    expect(paceNote({ state: "on_track", needed: 2, days_left: 5, expected: 1 })).toBe("Em dia");
+    expect(paceNote({ state: "behind", needed: 2, days_left: 3, expected: 2 })).toBe("Atrasado: faltam 2 em 3 dias");
+    expect(paceNote({ state: "behind", needed: 1, days_left: 1, expected: 2 })).toBe("Atrasado: faltam 1 em 1 dia");
+  });
+});

@@ -8,7 +8,7 @@ import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { QuickLogSheet } from "@/components/hb/QuickLogSheet";
-import { countsDone, dayFraction, formSubtitle, recurringLine } from "@/lib/habits/present";
+import { countsDone, dayFraction, formSubtitle, paceNote, paceOf, recurringLine } from "@/lib/habits/present";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
 import { AreaTile, RowCard, SectionLabel, WeekSteps } from "@/components/hb/kit";
 import { sentenceCase } from "@/lib/habits/format";
@@ -37,10 +37,14 @@ export default function Hoje() {
     const dueToday = daily.filter((v) => v.summary.today.outcome !== "not_expected");
     // Teto só fecha no fim do dia, então não entra na contagem de "feitos hoje".
     const counted = dueToday.filter((v) => v.form !== "ceiling");
-    const total = counted.filter((v) => v.summary.today.outcome !== "rest").length;
-    const done = counted.filter(countsDone).length;
+    // Hábito semanal entra na conta como um item: "em dia" ou "meta batida" conta como feito; atrasado fica pendente.
+    const weeklyAll = views.filter((v) => v.summary.model === "weekly");
+    const weeklyPace = weeklyAll.map((v) => ({ v, p: paceOf(v, today) }));
+    const behindWeekly = weeklyPace.filter((x) => x.p?.state === "behind").map((x) => x.v);
+    const total = counted.filter((v) => v.summary.today.outcome !== "rest").length + weeklyAll.length;
+    const done = counted.filter(countsDone).length + weeklyPace.filter((x) => x.p && x.p.state !== "behind").length;
     return {
-      days, total, done,
+      days, total, done, behindWeekly,
       dueToday,
       weekly: views.filter((v) => v.summary.model === "weekly"),
       notToday: daily.filter((v) => v.summary.today.outcome === "not_expected"),
@@ -91,7 +95,8 @@ export default function Hoje() {
   const active = sheet ? views.find((v) => v.habit.id === sheet.id) : undefined;
   const quickView = quick ? views.find((v) => v.habit.id === quick) : undefined;
   const recurring = views.filter((v) => v.summary.model === "recurring");
-  const outsideParts = [model.weekly.length > 0 ? `${model.weekly.length} ${model.weekly.length === 1 ? "hábito semanal" : "hábitos semanais"}` : null, recurring.length > 0 ? `${recurring.length} ${recurring.length === 1 ? "cuidado" : "cuidados"}` : null].filter(Boolean) as string[];
+  const limits = views.filter((v) => v.form === "ceiling");
+  const outsideParts = [limits.length > 0 ? `${limits.length} ${limits.length === 1 ? "limite" : "limites"}` : null, recurring.length > 0 ? `${recurring.length} ${recurring.length === 1 ? "cuidado" : "cuidados"}` : null].filter(Boolean) as string[];
   const outsideCount = outsideParts.length;
   const outsideText = `Fora desta conta: ${outsideParts.join(" e ")}.`;
 
@@ -116,7 +121,7 @@ export default function Hoje() {
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
           <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
-          <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}</p>
+          <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}{paceNote(paceOf(v, today)) ? <span className={cn(paceOf(v, today)?.state === "behind" ? "font-medium text-amber-700" : "")}> · {paceNote(paceOf(v, today))}</span> : null}</p>
         </Link>
         <Dots rows={dotsFor(v)} />
         <button
@@ -143,7 +148,8 @@ export default function Hoje() {
         </div>
         {views.length > 0 ? (
           <>
-            <div className="mx-auto mt-1 max-w-[720px]"><Dial days={model.days} done={model.done} total={model.total} /></div>
+            <div className="mx-auto mt-1 max-w-[720px]"><Dial days={model.days} done={model.done} total={model.total} withWeekly={model.weekly.length > 0} /></div>
+            {model.behindWeekly.length > 0 ? <p className="mx-auto -mt-1 mb-1 max-w-[720px] text-center text-[13px] font-medium text-white/90">Atrasado: {model.behindWeekly.map((v) => v.habit.title).join(", ")}</p> : null}
             {outsideCount > 0 ? <p className="mx-auto -mt-1 mb-2 max-w-[720px] text-center text-[12.5px] text-white/65">{outsideText}</p> : null}
             <dl className="mx-auto -mt-1 flex max-w-[720px] justify-center gap-6 text-[13px]">
               <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-[15px]">{model.adherence30 == null ? "-" : `${Math.round(model.adherence30 * 100)}%`}</b> <span className="text-white/75">em 30 dias</span></dd></div>
