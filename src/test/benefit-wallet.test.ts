@@ -224,6 +224,20 @@ describe("Ticket Alimentação — gastar durante o dia não bagunça ritmo e id
     expect(s.ideal_per_day).toBe(37.51);
   });
 
+  it("estourar o ideal de hoje mostra quanto passou, em %, e quanto dá por dia daqui para frente", () => {
+    const s = computeBenefitState(w, [...base, e("spend", 50, T)], T);
+    expect(s.today_over).toBe(12.49);
+    expect(s.today_over_pct).toBe(33);
+    expect(s.ideal_from_tomorrow).toBe(Math.round((s.balance! / (s.cycle.days_left - 1)) * 100) / 100);
+    expect(s.ideal_from_tomorrow!).toBeLessThan(s.ideal_per_day!);
+  });
+
+  it("sem estouro, o estouro é zero", () => {
+    const s = computeBenefitState(w, [...base, e("spend", 26, T)], T);
+    expect(s.today_over).toBe(0);
+    expect(s.today_over_pct).toBe(0);
+  });
+
   it("no dia seguinte o ideal sobe, porque o que sobrou hoje se espalha pelos dias restantes", () => {
     const tomorrow = computeBenefitState(w, [...base, e("spend", 26, T)], "2026-11-10");
     expect(tomorrow.cycle.days_left).toBe(17);

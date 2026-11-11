@@ -220,6 +220,12 @@ export interface BenefitState {
   spent_today: number;
   /** Quanto ainda cabe hoje dentro do ideal (nunca negativo). */
   today_remaining: number | null;
+  /** Quanto já passou do ideal de hoje (0 quando não passou). */
+  today_over: number;
+  /** O mesmo estouro em % do ideal do dia; nulo sem ideal. */
+  today_over_pct: number | null;
+  /** Quanto dá para gastar por dia a partir de amanhã, com o saldo de agora, até o próximo crédito; nulo se hoje é o último dia ou sem saldo. */
+  ideal_from_tomorrow: number | null;
   projection: Projection | null;
   /** Gastos lançados no ciclo atual. */
   spent_in_cycle: number;
@@ -258,6 +264,9 @@ export function computeBenefitState(w: BenefitWalletConfig, entries: BenefitEntr
     ideal_per_day: ideal,
     spent_today: spentToday,
     today_remaining: ideal === null ? null : round2(Math.max(0, ideal - spentToday)),
+    today_over: ideal === null ? 0 : round2(Math.max(0, spentToday - ideal)),
+    today_over_pct: ideal === null || ideal <= 0 ? null : Math.round((Math.max(0, spentToday - ideal) / ideal) * 100),
+    ideal_from_tomorrow: balance === null || cycle.days_left <= 1 ? null : round2(Math.max(0, balance) / (cycle.days_left - 1)),
     projection: dayStart === null ? null : project(dayStart, cycle.days_left, rate.per_day, today),
     spent_in_cycle: spentInCycle,
     carry_in: carryIn,
