@@ -31,10 +31,24 @@ function Heatmap({ view, today, logs, weeks }: { view: HabitView; today: string;
     const rows = dayRows(view.def, logs, first, addDays(lastWeek, 6), today, view.pauses);
     return rows;
   }, [view, logs, today, weeks]);
+  const size = weeks <= 8 ? 30 : 20;
+  const rows: (typeof cells)[] = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
   return (
     <div>
-      <div className="grid grid-flow-col grid-rows-7 gap-[3px]" style={{ gridTemplateColumns: `repeat(${weeks}, minmax(0, 1fr))` }} role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma célula por dia`}>
-        {cells.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block aspect-square rounded-[3px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} />)}
+      <div role="img" aria-label={`Mapa das últimas ${weeks} semanas, uma linha por semana`}>
+        <div className="mb-1.5 grid items-center gap-1.5 text-[10px] text-muted-foreground" style={{ gridTemplateColumns: `44px repeat(7, ${size}px)` }} aria-hidden>
+          <span />
+          {["S", "T", "Q", "Q", "S", "S", "D"].map((d, i) => <span key={i} className="text-center">{d}</span>)}
+        </div>
+        <div className="grid gap-1.5">
+          {rows.map((r) => (
+            <div key={r[0].date} className="grid items-center gap-1.5" style={{ gridTemplateColumns: `44px repeat(7, ${size}px)` }}>
+              <span className="text-[10px] text-muted-foreground tabular-nums" aria-hidden>{r[0].date.slice(8, 10)}/{r[0].date.slice(5, 7)}</span>
+              {r.map((c) => <i key={c.date} title={`${c.date}: ${OUTCOME_LABEL[c.outcome]}`} className={cn("block rounded-[6px]", OUTCOME_CELL[c.outcome], c.date > today && "opacity-0")} style={{ height: size }} />)}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
         {(["done", "minimum", "rest", "missed", "not_expected"] as const).map((o) => (
