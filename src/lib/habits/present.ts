@@ -84,3 +84,17 @@ export function logLabel(form: HabitView["form"]): string {
     default: return "Marcar como feito";
   }
 }
+
+/** Explica por que a meta da semana é diferente da meta do hábito (primeira semana proporcional ou pausa). */
+export function weekTargetNote(v: HabitView, week: { week_start: string; target: number } | null | undefined): string | null {
+  if (!week) return null;
+  const base = v.form === "weekly" || v.habit.kind === "do_weekly_count" ? v.habit.weekly_target : v.habit.quantity_target;
+  if (base == null || Math.abs(week.target - base) < 0.5) return null;
+  const startedThisWeek = v.habit.started_on > week.week_start;
+  const t = Math.round(week.target * 10) / 10;
+  if (startedThisWeek) {
+    const dia = new Date(`${v.habit.started_on}T12:00:00Z`).toLocaleDateString("pt-BR", { weekday: "long", timeZone: "UTC" });
+    return `Sua meta é ${base} por semana. Como você começou ${/^(sábado|domingo)$/.test(dia) ? "no" : "na"} ${dia}, esta primeira semana vale ${t}.`;
+  }
+  return `Sua meta é ${base} por semana. Esta semana vale ${t} porque teve dias de pausa.`;
+}
