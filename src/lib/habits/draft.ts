@@ -61,7 +61,7 @@ export function draftToInput(d: Draft): CreateHabitInput {
     case "weekly": return { ...base, kind: "do_weekly_count", form: "weekly", weekly_target: d.target };
     case "amount": return qty({ form: "amount", quantity_target: d.target, quantity_unit: d.unit.replace(/ por dia$/, "") || null });
     case "duration": return qty({ form: "duration", quantity_target: d.target, quantity_unit: "min" });
-    case "time": return qty({ form: "time", direction: "at_most", quantity_target: d.target * 60, quantity_unit: "min" });
+    case "time": return qty({ form: "time", direction: "at_most", quantity_target: Math.round(d.target * 60), quantity_unit: "min" });
     case "ceiling": return qty({ form: "ceiling", direction: "at_most", implicit_ok: true, quantity_target: d.target, quantity_unit: d.unit.replace(/ por dia, no máximo$/, "") || null });
     case "value": return qty({ form: "value", direction: "track", quantity_target: d.target, quantity_unit: d.unit || null });
     case "project": return qty({
@@ -92,7 +92,7 @@ export function measureText(d: Draft): string {
     case "weekly": return `${d.target}x por semana`;
     case "amount": return `${String(d.target).replace(".", ",")} ${d.unit}`;
     case "duration": return `${d.target} ${d.unit}`;
-    case "time": return d.unit.replace("__", String(d.target));
+    case "time": return d.unit.replace("__h", hhmm(Math.round(d.target * 60) % 1440));
     case "ceiling": return `até ${String(d.target).replace(".", ",")} ${d.unit.replace(", no máximo", "")}`;
     case "value": return `registrar ${d.unit}`;
     case "project": return d.project_title.trim() ? `${d.project_title.trim()}${d.project_total ? ` · ${d.project_total} ${d.unit.includes("R$") ? "R$" : d.unit.includes("aula") ? "aulas" : "páginas"}` : ""}` : "um projeto";
