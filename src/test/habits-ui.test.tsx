@@ -10,7 +10,7 @@ import { summarizeHabit, type LogRow } from "@/lib/habits/engine";
 
 const h = vi.hoisted(() => ({
   enabled: { data: true as boolean | undefined, isLoading: false },
-  views: { views: [] as unknown[], paused: [] as unknown[], quitViews: [] as unknown[], activeCount: 0, consent: false, today: "2026-11-10" as string | null, logs: [] as unknown[], isLoading: false, isError: false, refetch: vi.fn() },
+  views: { views: [] as unknown[], paused: [] as unknown[], rules: [] as unknown[], quitViews: [] as unknown[], activeCount: 0, consent: false, today: "2026-11-10" as string | null, logs: [] as unknown[], isLoading: false, isError: false, refetch: vi.fn() },
   setMode: vi.fn(),
   logAsync: vi.fn(),
   unlogAsync: vi.fn(),
@@ -31,17 +31,21 @@ vi.mock("@/lib/habits/api", async () => {
     useCreateHabit: () => ({ mutateAsync: h.createAsync, isPending: false }),
     useHbTemplates: () => h.templates,
     useExpenseCategories: () => ({ data: [{ id: "c1", name: "Delivery" }] }),
+    useQuitMoney: () => ({ data: { q1: { estimate: 240, days: 12 } } }),
+    useWeeklyCategorySpend: () => ({ data: [{ week_start: "2026-11-02", spent: 80 }] }),
+    useSuggestPlan: () => ({ mutateAsync: vi.fn().mockResolvedValue({ ok: true, source: "ai", plan: { cue_text: "Depois de tomar café", minimum_text: "3 respirações" } }), isPending: false }),
     useAnswerAutomaticity: () => ({ mutateAsync: vi.fn(), isPending: false }),
     useGrantConsent: () => ({ mutateAsync: h.grantAsync, mutate: vi.fn(), isPending: false }),
     useRevokeConsent: () => ({ mutate: vi.fn(), isPending: false }),
   };
 });
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }));
 
 import { ModeSwitch } from "@/components/hb/ModeSwitch";
 import HabitsApp from "@/pages/habits/HabitsApp";
 import Hoje from "@/pages/habits/Hoje";
 import Novo from "@/pages/habits/Novo";
+import Dinheiro from "@/pages/habits/Dinheiro";
 
 const row = (over: Partial<HbHabitRow> = {}): HbHabitRow => ({
   id: "h1", template_id: null, kind: "do_daily", title: "Meditar 5 min", area: "mind", sensitivity: "normal",
@@ -60,7 +64,7 @@ const L = (habit_id: string, local_date: string, status: LogRow["status"] = "don
 
 beforeEach(() => {
   h.enabled = { data: true, isLoading: false };
-  h.views = { views: [], paused: [], quitViews: [], activeCount: 0, consent: false, today: "2026-11-10", logs: [], isLoading: false, isError: false, refetch: vi.fn() };
+  h.views = { views: [], paused: [], rules: [], quitViews: [], activeCount: 0, consent: false, today: "2026-11-10", logs: [], isLoading: false, isError: false, refetch: vi.fn() };
   h.setMode.mockReset(); h.logAsync.mockReset().mockResolvedValue("id"); h.unlogAsync.mockReset().mockResolvedValue(null); h.createAsync.mockReset().mockResolvedValue("new");
   h.templates = { data: [], isLoading: false };
   h.grantAsync.mockReset().mockResolvedValue(null);
@@ -234,5 +238,25 @@ describe("largar (F3)", () => {
     expect(screen.getByText("Largando")).toBeTruthy();
     expect(screen.getByText("Delivery por impulso")).toBeTruthy();
     expect(screen.getByText(/recorde 20 dias/)).toBeTruthy();
+  });
+});
+
+describe("hábitos e dinheiro (F5)", () => {
+  const go = () => render(<MemoryRouter initialEntries={["/h/dinheiro"]}><Routes><Route path="*" element={<Dinheiro />} /></Routes></MemoryRouter>);
+  it("sem nada ligado ao dinheiro explica como começar", () => {
+    go();
+    expect(screen.getByText("Nada ligado ao dinheiro ainda")).toBeTruthy();
+  });
+  it("estimativa de dinheiro aparece rotulada e com a ressalva", () => {
+    h.views = { ...h.views, quitViews: [{ habit: row({ id: "q1", kind: "quit", title: "Delivery por impulso" }), cycle: null, stats: { days_clean: 12, best: 12, total_days_clean: 12, relapses: 0, noted_slips: 0, cravings_30: 0, craving_handled_rate: null, last_milestone: 7, next_milestone: 14, started_on: "2026-10-29" } }] };
+    go();
+    expect(screen.getByText("estimativa")).toBeTruthy();
+    expect(screen.getByText(/não é um extrato|não um extrato/)).toBeTruthy();
+  });
+  it("com poucas semanas de dados o Nino recusa tirar conclusão", () => {
+    h.views = { ...h.views, views: [view(row(), [])], rules: [{ habit_id: "h1", rule_type: "no_spend_category", category_id: "c1", limit_amount: null }] };
+    go();
+    expect(screen.getByText(/Ainda é cedo/)).toBeTruthy();
+    expect(screen.getByText(/Não vou tirar conclusão/)).toBeTruthy();
   });
 });

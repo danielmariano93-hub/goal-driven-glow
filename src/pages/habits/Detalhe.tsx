@@ -14,6 +14,7 @@ import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { OUTCOME_CELL, OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
 import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
+import { MeasureCard } from "@/components/hb/MeasureCard";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
 
@@ -44,7 +45,7 @@ function Heatmap({ view, today, logs }: { view: HabitView; today: string; logs: 
 export default function Detalhe() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { views, paused, today, logs, isLoading } = useHabitViews();
+  const { views, paused, rules, today, logs, isLoading } = useHabitViews();
   const setStatus = useSetHabitStatus();
   const update = useUpdateHabit();
   const archive = useArchiveHabit();
@@ -170,6 +171,7 @@ export default function Detalhe() {
       </section>
 
       {!isPaused ? <div className="mt-3"><AutomaticityCard view={view} /></div> : null}
+      {habit.kind === "do_daily" && habit.sensitivity === "normal" ? <div className="mt-3"><MeasureCard view={view} rule={rules.find((r) => r.habit_id === habit.id) ?? null} /></div> : null}
 
       <Button variant="outline" className="mt-5 h-11 w-full rounded-full font-semibold" disabled={setStatus.isPending} onClick={() => void togglePause()}>{isPaused ? "Retomar este hábito" : "Pausar este hábito"}</Button>
       <Button variant="ghost" className="mt-2 h-11 w-full rounded-full text-muted-foreground" onClick={() => setConfirmArchive(true)}>Arquivar este hábito</Button>

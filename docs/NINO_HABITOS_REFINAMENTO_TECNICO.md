@@ -855,3 +855,33 @@ Migração: `supabase/migrations/20261112100000_habitos_f3_f4_largar_automaticid
 | Revisão semanal e dia seguinte | F4 | **não incluídos** | Ficam para o fechamento do F4/F6 |
 
 **Antes de ligar para alguém**: aplicar a migração 3. Sem ela, as telas de largar e automaticidade falham ao salvar, o WhatsApp de largar e os novos lembretes não encontram os campos novos e seguem o caminho antigo.
+
+---
+
+## Apêndice I: M4 (F5 Dinheiro + F6 IA): o que foi construído
+
+Migração: `supabase/migrations/20261113100000_habitos_f5_dinheiro.sql` (aditiva; **depende da migração 3**; aplicada à mão). Edge Function nova: `habits-ai`.
+
+**F5: Dinheiro**
+- **Hábito medido pelo Nino** (`hb_auto_rules`): "nenhum gasto na categoria X" ou "gastar até R$ Y por dia em X", só para hábitos diários comuns. O dia fechado (até ontem) vira "feito" ou "não rolou" pelos lançamentos, com o mesmo filtro de consumo real do motor financeiro. **Marcação medida nunca sobrepõe a manual**: `hb_auto_logs_as` só gera dias sem marcação da pessoa, e o motor mescla (`mergeAutoLogs`). Sem cron: o cálculo é na leitura.
+- **Concordância** (`hb_rule_agreement`): nos dias em que há marcação manual e a regra, quantos batem. Aparece no detalhe do hábito a partir de 5 dias (critério de aceite do plano: ≥ 95%).
+- **Hábitos e dinheiro** (`/h/dinheiro`): estimativa de dinheiro dos hábitos de largar (rotulada) e, para hábitos medidos, a comparação do gasto semanal da categoria nas semanas firmes (adesão ≥ 70%) contra as demais.
+- **Régua estatística** (`moneyInsight`): só fala com **8+ semanas**, **3+ semanas em cada grupo**, diferença de **≥ 15% e ≥ R$ 20**. Abaixo disso a tela diz que é cedo e quanto falta. Todo insight vem com "associação, não causa".
+- Hábito medido **não recebe lembrete de gatilho** nem entra em "Falta" do WhatsApp (o Nino mede sozinho).
+- `hb_snapshot` e `hb_snapshot_as` ganham `auto_rules` e `auto_logs` (versões anteriores ficam como `_v3` internamente).
+
+**F6: IA** (`habits-ai`, `_shared/habits/ai.ts`)
+- **Sugerir gatilho e versão mínima** ao criar um hábito. Recusa saúde, dieta e substâncias; aceita só "Depois de…" e textos curtos; números só os do nome do hábito ou até 10.
+- **Revisão semanal em texto** ("Reescrever com IA" em Progresso): os números saem do banco (calculados no servidor, nunca enviados pelo app); a IA só escreve 2 a 3 frases. **Guarda de números**: qualquer número que não esteja nos fatos reprova; também reprova linguagem clínica, links e texto longo. Reprovou ou IA fora do ar: **texto fixo**, sempre disponível.
+- **Hábitos de saúde e substâncias nunca passam pela IA.**
+- **Custo**: teto de US$ 0,20 (≈ R$ 1) por pessoa por mês, somado do `ai_usage_ledger` (função `habits-ai`); acima disso devolve o texto fixo. Cada chamada é registrada no ledger (tokens, custo, latência).
+- **Revisão semanal por lembrete** (`hb_weekly_review`, domingo 18h–20h30): texto fixo com os números marcados, sem IA, só hábitos comuns, uma vez por semana.
+
+| Item | Plano | M4 | Motivo |
+|---|---|---|---|
+| Insights em linguagem natural por IA | sim | **tela com números da régua; IA só reescreve a revisão semanal** | Menos risco de afirmar causa; o insight de dinheiro é texto fixo |
+| Painel admin de custo | sim | **usa o `ai_usage_ledger` existente (função `habits-ai`)** | Evita tela nova; filtrar por função |
+| Perguntar ao Nino sobre hábitos (chat) | A6 | **não incluído** | Depende de decisões do núcleo do agente; fica para depois |
+| Classificação de recaída por IA | sim | **não incluído** | Tema sensível; etiquetas escolhidas pela pessoa bastam |
+
+**Antes de ligar**: aplicar as migrações 3 e 4, nessa ordem. A função `habits-ai` precisa dos segredos de IA já usados pelas demais (`NINO_AI_PROVIDER` etc.); sem eles responde com texto fixo.

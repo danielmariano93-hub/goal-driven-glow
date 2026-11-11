@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/hb/ui";
@@ -42,6 +42,7 @@ export default function Mais() {
           <Switch aria-labelledby="hb-pref-consent" checked={consent} disabled={grant.isPending || revoke.isPending} onCheckedChange={(v) => (v ? grant : revoke).mutate(undefined, { onError: (e) => toast.error(hbErrorMessage(e)) })} />
         </div>
       </section>
+      <Link to="/h/dinheiro" className="mb-4 block rounded-[20px] bg-card p-4 shadow-card"><p className="font-display text-base font-bold">Hábitos e dinheiro</p><p className="text-sm leading-5 text-muted-foreground">O que o Nino mede pelos seus lançamentos e o que dá para ver junto com o gasto.</p></Link>
       <ul className="flex flex-col gap-2">
         {ITEMS.map((i) => (
           <li key={i.title} className="rounded-[20px] bg-card p-4 shadow-card">

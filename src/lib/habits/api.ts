@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import {
-  automaticityDue, automaticitySummary, isMaintenance, quitStats, summarizeHabit, FIRM_FROM,
+  automaticityDue, automaticitySummary, isMaintenance, mergeAutoLogs, quitStats, summarizeHabit, FIRM_FROM,
   type AutoCheckin, type AutomaticitySummary, type CravingRow, type CycleRow, type HabitDef, type HabitKind, type HabitSummary, type LogRow, type LogStatus,
   type PauseRange, type QuitStats, type SlipRow,
 } from "@/lib/habits/engine";
@@ -52,6 +52,9 @@ export interface HbSnapshot {
   cravings?: Array<CravingRow & { id: string; occurred_at: string }>;
   slips?: SlipRow[];
   automaticity?: AutoCheckin[];
+  /** Hábitos medidos pelo Nino (F5). */
+  auto_rules?: Array<{ habit_id: string; rule_type: "no_spend_category" | "spend_under_limit"; category_id: string; limit_amount: number | null }>;
+  auto_logs?: LogRow[];
 }
 
 export interface HbTemplate {
@@ -197,16 +200,17 @@ export function useHabitViews() {
   const snap = useHabitsSnapshot();
   const data = snap.data;
   const model = useMemo(() => {
-    if (!data) return { views: [] as HabitView[], paused: [] as HabitView[], quitViews: [] as QuitView[], activeCount: 0 };
+    if (!data) return { views: [] as HabitView[], paused: [] as HabitView[], quitViews: [] as QuitView[], activeCount: 0, logs: [] as LogRow[] };
     const pausesOf = (id: string): PauseRange[] => {
       const list = (data.pauses ?? []).filter((p) => p.habit_id === id).map((p) => ({ from: p.from, to: p.to }));
       return list.length ? list : NO_PAUSES;
     };
     const checkins = data.automaticity ?? [];
+    const logs = mergeAutoLogs(data.logs, data.auto_logs ?? []);
     const build = (habit: HbHabitRow): HabitView => {
       const def = habitToDef(habit);
       const pauses = pausesOf(habit.id);
-      const summary = summarizeHabit(def, data.logs, data.today, pauses);
+      const summary = summarizeHabit(def, logs, data.today, pauses);
       const auto = automaticitySummary(habit.id, checkins);
       const maintenance = isMaintenance(auto, summary.strength, FIRM_FROM);
       return {
@@ -225,9 +229,10 @@ export function useHabitViews() {
         return { habit, cycle: cycles.find((c) => c.habit_id === habit.id && c.ended_on == null) ?? null, stats: quitStats(habit.id, cycles, data.cravings ?? [], data.slips ?? [], data.today) };
       }),
       activeCount: data.habits.filter((h) => h.status === "active").length,
+      logs,
     };
   }, [data]);
-  return { ...snap, ...model, today: data?.today ?? null, logs: data?.logs ?? [], consent: data?.consent_sensitive === true };
+  return { ...snap, ...model, today: data?.today ?? null, rules: data?.auto_rules ?? [], consent: data?.consent_sensitive === true };
 }
 
 // ---------------------------------------------------------------- escritas
@@ -465,4 +470,59 @@ export function useExpenseCategories(enabled: boolean) {
       return data ?? [];
     },
   });
+}
+
+// ---------------------------------------------------------------- M4: dinheiro (F5) e IA (F6)
+
+export interface SetRuleInput { habit_id: string; rule_type: "no_spend_category" | "spend_under_limit"; category_id: string; limit_amount?: number | null }
+export function useSetAutoRule() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: SetRuleInput) => rpc<null>("hb_set_auto_rule", { p_habit: i.habit_id, p_type: i.rule_type, p_category: i.category_id, p_limit: i.limit_amount ?? null }),
+    onSuccess: inv,
+  });
+}
+export function useClearAutoRule() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: (habit_id: string) => rpc<null>("hb_clear_auto_rule", { p_habit: habit_id }), onSuccess: inv });
+}
+
+/** Concordância da regra com o que a pessoa marcou (dias em que há as duas). */
+export function useRuleAgreement(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["hb", "rule-agreement", user?.id],
+    enabled: !!user && enabled,
+    staleTime: 5 * 60_000,
+    retry: 0,
+    queryFn: () => rpc<Record<string, { days: number; agree: number }>>("hb_rule_agreement"),
+  });
+}
+
+export function useWeeklyCategorySpend(categoryId: string | null, weeks = 12) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["hb", "weekly-spend", user?.id, categoryId, weeks],
+    enabled: !!user && !!categoryId,
+    staleTime: 10 * 60_000,
+    retry: 0,
+    queryFn: () => rpc<Array<{ week_start: string; spent: number }>>("hb_weekly_category_spend", { p_category: categoryId, p_weeks: weeks }),
+  });
+}
+
+export interface AiPlan { cue_text: string | null; minimum_text: string | null }
+type FnResult = { data: unknown; error: { message: string } | null };
+
+async function callHabitsAi<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await (supabase.functions.invoke as unknown as (n: string, o: { body: unknown }) => Promise<FnResult>)("habits-ai", { body });
+  if (error) throw new HbError(error.message);
+  return data as T;
+}
+
+/** Sugestão de gatilho e versão mínima. Pode voltar vazia (hábito sensível, teto mensal ou IA fora do ar). */
+export function useSuggestPlan() {
+  return useMutation({ mutationFn: (title: string) => callHabitsAi<{ ok: boolean; source: string; plan: AiPlan }>({ action: "suggest_plan", title }) });
+}
+export function useNarrateWeek() {
+  return useMutation({ mutationFn: () => callHabitsAi<{ ok: boolean; source: "ai" | "template" | "none"; text: string }>({ action: "narrate_week" }) });
 }

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
 import { ConsentSheet } from "@/components/hb/ConsentSheet";
-import { hbErrorMessage, useCreateHabit, useExpenseCategories, useHabitViews, useHbTemplates, type HbArea } from "@/lib/habits/api";
+import { hbErrorMessage, useCreateHabit, useExpenseCategories, useHabitViews, useHbTemplates, useSuggestPlan, type HbArea } from "@/lib/habits/api";
 import {
   draftError, draftToInput, EMPTY, EMPTY_QUIT, fromTemplate, needsConsent, quitDraftError, quitDraftToInput, quitFromTemplate, type Draft, type QuitDraft,
 } from "@/lib/habits/draft";
@@ -28,6 +28,18 @@ export default function Novo() {
   const categories = useExpenseCategories(step === "quit");
   const setQuit = (patch: Partial<QuitDraft>) => setQ((prev) => ({ ...prev, ...patch }));
   const quitErr = quitDraftError(q);
+  const suggest = useSuggestPlan();
+  const askSuggestion = async () => {
+    try {
+      const r = await suggest.mutateAsync(d.title.trim());
+      const p = r.plan;
+      if (!p.cue_text && !p.minimum_text) return toast.message("Não tenho sugestão para este hábito. Pode preencher do seu jeito.");
+      set({ cue_text: d.cue_text || p.cue_text || "", minimum_text: d.minimum_text || p.minimum_text || "" });
+      toast.success("Sugestão preenchida. Ajuste como preferir.");
+    } catch {
+      toast.message("Não consegui sugerir agora. Pode preencher do seu jeito.");
+    }
+  };
   const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }));
   const err = draftError(d);
 
@@ -147,6 +159,9 @@ export default function Novo() {
           <Input id="hb-n-title" value={d.title} maxLength={80} onChange={(e) => set({ title: e.target.value })} placeholder="Ex.: Meditar 5 min" className="mt-1 h-12 rounded-2xl" />
         </div>
 
+        <Button type="button" variant="outline" className="h-11 rounded-full font-semibold text-primary" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askSuggestion()}>
+          {suggest.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Sugerir gatilho e versão mínima (IA)"}
+        </Button>
         <div className="rounded-[20px] bg-card p-4 shadow-card">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quando você vai fazer?</p>
           <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2 text-[17px] font-medium leading-8">

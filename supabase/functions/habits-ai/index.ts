@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Edge Function: habits-ai (Hábitos F6). Duas ações, ambas com a pessoa autenticada:
 //  - suggest_plan { title }  -> { cue_text, minimum_text } (nunca para hábito de saúde/substância)
 //  - narrate_week {}         -> { text, source: "ai" | "template" } (números vêm do banco; a IA só escreve o texto)

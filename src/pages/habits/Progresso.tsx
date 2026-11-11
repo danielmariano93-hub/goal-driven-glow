@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
 import { aggregateAdherence, rowsFor, weekdayAdherence, windowDelta } from "@/lib/habits/aggregate";
-import { useHabitViews } from "@/lib/habits/api";
-import { addDays } from "@/lib/habits/engine";
+import { useHabitViews, useNarrateWeek } from "@/lib/habits/api";
+import { addDays, reviewText, weeklyReview } from "@/lib/habits/engine";
 
 const WINDOWS = [7, 30, 90] as const;
 const WEEKDAY = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -13,6 +16,8 @@ const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
 export default function Progresso() {
   const { views, today, logs, isLoading } = useHabitViews();
   const [win, setWin] = useState<(typeof WINDOWS)[number]>(30);
+  const narrate = useNarrateWeek();
+  const [aiText, setAiText] = useState<string | null>(null);
 
   const m = useMemo(() => {
     if (!today) return null;
@@ -27,6 +32,17 @@ export default function Progresso() {
   if (isLoading || !today || !m) return <div className="grid min-h-[50vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>;
 
   const perHabit = (v: (typeof views)[number]) => (win === 7 ? v.summary.adherence7 : win === 30 ? v.summary.adherence30 : v.summary.adherence90);
+  const review = weeklyReview(views.filter((v) => v.habit.sensitivity === "normal").map((v) => ({ def: v.def, pauses: v.pauses })), logs, today);
+  const reviewBody = reviewText(review, (id) => views.find((v) => v.habit.id === id)?.habit.title ?? "Hábito");
+  const askAi = async () => {
+    try {
+      const r = await narrate.mutateAsync();
+      if (r.source === "ai" && r.text) setAiText(r.text);
+      else toast.message("Não consegui reescrever agora. O resumo acima continua valendo.");
+    } catch {
+      toast.message("Não consegui reescrever agora. O resumo acima continua valendo.");
+    }
+  };
   const firm = views.filter((v) => v.summary.phase === "firm" || v.summary.phase === "maintenance").length;
 
   return (
@@ -48,6 +64,17 @@ export default function Progresso() {
             <div><dd className="font-display text-[28px] font-extrabold leading-none tabular-nums">{firm}</dd><dt className="mt-1 text-[11px] leading-4 text-muted-foreground">{firm === 1 ? "hábito firme" : "hábitos firmes"}</dt></div>
           </dl>
           {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-xs text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
+
+          {reviewBody ? (
+            <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Resumo da semana">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resumo da semana</h2>
+                {aiText ? <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">escrito por IA</span> : null}
+              </div>
+              <p className="mt-2 whitespace-pre-line text-[15px] leading-6">{aiText ?? reviewBody}</p>
+              {!aiText ? <Button variant="ghost" className="mt-2 h-11 rounded-full text-primary" disabled={narrate.isPending} onClick={() => void askAi()}>Reescrever com IA</Button> : <p className="mt-2 text-xs text-muted-foreground">Os números vêm das suas marcações; a IA só escreve o texto. Hábitos de saúde não entram.</p>}
+            </section>
+          ) : null}
 
           <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Por hábito">
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Por hábito</h2>
@@ -84,6 +111,7 @@ export default function Progresso() {
               <p className="text-sm leading-5 text-muted-foreground">Aparece depois de umas 4 semanas de uso. Antes disso, qualquer padrão seria acaso.</p>
             )}
           </section>
+          <Link to="/h/dinheiro" className="mt-3 block rounded-[20px] bg-card p-4 text-sm font-semibold text-primary shadow-card">Ver hábitos e dinheiro</Link>
           <p className="mt-4 px-1 text-xs leading-5 text-muted-foreground">Os números descrevem o que aconteceu com você. Não provam por que aconteceu.</p>
         </>
       )}
