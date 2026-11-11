@@ -148,3 +148,22 @@ export function Dots({ rows }: { rows: DayRow[] }) {
     </span>
   );
 }
+
+/** Anel da força do hábito (estimativa) sobre o degradê do Nino. Sem dados: anel vazio e traço. */
+export function StrengthRing({ value }: { value: number | null }) {
+  const R = 64;
+  const C = 2 * Math.PI * R;
+  const pct = Math.round((value ?? 0) * 100);
+  return (
+    <div className="relative mx-auto h-[168px] w-[168px]" role="img" aria-label={value == null ? "Força ainda sem dados" : `Força do hábito ${pct}%`}>
+      <svg viewBox="0 0 168 168" className="h-full w-full -rotate-90">
+        <circle cx="84" cy="84" r={R} fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="12" />
+        <circle cx="84" cy="84" r={R} fill="none" stroke="#FFFFFF" strokeWidth="12" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - (value ?? 0))} className="transition-[stroke-dashoffset] duration-700 ease-out" />
+      </svg>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
+        <p className="font-display text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums">{value == null ? "-" : pct}{value == null ? null : <span className="text-[20px] text-white/70">%</span>}</p>
+        <p className="mt-1 text-[13px] text-white/75">força estimada</p>
+      </div>
+    </div>
+  );
+}

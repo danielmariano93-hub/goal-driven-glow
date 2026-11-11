@@ -55,7 +55,7 @@ export function MeasureCard({ view, rule }: { view: HabitView; rule: Rule | null
           <p className="mt-2 text-[15px] leading-6">
             {rule.rule_type === "no_spend_category" ? `O dia conta como feito se você não gastar nada em ${name}.` : `O dia conta como feito se você gastar até ${brl(rule.limit_amount ?? 0)} em ${name}.`}
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
             Dias já fechados entram sozinhos. Se você marcar um dia, a sua marcação vale.
             {ag && ag.days >= 5 ? ` Em ${ag.days} dias que você também marcou, a regra concordou em ${Math.round((ag.agree / ag.days) * 100)}%.` : ""}
           </p>
@@ -74,7 +74,7 @@ export function MeasureCard({ view, rule }: { view: HabitView; rule: Rule | null
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>
           <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-            <DrawerHeader className="text-left"><DrawerTitle className="font-display text-xl">Como medir</DrawerTitle></DrawerHeader>
+            <DrawerHeader className="text-left"><DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">Como medir</DrawerTitle></DrawerHeader>
             <div className="flex flex-col gap-4 px-4">
               <div className="flex gap-2" role="group" aria-label="Regra">
                 <button type="button" aria-pressed={type === "no_spend_category"} className={chip(type === "no_spend_category")} onClick={() => setType("no_spend_category")}>Nenhum gasto</button>
@@ -85,7 +85,7 @@ export function MeasureCard({ view, rule }: { view: HabitView; rule: Rule | null
                 {(categories.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               {type === "spend_under_limit" ? <Input aria-label="Valor máximo por dia" inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="Máximo por dia, em reais" className="h-12 rounded-2xl" /> : null}
-              <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={invalid || setRule.isPending} onClick={() => void save()}>Salvar</Button>
+              <Button className="h-12 rounded-full text-[15px] font-medium" disabled={invalid || setRule.isPending} onClick={() => void save()}>Salvar</Button>
               <p className="text-center text-xs text-muted-foreground">Conta só gasto confirmado (sem transferências nem pagamento de fatura).</p>
             </div>
           </div>

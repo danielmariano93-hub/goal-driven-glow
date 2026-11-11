@@ -58,8 +58,8 @@ export function DayActionsSheet({
         tone === "primary" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-muted",
       )}
     >
-      <span className="text-[15px] font-semibold leading-5">{label}</span>
-      {sub ? <span className={cn("text-xs leading-4", tone === "primary" ? "text-primary-foreground/80" : "text-muted-foreground")}>{sub}</span> : null}
+      <span className="text-[15px] font-medium leading-5">{label}</span>
+      {sub ? <span className={cn("text-[13px] leading-[18px]", tone === "primary" ? "text-primary-foreground/80" : "text-muted-foreground")}>{sub}</span> : null}
     </button>
   );
 
@@ -68,7 +68,7 @@ export function DayActionsSheet({
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="text-left">
-            <DrawerTitle className="font-display text-xl">{habit.title}</DrawerTitle>
+            <DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">{habit.title}</DrawerTitle>
             <DrawerDescription>
               {dayLabel(date, today)} · {OUTCOME_LABEL[outcome]}
             </DrawerDescription>
@@ -91,7 +91,7 @@ export function DayActionsSheet({
                   type="button"
                   disabled={busy || qty === "" || Number.isNaN(Number(qty))}
                   onClick={() => void send("quantity", Number(qty))}
-                  className="min-h-[52px] shrink-0 rounded-2xl bg-primary px-5 text-[15px] font-semibold text-primary-foreground disabled:opacity-50"
+                  className="min-h-[52px] shrink-0 rounded-2xl bg-primary px-5 text-[15px] font-medium text-primary-foreground disabled:opacity-50"
                 >
                   Salvar
                 </button>

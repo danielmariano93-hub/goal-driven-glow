@@ -58,12 +58,21 @@ export default function Progresso() {
         <p className="mt-6 text-center text-sm text-muted-foreground">Seu progresso aparece aqui depois do primeiro hábito.</p>
       ) : (
         <>
-          <dl className="mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-border/60 bg-card p-4 text-center shadow-card">
-            <div><dd className="font-display text-[28px] font-semibold leading-none tabular-nums">{pct(m.adh)}</dd><dt className="mt-1 text-[11px] leading-4 text-muted-foreground">dias cumpridos</dt></div>
-            <div><dd className={cn("font-display text-[28px] font-semibold leading-none tabular-nums", m.delta.delta_pp != null && m.delta.delta_pp > 0 && "text-success")}>{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp}`}</dd><dt className="mt-1 text-[11px] leading-4 text-muted-foreground">pts vs. {win} dias antes</dt></div>
-            <div><dd className="font-display text-[28px] font-semibold leading-none tabular-nums">{firm}</dd><dt className="mt-1 text-[11px] leading-4 text-muted-foreground">{firm === 1 ? "hábito firme" : "hábitos firmes"}</dt></div>
-          </dl>
-          {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-xs text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
+          <section className="mt-4 rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Resumo do período">
+            <p className="text-[14px] font-medium text-white/75">Dias cumpridos nos últimos {win} dias</p>
+            <p className="mt-1 font-display text-[64px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{m.adh == null ? "-" : Math.round(m.adh * 100)}{m.adh == null ? null : <span className="text-[28px] text-white/70">%</span>}</p>
+            <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
+              <div>
+                <dd className="font-display text-xl font-semibold tabular-nums">{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp} pts`}</dd>
+                <dt className="text-[13px] text-white/70">vs. {win} dias antes</dt>
+              </div>
+              <div>
+                <dd className="font-display text-xl font-semibold tabular-nums">{firm}</dd>
+                <dt className="text-[13px] text-white/70">{firm === 1 ? "hábito firme" : "hábitos firmes"}</dt>
+              </div>
+            </dl>
+          </section>
+          {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-[13px] text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
 
           {reviewBody ? (
             <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Resumo da semana">

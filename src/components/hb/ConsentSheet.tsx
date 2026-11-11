@@ -18,7 +18,7 @@ export function ConsentSheet({ open, onOpenChange, onGranted }: { open: boolean;
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-          <DrawerHeader className="text-left"><DrawerTitle className="font-display text-xl">Antes de começar</DrawerTitle></DrawerHeader>
+          <DrawerHeader className="text-left"><DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">Antes de começar</DrawerTitle></DrawerHeader>
           <div className="flex flex-col gap-3 px-4 text-sm leading-6">
             <p>Esse hábito envolve a sua saúde. Para ajudar, o Nino guarda o que você registra e pode mandar lembretes sobre ele.</p>
             <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
@@ -28,7 +28,7 @@ export function ConsentSheet({ open, onOpenChange, onGranted }: { open: boolean;
               <li>Você pode retirar a autorização em Mais, a qualquer momento.</li>
             </ul>
             <p className="text-xs text-muted-foreground">O Nino não substitui acompanhamento profissional. Se estiver difícil, o CVV atende 24 horas pelo 188.</p>
-            <Button className="mt-1 h-12 rounded-full text-[15px] font-semibold" disabled={grant.isPending} onClick={() => void accept()}>Entendi e autorizo</Button>
+            <Button className="mt-1 h-12 rounded-full text-[15px] font-medium" disabled={grant.isPending} onClick={() => void accept()}>Entendi e autorizo</Button>
             <Button variant="ghost" className="h-11 rounded-full text-muted-foreground" onClick={() => onOpenChange(false)}>Agora não</Button>
           </div>
         </div>

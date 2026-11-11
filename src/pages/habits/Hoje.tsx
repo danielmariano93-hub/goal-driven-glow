@@ -101,15 +101,15 @@ export default function Hoje() {
     const o = v.summary.today.outcome;
     const doneNow = o === "done" || o === "minimum";
     return (
-      <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-card">
+      <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 pr-2 shadow-card">
         <button
           type="button"
           onClick={() => void quickToggle(v)}
           aria-pressed={doneNow}
           aria-label={doneNow ? `Desmarcar ${v.habit.title}` : `Marcar ${v.habit.title} como feito`}
-          className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 transition-colors", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : "border-border bg-card")}
+          className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200 active:scale-90", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : "border-border bg-card hover:border-primary/50")}
         >
-          {doneNow ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : null}
+          {doneNow ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="animate-in zoom-in-50 fade-in duration-200"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : null}
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
           <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>

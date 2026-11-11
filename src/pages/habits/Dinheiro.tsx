@@ -17,7 +17,7 @@ function InsightCard({ view, categoryId, categoryName, today, logs }: { view: Ha
       {!insight ? <Loader2 className="mt-3 h-4 w-4 animate-spin text-primary" aria-label="Carregando" /> : insight.status === "ok" ? (
         <>
           <p className="mt-3 text-[15px] leading-6">Nas semanas em que você manteve este hábito (a partir de 70% dos dias), o gasto médio em {categoryName} foi de <b>{brl(insight.mean_high)}</b>; nas outras, <b>{brl(insight.mean_low)}</b>.</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Baseado em {insight.weeks} semanas ({insight.high_n} firmes e {insight.low_n} nas demais). É uma associação, não prova que um causa o outro.</p>
+          <p className="mt-1 text-[13px] leading-5 text-muted-foreground">Baseado em {insight.weeks} semanas ({insight.high_n} firmes e {insight.low_n} nas demais). É uma associação, não prova que um causa o outro.</p>
         </>
       ) : insight.status === "no_difference" ? (
         <p className="mt-3 text-sm leading-5 text-muted-foreground">Em {insight.weeks} semanas, não vejo diferença relevante no gasto entre as semanas firmes e as demais.</p>
@@ -59,7 +59,7 @@ export default function Dinheiro() {
           <ul className="mt-3 flex flex-col gap-1 text-sm">
             {quitViews.map((q) => <li key={q.habit.id} className="flex justify-between gap-3"><Link to={`/h/largar/${q.habit.id}`} className="truncate">{q.habit.title}</Link><span className="shrink-0 tabular-nums text-muted-foreground">{money.data?.[q.habit.id]?.estimate != null ? brl(money.data[q.habit.id].estimate as number) : "sem base"}</span></li>)}
           </ul>
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">Média de gasto antes de começar menos o que você gastou depois. É uma estimativa, não um extrato.</p>
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">Média de gasto antes de começar menos o que você gastou depois. É uma estimativa, não um extrato.</p>
         </section>
       ) : null}
       {measured.length > 0 ? (

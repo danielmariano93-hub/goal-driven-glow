@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { OUTCOME_CELL, OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
-import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
+import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
+import { AreaTile } from "@/components/hb/kit";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
@@ -107,30 +108,32 @@ export default function Detalhe() {
 
   return (
     <div className="px-4 pb-6">
-      <PageHeader title={habit.title} subtitle={habit.cue_text ? `${habit.cue_text}` : undefined} back="/h/habitos" right={<Button variant="ghost" className="mt-6 h-11 rounded-full" onClick={openEdit}>Editar</Button>} />
-      {habit.minimum_text ? <p className="-mt-1 mb-3 text-sm text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
+      <section className="-mx-4 -mt-0 rounded-b-[32px] bg-gradient-hero px-5 pb-7 pt-3 text-primary-foreground" aria-label="Força do hábito">
+        <div className="flex items-center justify-between">
+          <Link to="/h/habitos" aria-label="Voltar" className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors hover:bg-white/10"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link>
+          <button type="button" onClick={openEdit} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-medium text-white transition-colors hover:bg-white/10">Editar</button>
+        </div>
+        <div className="mt-1 flex items-center gap-3">
+          <AreaTile area={habit.area} title={habit.title} size={44} onDark />
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-[26px] font-semibold leading-[1.1] tracking-[-0.02em]">{habit.title}</h1>
+            {habit.cue_text ? <p className="truncate text-[14px] text-white/75">{habit.cue_text}</p> : null}
+          </div>
+        </div>
+        <div className="mt-6"><StrengthRing value={summary.strength} /></div>
+        <div className="mt-4 flex items-center justify-center gap-2"><PhaseChip phase={summary.phase} /><span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span></div>
+        <p className="mx-auto mt-3 max-w-[300px] text-center text-[13px] leading-5 text-white/75">{strengthNote}</p>
+      </section>
+      {habit.minimum_text ? <p className="mt-4 px-1 text-[14px] text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
 
       {isPaused ? (
-        <div role="status" className="mb-3 rounded-[20px] bg-warning/15 p-4 text-sm leading-5">
-          <p className="font-semibold">Hábito pausado</p>
+        <div role="status" className="mt-3 rounded-2xl bg-warning/15 p-4 text-sm leading-5">
+          <p className="font-medium">Hábito pausado</p>
           <p className="text-muted-foreground">Os dias pausados não contam como falha nem quebram a sua sequência. Retome quando quiser.</p>
         </div>
       ) : null}
 
-      <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Força do hábito">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-medium text-muted-foreground">Força do hábito</h2>
-          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">estimativa</span>
-        </div>
-        <div className="mt-2 flex items-baseline gap-3">
-          <p className="font-display text-[34px] font-semibold leading-none tracking-tight tabular-nums">{summary.strength == null ? "-" : `${Math.round(summary.strength * 100)}%`}</p>
-          <PhaseChip phase={summary.phase} />
-        </div>
-        <div className="mt-3"><StrengthBar value={summary.strength} /></div>
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">{strengthNote}</p>
-      </section>
-
-      <dl className="mt-3 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
+      <dl className="mt-4 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
         {[
           { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
           { k: "recorde", v: String(summary.best_streak) },
