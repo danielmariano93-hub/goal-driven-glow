@@ -63,3 +63,24 @@ export function MilestoneTrack({ days, milestones }: { days: number; milestones:
     </div>
   );
 }
+
+/** Ilustração da tela vazia: sete dias subindo como degraus, o último já feito. Só o motivo dos sete pontinhos do Nino Hábitos. */
+export function WeekSteps({ className }: { className?: string }) {
+  const dots = [0, 1, 2, 3, 4, 5, 6];
+  return (
+    <svg viewBox="0 0 280 92" className={cn("h-auto w-full max-w-[280px]", className)} role="img" aria-label="Sete dias, um passo de cada vez">
+      <line x1="14" y1="78" x2="266" y2="78" stroke="rgba(255,255,255,.18)" strokeWidth="2" strokeLinecap="round" />
+      {dots.map((i) => {
+        const x = 20 + i * 40;
+        const y = 70 - i * 9;
+        const last = i === 6;
+        return (
+          <g key={i}>
+            <circle cx={x} cy={y} r={last ? 12 : 9} fill={last ? "#FFFFFF" : "none"} stroke={last ? "none" : "rgba(255,255,255,.55)"} strokeWidth="2" opacity={last ? 1 : 0.35 + i * 0.1} />
+            {last ? <path d={`M${x - 5} ${y} l3.5 3.5 l6.5 -7`} fill="none" stroke="#3C1B78" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /> : null}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
