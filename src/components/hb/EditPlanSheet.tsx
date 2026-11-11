@@ -19,7 +19,7 @@ const Field = ({ label, children, hint }: { label: string; children: React.React
 );
 
 /** Edição de tudo que faz sentido mudar num hábito. O histórico não é alterado. */
-export function EditPlanSheet({ view, open, onOpenChange }: { view: HabitView; open: boolean; onOpenChange: (o: boolean) => void }) {
+export function EditPlanSheet({ view, today, open, onOpenChange }: { view: HabitView; today: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const { habit, form } = view;
   const update = useUpdateHabit();
   const projUpdate = useProjectUpdate();
@@ -44,7 +44,6 @@ export function EditPlanSheet({ view, open, onOpenChange }: { view: HabitView; o
   const dailyModel = !isWeekly && !isRecurring;
   const hasTarget = ["amount", "duration", "ceiling", "project"].includes(form);
   const hasUnit = ["amount", "ceiling", "value"].includes(form);
-  const today = new Date().toISOString().slice(0, 10);
 
   const save = async () => {
     const patch: Parameters<typeof update.mutateAsync>[0]["patch"] = {};

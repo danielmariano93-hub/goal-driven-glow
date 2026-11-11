@@ -179,7 +179,7 @@ export default function Detalhe() {
 
       {dayOpen ? <DayActionsSheet view={view} date={dayOpen} today={today} logs={logs} open onOpenChange={(o) => !o && setDayOpen(null)} /> : null}
 
-      {editing ? <EditPlanSheet key={habit.id} view={view} open onOpenChange={setEditing} /> : null}
+      {editing ? <EditPlanSheet key={habit.id} view={view} today={today} open onOpenChange={setEditing} /> : null}
       {today ? <BackfillSheet today={today} weekly={weekly} open={backfillOpen} onOpenChange={setBackfillOpen} onPick={(d) => setDayOpen(d)} /> : null}
 
       <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
