@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
+import { AreaTile, SectionLabel } from "@/components/hb/kit";
 import { useHabitViews, type HabitView } from "@/lib/habits/api";
 
 export const MAX_ACTIVE_HABITS = 5;
@@ -33,8 +34,8 @@ export default function Habitos() {
       {isLoading ? (
         <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>
       ) : activeCount === 0 && paused.length === 0 ? (
-        <div className="rounded-[20px] bg-card p-6 text-center shadow-card">
-          <p className="font-display text-lg font-bold">Nenhum hábito ainda</p>
+        <div className="rounded-2xl border border-border/60 bg-card p-6 text-center shadow-card">
+          <p className="font-display text-lg font-semibold">Nenhum hábito ainda</p>
           <p className="mx-auto mt-1 max-w-xs text-sm leading-5 text-muted-foreground">Escolha um pequeno, ligado a algo que você já faz todo dia.</p>
           <Button asChild className="mt-4 rounded-full"><Link to="/h/novo">Criar um hábito</Link></Button>
         </div>
@@ -42,11 +43,12 @@ export default function Habitos() {
         <ul className="flex flex-col gap-3">
           {views.map((v) => (
             <li key={v.habit.id}>
-              <Link to={`/h/habito/${v.habit.id}`} className="block rounded-[20px] bg-card p-4 shadow-card">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-display text-[17px] font-bold leading-6">{v.habit.title}</p>
-                    <p className="text-xs leading-4 text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
+              <Link to={`/h/habito/${v.habit.id}`} className="block rounded-2xl border border-border/60 bg-card p-4 shadow-card transition-colors hover:bg-muted/50">
+                <div className="flex items-start gap-3.5">
+                  <AreaTile area={v.habit.area} title={v.habit.title} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-display text-[17px] font-semibold leading-6 tracking-[-0.01em]">{v.habit.title}</p>
+                    <p className="text-[13px] leading-[18px] text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
                   </div>
                   <PhaseChip phase={v.summary.phase} />
                 </div>
@@ -62,13 +64,13 @@ export default function Habitos() {
       )}
       {quitViews.length > 0 ? (
         <>
-          <h2 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Largando</h2>
+          <SectionLabel>Largando</SectionLabel>
           <ul className="flex flex-col gap-3">
             {quitViews.map((q) => (
               <li key={q.habit.id}>
-                <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-[20px] bg-card p-4 shadow-card">
-                  <div className="min-w-0"><p className="truncate font-display text-[17px] font-bold leading-6">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {q.stats.best} {q.stats.best === 1 ? "dia" : "dias"}</p></div>
-                  <p className="shrink-0 font-display text-2xl font-extrabold tabular-nums">{q.stats.days_clean}<span className="ml-1 text-xs font-semibold text-muted-foreground">dias sem</span></p>
+                <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
+                  <div className="min-w-0"><p className="truncate font-display text-[17px] font-semibold leading-6">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {q.stats.best} {q.stats.best === 1 ? "dia" : "dias"}</p></div>
+                  <p className="shrink-0 font-display text-2xl font-semibold tabular-nums">{q.stats.days_clean}<span className="ml-1 text-xs font-semibold text-muted-foreground">dias sem</span></p>
                 </Link>
               </li>
             ))}
@@ -77,10 +79,10 @@ export default function Habitos() {
       ) : null}
       {paused.length > 0 ? (
         <>
-          <h2 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pausados</h2>
+          <SectionLabel>Pausados</SectionLabel>
           <ul className="flex flex-col gap-2">
             {paused.map((v) => (
-              <li key={v.habit.id}><Link to={`/h/habito/${v.habit.id}`} className="block rounded-[20px] bg-card p-4 text-muted-foreground shadow-card"><p className="truncate font-display text-base font-bold">{v.habit.title}</p><p className="text-xs">Pausado. Toque para retomar.</p></Link></li>
+              <li key={v.habit.id}><Link to={`/h/habito/${v.habit.id}`} className="block rounded-2xl border border-border/60 bg-card p-4 text-muted-foreground shadow-card"><p className="truncate font-display text-base font-semibold">{v.habit.title}</p><p className="text-xs">Pausado. Toque para retomar.</p></Link></li>
             ))}
           </ul>
         </>

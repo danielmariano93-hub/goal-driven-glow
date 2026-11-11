@@ -45,10 +45,10 @@ export function MeasureCard({ view, rule }: { view: HabitView; rule: Rule | null
   const chip = (on: boolean) => cn("min-h-11 flex-1 rounded-full border px-3 text-sm font-semibold", on ? "border-foreground bg-foreground text-background" : "border-border bg-card");
 
   return (
-    <section className="rounded-[20px] bg-card p-4 shadow-card" aria-label="Medido pelo Nino">
+    <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Medido pelo Nino">
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Medido pelo Nino</h2>
-        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">pelos seus lançamentos</span>
+        <h2 className="text-[13px] font-medium text-muted-foreground">Medido pelo Nino</h2>
+        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">pelos seus lançamentos</span>
       </div>
       {rule ? (
         <>

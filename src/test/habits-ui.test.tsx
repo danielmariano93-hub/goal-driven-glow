@@ -181,6 +181,8 @@ describe("tela Novo hábito", () => {
     h.templates = { data: [{ id: "t1", slug: "meditar-5", title: "Meditar 5 min", area: "mind", kind: "do_daily", cue_suggestion: "Depois de tomar café", minimum_suggestion: "3 respirações", why_it_works: null, weekly_target: null, quantity_target: null, quantity_unit: null, quantity_period: null, sort_order: 30 }], isLoading: false };
     render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /><Route path="/h/hoje" element={<p>hoje</p>} /></Routes></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: /Meditar 5 min/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
     fireEvent.click(screen.getByRole("button", { name: "Hoje" }));
     fireEvent.click(screen.getByRole("button", { name: "Criar hábito" }));
     await waitFor(() => expect(h.createAsync).toHaveBeenCalled());

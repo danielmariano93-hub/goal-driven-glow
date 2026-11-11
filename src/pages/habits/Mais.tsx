@@ -25,8 +25,8 @@ export default function Mais() {
   return (
     <div className="px-4 pb-6">
       <PageHeader title="Mais" subtitle="Como funciona o Nino Hábitos" />
-      <section className="mb-4 rounded-[20px] bg-card p-4 shadow-card" aria-label="Lembretes e WhatsApp">
-        <h2 className="font-display text-base font-bold">Lembretes e WhatsApp</h2>
+      <section className="mb-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Lembretes e WhatsApp">
+        <h2 className="font-display text-base font-semibold">Lembretes e WhatsApp</h2>
         <div className="mt-3 flex items-center justify-between gap-4">
           <div className="min-w-0"><p id="hb-pref-nudges" className="text-[15px] font-semibold">Lembretes dos meus hábitos</p><p className="text-xs leading-4 text-muted-foreground">Até 2 por dia, só depois do horário combinado, sem passar das 22h. Se você ignorar 3 seguidos, eu paro.</p></div>
           <Switch aria-labelledby="hb-pref-nudges" checked={prefs.nudges_enabled} onCheckedChange={(v) => change({ nudges_enabled: v })} />
@@ -36,24 +36,24 @@ export default function Mais() {
           <Switch aria-labelledby="hb-pref-wa" checked={prefs.whatsapp_logging} onCheckedChange={(v) => change({ whatsapp_logging: v })} />
         </div>
       </section>
-      <section className="mb-4 rounded-[20px] bg-card p-4 shadow-card" aria-label="Saúde e privacidade">
+      <section className="mb-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Saúde e privacidade">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0"><p id="hb-pref-consent" className="text-[15px] font-semibold">Hábitos de saúde e substâncias</p><p className="text-xs leading-4 text-muted-foreground">Autoriza o Nino a guardar e lembrar de hábitos como largar cigarro ou bebida. Só você vê. Pode retirar quando quiser.</p></div>
           <Switch aria-labelledby="hb-pref-consent" checked={consent} disabled={grant.isPending || revoke.isPending} onCheckedChange={(v) => (v ? grant : revoke).mutate(undefined, { onError: (e) => toast.error(hbErrorMessage(e)) })} />
         </div>
       </section>
-      <Link to="/h/dinheiro" className="mb-4 block rounded-[20px] bg-card p-4 shadow-card"><p className="font-display text-base font-bold">Hábitos e dinheiro</p><p className="text-sm leading-5 text-muted-foreground">O que o Nino mede pelos seus lançamentos e o que dá para ver junto com o gasto.</p></Link>
+      <Link to="/h/dinheiro" className="mb-4 block rounded-2xl border border-border/60 bg-card p-4 shadow-card"><p className="font-display text-base font-semibold">Hábitos e dinheiro</p><p className="text-sm leading-5 text-muted-foreground">O que o Nino mede pelos seus lançamentos e o que dá para ver junto com o gasto.</p></Link>
       <ul className="flex flex-col gap-2">
         {ITEMS.map((i) => (
-          <li key={i.title} className="rounded-[20px] bg-card p-4 shadow-card">
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{i.tag}</span>
-            <p className="mt-2 font-display text-base font-bold">{i.title}</p>
+          <li key={i.title} className="rounded-2xl border border-border/60 bg-card p-4 shadow-card">
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">{i.tag}</span>
+            <p className="mt-2 font-display text-[17px] font-semibold tracking-[-0.01em]">{i.title}</p>
             <p className="mt-0.5 text-sm leading-5 text-muted-foreground">{i.text}</p>
           </li>
         ))}
       </ul>
-      <div className="mt-5 rounded-[20px] bg-card p-4 shadow-card">
-        <p className="font-display text-base font-bold">Sem pontos, sem ranking</p>
+      <div className="mt-5 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
+        <p className="font-display text-base font-semibold">Sem pontos, sem ranking</p>
         <p className="mt-0.5 text-sm leading-5 text-muted-foreground">Falhar um dia não quebra nada. O que importa é voltar. Um hábito costuma levar semanas ou meses para ficar automático, e varia muito de pessoa para pessoa.</p>
       </div>
       <Button variant="outline" className="mt-5 h-12 w-full rounded-full text-[15px] font-semibold" onClick={() => { setMode.mutate("money"); navigate("/app"); }}>Voltar para o Nino Dinheiro</Button>

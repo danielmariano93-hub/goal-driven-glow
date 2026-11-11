@@ -8,7 +8,9 @@ import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
-import { hbErrorMessage, useHabitViews, useLogHabit, useSetHbMode, useUnlogHabit, type HabitView } from "@/lib/habits/api";
+import { AreaTile, RowCard, SectionLabel } from "@/components/hb/kit";
+import { sentenceCase } from "@/lib/habits/format";
+import { hbErrorMessage, useHabitViews, useHbTemplates, useLogHabit, useSetHbMode, useUnlogHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows } from "@/lib/habits/engine";
 
 const pluralDias = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
@@ -32,6 +34,7 @@ export default function Hoje() {
   const log = useLogHabit();
   const unlog = useUnlogHabit();
   const setMode = useSetHbMode();
+  const templates = useHbTemplates();
   const [sheet, setSheet] = useState<{ id: string; date: string } | null>(null);
 
   const model = useMemo(() => {
@@ -83,21 +86,22 @@ export default function Hoje() {
   if (isError || !today || !model) {
     return (
       <div className="px-4 pt-10 text-center">
-        <p className="font-display text-lg font-bold">Não consegui carregar seus hábitos</p>
+        <p className="font-display text-lg font-semibold">Não consegui carregar seus hábitos</p>
         <p className="mt-1 text-sm text-muted-foreground">Seus dados estão salvos. Tente de novo.</p>
         <Button className="mt-4 rounded-full" onClick={() => void refetch()}>Tentar novamente</Button>
       </div>
     );
   }
 
-  const weekday = new Date(`${today}T12:00:00Z`).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+  const weekday = sentenceCase(new Date(`${today}T12:00:00Z`).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }));
+  const starters = (templates.data ?? []).filter((t) => ["meditar-5", "caminhar-20", "agua-2l"].includes(t.slug));
   const active = sheet ? views.find((v) => v.habit.id === sheet.id) : undefined;
 
   const renderRow = (v: HabitView) => {
     const o = v.summary.today.outcome;
     const doneNow = o === "done" || o === "minimum";
     return (
-      <li key={v.habit.id} className="flex items-center gap-3 rounded-[20px] bg-card p-3 shadow-card">
+      <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 shadow-card">
         <button
           type="button"
           onClick={() => void quickToggle(v)}
@@ -105,10 +109,10 @@ export default function Hoje() {
           aria-label={doneNow ? `Desmarcar ${v.habit.title}` : `Marcar ${v.habit.title} como feito`}
           className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full border-2 transition-colors", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : "border-border bg-card")}
         >
-          {doneNow ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-bold">folga</span> : null}
+          {doneNow ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : null}
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
-          <p className={cn("truncate font-display text-[16.5px] font-bold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
+          <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
           <p className="truncate text-xs leading-4 text-muted-foreground">{subtitle(v) || "Toque para ver o plano"}</p>
         </Link>
         <Dots rows={dotsFor(v)} />
@@ -129,8 +133,8 @@ export default function Hoje() {
       <section className="bg-gradient-hero px-5 pb-10 pt-5 text-primary-foreground" aria-label="Resumo de hoje">
         <div className="mx-auto flex max-w-[720px] items-start justify-between gap-3">
           <div>
-            <p className="text-[13px] font-semibold capitalize tracking-wide text-white/75">{weekday}</p>
-            <h1 className="mt-0.5 font-display text-2xl font-extrabold tracking-tight">Hoje</h1>
+            <p className="text-[14px] font-medium text-white/75">{weekday}</p>
+            <h1 className="mt-1 font-display text-[32px] font-semibold leading-none tracking-[-0.03em]">Hoje</h1>
           </div>
           <ModePill tone="hero" current="habits" onChange={(m) => m === "money" && goMoney()} />
         </div>
@@ -145,7 +149,7 @@ export default function Hoje() {
           </>
         ) : (
           <div className="mx-auto max-w-[720px] pb-6 pt-8">
-            <h2 className="font-display text-[28px] font-extrabold leading-[1.1] tracking-tight">Um hábito vira seu em semanas ou meses.</h2>
+            <h2 className="font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">Um hábito vira seu em semanas ou meses.</h2>
             <p className="mt-3 text-[15px] leading-6 text-white/80">Escolha um só para começar, diga em que momento do dia vai fazê-lo e comece pequeno. Sem pontos, sem ranking.</p>
           </div>
         )}
@@ -154,27 +158,43 @@ export default function Hoje() {
       <div className="-mt-6 rounded-t-[28px] bg-background px-4 pt-5">
         <div className="mx-auto max-w-[720px]">
           {views.length === 0 && quitViews.length === 0 ? (
-            <Button asChild className="h-12 w-full rounded-full text-[15px] font-semibold">
-              <Link to="/h/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Criar meu primeiro hábito</Link>
-            </Button>
+            <div>
+              {starters.length > 0 ? (
+                <>
+                  <SectionLabel className="mt-1">Para começar</SectionLabel>
+                  <ul className="flex flex-col gap-2">
+                    {starters.map((t) => (
+                      <li key={t.id}>
+                        <Link to={`/h/novo?t=${t.slug}`} className="block">
+                          <RowCard lead={<AreaTile area={t.area} title={t.title} />} title={t.title} hint={t.cue_suggestion ? `${t.cue_suggestion}. Dia ruim: ${(t.minimum_suggestion ?? "").toLowerCase()}` : t.why_it_works} />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <Button asChild className="mt-4 h-14 w-full rounded-full text-base font-medium">
+                <Link to="/h/novo"><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Criar meu primeiro hábito</Link>
+              </Button>
+            </div>
           ) : (
             <>
               {model.dueToday.length > 0 ? <ul className="flex flex-col gap-2" aria-label="Hábitos de hoje">{model.dueToday.map(renderRow)}</ul> : null}
               {model.weekly.length > 0 ? (
                 <>
-                  <h2 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Esta semana</h2>
+                  <h2 className="mb-2 mt-5 text-[13px] font-medium text-muted-foreground">Esta semana</h2>
                   <ul className="flex flex-col gap-2" aria-label="Hábitos de meta semanal">{model.weekly.map(renderRow)}</ul>
                 </>
               ) : null}
               {quitViews.length > 0 ? (
                 <>
-                  <h2 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Largando</h2>
+                  <h2 className="mb-2 mt-5 text-[13px] font-medium text-muted-foreground">Largando</h2>
                   <ul className="flex flex-col gap-2" aria-label="Hábitos que você está largando">
                     {quitViews.map((q) => (
                       <li key={q.habit.id}>
-                        <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-[20px] bg-card p-4 shadow-card">
-                          <div className="min-w-0"><p className="truncate font-display text-[16.5px] font-bold leading-5">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {pluralDias(q.stats.best)}</p></div>
-                          <p className="shrink-0 text-right font-display text-2xl font-extrabold tabular-nums leading-none">{q.stats.days_clean}<span className="block text-[11px] font-semibold text-muted-foreground">{q.stats.days_clean === 1 ? "dia sem" : "dias sem"}</span></p>
+                        <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
+                          <div className="min-w-0"><p className="truncate font-display text-[16.5px] font-semibold leading-5">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {pluralDias(q.stats.best)}</p></div>
+                          <p className="shrink-0 text-right font-display text-2xl font-semibold tabular-nums leading-none">{q.stats.days_clean}<span className="block text-[11px] font-semibold text-muted-foreground">{q.stats.days_clean === 1 ? "dia sem" : "dias sem"}</span></p>
                         </Link>
                       </li>
                     ))}
