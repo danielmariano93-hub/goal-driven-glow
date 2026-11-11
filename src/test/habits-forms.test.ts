@@ -155,3 +155,18 @@ describe("retroagir e editar", () => {
     expect(addDays("2026-11-11", -90)).toBe("2026-08-13");
   });
 });
+
+describe("período e detalhe andam juntos", () => {
+  it("trocar de período descarta o detalhe de outro período e mantém o que não depende dele", async () => {
+    const { switchPeriod, periodOfText, ANCHORS } = await import("@/lib/habits/period");
+    expect(switchPeriod("Noite · antes de dormir", "Manhã")).toBe("Manhã");
+    expect(switchPeriod("Noite · antes de dormir", "Noite")).toBe("Noite · antes de dormir");
+    expect(switchPeriod("Manhã · depois do café", "Tarde")).toBe("Tarde");
+    expect(switchPeriod("Durante o dia · no domingo", "Noite")).toBe("Noite · no domingo");
+    expect(switchPeriod("Noite · depois de escovar os dentes", "Tarde")).toBe("Tarde");
+    expect(switchPeriod("Manhã · ao acordar", "Durante o dia")).toBe("Durante o dia");
+    expect(switchPeriod("", "Tarde")).toBe("Tarde");
+    expect(periodOfText("no domingo")).toBeNull();
+    for (const [p, list] of Object.entries(ANCHORS)) for (const a of list) expect(periodOfText(a), a).toBe(p);
+  });
+});

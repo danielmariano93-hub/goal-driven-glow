@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { hbErrorMessage, useProjectUpdate, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { hhmm, minutesOf } from "@/lib/habits/engine";
-import { composeCue, normalizeCue, PERIODS, splitCue } from "@/lib/habits/period";
+import { ANCHORS, composeCue, normalizeCue, PERIODS, splitCue, switchPeriod } from "@/lib/habits/period";
 
 const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const DAY_NAMES = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
@@ -146,9 +146,14 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
 
             <Field label="Em que parte do dia">
               <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Momento do dia">
-                {PERIODS.map((p) => <button key={p.id} type="button" aria-pressed={parts.period === p.id} onClick={() => setCue(composeCue(p.id, parts.anchor))} className={chip(parts.period === p.id)}>{p.id}</button>)}
+                {PERIODS.map((p) => <button key={p.id} type="button" aria-pressed={parts.period === p.id} onClick={() => setCue(switchPeriod(cue, p.id))} className={chip(parts.period === p.id)}>{p.id}</button>)}
               </div>
-              <Input value={parts.anchor} disabled={!parts.period} maxLength={80} onChange={(e) => setCue(composeCue(parts.period, e.target.value))} placeholder="Ligar a algo que você já faz? Ex.: depois do café" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-12 rounded-2xl" />
+              {parts.period && ANCHORS[parts.period].length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Ligar a algo que você já faz">
+                  {ANCHORS[parts.period].map((a) => <button key={a} type="button" aria-pressed={parts.anchor.toLowerCase() === a} onClick={() => setCue(composeCue(parts.period, parts.anchor.toLowerCase() === a ? "" : a))} className={cn("min-h-9 rounded-full border px-3 text-[13px] font-medium transition-colors", parts.anchor.toLowerCase() === a ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card")}>{a[0].toUpperCase() + a.slice(1)}</button>)}
+                </div>
+              ) : null}
+              <Input value={parts.anchor} disabled={!parts.period} maxLength={80} onChange={(e) => setCue(composeCue(parts.period, e.target.value))} placeholder="Ou escreva o seu gatilho (opcional)" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-12 rounded-2xl" />
             </Field>
 
             {dailyModel ? (
