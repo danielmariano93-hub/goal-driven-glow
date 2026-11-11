@@ -111,3 +111,26 @@ describe("hoje: parcial não conta como feito", () => {
     expect(logLabel("amount")).toBe("Registrar o que consumi");
   });
 });
+
+describe("momento do dia", () => {
+  it("compõe, separa e normaliza o texto do quando", async () => {
+    const { composeCue, splitCue, normalizeCue } = await import("@/lib/habits/period");
+    expect(composeCue("Manhã", "")).toBe("Manhã");
+    expect(composeCue("Noite", "Antes de dormir")).toBe("Noite · antes de dormir");
+    expect(composeCue(null, "x")).toBe("");
+    expect(splitCue("Tarde · depois do almoço")).toEqual({ period: "Tarde", anchor: "depois do almoço" });
+    expect(splitCue("Durante o dia")).toEqual({ period: "Durante o dia", anchor: "" });
+    expect(splitCue("Depois do café").period).toBeNull();
+    expect(normalizeCue("Depois do almoço")).toBe("Tarde · depois do almoço");
+    expect(normalizeCue("Ao acordar")).toBe("Manhã · ao acordar");
+    expect(normalizeCue("Antes de dormir")).toBe("Noite · antes de dormir");
+    expect(normalizeCue("Ao longo do dia")).toBe("Durante o dia");
+    expect(normalizeCue("Quando o salário cair")).toBe("Durante o dia · quando o salário cair");
+    expect(normalizeCue("Manhã · ao acordar")).toBe("Manhã · ao acordar");
+  });
+  it("todo item do catálogo já nasce com um período", async () => {
+    const { CATALOG } = await import("@/lib/habits/catalog");
+    const { splitCue } = await import("@/lib/habits/period");
+    for (const it of CATALOG) if (it.cue) expect(splitCue(it.cue).period, it.id).not.toBeNull();
+  });
+});

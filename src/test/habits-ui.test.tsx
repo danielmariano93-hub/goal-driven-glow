@@ -204,7 +204,7 @@ describe("tela Novo hábito", () => {
     fireEvent.click(screen.getByRole("button", { name: "Começar hoje" }));
     fireEvent.click(screen.getByRole("button", { name: "Criar hábito" }));
     await waitFor(() => expect(h.createAsync).toHaveBeenCalled());
-    expect(h.createAsync.mock.calls[0][0]).toMatchObject({ kind: "do_quantity", form: "duration", title: "Meditar", cue_text: "Depois do café", minimum_text: "3 respirações", quantity_target: 5, start_today: true });
+    expect(h.createAsync.mock.calls[0][0]).toMatchObject({ kind: "do_quantity", form: "duration", title: "Meditar", cue_text: "Manhã · depois do café", minimum_text: "3 respirações", quantity_target: 5, start_today: true });
     await waitFor(() => expect(screen.getByText("hoje")).toBeTruthy());
   });
   it("o nome continua editável em qualquer passo", () => {

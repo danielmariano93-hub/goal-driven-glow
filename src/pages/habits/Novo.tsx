@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Loader2, Moon, Pencil, Plus, Sun, Sunrise, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { HabitIcon } from "@/components/hb/icons";
@@ -11,7 +11,9 @@ import {
   draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, measureText, needsConsent, quitDraftError, quitDraftToInput, quitFromItem, withOption, type Draft, type QuitDraft,
 } from "@/lib/habits/draft";
 
-const CUES = ["Ao acordar", "Depois do café", "Depois do almoço", "Depois do trabalho", "Antes de dormir"];
+import { composeCue, normalizeCue, PERIODS, splitCue, type PeriodId } from "@/lib/habits/period";
+
+const PERIOD_ICON: Record<PeriodId, typeof Sun> = { "Manhã": Sunrise, "Tarde": Sun, "Noite": Moon, "Durante o dia": Clock };
 const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const DAY_NAMES = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
 const CUSTOM: CatalogItem = {
@@ -93,7 +95,8 @@ export default function Novo() {
     setScreen("cue");
   };
   const back = () => (idx === 0 ? navigate("/h/hoje") : setScreen(seq[idx - 1]));
-  const canNext = screen === "cue" ? d.cue_text.trim().length > 0 : screen === "plan" ? q.craving_plan.trim().length > 0 : true;
+  const cue = splitCue(d.cue_text);
+  const canNext = screen === "cue" ? cue.period !== null : screen === "plan" ? q.craving_plan.trim().length > 0 : true;
 
   const submit = async (granted = false) => {
     if (err) return toast.error(err);
@@ -116,7 +119,7 @@ export default function Novo() {
       const r = await suggest.mutateAsync(d.title.trim());
       const p = r.plan;
       if (!p.cue_text && !p.minimum_text) return toast.message("Não tenho sugestão para este hábito. Pode preencher do seu jeito.");
-      set({ cue_text: d.cue_text || p.cue_text || "", minimum_text: d.minimum_text || p.minimum_text || "" });
+      set({ cue_text: d.cue_text || normalizeCue(p.cue_text), minimum_text: d.minimum_text || p.minimum_text || "" });
       toast.success("Sugestão preenchida. Ajuste como preferir.");
     } catch {
       toast.message("Não consegui sugerir agora. Pode preencher do seu jeito.");
@@ -131,7 +134,7 @@ export default function Novo() {
   const dots = Array.from({ length: 7 }, (_, i) => (isQuit ? !!q.craving_plan : !!d.cue_text && (d.form === "weekly" ? i < d.target : d.days.length === 0 || d.days.includes(i))));
   const titles: Record<Screen, [string, string]> = {
     choose: [isQuit ? "O que você quer largar?" : "O que você quer criar?", isQuit ? "Um plano pronto para a hora da vontade faz a diferença." : "Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba."],
-    cue: ["Quando você vai fazer?", "Escolha o momento do dia em que isso já cabe. O nome acima também é editável."],
+    cue: ["Em que parte do dia?", "Escolha o período em que isso cabe. O nome acima também é editável."],
     min: ["E nos dias difíceis?", "Defina o mínimo que ainda conta como feito."],
     measure: ["Como acompanhar?", "Cada hábito se mede de um jeito. Pode ajustar depois, sem perder o histórico."],
     plan: ["Quando bater a vontade?", "O que você vai fazer em vez de ceder."],
@@ -224,12 +227,22 @@ export default function Novo() {
 
             {screen === "cue" ? (
               <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap gap-1.5">{CUES.map((c) => <button key={c} type="button" aria-pressed={d.cue_text === c} onClick={() => set({ cue_text: c })} className={chip(d.cue_text === c)}>{c}</button>)}</div>
-                <input value={CUES.includes(d.cue_text) ? "" : d.cue_text} onChange={(e) => set({ cue_text: e.target.value })} placeholder="Ou escreva o seu momento" aria-label="Momento do dia" maxLength={110} className={field} />
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Momento do dia">
+                  {PERIODS.map((p) => {
+                    const on = cue.period === p.id;
+                    const Icon = PERIOD_ICON[p.id];
+                    return (
+                      <button key={p.id} type="button" aria-pressed={on} onClick={() => set({ cue_text: composeCue(p.id, cue.anchor) })} className={cn("flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors active:scale-[0.98]", on ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
+                        <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl", on ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary")} aria-hidden="true"><Icon className="h-[18px] w-[18px]" strokeWidth={1.9} /></span>
+                        <span className="min-w-0"><span className="block text-[15px] font-semibold leading-5">{p.id}</span><span className="block truncate text-[12px] leading-4 text-muted-foreground">{p.hint}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <input value={cue.anchor} disabled={!cue.period} onChange={(e) => set({ cue_text: composeCue(cue.period, e.target.value) })} placeholder="Ligar a algo que você já faz? Ex.: depois do café" aria-label="Ligar a algo que você já faz (opcional)" maxLength={80} className={cn(field, "disabled:opacity-50")} />
                 <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askAi()} className="inline-flex min-h-10 items-center gap-2 self-start px-1 text-[13px] font-medium text-primary disabled:opacity-40">
                   {suggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Sugerir gatilho e versão mínima (IA)
                 </button>
-                <p className="text-[12px] leading-[17px] text-muted-foreground">Ligar o hábito a algo que você já faz ajuda mais do que um alarme.</p>
               </div>
             ) : null}
 
