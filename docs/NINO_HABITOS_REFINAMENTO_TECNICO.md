@@ -748,3 +748,32 @@ select count(*) filter (where not exists (
        * 1.0 / count(*) as abandono_pos_falha
 from hb_daily_facts f where f.outcome = 'missed' and f.local_date < current_date - 7;
 ```
+
+---
+
+## Apêndice F. Atualização do M1 (F0 + F1): o que foi construído e o que mudou em relação ao plano
+
+Construído e testado: tabelas `hb_access`, `hb_preferences`, `hb_templates` (6 modelos), `hb_habits`, `hb_logs`, `hb_habit_revisions`;
+RPCs `hb_enabled`, `hb_local_today`, `hb_set_mode`, `hb_create_habit`, `hb_update_habit`, `hb_set_status`, `hb_log`, `hb_unlog`,
+`hb_snapshot`; motor `src/lib/habits/engine` (32 testes) e agregação (`aggregate.ts`, 6 testes); lado Hábitos em `/h/*`
+(Hoje, Hábitos, Detalhe, Novo, Progresso, Mais) e o seletor Dinheiro | Hábitos. A migração é `20261111150000_habitos_nucleo.sql`
+(aplicada e validada em transação com desfazer: idempotência, janela de 7 dias, orçamento de folgas, limite de 5 hábitos,
+consentimento sensível, RLS entre pessoas, insert direto negado).
+
+Diferenças deliberadas em relação ao desenho original:
+
+| Item | Plano | M1 | Motivo |
+|---|---|---|---|
+| Liberação | flag `habits_v1` em `agent_runtime_flags` | tabela `hb_access` + `hb_enabled()` | Padrão do projeto para liberar por pessoa (como `habits_v2_access`); `agent_runtime_flags` é global |
+| Rotas | `/app/h/*` | `/h/*`, fora do `AppLayout` e do bloco `/app` | Zero contato com o registro de navegação financeiro; teste de contrato garante |
+| `hb_daily_facts`, `hb_user_daily` | materializadas por job | **não existem**; o motor calcula a partir de `hb_logs` | Com poucos dados, calcular na leitura é mais simples e evita divergência; materializar quando houver volume ou jobs (F2+) |
+| Espelho no servidor (`habits-core` em `_shared`) | no F0 | **adiado para o F2** | Ainda não há consumidor no servidor (lembretes, WhatsApp) |
+| Pausar hábito | previsto no F1 | **só arquivar** | Pausar exige guardar os intervalos de pausa (`hb_pauses`) para os dias parados não virarem falha; entra com uma segunda migração |
+| Sequência e folga | folga contava na sequência | folga **não quebra e não soma** | Evita inflar a sequência com folgas |
+| Virada do dia | 03:00 (proposta) | 03:00, calculada no servidor (`hb_local_today`) | Registrar "dormi cedo" às 00:30 vale para o dia anterior |
+| Telemetria `product_events` | nas RPCs | **adiada** | O funil do M1 já sai das próprias tabelas `hb_*`; a gravação em `product_events` exige o mapeamento `pseudo_id` |
+| Regressão visual (capturas) | Playwright com flag ligada/desligada | **testes de contrato** (só `AppLayout` e `App.tsx` importam Hábitos; `ModeSwitch` não renderiza nada sem liberação) | Cobre o risco estrutural; capturas de tela ficam como reforço antes de abrir a mais pessoas |
+| Ponte na Home | dentro do M1 | **fora** (D7) | É mudança na tela Início |
+| Abrir o lado ao ficar `habits` | "abre onde parou" | só lembra o modo (`hb_set_mode`); **não redireciona** ao abrir o app | Não altera a experiência atual de quem abre o Nino |
+
+Para ligar para uma pessoa: `insert into hb_access(user_id, note) values ('<uuid>', 'piloto');`
