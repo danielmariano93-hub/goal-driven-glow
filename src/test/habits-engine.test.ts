@@ -245,3 +245,25 @@ describe("resumo do hábito para as telas", () => {
     expect(s.streak).toBe(0);
   });
 });
+
+describe("dia aberto: teto e rotina em passos", () => {
+  const today = "2026-11-10";
+  const ceil = base({ kind: "do_quantity", form: "ceiling", direction: "at_most", implicit_ok: true, quantity_target: 3, quantity_period: "day", started_on: "2026-11-01" });
+  const steps = base({ kind: "do_daily", form: "steps", started_on: "2026-11-01" });
+  it("teto: hoje dentro do limite segue aberto; passou do limite já conta", () => {
+    expect(dayOutcome(ceil, L(today, "quantity", 1), today, today)).toBe("unlogged");
+    expect(dayOutcome(ceil, L(today, "quantity", 3), today, today)).toBe("unlogged");
+    expect(dayOutcome(ceil, L(today, "quantity", 3.5), today, today)).toBe("minimum");
+    expect(dayOutcome(ceil, L(today, "quantity", 5), today, today)).toBe("missed");
+  });
+  it("teto: dia fechado dentro do limite é feito; sem registro também (implícito)", () => {
+    expect(dayOutcome(ceil, L("2026-11-09", "quantity", 2), "2026-11-09", today)).toBe("done");
+    expect(dayOutcome(ceil, undefined, "2026-11-09", today)).toBe("done");
+    expect(dayOutcome(ceil, L("2026-11-09", "quantity", 4), "2026-11-09", today)).toBe("missed");
+  });
+  it("rotina: metade dos passos hoje segue aberta; fechada vira versão mínima; completa é feito", () => {
+    expect(dayOutcome(steps, L(today, "minimum"), today, today)).toBe("unlogged");
+    expect(dayOutcome(steps, L("2026-11-09", "minimum"), "2026-11-09", today)).toBe("minimum");
+    expect(dayOutcome(steps, L(today, "done"), today, today)).toBe("done");
+  });
+});
