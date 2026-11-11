@@ -817,3 +817,41 @@ Diferenças em relação ao plano e pendências:
 
 **Antes de ligar para alguém**: aplicar a migração 2 (as funções `hb_*_as` e as preferências não existem sem ela; o webhook e os
 lembretes tratam a ausência como "sem Hábitos" e seguem o caminho normal, e a tela Mais mostra erro ao salvar preferências).
+
+---
+
+## Apêndice H: M3 (F3 Largar + F4 Automaticidade e fases): o que foi construído
+
+Migração: `supabase/migrations/20261112100000_habitos_f3_f4_largar_automaticidade.sql` (aditiva; **aplicada à mão**, como as anteriores).
+
+**Banco**
+- `hb_pauses` (períodos de pausa; dias pausados não contam como falha), `hb_cycles` (um ciclo aberto por hábito de largar, com a linha de base de gasto copiada a cada recomeço), `hb_cravings`, `hb_slips`, `hb_money_links` (categoria), `hb_automaticity_checkins` (nota 1 a 7; "agora não" também fica gravado). RLS: leitura só do dono, escrita só por função.
+- Funções: `hb_grant_consent/hb_revoke_consent`, `hb_create_habit` (agora aceita `quit`, abre o primeiro ciclo hoje e calcula a linha de base), `hb_set_status` (pausa e retoma gravando os períodos; hábito de largar não pausa), `hb_craving(_as)`, `hb_craving_answer(_as)`, `hb_relapse(_as)`, `hb_answer_automaticity` / `hb_automaticity_as`, `hb_category_baseline`, `hb_category_spend`, `hb_quit_money(_as)`. As versões `_as` são só do servidor (service_role).
+- `hb_snapshot` e `hb_snapshot_as` passam a trazer pausas, ciclos, vontades, escorregões, automaticidade, consentimento e `auto_prompt` (pergunta de automaticidade enviada nas últimas 24 h).
+- Modelos de largar: delivery por impulso, redes antes de dormir (normais); cigarro e bebida (marcados como sensíveis, exigem autorização).
+- Catálogo: `hb_automaticity_due` (app + WhatsApp) e `hb_streak_milestone` (app).
+
+**Regras de produto**
+- **Recaída sem culpa**: o escorregão fica registrado; a pessoa escolhe **recomeçar a contagem hoje** (fecha o ciclo e abre outro) ou **só anotar** (a contagem continua). Recorde, total de dias sem e histórico nunca se perdem.
+- **Dias sem** = dias desde o início do ciclo aberto. **Recorde** = maior ciclo. **Total** = soma de todos.
+- **Dinheiro é estimativa**, sempre rotulada: média diária dos 90 dias anteriores (com corte no percentil 95 dos dias para um dia atípico não inflar; precisa de 28 dias de histórico e 3 lançamentos) × dias sem, menos o gasto real da categoria durante o ciclo, nunca negativo. Com valor informado pela pessoa: média informada × dias. Mesmo filtro de consumo real do motor financeiro (confirmado, despesa, sem transferência, sem pagamento de fatura, sem substituído, sem parcela 2+).
+- **Consentimento (D4)**: hábito de saúde ou substância só é criado com autorização específica; vale só para a própria pessoa; pode retirar em Mais. Lembretes desses hábitos só existem com autorização e usam texto discreto (sem o nome do hábito).
+- **Automaticidade**: pergunta de 1 a 7 depois de 14 dias de vida do hábito e a cada 14 dias; "agora não" volta em 7. **Manutenção** = 3 respostas seguidas ≥ 6 com força ≥ 0,66. **Menos lembrete quanto mais automático**: manutenção não recebe lembrete de gatilho; nota ≥ 4 só recebe se ontem ficou em aberto ou falhou.
+- **Marcos**: 7, 14, 30, 60 e 100 dias seguidos; 3, 7, 14, 30, 60, 100, 180 e 365 dias sem. Reconhecimento único, sem pontos nem prêmios.
+
+**Motor (`habits-core`)**: `quit.ts` (`quitStats`, `moneyEstimate`, marcos) e `automaticity.ts` (`automaticitySummary`, `automaticityDue`, `isMaintenance`, `nudgeLevel`), espelhados para as Edge Functions com o teste de paridade.
+
+**Telas** (só dentro de `/h/*`; as telas do Nino Dinheiro não mudam): criar hábito de largar (plano da vontade, categoria ou gasto por dia, autorização), tela **Largar** (dias sem, recorde, total, recomeços, marcos, dinheiro como estimativa, plano para a vontade, "Bateu a vontade", "Eu escorreguei"), seção **Largando** em Hoje e em Hábitos, **card de automaticidade**, **pausar/retomar** no detalhe, seção **Pausados**, chave de **autorização** em Mais.
+
+**WhatsApp** (determinístico, falha fechado; hábito de largar nunca recebe "feito"): "bateu vontade" (devolve o plano da pessoa), "resisti" (só com vontade aberta nas últimas 3 h), "cedi"/"escorreguei" (**só anota**; "recomeçar" zera, só depois de um escorregão anotado nas últimas 24 h), "quantos dias sem", nota 1 a 7 (só se a pergunta foi enviada nas últimas 24 h) e **apoio em crise** com texto fixo (CVV 188, SAMU 192) para frases explícitas.
+
+**Lembretes novos**: marco (uma vez por marco), check-in de automaticidade (no máximo um a cada 7 dias por hábito, entre 10h e 20h).
+
+| Item | Plano | M3 | Motivo |
+|---|---|---|---|
+| Classificação da recaída por IA | sim (F6) | **etiquetas escolhidas pela pessoa** | Sem IA em tema sensível; fica para F6 se houver ganho |
+| "Recaída" por frase livre | classificador | **palavras fortes** (cedi, escorreguei, recaí) ou nome do hábito + verbo | Evita registrar recaída em frase de outro assunto |
+| Escorregão por WhatsApp | zerar | **só anotar** e oferecer "recomeçar" | Reversível e sem punição |
+| Revisão semanal e dia seguinte | F4 | **não incluídos** | Ficam para o fechamento do F4/F6 |
+
+**Antes de ligar para alguém**: aplicar a migração 3. Sem ela, as telas de largar e automaticidade falham ao salvar, o WhatsApp de largar e os novos lembretes não encontram os campos novos e seguem o caminho antigo.

@@ -5,7 +5,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { hbErrorMessage, useRelapse } from "@/lib/habits/api";
 
-export const TRIGGER_TAGS: Array<[string, string]> = [["stress", "Estresse"], ["tedio", "Tédio"], ["social", "Com outras pessoas"], ["cansaco", "Cansaço"], ["rotina", "Hábito de sempre"], ["outro", "Outro"]];
+const TRIGGER_TAGS: Array<[string, string]> = [["stress", "Estresse"], ["tedio", "Tédio"], ["social", "Com outras pessoas"], ["cansaco", "Cansaço"], ["rotina", "Hábito de sempre"], ["outro", "Outro"]];
 
 /** Recaída sem culpa: o recorde e o total ficam; a pessoa escolhe recomeçar a contagem ou só anotar. */
 export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { habitId: string; title: string; open: boolean; onOpenChange: (o: boolean) => void; onDone?: (reset: boolean) => void }) {
