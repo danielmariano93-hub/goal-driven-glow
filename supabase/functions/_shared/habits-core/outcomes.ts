@@ -12,6 +12,9 @@ export const MINIMUM_WEIGHT = 0.6;
 export const isWeeklyModel = (h: HabitDef): boolean =>
   h.kind === "do_weekly_count" || (h.kind === "do_quantity" && h.quantity_period === "week");
 
+/** Cuidado recorrente (consulta, exame, troca de filtro): não tem sequência, só "próximo em N dias". */
+export const isRecurringModel = (h: HabitDef): boolean => h.form === "recurring" && (h.interval_days ?? 0) > 0;
+
 const inPause = (date: string, pauses: PauseRange[]): boolean =>
   pauses.some((p) => date >= p.from && (p.to === null || date <= p.to));
 
@@ -33,6 +36,14 @@ function logOutcome(h: HabitDef, log: LogRow): Outcome {
       return "missed";
     case "quantity": {
       const q = log.quantity ?? 0;
+      // Valor acompanhado (peso, humor…): registrar já vale como feito.
+      if (h.direction === "track") return q > 0 ? "done" : "missed";
+      // Teto ou horário: quanto menor, melhor. Até 20% acima do limite ainda conta como versão mínima.
+      if (h.direction === "at_most") {
+        const limit = h.quantity_target ?? 0;
+        if (q <= limit) return "done";
+        return q <= limit * 1.2 ? "minimum" : "missed";
+      }
       if (h.quantity_target != null && q >= h.quantity_target) return "done";
       return q > 0 ? "minimum" : "missed";
     }
@@ -42,7 +53,9 @@ function logOutcome(h: HabitDef, log: LogRow): Outcome {
 export function dayOutcome(h: HabitDef, log: LogRow | undefined, date: string, today: string, pauses: PauseRange[] = []): Outcome {
   if (!isExpectedDay(h, date, pauses) || date > today) return "not_expected";
   if (log) return logOutcome(h, log);
-  return date === today ? "unlogged" : "missed";
+  if (date === today) return "unlogged";
+  // Teto: sem registro num dia fechado significa que não passou do limite.
+  return h.implicit_ok ? "done" : "missed";
 }
 
 /** Linhas de dia entre `from` e `to`. No modelo semanal, só aparece o que a pessoa registrou. */

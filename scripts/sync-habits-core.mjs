@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-export const HABITS_CORE_MODULES = ["types", "dates", "outcomes", "metrics", "quit", "automaticity", "insights"];
+export const HABITS_CORE_MODULES = ["types", "dates", "outcomes", "metrics", "quit", "automaticity", "insights", "forms"];
 export const HABITS_CONTRACT_VERSION = "habits_contract.v1";
 
 const HEADER = `// GERADO POR scripts/sync-habits-core.mjs — NÃO EDITAR À MÃO.\n` +
