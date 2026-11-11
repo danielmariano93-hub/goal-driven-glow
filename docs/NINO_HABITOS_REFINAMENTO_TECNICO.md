@@ -885,3 +885,37 @@ Migração: `supabase/migrations/20261113100000_habitos_f5_dinheiro.sql` (aditiv
 | Classificação de recaída por IA | sim | **não incluído** | Tema sensível; etiquetas escolhidas pela pessoa bastam |
 
 **Antes de ligar**: aplicar as migrações 3 e 4, nessa ordem. A função `habits-ai` precisa dos segredos de IA já usados pelas demais (`NINO_AI_PROVIDER` etc.); sem eles responde com texto fixo.
+
+---
+
+## Apêndice J: M5 (formas de medir): o que foi construído
+
+Migração: `supabase/migrations/20261114100000_habitos_formas_de_medir.sql` (aditiva; depende das 1 a 4; **aplicada à mão**).
+
+**Princípio.** Cada hábito é uma combinação de três escolhas: como registra (marca, quantidade, horário, valor, passos), período (diário, semanal, por intervalo, até concluir) e direção (mais, menos, janela). Disso saem 11 formas de medir, cada uma com o próprio progresso. O nome do hábito nunca carrega a meta ("Beber água", não "Beber 2 L"): a meta mora na medida e muda sem mexer no nome.
+
+| Forma | Apoia-se em | Progresso que a pessoa vê |
+|---|---|---|
+| Feito ou não | `do_daily` | sequência com folga, mapa de calor, força, marcos de 7, 21, 66 e 100 dias |
+| Quantidade no dia | `do_quantity` (dia) | barras com a meta tracejada, média, melhor dia |
+| Duração | `do_quantity` (min) | minutos por dia, horas no total, marcos de 10, 50, 100 e 250 horas |
+| Vezes por semana | `do_weekly_count` | meta da semana, últimas semanas, semanas seguidas |
+| Horário | `do_quantity` + `at_most` (minutos) | horário médio, variação, dias dentro do alvo |
+| Teto | `do_quantity` + `at_most` + `implicit_ok` | dias dentro do limite (dia sem registro conta como dentro), hoje contra o teto |
+| Valor acompanhado | `do_quantity` + `track` | tendência, variação em 30 dias, menor e maior, rumo à meta |
+| Projeto com total | `do_quantity` + `hb_projects` | % concluído, **previsão de término**, ritmo, marcos de 25 a 100%, concluídos |
+| Largar | `quit` | dias sem, recorde, vontades, dinheiro que ficou |
+| Rotina em passos | `do_daily` + `hb_steps` | passos de hoje; todos = feito, metade = versão mínima |
+| Cuidado recorrente | `do_daily` + `interval_days` | próximo em N dias, em dia ou atrasado; **sem sequência** |
+
+**Banco.** `hb_habits` ganha `form`, `direction`, `implicit_ok`, `interval_days`, `meta`; novas tabelas `hb_projects`, `hb_steps`, `hb_step_logs` (RLS por dono); `hb_create_habit` aceita todas as formas; RPCs `hb_project_add`, `hb_project_start`, `hb_project_update`, `hb_step_toggle`; os snapshots trazem `projects`, `steps` e `step_logs`.
+
+**Motor** (`habits-core`, espelhado): `forms.ts` (forma de um hábito, estatísticas de projeto, horário, teto, valor e recorrência, conquistas) e extensões em `outcomes`/`metrics` (direção, teto implícito, modelo recorrente).
+
+**Conquistas** são marcos do próprio progresso (7 dias seguidos, 50 horas, 75% do livro, 30 dias sem). Derivadas dos dados, sem pontos, sem ranking e sem comparação com outras pessoas.
+
+**Telas.** Novo fluxo de criação (um passo por vez, cartão que se monta, nome editável em qualquer passo, 29 hábitos + 6 de largar no catálogo); registro por forma (`QuickLogSheet`); progresso por forma e conquistas no detalhe; seção "Cuidados" em Hoje.
+
+**Fora desta entrega.** "Pessoas" (lista de contatos no hábito de ligar) e linha do tempo do diário; guardar valor por transações (hoje o projeto em R$ é registrado à mão); WhatsApp para projeto, rotina em passos, horário e recorrente (continuam só no app).
+
+**Antes de ligar**: aplicar a migração 5. Sem ela, criar hábito de projeto ou de rotina em passos cria o hábito sem o projeto ou os passos.

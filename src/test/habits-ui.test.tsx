@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { HbHabitRow } from "@/lib/habits/api";
-import { draftError, draftToInput, EMPTY, EMPTY_QUIT, fromTemplate, needsConsent, quitDraftError, quitDraftToInput } from "@/lib/habits/draft";
+import { draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, needsConsent, quitDraftError, quitDraftToInput, withOption } from "@/lib/habits/draft";
+import { CATALOG, findCatalog } from "@/lib/habits/catalog";
 import { isMoneyTabRoot } from "@/lib/habits/modeRoutes";
 import { summarizeHabit, type LogRow } from "@/lib/habits/engine";
 
@@ -71,28 +72,45 @@ beforeEach(() => {
 });
 
 describe("rascunho do novo hábito", () => {
-  it("todo dia com gatilho e versão mínima vira do_daily com cue_kind after_event", () => {
-    const input = draftToInput({ ...EMPTY, title: " Meditar 5 min ", cue_text: "Depois de tomar café", minimum_text: "3 respirações" });
-    expect(input).toMatchObject({ kind: "do_daily", title: "Meditar 5 min", cue_kind: "after_event", cue_text: "Depois de tomar café", minimum_text: "3 respirações", days_of_week: null, rest_per_week: 1, start_today: false });
+  const cat = (id: string) => findCatalog(id)!;
+  it("feito ou não, com gatilho e versão mínima", () => {
+    const input = draftToInput({ ...EMPTY, title: " Meditar ", cue_text: "Depois de tomar café", minimum_text: "3 respirações" });
+    expect(input).toMatchObject({ kind: "do_daily", form: "check", title: "Meditar", cue_kind: "after_event", cue_text: "Depois de tomar café", minimum_text: "3 respirações", days_of_week: null, start_today: false });
   });
   it("dias escolhidos viram lista; os 7 dias viram 'todos' (nulo)", () => {
     expect(draftToInput({ ...EMPTY, title: "Ler", days: [1, 3, 5] }).days_of_week).toEqual([1, 3, 5]);
     expect(draftToInput({ ...EMPTY, title: "Ler", days: [0, 1, 2, 3, 4, 5, 6] }).days_of_week).toBeNull();
   });
-  it("X por semana e quantidade usam os campos certos", () => {
-    expect(draftToInput({ ...EMPTY, title: "Treinar", cadence: "weekly", weekly_target: 4 })).toMatchObject({ kind: "do_weekly_count", weekly_target: 4 });
-    expect(draftToInput({ ...EMPTY, title: "Ler", cadence: "quantity", quantity_target: "10", quantity_unit: "páginas", quantity_period: "week" }))
-      .toMatchObject({ kind: "do_quantity", quantity_target: 10, quantity_unit: "páginas", quantity_period: "week" });
+  it("cada forma usa os campos certos", () => {
+    expect(draftToInput(fromCatalog(cat("treinar")))).toMatchObject({ kind: "do_weekly_count", form: "weekly", weekly_target: 3 });
+    expect(draftToInput(fromCatalog(cat("agua")))).toMatchObject({ kind: "do_quantity", form: "amount", quantity_target: 2, quantity_unit: "litros", quantity_period: "day" });
+    expect(draftToInput(fromCatalog(cat("caminhar")))).toMatchObject({ form: "duration", quantity_target: 20, quantity_unit: "min" });
+    expect(draftToInput(fromCatalog(cat("dormir")))).toMatchObject({ form: "time", direction: "at_most", quantity_target: 23 * 60 });
+    expect(draftToInput(fromCatalog(cat("tela")))).toMatchObject({ form: "ceiling", direction: "at_most", implicit_ok: true, quantity_target: 3 });
+    expect(draftToInput(fromCatalog(cat("humor")))).toMatchObject({ form: "value", direction: "track" });
+    expect(draftToInput(withOption(fromCatalog(cat("consulta")), cat("consulta"), 0))).toMatchObject({ form: "recurring", interval_days: 365, days_of_week: null });
   });
-  it("valida nome e meta de quantidade; sem gatilho não grava cue_kind", () => {
+  it("o nome nunca carrega a meta: mudar a quantidade não mexe no nome", () => {
+    const d = fromCatalog(cat("agua"));
+    expect(d.title).toBe("Beber água");
+    expect(draftToInput({ ...d, target: 3 })).toMatchObject({ title: "Beber água", quantity_target: 3 });
+  });
+  it("projeto e rotina em passos exigem o que precisam", () => {
+    const ler = withOption(fromCatalog(cat("ler")), cat("ler"), 0);
+    expect(draftError(ler)).toMatch(/projeto/i);
+    expect(draftError({ ...ler, project_title: "Meu livro", project_total: "224" })).toBeNull();
+    expect(draftToInput({ ...ler, project_title: "Meu livro", project_total: "224", project_current: "30" })).toMatchObject({ form: "project", project: { title: "Meu livro", total: 224, current: 30, unit: "páginas" } });
+    const manha = fromCatalog(cat("manha"));
+    expect(draftToInput(manha)).toMatchObject({ form: "steps", steps: ["Beber água", "Arrumar a cama", "Alongar", "Tomar café sem celular"] });
+    expect(draftError({ ...manha, steps: [" ", ""] })).toMatch(/passo/i);
+  });
+  it("valida nome; sem gatilho não grava cue_kind", () => {
     expect(draftError({ ...EMPTY, title: "" })).toMatch(/nome/i);
-    expect(draftError({ ...EMPTY, title: "Ler", cadence: "quantity", quantity_target: "" })).toMatch(/quantidade/i);
     expect(draftError({ ...EMPTY, title: "Ler" })).toBeNull();
     expect(draftToInput({ ...EMPTY, title: "Ler" }).cue_kind).toBeNull();
   });
-  it("modelo pronto preenche gatilho, versão mínima e tipo", () => {
-    const d = fromTemplate({ id: "t1", slug: "ler-10", title: "Ler 10 páginas", area: "mind", kind: "do_quantity", cue_suggestion: "Antes de dormir", minimum_suggestion: "Ler 1 página", why_it_works: null, weekly_target: null, quantity_target: 10, quantity_unit: "páginas", quantity_period: "day", sort_order: 40 });
-    expect(d).toMatchObject({ template_id: "t1", cadence: "quantity", quantity_target: "10", cue_text: "Antes de dormir", minimum_text: "Ler 1 página" });
+  it("catálogo: nenhum nome carrega número de meta", () => {
+    for (const it of CATALOG) expect(it.label).not.toMatch(/\d/);
   });
 });
 
@@ -177,17 +195,29 @@ describe("tela Hoje", () => {
 });
 
 describe("tela Novo hábito", () => {
-  it("escolhe um modelo, ajusta e cria com o payload esperado", async () => {
-    h.templates = { data: [{ id: "t1", slug: "meditar-5", title: "Meditar 5 min", area: "mind", kind: "do_daily", cue_suggestion: "Depois de tomar café", minimum_suggestion: "3 respirações", why_it_works: null, weekly_target: null, quantity_target: null, quantity_unit: null, quantity_period: null, sort_order: 30 }], isLoading: false };
+  it("escolhe uma sugestão, percorre o fluxo e cria com o payload esperado", async () => {
     render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /><Route path="/h/hoje" element={<p>hoje</p>} /></Routes></MemoryRouter>);
-    fireEvent.click(screen.getByRole("button", { name: /Meditar 5 min/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Hoje" }));
+    fireEvent.click(screen.getByRole("button", { name: "Meditar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" })); // quando
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" })); // dia ruim
+    fireEvent.click(screen.getByRole("button", { name: "Continuar" })); // como acompanhar
+    fireEvent.click(screen.getByRole("button", { name: "Começar hoje" }));
     fireEvent.click(screen.getByRole("button", { name: "Criar hábito" }));
     await waitFor(() => expect(h.createAsync).toHaveBeenCalled());
-    expect(h.createAsync.mock.calls[0][0]).toMatchObject({ kind: "do_daily", title: "Meditar 5 min", template_id: "t1", cue_text: "Depois de tomar café", minimum_text: "3 respirações", start_today: true });
+    expect(h.createAsync.mock.calls[0][0]).toMatchObject({ kind: "do_quantity", form: "duration", title: "Meditar", cue_text: "Depois do café", minimum_text: "3 respirações", quantity_target: 5, start_today: true });
     await waitFor(() => expect(screen.getByText("hoje")).toBeTruthy());
+  });
+  it("o nome continua editável em qualquer passo", () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Beber água" }));
+    fireEvent.change(screen.getByLabelText(/Nome do hábito/), { target: { value: "Beber 3 L de água" } });
+    expect((screen.getByLabelText(/Nome do hábito/) as HTMLInputElement).value).toBe("Beber 3 L de água");
+  });
+  it("Largar tem fluxo próprio", () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Largar algo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delivery por impulso" }));
+    expect(screen.getByText("Quando bater a vontade?")).toBeTruthy();
   });
 });
 

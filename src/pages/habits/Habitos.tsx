@@ -3,16 +3,22 @@ import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
 import { AreaTile, SectionLabel } from "@/components/hb/kit";
+import { targetText } from "@/lib/habits/present";
 import { useHabitViews, type HabitView } from "@/lib/habits/api";
 
 export const MAX_ACTIVE_HABITS = 5;
 
 const cadence = (v: HabitView): string => {
   const h = v.habit;
-  if (h.kind === "do_weekly_count") return `${h.weekly_target}x por semana`;
-  if (h.kind === "do_quantity") return `${h.quantity_target} ${h.quantity_unit ?? ""} por ${h.quantity_period === "week" ? "semana" : "dia"}`.replace("  ", " ");
-  if (h.days_of_week && h.days_of_week.length > 0 && h.days_of_week.length < 7) return `${h.days_of_week.length} dias por semana`;
-  return "Todo dia";
+  switch (v.form) {
+    case "amount": case "duration": case "time": case "ceiling": return targetText(v);
+    case "value": return "Acompanhar valor";
+    case "project": return v.project ? v.project.title : "Projeto";
+    case "steps": return `Rotina de ${v.steps.length} passos`;
+    case "recurring": return `A cada ${h.interval_days} dias`;
+    case "weekly": return `${h.weekly_target}x por semana`;
+    default: return h.days_of_week && h.days_of_week.length > 0 && h.days_of_week.length < 7 ? `${h.days_of_week.length} dias por semana` : "Todo dia";
+  }
 };
 
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);

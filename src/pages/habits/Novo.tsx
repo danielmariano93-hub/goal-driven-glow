@@ -1,59 +1,117 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, X } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { AreaTile, RowCard, SectionLabel, Steps } from "@/components/hb/kit";
+import { HabitIcon } from "@/components/hb/icons";
 import { ConsentSheet } from "@/components/hb/ConsentSheet";
-import { hbErrorMessage, useCreateHabit, useExpenseCategories, useHabitViews, useHbTemplates, useSuggestPlan, type HbArea } from "@/lib/habits/api";
+import { CATALOG, findCatalog, QUIT_CATALOG, type CatalogItem, type IconKey } from "@/lib/habits/catalog";
+import { hbErrorMessage, useCreateHabit, useExpenseCategories, useHabitViews, useSuggestPlan } from "@/lib/habits/api";
 import {
-  draftError, draftToInput, EMPTY, EMPTY_QUIT, fromTemplate, needsConsent, quitDraftError, quitDraftToInput, quitFromTemplate, type Draft, type QuitDraft,
+  draftError, draftToInput, EMPTY, EMPTY_QUIT, fromCatalog, measureText, needsConsent, quitDraftError, quitDraftToInput, quitFromItem, withOption, type Draft, type QuitDraft,
 } from "@/lib/habits/draft";
 
-const AREAS: Array<[HbArea, string]> = [["body", "Corpo"], ["mind", "Mente"], ["routine", "Rotina"], ["money", "Dinheiro"], ["other", "Outro"]];
-const DAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
+const CUES = ["Ao acordar", "Depois do café", "Depois do almoço", "Depois do trabalho", "Antes de dormir"];
+const DAY_LETTERS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const DAY_NAMES = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
-const CUE_EXAMPLES = ["Ao acordar", "Depois do café", "Depois do almoço", "Antes de dormir"];
-const STEP_TITLES = ["Quando você vai fazer?", "E nos dias difíceis?", "Como vai funcionar?"];
+const CUSTOM: CatalogItem = {
+  id: "custom", label: "", area: "other", icon: "sun",
+  options: [
+    { form: "check", label: "Feito ou não", unit: "", target: 0, step: 1 },
+    { form: "weekly", label: "Vezes na semana", unit: "vezes por semana", target: 3, step: 1, min: 1, max: 7 },
+    { form: "amount", label: "Quantidade", unit: "vezes por dia", target: 1, step: 1, min: 1 },
+  ],
+};
 
-function Back({ onClick, to }: { onClick?: () => void; to?: string }) {
-  const cls = "-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-muted";
-  return to ? <Link to={to} aria-label="Voltar" className={cls}><ChevronLeft className="h-5 w-5" aria-hidden="true" /></Link>
-    : <button type="button" aria-label="Voltar" onClick={onClick} className={cls}><ChevronLeft className="h-5 w-5" aria-hidden="true" /></button>;
+type Screen = "choose" | "cue" | "min" | "measure" | "plan" | "cost" | "done";
+
+const chip = (on: boolean) => cn("h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted");
+const field = "h-11 w-full rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none transition-colors focus:border-primary";
+
+function Segmented<T extends string | number>({ value, options, onChange, label }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void; label: string }) {
+  return (
+    <div role="group" aria-label={label} className="flex rounded-xl bg-muted p-[3px]">
+      {options.map(([k, l]) => (
+        <button key={String(k)} type="button" aria-pressed={value === k} onClick={() => onChange(k)} className={cn("h-[34px] flex-1 rounded-[9px] px-1 text-[13px] font-medium transition-colors", value === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+function Stepper({ value, onChange, step, min, max, big, unit }: { value: number; onChange: (n: number) => void; step: number; min?: number; max?: number; big?: string; unit: string }) {
+  const clamp = (n: number) => Math.min(max ?? 99999, Math.max(min ?? 0, Math.round(n * 100) / 100));
+  const shown = big ?? String(value).replace(".", ",");
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-card p-2 shadow-card">
+      <button type="button" aria-label="Menos" onClick={() => onChange(clamp(value - step))} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg transition-transform active:scale-95">−</button>
+      <div className="text-center">
+        <p className="font-display text-[26px] font-semibold leading-7 tracking-[-0.03em] tabular-nums">{shown}</p>
+        <p className="text-[12px] text-muted-foreground">{unit}</p>
+      </div>
+      <button type="button" aria-label="Mais" onClick={() => onChange(clamp(value + step))} className="grid h-10 w-10 place-items-center rounded-full bg-muted text-lg transition-transform active:scale-95">+</button>
+    </div>
+  );
 }
 
 export default function Novo() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const templates = useHbTemplates();
   const create = useCreateHabit();
-  const { consent } = useHabitViews();
-  const [step, setStep] = useState<"choose" | "plan" | "quit">("choose");
-  const [sub, setSub] = useState(0);
-  const [d, setD] = useState<Draft>(EMPTY);
+  const { consent, activeCount } = useHabitViews();
+  const categories = useExpenseCategories(false);
+  const suggest = useSuggestPlan();
+  const wanted = params.get("t");
+  const initial = useMemo(() => (wanted ? findCatalog(wanted) ?? null : null), [wanted]);
+  const [mode, setMode] = useState<"do" | "quit">("do");
+  const [screen, setScreen] = useState<Screen>(initial ? "cue" : "choose");
+  const [item, setItem] = useState<CatalogItem | null>(initial);
+  const [d, setD] = useState<Draft>(initial ? fromCatalog(initial) : EMPTY);
   const [q, setQ] = useState<QuitDraft>(EMPTY_QUIT);
   const [consentOpen, setConsentOpen] = useState(false);
-  const categories = useExpenseCategories(step === "quit");
-  const suggest = useSuggestPlan();
-  const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }));
-  const setQuit = (patch: Partial<QuitDraft>) => setQ((prev) => ({ ...prev, ...patch }));
-  const err = draftError(d);
-  const quitErr = quitDraftError(q);
+  const set = (patch: Partial<Draft>) => setD((p) => ({ ...p, ...patch }));
+  const setQuit = (patch: Partial<QuitDraft>) => setQ((p) => ({ ...p, ...patch }));
+  void categories;
 
-  // Atalho vindo da tela Hoje: /h/novo?t=meditar-5 já abre o plano do modelo escolhido.
-  const wanted = params.get("t");
-  useEffect(() => {
-    if (!wanted || step !== "choose") return;
-    const t = (templates.data ?? []).find((x) => x.slug === wanted);
-    if (!t) return;
-    if (t.kind === "quit") { setQ(quitFromTemplate(t)); setStep("quit"); } else { setD(fromTemplate(t)); setSub(0); setStep("plan"); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, templates.data]);
+  const isQuit = mode === "quit";
+  const seq: Screen[] = isQuit ? ["choose", "plan", "cost", "done"] : ["choose", "cue", "min", "measure", "done"];
+  const idx = Math.max(0, seq.indexOf(screen));
+  const err = isQuit ? quitDraftError(q) : draftError(d);
+  const options = (item ?? CUSTOM).options;
+  const opt = options[d.option_index] ?? options[0];
 
-  const askSuggestion = async () => {
+  const pickItem = (it: CatalogItem) => { setItem(it); setD(fromCatalog(it)); setScreen("cue"); };
+  const pickQuit = (id: string) => {
+    const it = QUIT_CATALOG.find((x) => x.id === id);
+    if (!it) return;
+    setQ(quitFromItem(it));
+    setScreen("plan");
+  };
+  const startOwn = (name: string) => {
+    if (isQuit) { setQuit({ title: name }); setScreen("plan"); return; }
+    setItem(null);
+    setD({ ...EMPTY, title: name, option_index: 0 });
+    setScreen("cue");
+  };
+  const back = () => (idx === 0 ? navigate("/h/hoje") : setScreen(seq[idx - 1]));
+  const canNext = screen === "cue" ? d.cue_text.trim().length > 0 : screen === "plan" ? q.craving_plan.trim().length > 0 : true;
+
+  const submit = async (granted = false) => {
+    if (err) return toast.error(err);
+    if (isQuit && needsConsent(q) && !consent && !granted) return setConsentOpen(true);
+    try {
+      await create.mutateAsync(isQuit ? quitDraftToInput(q) : draftToInput(d));
+      toast.success(isQuit ? "Pronto. A contagem começou hoje." : d.start_today ? "Hábito criado. Comece hoje." : "Hábito criado. Começa amanhã.");
+      navigate("/h/hoje", { replace: true });
+    } catch (e) {
+      toast.error(hbErrorMessage(e));
+    }
+  };
+  const next = () => {
+    if (screen === "done") return void submit();
+    if (!canNext) return;
+    setScreen(seq[Math.min(seq.length - 1, idx + 1)]);
+  };
+  const askAi = async () => {
     try {
       const r = await suggest.mutateAsync(d.title.trim());
       const p = r.plan;
@@ -65,232 +123,236 @@ export default function Novo() {
     }
   };
 
-  const submit = async () => {
-    if (err) return toast.error(err);
-    try {
-      await create.mutateAsync(draftToInput(d));
-      toast.success(d.start_today ? "Hábito criado. Comece hoje." : "Hábito criado. Começa amanhã.");
-      navigate("/h/hoje", { replace: true });
-    } catch (e) {
-      toast.error(hbErrorMessage(e));
-    }
+  // ------------------------------------------------------------ cartão do hábito (monta enquanto a pessoa responde)
+  const name = isQuit ? q.title : d.title;
+  const icon: IconKey = isQuit ? (QUIT_CATALOG.find((x) => x.label === q.title)?.icon ?? "smoke") : d.icon;
+  const line = isQuit ? (q.craving_plan ? `Na vontade: ${q.craving_plan.toLowerCase()}` : "Defina o seu plano para a vontade") : d.cue_text ? `${d.cue_text} · ${measureText(d)}` : "Defina o momento do dia";
+  const meta = isQuit ? "a contagem começa hoje" : d.minimum_text ? `Dia ruim: ${d.minimum_text.toLowerCase()}` : "";
+  const dots = Array.from({ length: 7 }, (_, i) => (isQuit ? !!q.craving_plan : !!d.cue_text && (d.form === "weekly" ? i < d.target : d.days.length === 0 || d.days.includes(i))));
+  const titles: Record<Screen, [string, string]> = {
+    choose: [isQuit ? "O que você quer largar?" : "O que você quer criar?", isQuit ? "Um plano pronto para a hora da vontade faz a diferença." : "Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba."],
+    cue: ["Quando você vai fazer?", "Escolha o momento do dia em que isso já cabe. O nome acima também é editável."],
+    min: ["E nos dias difíceis?", "Defina o mínimo que ainda conta como feito."],
+    measure: ["Como acompanhar?", "Cada hábito se mede de um jeito. Pode ajustar depois, sem perder o histórico."],
+    plan: ["Quando bater a vontade?", "O que você vai fazer em vez de ceder."],
+    cost: ["Quanto isso custa?", "Opcional. Serve para estimar o que ficou com você."],
+    done: ["Tudo certo?", "Toque em qualquer linha para ajustar."],
   };
-  const submitQuit = async (granted = false) => {
-    if (quitErr) return toast.error(quitErr);
-    if (needsConsent(q) && !consent && !granted) return setConsentOpen(true);
-    try {
-      await create.mutateAsync(quitDraftToInput(q));
-      toast.success("Pronto. A contagem começou hoje.");
-      navigate("/h/hoje", { replace: true });
-    } catch (e) {
-      toast.error(hbErrorMessage(e));
-    }
-  };
+  const [title, helper] = titles[screen];
 
-  const chip = (on: boolean) => cn("min-h-11 rounded-full border px-4 text-sm font-medium transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted");
+  const setName = (v: string) => (isQuit ? setQuit({ title: v }) : set({ title: v }));
+  const projectFields = d.form === "project" && item?.project;
+  const forecast = (() => {
+    const total = Number(d.project_total) || 0;
+    const cur = Number(d.project_current) || 0;
+    if (!total || d.target < 1) return "Informe o total e eu calculo a previsão de término. Você também pode preencher depois.";
+    return `No ritmo de ${d.target} ${d.unit.replace(" por vez", "").replace(" por dia", "")} por ${d.unit.includes("vez") ? "vez" : "dia"}, faltam cerca de ${Math.ceil(Math.max(0, total - cur) / d.target)} ${d.unit.includes("vez") ? "vezes" : "dias"}.`;
+  })();
+  const summary: Array<[string, string, Screen]> = isQuit
+    ? [["Largar", q.title, "choose"], ["Na vontade", q.craving_plan, "plan"], ["Custo", q.daily_cost ? `R$ ${q.daily_cost} por dia` : q.category_id ? "Pela minha categoria" : "Não informado", "cost"]]
+    : [["Hábito", d.title, "choose"], ["Quando", d.cue_text, "cue"], ["Dia ruim", d.minimum_text || "Sem versão mínima", "min"], ["Acompanhar", measureText(d), "measure"]];
 
-  // ---------------------------------------------------------------- escolher
-  if (step === "choose") {
-    const doing = (templates.data ?? []).filter((t) => t.kind !== "quit");
-    const quitting = (templates.data ?? []).filter((t) => t.kind === "quit");
-    return (
-      <div className="px-4 pb-8">
-        <div className="pt-3"><Back to="/h/hoje" /></div>
-        <h1 className="mt-1 font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">O que você quer que vire rotina?</h1>
-        <p className="mt-2 text-[15px] leading-6 text-muted-foreground">Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba.</p>
-        {templates.isLoading ? (
-          <div className="grid min-h-[30vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>
-        ) : (
-          <>
-            <SectionLabel className="mt-6">Começar a fazer</SectionLabel>
-            <ul className="flex flex-col gap-2">
-              {doing.map((t) => (
-                <li key={t.id}>
-                  <button type="button" onClick={() => { setD(fromTemplate(t)); setSub(0); setStep("plan"); }} className="block w-full text-left" aria-label={t.title}>
-                    <RowCard lead={<AreaTile area={t.area} title={t.title} />} title={t.title} hint={t.minimum_suggestion ? `Dia ruim: ${t.minimum_suggestion}` : t.why_it_works} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button type="button" onClick={() => { setD(EMPTY); setSub(0); setStep("plan"); }} className="mt-3 flex h-12 w-full items-center justify-center rounded-full border border-dashed border-primary/40 text-[15px] font-medium text-primary transition-colors hover:bg-primary/5">Criar o meu próprio</button>
-
-            <SectionLabel>Largar algo</SectionLabel>
-            <ul className="flex flex-col gap-2">
-              {quitting.map((t) => (
-                <li key={t.id}>
-                  <button type="button" onClick={() => { setQ(quitFromTemplate(t)); setStep("quit"); }} className="block w-full text-left" aria-label={t.title}>
-                    <RowCard lead={<AreaTile area={t.area} title={t.title} />} title={t.title} hint={t.why_it_works} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button type="button" onClick={() => { setQ(EMPTY_QUIT); setStep("quit"); }} className="mt-3 flex h-12 w-full items-center justify-center rounded-full border border-dashed border-primary/40 text-[15px] font-medium text-primary transition-colors hover:bg-primary/5">Largar outra coisa</button>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------- largar
-  if (step === "quit") {
-    return (
-      <div className="px-4 pb-8">
-        <div className="pt-3"><Back onClick={() => setStep("choose")} /></div>
-        <h1 className="mt-1 font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">Largar com um plano</h1>
-        <p className="mt-2 text-[15px] leading-6 text-muted-foreground">A contagem começa hoje. Se escorregar, você recomeça sem perder o recorde.</p>
-        <div className="mt-6 flex flex-col gap-6">
-          <div>
-            <Label htmlFor="hb-q-title" className="text-[15px] font-medium">O que você quer largar?</Label>
-            <Input id="hb-q-title" value={q.title} maxLength={80} onChange={(e) => setQuit({ title: e.target.value })} placeholder="Ex.: delivery por impulso" className="mt-2 h-14 rounded-2xl text-base" />
-          </div>
-          <div>
-            <Label htmlFor="hb-q-plan" className="text-[15px] font-medium">Quando bater a vontade, eu vou…</Label>
-            <Input id="hb-q-plan" value={q.craving_plan} maxLength={160} onChange={(e) => setQuit({ craving_plan: e.target.value })} placeholder="beber água e esperar 10 minutos" className="mt-2 h-14 rounded-2xl text-base" />
-            <p className="mt-2 text-[13px] leading-5 text-muted-foreground">Decidir antes ajuda mais do que contar com força de vontade na hora.</p>
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-            <p className="text-[15px] font-medium">Quanto isso custa? <span className="font-normal text-muted-foreground">(opcional)</span></p>
-            <p className="mt-1 text-[13px] leading-5 text-muted-foreground">Eu mostro uma estimativa do que ficou com você. Escolha uma categoria para usar a sua média real, ou informe um valor por dia.</p>
-            <select
-              aria-label="Categoria de gasto"
-              value={q.category_id}
-              onChange={(e) => setQuit({ category_id: e.target.value, category_label: (categories.data ?? []).find((c) => c.id === e.target.value)?.name ?? "" })}
-              className="mt-3 h-12 w-full rounded-xl border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Sem categoria</option>
-              {(categories.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <Input aria-label="Gasto por dia" inputMode="decimal" value={q.daily_cost} onChange={(e) => setQuit({ daily_cost: e.target.value })} placeholder="Gasto por dia, em reais" className="mt-2 h-12 rounded-xl" />
-          </div>
-          <Button className="h-14 rounded-full text-base font-medium" disabled={create.isPending} onClick={() => void submitQuit(false)}>
-            {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Começar a contagem"}
-          </Button>
-          {quitErr && q.title ? <p className="-mt-3 text-center text-[13px] text-muted-foreground">{quitErr}</p> : null}
-        </div>
-        <ConsentSheet open={consentOpen} onOpenChange={setConsentOpen} onGranted={() => { setConsentOpen(false); void submitQuit(true); }} />
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------- plano em 3 passos
-  const last = sub === 2;
-  const canNext = sub === 0 ? d.title.trim().length >= 2 : true;
   return (
-    <div className="px-4 pb-8">
-      <div className="flex items-center gap-3 pt-3">
-        <Back onClick={() => (sub === 0 ? setStep("choose") : setSub(sub - 1))} />
-        <div className="flex-1"><Steps current={sub} total={3} /></div>
-      </div>
-      <h1 className="mt-4 font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">{STEP_TITLES[sub]}</h1>
+    <div className="flex min-h-[100dvh] flex-col bg-background">
+      {/* Topo: degradê com o cartão que se monta */}
+      <header className="bg-gradient-hero px-5 pb-9 pt-2 text-primary-foreground" style={{ paddingTop: "max(env(safe-area-inset-top), 8px)" }}>
+        <div className="flex h-10 items-center justify-between">
+          <button type="button" onClick={back} aria-label="Voltar" className="-ml-2 grid h-10 w-10 place-items-center rounded-full transition-colors hover:bg-white/10"><ChevronLeft className="h-5 w-5" aria-hidden="true" /></button>
+          <div className="flex items-center gap-1.5" role="progressbar" aria-valuemin={1} aria-valuemax={seq.length - 1} aria-valuenow={Math.max(1, idx)} aria-label="Progresso">
+            {seq.slice(1).map((s, i) => <i key={s} className={cn("block h-1.5 rounded-full transition-all duration-300", i + 1 === idx ? "w-[22px] bg-white" : i + 1 < idx ? "w-1.5 bg-white" : "w-1.5 bg-white/30")} />)}
+          </div>
+          <span className="w-10 text-right text-[13px] text-white/70">{idx === 0 ? "" : `${idx}/${seq.length - 1}`}</span>
+        </div>
+        <div className="mt-1.5 flex flex-col gap-2 rounded-2xl bg-white/12 px-3 py-2.5">
+          <div className="flex items-center gap-3">
+            <span className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[10px] bg-white/15"><HabitIcon name={icon} size={17} /></span>
+            <div className="min-w-0 flex-1">
+              <label className="flex cursor-text items-center gap-1.5">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={isQuit ? "O que você quer largar" : "Seu hábito"}
+                  aria-label="Nome do hábito (toque para editar)"
+                  maxLength={80}
+                  className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 font-display text-[15px] font-semibold leading-[19px] tracking-[-0.01em] text-white outline-none placeholder:text-white/55"
+                />
+                <Pencil className="h-3 w-3 shrink-0 text-white/65" aria-hidden="true" />
+              </label>
+              <p className={cn("truncate text-[12px] leading-4", (isQuit ? q.craving_plan : d.cue_text) ? "text-white/85" : "text-white/50")}>{line}</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1.5" aria-hidden="true">{dots.map((on, i) => <i key={i} className={cn("block h-2 w-2 rounded-full border transition-all", on ? "border-white bg-white" : "border-white/40")} />)}</div>
+            <span className="truncate pl-3 text-[11px] text-white/70">{meta}</span>
+          </div>
+        </div>
+      </header>
 
-      <div className="mt-6 flex flex-col gap-6">
-        {sub === 0 ? (
-          <>
-            <div>
-              <Label htmlFor="hb-n-title" className="text-[15px] font-medium">Nome do hábito</Label>
-              <Input id="hb-n-title" value={d.title} maxLength={80} onChange={(e) => set({ title: e.target.value })} placeholder="Ex.: Meditar 5 min" className="mt-2 h-14 rounded-2xl text-base" />
-              <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askSuggestion()} className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-full px-1 text-[14px] font-medium text-primary transition-colors hover:text-primary/80 disabled:opacity-40">
-                {suggest.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}Sugerir gatilho e versão mínima (IA)
-              </button>
-            </div>
-            <div>
-              <Label htmlFor="hb-n-cue" className="text-[15px] font-medium">Em que momento do dia?</Label>
-              <Input id="hb-n-cue" aria-label="Momento do dia" value={d.cue_text} maxLength={110} onChange={(e) => set({ cue_text: e.target.value })} placeholder="Depois de tomar café" className="mt-2 h-14 rounded-2xl text-base" />
-              <div className="mt-3 flex flex-wrap gap-2">
-                {CUE_EXAMPLES.map((c) => <button key={c} type="button" onClick={() => set({ cue_text: c })} className={chip(d.cue_text === c)}>{c}</button>)}
-              </div>
-              <p className="mt-3 text-[13px] leading-5 text-muted-foreground">Ligar o hábito a algo que você já faz todo dia ajuda mais do que um alarme.</p>
-            </div>
-          </>
-        ) : null}
+      {/* Folha clara: uma pergunta por vez */}
+      <section className="-mt-4 flex min-h-0 flex-1 flex-col rounded-t-3xl bg-background">
+        <div key={screen} className="flex min-h-0 flex-1 flex-col px-5 pt-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <h1 className="font-display text-[22px] font-semibold leading-[26px] tracking-[-0.02em]">{title}</h1>
+          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{helper}</p>
 
-        {sub === 1 ? (
-          <>
-            <div>
-              <Label htmlFor="hb-n-min" className="text-[15px] font-medium">Se o dia estiver ruim, eu faço só…</Label>
-              <Input id="hb-n-min" value={d.minimum_text} maxLength={120} onChange={(e) => set({ minimum_text: e.target.value })} placeholder="3 respirações" className="mt-2 h-14 rounded-2xl text-base" />
-              <p className="mt-2 text-[13px] leading-5 text-muted-foreground">A versão mínima conta como feito e mantém o hábito vivo.</p>
-            </div>
-            <div>
-              <p className="mb-2 text-[15px] font-medium">Frequência</p>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Frequência">
-                <button type="button" className={chip(d.cadence === "daily")} aria-pressed={d.cadence === "daily"} onClick={() => set({ cadence: "daily" })}>Todo dia</button>
-                <button type="button" className={chip(d.cadence === "weekly")} aria-pressed={d.cadence === "weekly"} onClick={() => set({ cadence: "weekly" })}>X por semana</button>
-                <button type="button" className={chip(d.cadence === "quantity")} aria-pressed={d.cadence === "quantity"} onClick={() => set({ cadence: "quantity" })}>Quantidade</button>
-              </div>
-              {d.cadence === "daily" ? (
-                <div className="mt-4">
-                  <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Dias da semana (vazio = todos)">
-                    {DAYS.map((l, i) => {
-                      const on = d.days.includes(i);
-                      return <button key={i} type="button" aria-pressed={on} aria-label={DAY_NAMES[i]} onClick={() => set({ days: on ? d.days.filter((x) => x !== i) : [...d.days, i].sort() })} className={cn("h-12 rounded-xl border text-sm font-medium transition-colors", on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted")}>{l}</button>;
-                    })}
-                  </div>
-                  <p className="mt-2 text-[13px] text-muted-foreground">Sem escolher nenhum, vale todos os dias.</p>
-                </div>
-              ) : null}
-              {d.cadence === "weekly" ? (
-                <div className="mt-4 flex items-center justify-between rounded-2xl border border-border/60 bg-card p-3 shadow-card">
-                  <Button type="button" variant="outline" className="h-12 w-12 rounded-full text-lg" aria-label="Menos" onClick={() => set({ weekly_target: Math.max(1, d.weekly_target - 1) })}>−</Button>
-                  <span className="font-display text-xl font-semibold tabular-nums">{d.weekly_target}x por semana</span>
-                  <Button type="button" variant="outline" className="h-12 w-12 rounded-full text-lg" aria-label="Mais" onClick={() => set({ weekly_target: Math.min(7, d.weekly_target + 1) })}>+</Button>
-                </div>
-              ) : null}
-              {d.cadence === "quantity" ? (
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Input type="number" inputMode="decimal" min={0} step="any" aria-label="Meta" value={d.quantity_target} onChange={(e) => set({ quantity_target: e.target.value })} placeholder="Meta" className="h-12 rounded-xl" />
-                  <Input aria-label="Unidade" value={d.quantity_unit} maxLength={20} onChange={(e) => set({ quantity_unit: e.target.value })} placeholder="páginas" className="h-12 rounded-xl" />
-                  <div className="col-span-2 flex gap-2" role="group" aria-label="Período">
-                    <button type="button" aria-pressed={d.quantity_period === "day"} onClick={() => set({ quantity_period: "day" })} className={cn(chip(d.quantity_period === "day"), "flex-1")}>por dia</button>
-                    <button type="button" aria-pressed={d.quantity_period === "week"} onClick={() => set({ quantity_period: "week" })} className={cn(chip(d.quantity_period === "week"), "flex-1")}>por semana</button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </>
-        ) : null}
-
-        {sub === 2 ? (
-          <>
-            {d.cadence !== "weekly" && !(d.cadence === "quantity" && d.quantity_period === "week") ? (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-                <div className="min-w-0"><p className="text-[15px] font-medium">Folgas por semana</p><p className="text-[13px] leading-5 text-muted-foreground">Um dia de folga não quebra a sequência.</p></div>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" className="h-11 w-11 rounded-full" aria-label="Menos folgas" onClick={() => set({ rest_per_week: Math.max(0, d.rest_per_week - 1) })}>−</Button>
-                  <span className="w-5 text-center font-display text-lg font-semibold tabular-nums">{d.rest_per_week}</span>
-                  <Button type="button" variant="outline" className="h-11 w-11 rounded-full" aria-label="Mais folgas" onClick={() => set({ rest_per_week: Math.min(3, d.rest_per_week + 1) })}>+</Button>
+          <div className="mt-3.5 flex-1 overflow-y-auto pb-3">
+            {screen === "choose" ? (
+              <div className="flex flex-col gap-3">
+                <Segmented value={mode} label="Tipo de hábito" options={[["do", "Começar a fazer"], ["quit", "Largar algo"]]} onChange={(m) => { setMode(m); setItem(null); setD(EMPTY); setQ(EMPTY_QUIT); }} />
+                <form onSubmit={(e) => { e.preventDefault(); const v = (new FormData(e.currentTarget).get("own") as string ?? "").trim(); if (v.length >= 2) startOwn(v); }} className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card pl-3.5 pr-1.5">
+                  <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  <input name="own" placeholder={isQuit ? "Escreva o que quer largar" : "Escreva o seu próprio hábito"} aria-label="Nome do hábito" maxLength={80} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
+                  <button type="submit" aria-label="Continuar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"><ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
+                </form>
+                <p className="text-[12px] text-muted-foreground">Ou comece por uma sugestão</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {isQuit
+                    ? QUIT_CATALOG.map((it) => (
+                        <button key={it.id} type="button" aria-label={it.label} onClick={() => pickQuit(it.id)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
+                          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
+                          <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
+                        </button>
+                      ))
+                    : CATALOG.map((it) => (
+                        <button key={it.id} type="button" aria-label={it.label} onClick={() => pickItem(it)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
+                          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
+                          <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
+                        </button>
+                      ))}
                 </div>
               </div>
             ) : null}
-            <div>
-              <p className="mb-2 text-[15px] font-medium">Começar</p>
-              <div className="flex gap-2" role="group" aria-label="Início">
-                <button type="button" className={cn(chip(!d.start_today), "flex-1")} aria-pressed={!d.start_today} onClick={() => set({ start_today: false })}>Amanhã</button>
-                <button type="button" className={cn(chip(d.start_today), "flex-1")} aria-pressed={d.start_today} onClick={() => set({ start_today: true })}>Hoje</button>
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-[15px] font-medium">Área</p>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Área">
-                {AREAS.map(([a, label]) => <button key={a} type="button" className={chip(d.area === a)} aria-pressed={d.area === a} onClick={() => set({ area: a })}>{label}</button>)}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-primary/5 p-4 text-[14px] leading-6">
-              <p className="font-medium">{d.title.trim() || "Seu hábito"}</p>
-              <p className="text-muted-foreground">{[d.cue_text.trim(), d.minimum_text.trim() ? `Dia ruim: ${d.minimum_text.trim()}` : ""].filter(Boolean).join(" · ") || "Você pode ajustar o plano depois."}</p>
-            </div>
-          </>
-        ) : null}
 
-        <Button
-          className="h-14 rounded-full text-base font-medium"
-          disabled={create.isPending || !canNext}
-          onClick={() => (last ? void submit() : setSub(sub + 1))}
-        >
-          {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : last ? "Criar hábito" : "Continuar"}
-        </Button>
-        {last && err && d.title ? <p className="-mt-3 text-center text-[13px] text-muted-foreground">{err}</p> : null}
-      </div>
+            {screen === "cue" ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-1.5">{CUES.map((c) => <button key={c} type="button" aria-pressed={d.cue_text === c} onClick={() => set({ cue_text: c })} className={chip(d.cue_text === c)}>{c}</button>)}</div>
+                <input value={CUES.includes(d.cue_text) ? "" : d.cue_text} onChange={(e) => set({ cue_text: e.target.value })} placeholder="Ou escreva o seu momento" aria-label="Momento do dia" maxLength={110} className={field} />
+                <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askAi()} className="inline-flex min-h-10 items-center gap-2 self-start px-1 text-[13px] font-medium text-primary disabled:opacity-40">
+                  {suggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Sugerir gatilho e versão mínima (IA)
+                </button>
+                <p className="text-[12px] leading-[17px] text-muted-foreground">Ligar o hábito a algo que você já faz ajuda mais do que um alarme.</p>
+              </div>
+            ) : null}
+
+            {screen === "min" ? (
+              <div className="flex flex-col gap-2">
+                {Array.from(new Set([d.minimum_text, "Só começar, 2 minutos", "Metade do combinado"].filter(Boolean))).slice(0, 3).map((m, i) => (
+                  <button key={m} type="button" aria-pressed={d.minimum_text === m} onClick={() => set({ minimum_text: m })} className={cn("flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors", d.minimum_text === m ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
+                    <span className="flex-1 text-[14px] font-medium leading-[19px]">{m}</span>
+                    {i === 0 && d.minimum_text ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">sugerido</span> : null}
+                    <span className={cn("grid h-[18px] w-[18px] place-items-center rounded-full border", d.minimum_text === m ? "border-primary bg-primary" : "border-border")} aria-hidden="true">{d.minimum_text === m ? <i className="block h-1.5 w-1.5 rounded-full bg-white" /> : null}</span>
+                  </button>
+                ))}
+                <input value={d.minimum_text} onChange={(e) => set({ minimum_text: e.target.value })} placeholder="Ou escreva a sua versão mínima" aria-label="Versão mínima" maxLength={120} className={field} />
+                <p className="mt-1 text-[12px] text-muted-foreground">A versão mínima conta como feito e mantém o hábito vivo.</p>
+              </div>
+            ) : null}
+
+            {screen === "measure" ? (
+              <div className="flex flex-col gap-3.5">
+                {options.length > 1 ? <Segmented value={d.option_index} label="Como acompanhar" options={options.map((o, i) => [i, o.label] as [number, string])} onChange={(i) => setD((p) => withOption(p, item ?? CUSTOM, i))} /> : null}
+                {["weekly", "amount", "duration", "time", "ceiling", "value", "recurring"].includes(d.form) ? (
+                  <Stepper value={d.target} onChange={(n) => set({ target: n })} step={opt.step} min={opt.min ?? (opt.step < 1 ? opt.step : 0)} max={opt.max} unit={d.form === "value" ? `${d.unit} · sua meta (opcional)` : d.unit.replace("__", String(d.target)) || ""} big={d.form === "time" ? `${d.target}h` : d.form === "weekly" ? `${d.target}x` : undefined} />
+                ) : null}
+                {["check", "amount", "duration", "time", "ceiling", "value", "steps"].includes(d.form) ? (
+                  <div>
+                    <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Dias da semana (vazio = todos)">
+                      {DAY_LETTERS.map((l, i) => {
+                        const on = d.days.includes(i);
+                        return <button key={i} type="button" aria-pressed={on} aria-label={DAY_NAMES[i]} onClick={() => set({ days: on ? d.days.filter((x) => x !== i) : [...d.days, i].sort() })} className={cn("h-[38px] rounded-[11px] border text-[13px] font-medium transition-colors", on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground")}>{l}</button>;
+                      })}
+                    </div>
+                    <p className="mt-2 text-[12px] text-muted-foreground">Sem escolher nenhum, vale todos os dias.</p>
+                  </div>
+                ) : null}
+                {d.form === "steps" ? (
+                  <div className="flex flex-col gap-2">
+                    {d.steps.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input value={s} onChange={(e) => set({ steps: d.steps.map((x, j) => (j === i ? e.target.value : x)) })} aria-label={`Passo ${i + 1}`} maxLength={80} className={field} />
+                        <button type="button" aria-label={`Remover passo ${i + 1}`} onClick={() => set({ steps: d.steps.filter((_, j) => j !== i) })} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-muted"><X className="h-4 w-4" aria-hidden="true" /></button>
+                      </div>
+                    ))}
+                    {d.steps.length < 12 ? <button type="button" onClick={() => set({ steps: [...d.steps, ""] })} className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 text-[14px] font-medium text-primary"><Plus className="h-4 w-4" aria-hidden="true" />Adicionar passo</button> : null}
+                    <p className="text-[12px] text-muted-foreground">Todos os passos = dia feito. Pelo menos metade = versão mínima.</p>
+                  </div>
+                ) : null}
+                {projectFields ? (
+                  <div className="flex flex-col gap-2">
+                    <input value={d.project_title} onChange={(e) => set({ project_title: e.target.value })} placeholder={item?.project?.example ?? "Nome"} aria-label={item?.project?.titleLabel} maxLength={120} className={field} />
+                    <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card px-3.5">
+                      <input value={d.project_total} onChange={(e) => set({ project_total: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder={item?.project?.totalLabel} aria-label={item?.project?.totalLabel} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
+                      <span className="text-[13px] text-muted-foreground">{item?.project?.unit}</span>
+                    </label>
+                    <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card px-3.5">
+                      <input value={d.project_current} onChange={(e) => set({ project_current: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder="Onde você está agora (opcional)" aria-label="Avanço atual" className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
+                      <span className="text-[13px] text-muted-foreground">{item?.project?.unit}</span>
+                    </label>
+                    <Stepper value={d.target} onChange={(n) => set({ target: n })} step={opt.step} min={opt.min ?? 1} unit={d.unit} />
+                    <p className="rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[17px] text-muted-foreground">{forecast}</p>
+                  </div>
+                ) : null}
+                {d.form === "check" && options.length === 1 ? <p className="text-[13px] text-muted-foreground">Você marca como feito todo dia que cumprir.</p> : null}
+              </div>
+            ) : null}
+
+            {screen === "plan" ? (
+              <div className="flex flex-col gap-2">
+                {Array.from(new Set([q.craving_plan, "Beber água e esperar 10 minutos", "Sair para uma caminhada curta"].filter(Boolean))).slice(0, 3).map((p) => (
+                  <button key={p} type="button" aria-pressed={q.craving_plan === p} onClick={() => setQuit({ craving_plan: p })} className={cn("flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left transition-colors", q.craving_plan === p ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
+                    <span className="flex-1 text-[14px] font-medium leading-[19px]">{p}</span>
+                    <span className={cn("grid h-[18px] w-[18px] place-items-center rounded-full border", q.craving_plan === p ? "border-primary bg-primary" : "border-border")} aria-hidden="true">{q.craving_plan === p ? <i className="block h-1.5 w-1.5 rounded-full bg-white" /> : null}</span>
+                  </button>
+                ))}
+                <input value={q.craving_plan} onChange={(e) => setQuit({ craving_plan: e.target.value })} placeholder="Ou escreva o seu plano" aria-label="Plano para a vontade" maxLength={160} className={field} />
+                <p className="mt-1 text-[12px] text-muted-foreground">Decidir antes ajuda mais do que contar com força de vontade na hora.</p>
+              </div>
+            ) : null}
+
+            {screen === "cost" ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {[["", "Pular"], ["15", "R$ 15 por dia"], ["30", "R$ 30 por dia"], ["50", "R$ 50 por dia"]].map(([k, l]) => <button key={k} type="button" aria-pressed={q.daily_cost === k} onClick={() => setQuit({ daily_cost: k })} className={chip(q.daily_cost === k)}>{l}</button>)}
+                </div>
+                <input value={q.daily_cost} onChange={(e) => setQuit({ daily_cost: e.target.value })} inputMode="decimal" placeholder="Ou informe o gasto por dia, em reais" aria-label="Gasto por dia" className={field} />
+                <p className="rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[17px] text-muted-foreground">Com isso eu mostro uma <b className="font-medium text-foreground">estimativa</b> do dinheiro que ficou com você. Você pode pular e informar depois.</p>
+              </div>
+            ) : null}
+
+            {screen === "done" ? (
+              <div className="flex flex-col gap-3.5">
+                <div className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card">
+                  {summary.map(([k, v, sc]) => (
+                    <button key={k} type="button" onClick={() => setScreen(sc)} className="flex w-full items-center gap-2.5 px-3.5 py-3 text-left transition-colors hover:bg-muted/50">
+                      <span className="w-20 shrink-0 text-[12px] text-muted-foreground">{k}</span>
+                      <span className="flex-1 text-[14px] font-medium leading-[19px]">{v || "Defina"}</span>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/50" aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+                {!isQuit ? <Segmented value={d.start_today ? "today" : "tomorrow"} label="Quando começa" options={[["today", "Começar hoje"], ["tomorrow", "Começar amanhã"]]} onChange={(v) => set({ start_today: v === "today" })} /> : null}
+                {activeCount >= 5 ? <p className="text-[12px] text-destructive">Você já tem 5 hábitos ativos. Arquive um antes de criar outro.</p> : null}
+              </div>
+            ) : null}
+          </div>
+
+          {screen !== "choose" ? (
+            <div className="-mx-5 border-t border-border/60 bg-background px-5 pb-5 pt-2.5" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 20px)" }}>
+              <button
+                type="button"
+                disabled={create.isPending || !canNext || (screen === "done" && !!err)}
+                onClick={next}
+                className="flex h-[46px] w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-primary-foreground transition-all active:scale-[0.98] disabled:bg-muted-foreground/30"
+              >
+                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : screen === "done" ? (isQuit ? "Começar a contagem" : "Criar hábito") : "Continuar"}
+              </button>
+              {screen === "min" ? <button type="button" onClick={() => { set({ minimum_text: "" }); setScreen("measure"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
+              {screen === "cost" ? <button type="button" onClick={() => { setQuit({ daily_cost: "" }); setScreen("done"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
+              {screen === "done" && err ? <p className="mt-1 text-center text-[12px] text-muted-foreground">{err}</p> : null}
+            </div>
+          ) : null}
+        </div>
+      </section>
+      <ConsentSheet open={consentOpen} onOpenChange={setConsentOpen} onGranted={() => { setConsentOpen(false); void submit(true); }} />
     </div>
   );
 }

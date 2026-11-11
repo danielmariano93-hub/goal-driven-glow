@@ -16,6 +16,7 @@ import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
 import { AreaTile } from "@/components/hb/kit";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
+import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
 
@@ -133,6 +134,8 @@ export default function Detalhe() {
         </div>
       ) : null}
 
+      <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /></div>
+
       <dl className="mt-4 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
         {[
           { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
@@ -173,8 +176,9 @@ export default function Detalhe() {
         <Heatmap view={view} today={today} logs={logs} />
       </section>
 
-      {!isPaused ? <div className="mt-3"><AutomaticityCard view={view} /></div> : null}
-      {habit.kind === "do_daily" && habit.sensitivity === "normal" ? <div className="mt-3"><MeasureCard view={view} rule={rules.find((r) => r.habit_id === habit.id) ?? null} /></div> : null}
+      <div className="mt-3"><AchievementsCard view={view} today={today} logs={logs} /></div>
+      {!isPaused && view.form !== "recurring" ? <div className="mt-3"><AutomaticityCard view={view} /></div> : null}
+      {view.form === "check" && habit.sensitivity === "normal" ? <div className="mt-3"><MeasureCard view={view} rule={rules.find((r) => r.habit_id === habit.id) ?? null} /></div> : null}
 
       <Button variant="outline" className="mt-5 h-11 w-full rounded-full font-semibold" disabled={setStatus.isPending} onClick={() => void togglePause()}>{isPaused ? "Retomar este hábito" : "Pausar este hábito"}</Button>
       <Button variant="ghost" className="mt-2 h-11 w-full rounded-full text-muted-foreground" onClick={() => setConfirmArchive(true)}>Arquivar este hábito</Button>
