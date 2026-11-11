@@ -144,6 +144,9 @@ describe("meta da semana explicada", () => {
     expect(weekTargetNote(v("2026-11-09"), { week_start: "2026-11-09", target: 4 })).toBeNull();
     expect(weekTargetNote(v("2026-11-01"), { week_start: "2026-11-09", target: 3 })).toContain("pausa");
     expect(weekTargetNote(v("2026-11-11"), null)).toBeNull();
+  });
+});
+
 describe("retroagir e editar", () => {
   it("o registro retroativo usa a origem backfill e a edição aceita os novos campos", async () => {
     const api = await import("@/lib/habits/api");
