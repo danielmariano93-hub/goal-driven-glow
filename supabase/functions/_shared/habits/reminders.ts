@@ -3,12 +3,12 @@
 // no máximo 2 mensagens de hábito por dia; um lembrete por horário do dia; nada depois das 22h; resumo só com pendência;
 // parada automática depois de 3 lembretes seguidos ignorados; tom sem culpa.
 import {
-  addDays, automaticityDue, automaticitySummary, FIRM_FROM, isMaintenance, milestoneToday, nudgeLevel, quitStats, streakMilestoneToday, summarizeHabit, type HabitDef, type PauseRange,
+  addDays, automaticityDue, automaticitySummary, dow, FIRM_FROM, isMaintenance, mergeAutoLogs, milestoneToday, nudgeLevel, quitStats, reviewText, streakMilestoneToday, summarizeHabit, weekStart, weeklyReview, type HabitDef, type PauseRange,
 } from "../habits-core/index.ts";
 import { localMinutes, type HbSnapshotAs } from "./whatsappReply.ts";
 
 export type HabitReminder = {
-  kind: "hb_cue_reminder" | "hb_daily_recap" | "hb_automaticity_due" | "hb_streak_milestone";
+  kind: "hb_cue_reminder" | "hb_daily_recap" | "hb_automaticity_due" | "hb_streak_milestone" | "hb_weekly_review";
   dedup_key: string;
   title: string;
   body: string;
@@ -40,6 +40,8 @@ export const AUTO_TO_MIN = 20 * 60;
 export const MILESTONE_FROM_MIN = 8 * 60;
 export const MILESTONE_TO_MIN = 20 * 60;
 export const AUTO_REPEAT_DAYS = 7;
+export const REVIEW_FROM_MIN = 18 * 60;
+export const REVIEW_TO_MIN = 20 * 60 + 30;
 
 const cueMin = (cue: string | null): number | null => {
   const m = cue ? /^(\d{1,2}):(\d{2})/.exec(cue) : null;
@@ -94,6 +96,21 @@ function milestoneReminder(input: ReminderInput): HabitReminder | null {
   return null;
 }
 
+/** Revisão semanal: domingo à noite, texto fixo com os números marcados. Só hábitos comuns (nunca saúde ou substância). */
+function reviewReminder(input: ReminderInput): HabitReminder | null {
+  const { snap, now } = input;
+  const nowMin = localMinutes(now, snap.timezone);
+  if (dow(snap.today) !== 0 || nowMin < REVIEW_FROM_MIN || nowMin > REVIEW_TO_MIN) return null;
+  const key = `hb-review:${weekStart(snap.today)}`;
+  if (input.sentKeys.has(key)) return null;
+  const habits = snap.habits.filter((h) => h.kind === "do_daily" && (h.status ?? "active") === "active" && (h.sensitivity ?? "normal") === "normal");
+  const logs = mergeAutoLogs(snap.logs, snap.auto_logs ?? []);
+  const rows = weeklyReview(habits.map((h) => ({ def: toDef(h), pauses: pausesOf(snap, h.id) })), logs, snap.today).filter((r) => r.expected > 0);
+  if (rows.length === 0 || rows.reduce((n, r) => n + r.expected, 0) < 3) return null;
+  const body = reviewText(rows, (id) => habits.find((h) => h.id === id)?.title ?? "Hábito");
+  return { kind: "hb_weekly_review", dedup_key: key, severity: "info", title: "Sua semana nos hábitos", body, evidence: { week_start: weekStart(snap.today), habit_ids: rows.map((r) => r.habit_id) }, expires_in_min: 6 * 60 };
+}
+
 /** Pergunta de automaticidade (1 a 7): no máximo uma por rodada e nunca repetida antes de 7 dias. */
 function automaticityReminder(input: ReminderInput): HabitReminder | null {
   const { snap, now } = input;
@@ -126,14 +143,18 @@ export function habitReminders(input: ReminderInput): HabitReminder[] {
   // 0) Reconhecimento e check-in de automaticidade (valem mesmo sem hábito pendente; um por rodada).
   const mile = milestoneReminder(input);
   if (mile) return [mile];
+  const review = reviewReminder(input);
+  if (review) return [review];
 
   if (input.alreadySentToday >= limit) return [];
 
   const nowMin = localMinutes(now, snap.timezone);
+  const measured = new Set((snap.auto_rules ?? []).map((r) => r.habit_id));
+  const mergedLogs = mergeAutoLogs(snap.logs, snap.auto_logs ?? []);
   const rows = snap.habits
     .filter((h) => h.kind !== "quit" && (h.status ?? "active") === "active" && allowed(snap, h))
     .map((habit) => {
-      const summary = summarizeHabit(toDef(habit), snap.logs, snap.today, pausesOf(snap, habit.id));
+      const summary = summarizeHabit(toDef(habit), mergedLogs, snap.today, pausesOf(snap, habit.id));
       const auto = automaticitySummary(habit.id, snap.automaticity ?? []);
       const maintenance = isMaintenance(auto, summary.strength, FIRM_FROM);
       return { habit, summary, level: nudgeLevel(auto, maintenance) };
@@ -155,6 +176,7 @@ export function habitReminders(input: ReminderInput): HabitReminder[] {
   const stopped = input.ignoredCueStreak >= IGNORED_STOP && !engagedRecently(snap, now);
   if (!stopped && pending.length > 0) {
     const ready = pending
+      .filter((r) => !measured.has(r.habit.id))
       .map((r) => ({ r, c: cueMin(r.habit.cue_time) }))
       .filter((x): x is { r: (typeof pending)[number]; c: number } => x.c != null && x.c + CUE_GRACE_MIN <= nowMin && nowMin <= CUE_LAST_MIN);
     if (ready.length > 0) {

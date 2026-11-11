@@ -134,3 +134,33 @@ describe("lembretes de F4", () => {
     expect(habitReminders(input(s, NOW)).filter((r) => r.kind === "hb_cue_reminder")).toEqual([]);
   });
 });
+
+describe("F5/F6: medido e revisão semanal", () => {
+  const input = (s: HbSnapshotAs, now: Date, sentKeys: string[] = []) => ({ snap: s, now, alreadySentToday: 0, sentKeys: new Set(sentKeys), ignoredCueStreak: 0 });
+  // domingo 2026-11-08, 19:00 em São Paulo
+  const SUN = new Date("2026-11-08T22:00:00Z");
+  const week = (): HbSnapshotAs => snap({
+    today: "2026-11-08", habits: [{ ...base, id: "med", title: "Meditar 5 min", kind: "do_daily", cue_time: "07:30:00", started_on: "2026-10-01" }],
+    logs: ["2026-11-02", "2026-11-03", "2026-11-04"].map((d) => ({ habit_id: "med", local_date: d, status: "done" as const, quantity: null })), cycles: [],
+  });
+  it("domingo à noite sai a revisão com os números marcados, uma vez por semana", () => {
+    const r = habitReminders(input(week(), SUN));
+    expect(r[0]).toMatchObject({ kind: "hb_weekly_review", dedup_key: "hb-review:2026-11-02" });
+    expect(r[0].body).toContain("Meditar 5 min: 3 de 7 dias.");
+    expect(habitReminders(input(week(), SUN, ["hb-review:2026-11-02"])).some((x) => x.kind === "hb_weekly_review")).toBe(false);
+  });
+  it("não sai fora do domingo nem para hábito sensível", () => {
+    expect(habitReminders(input({ ...week(), today: "2026-11-07" }, new Date("2026-11-07T22:00:00Z"))).some((x) => x.kind === "hb_weekly_review")).toBe(false);
+    const s = week(); s.habits[0] = { ...s.habits[0], sensitivity: "health" };
+    expect(habitReminders(input({ ...s, consent_sensitive: true }, SUN)).some((x) => x.kind === "hb_weekly_review")).toBe(false);
+  });
+  it("hábito medido pelo Nino não recebe lembrete de gatilho", () => {
+    const s = { ...week(), today: "2026-11-05", logs: [], auto_rules: [{ habit_id: "med", rule_type: "no_spend_category", category_id: "c", limit_amount: null }] };
+    expect(habitReminders(input(s, new Date("2026-11-05T22:00:00Z"))).filter((x) => x.kind === "hb_cue_reminder")).toEqual([]);
+  });
+  it("marcação medida entra na contagem do resumo", async () => {
+    const s = { ...week(), today: "2026-11-05", logs: [], auto_logs: [{ habit_id: "med", local_date: "2026-11-04", status: "done" as const, quantity: null, source: "auto" }] };
+    const r = await handleHabitReply(fakeDb(s), { userId: "u1", text: "como estão meus hábitos?", now: new Date("2026-11-05T18:00:00Z") });
+    expect(r?.reply).toBeTruthy();
+  });
+});

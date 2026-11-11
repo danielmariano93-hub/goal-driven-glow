@@ -31,6 +31,7 @@ export const OPERATIONAL_KINDS = new Set<string>([
   "hb_daily_recap",
   "hb_automaticity_due",
   "hb_streak_milestone",
+  "hb_weekly_review",
   "duplicate_expense",
   // Previsão/fechamento do fim de semana e aviso por dia da semana: os números
   // (faixa, projeção, quanto cabe) SÃO o conteúdo. A camada de linguagem limita o

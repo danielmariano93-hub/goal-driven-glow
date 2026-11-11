@@ -38,7 +38,7 @@ export async function habitSuggestions(client: unknown, userId: string, now: Dat
     const { data: rows } = await sb.from("communication_deliveries")
       .select("kind,dedup_key,status,interacted_at,created_at")
       .eq("user_id", userId)
-      .in("kind", ["hb_cue_reminder", "hb_daily_recap", "hb_automaticity_due", "hb_streak_milestone"])
+      .in("kind", ["hb_cue_reminder", "hb_daily_recap", "hb_automaticity_due", "hb_streak_milestone", "hb_weekly_review"])
       .gte("created_at", new Date(now.getTime() - 14 * 86_400_000).toISOString())
       .order("created_at", { ascending: false })
       .limit(80);

@@ -1,7 +1,7 @@
 // Hábitos no WhatsApp (F2): marcar, consultar e desfazer por mensagem. Só para quem tem Hábitos liberado (`hb_access`).
 // Tudo é determinístico (sem IA) e falha fechado: qualquer dúvida devolve null e a conversa segue o caminho normal.
 // O registro vai por `hb_log_as` (mesma regra única da hb_log do app: janela de 7 dias, folgas, idempotência).
-import { addDays, automaticityDue, quitStats, summarizeHabit, type AutoCheckin, type CravingRow, type CycleRow, type HabitDef, type LogRow, type PauseRange, type SlipRow } from "../habits-core/index.ts";
+import { addDays, automaticityDue, mergeAutoLogs, quitStats, summarizeHabit, type AutoCheckin, type CravingRow, type CycleRow, type HabitDef, type LogRow, type PauseRange, type SlipRow } from "../habits-core/index.ts";
 import { interpretHabitMessage, type HabitIntent, type HabitLite, type HabitStatusWord } from "./interpret.ts";
 import { interpretQuitMessage } from "./quitInterpret.ts";
 
@@ -23,6 +23,8 @@ export type HbSnapshotAs = {
   slips?: Array<SlipRow & { created_at?: string }>;
   automaticity?: AutoCheckin[];
   consent_sensitive?: boolean;
+  auto_rules?: Array<{ habit_id: string; rule_type: string; category_id: string; limit_amount: number | null }>;
+  auto_logs?: Array<LogRow & { source?: string }>;
   auto_prompt?: { habit_id: string | null; sent_at: string } | null;
 };
 
@@ -184,9 +186,10 @@ export async function handleHabitReply(
   }
   if (snap.habits.length === 0) return null;
 
-  const all = views(snap, snap.logs);
+  const all = views(snap, mergeAutoLogs(snap.logs, snap.auto_logs ?? []));
+  const measured = new Set((snap.auto_rules ?? []).map((r) => r.habit_id));
   const nowMin = localMinutes(now, snap.timezone);
-  const due = all.filter((v) => isDue(v) && v.summary.today.outcome === "unlogged");
+  const due = all.filter((v) => isDue(v) && v.summary.today.outcome === "unlogged" && !measured.has(v.habit.id));
   const dueNow = due.filter((v) => {
     const c = cueMinutes(v.habit.cue_time);
     return c == null || c <= nowMin;
@@ -238,7 +241,7 @@ export async function handleHabitReply(
   }
   const newLog: LogRow = { habit_id: v.habit.id, local_date: date, status: intent.status, quantity: intent.status === "quantity" ? intent.quantity ?? null : null };
   const logs2 = [...snap.logs.filter((l) => !(l.habit_id === newLog.habit_id && l.local_date === newLog.local_date)), newLog];
-  const all2 = views(snap, logs2);
+  const all2 = views(snap, mergeAutoLogs(logs2, snap.auto_logs ?? []));
   const v2 = all2.find((x) => x.habit.id === v.habit.id)!;
   return {
     action: `habit_log_${intent.status}`,
