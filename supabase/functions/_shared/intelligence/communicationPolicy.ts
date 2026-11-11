@@ -1,5 +1,6 @@
 import type { CommunicationCandidate } from "./contracts.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "./careKinds.ts";
+import { DEFAULT_HABIT_QUOTA, isHabitKind, type CommScope, type HabitQuota } from "./habitKinds.ts";
 
 export type CommunicationPreferences = {
   proactive_financial?: boolean;
@@ -160,7 +161,7 @@ export function priorityBand(
 
 /** Peso de atenção do tipo: cuidado < informativo < decisão financeira. */
 export function attentionWeightOf(kind: string, policy: CommunicationPolicySettings): number {
-  if (isCareKind(kind)) return policy.attention_weights.care;
+  if (isCareKind(kind) || isHabitKind(kind)) return policy.attention_weights.care;
   if (SMART_TIP_KINDS.has(kind) || BEHAVIOR_KINDS.has(kind)) return policy.attention_weights.informational;
   return policy.attention_weights.financial;
 }
@@ -168,6 +169,9 @@ export function attentionWeightOf(kind: string, policy: CommunicationPolicySetti
 
 
 export const DEFAULT_TIMEZONE = "America/Sao_Paulo";
+
+/** Cota de cada tipo: hábitos, cuidado e financeiro não disputam entre si. */
+export const scopeOf = (kind: string): CommScope => (isHabitKind(kind) ? "habit" : isCareKind(kind) ? "care" : "financial");
 
 const ACCEPTED_STATUSES = new Set(["queued", "sent", "delivered", "acted"]);
 const BEHAVIOR_KINDS = new Set([
@@ -261,6 +265,8 @@ export function decideCommunication(args: {
   history: DeliveryHistory[];
   /** Cota própria dos lembretes de cuidado (configurável no painel admin). */
   careQuota?: CareQuota;
+  /** Cota própria das comunicações de Hábitos. */
+  habitQuota?: HabitQuota;
   /** Configuração de prioridade/piloto (`nino_comm_priority.v1`). */
   policy?: CommunicationPolicySettings;
   now?: Date;
@@ -305,6 +311,7 @@ export function decideCommunication(args: {
   }
   if (!BEHAVIOR_KINDS.has(candidate.kind) &&
       !SMART_TIP_KINDS.has(candidate.kind) &&
+      !isHabitKind(candidate.kind) &&
       preferences.proactive_financial === false) {
     return { allowed: false, reason: "financial_opt_out", channel: target, priority: 0 };
   }
@@ -343,7 +350,8 @@ export function decideCommunication(args: {
     return { allowed: false, reason: "dedup_key_14d", channel: target, priority: 0, priority_score: score, priority_band: band };
   }
 
-  const sameKind24h = accepted.some((row) =>
+  // Hábitos repetem por chave (um lembrete por horário do dia): vale o dedup_key_14d acima, não o intervalo do tipo.
+  const sameKind24h = !isHabitKind(candidate.kind) && accepted.some((row) =>
     row.kind === candidate.kind &&
     row.channel === target &&
     new Date(row.created_at).getTime() >= now.getTime() - 86_400_000,
@@ -358,12 +366,17 @@ export function decideCommunication(args: {
   if (candidate.severity !== "critical") {
     // Cuidado e insight financeiro têm cotas separadas: um lembrete carinhoso
     // não consome a vez de um alerta de caixa (nem o contrário).
-    const care = isCareKind(candidate.kind);
+    const scope = scopeOf(candidate.kind);
+    const care = scope === "care";
+    const habit = scope === "habit";
     const quota: CareQuota = args.careQuota ?? DEFAULT_CARE_QUOTA;
-    const scoped = accepted.filter((row) => isCareKind(row.kind) === care);
+    const habitQuota: HabitQuota = args.habitQuota ?? DEFAULT_HABIT_QUOTA;
+    const scoped = accepted.filter((row) => scopeOf(row.kind) === scope);
     const today = localDay(now, tz);
     const dayRows = scoped.filter((row) => localDay(new Date(row.created_at), tz) === today);
-    const dailyCap = care
+    const dailyCap = habit
+      ? Math.max(0, Math.min(5, habitQuota.maxPerDay))
+      : care
       ? Math.max(0, Math.min(5, quota.maxPerDay))
       : Math.max(0, Math.min(5, preferences.max_proactive_per_day ?? 1));
 
@@ -377,7 +390,8 @@ export function decideCommunication(args: {
 
     const exceeded = (rows: DeliveryHistory[], cap: number) => {
       if (cap === 0) return true;
-      if (unit <= 0) return uniqueCommunications(rows) >= cap;
+      // Hábitos: teto por CONTAGEM (o peso leve não pode virar dezenas de lembretes por dia).
+      if (habit || unit <= 0) return uniqueCommunications(rows) >= cap;
       return usedAttentionPoints(rows, policy) + candidateWeight > budgetFor(cap);
     };
 
@@ -408,7 +422,9 @@ export function decideCommunication(args: {
 
     const weekAgo = now.getTime() - 7 * 86_400_000;
     const weekRows = scoped.filter((row) => new Date(row.created_at).getTime() >= weekAgo);
-    const weeklyCap = care
+    const weeklyCap = habit
+      ? Math.max(0, Math.min(21, habitQuota.maxPerWeek))
+      : care
       ? Math.max(0, Math.min(21, quota.maxPerWeek))
       : Math.max(1, Math.min(14, preferences.max_proactive_per_week ?? 3));
     if (exceeded(weekRows, weeklyCap)) {

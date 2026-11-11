@@ -34,6 +34,10 @@ export interface HbHabitRow {
 export interface HbSnapshot {
   today: string;
   mode: HbMode;
+  /** Preferências (vêm da migração do F2; ausentes = padrão ligado). */
+  whatsapp_logging?: boolean;
+  nudges_enabled?: boolean;
+  max_nudges_per_day?: number;
   habits: HbHabitRow[];
   logs: LogRow[];
 }
@@ -289,5 +293,39 @@ export function useSetHbMode() {
   return useMutation({
     mutationFn: (mode: HbMode) => rpc<null>("hb_set_mode", { p_mode: mode }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
+  });
+}
+
+export interface HbPrefs {
+  whatsapp_logging: boolean;
+  nudges_enabled: boolean;
+  max_nudges_per_day: number;
+}
+
+/** Preferências de lembrete e de marcar pelo WhatsApp (padrão: ligado, até 2 lembretes por dia). */
+export function useHbPrefs(): { prefs: HbPrefs; isLoading: boolean } {
+  const snap = useHabitsSnapshot();
+  const d = snap.data;
+  return {
+    isLoading: snap.isLoading,
+    prefs: { whatsapp_logging: d?.whatsapp_logging ?? true, nudges_enabled: d?.nudges_enabled ?? true, max_nudges_per_day: d?.max_nudges_per_day ?? 2 },
+  };
+}
+
+export function useSetHbPrefs() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: (patch: Partial<HbPrefs>) => rpc<null>("hb_set_prefs", { p: patch }),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: keys.snapshot(user?.id) });
+      const prev = qc.getQueryData<HbSnapshot>(keys.snapshot(user?.id));
+      patchSnapshot(qc, user?.id, (s) => ({ ...s, ...patch }));
+      return { prev };
+    },
+    onError: (_e, _p, ctx) => {
+      if (ctx?.prev) qc.setQueryData(keys.snapshot(user?.id), ctx.prev);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
   });
 }

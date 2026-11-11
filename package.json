@@ -19,8 +19,9 @@
     "cap:open:ios": "cap open ios",
     "cap:open:android": "cap open android",
     "sync:finance-core": "node scripts/sync-finance-core.mjs",
-    "prebuild": "node scripts/sync-finance-core.mjs",
-    "pretest": "node scripts/sync-finance-core.mjs"
+    "sync:habits-core": "node scripts/sync-habits-core.mjs",
+    "prebuild": "node scripts/sync-finance-core.mjs && node scripts/sync-habits-core.mjs",
+    "pretest": "node scripts/sync-finance-core.mjs && node scripts/sync-habits-core.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.48",

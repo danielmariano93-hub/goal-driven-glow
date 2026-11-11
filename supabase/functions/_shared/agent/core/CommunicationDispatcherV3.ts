@@ -18,6 +18,7 @@ import type { CommunicationCandidate } from "../../intelligence/contracts.ts";
 import { communicationTopicKey } from "../../intelligence/logicalDedup.ts";
 import { isAppTaskKind, meetsMateriality, rankInsights } from "../../intelligence/insightValue.ts";
 import { DEFAULT_CARE_QUOTA, isCareKind, type CareQuota } from "../../intelligence/careKinds.ts";
+import { isHabitKind } from "../../intelligence/habitKinds.ts";
 import { confirmChangeFollowupDelivery } from "../changeLoop.ts";
 import { applyCommunicationInstruction, instructionFromEvidence } from "../changeMessage.ts";
 import { isEnabled } from "./FeatureFlags.ts";
@@ -483,7 +484,7 @@ export async function dispatchSuggestions(
         impactAmount: Number(evidence.impact_amount ?? evidence.amount ?? 0),
         monthlyIncome,
         daysUntilEvent: evidence.days_until_event == null ? null : Number(evidence.days_until_event),
-      }) && !isAppTaskKind(item.kind) && !isCareKind(item.kind)
+      }) && !isAppTaskKind(item.kind) && !isCareKind(item.kind) && !isHabitKind(item.kind)
       ? "below_materiality"
       : null;
     if (drop) {

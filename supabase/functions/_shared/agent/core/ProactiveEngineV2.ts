@@ -6,6 +6,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4
 import { loadProfile } from "./UserProfile.ts";
 import { runAllDetectors, rank, type Insight, type DetectorCtx } from "./InsightsEngine.ts";
 import { emotionalReminderDue, EMOTIONAL_REMINDER_KIND } from "../../intelligence/emotionalReminder.ts";
+import { habitSuggestions } from "../../habits/reminderSuggestions.ts";
 import { DIAGNOSIS_OWNED_KINDS } from "../../intelligence/insightValue.ts";
 import { shift, today } from "../../finance-core/ninoClock.ts";
 
@@ -242,6 +243,10 @@ export async function scanUser(
       expires_at: new Date(Date.now() + 12 * 3600000).toISOString(),
     });
   }
+
+  // Nino Hábitos (só quem tem `hb_access`): lembrete do gatilho e resumo do dia. Falha = nenhum lembrete, nunca erro do motor.
+  const habitItems = await habitSuggestions(sb, userId, new Date(), ctx.cooldowns);
+  if (habitItems.length > 0) suggestions.unshift(...(habitItems as unknown as ProactiveSuggestion[]));
 
   if (!persist || suggestions.length === 0) return suggestions;
   const { data: persisted, error: persistError } = await sb.from("pending_proactive_suggestions")

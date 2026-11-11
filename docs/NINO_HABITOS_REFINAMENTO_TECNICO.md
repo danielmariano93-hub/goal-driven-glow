@@ -777,3 +777,43 @@ Diferenças deliberadas em relação ao desenho original:
 | Abrir o lado ao ficar `habits` | "abre onde parou" | só lembra o modo (`hb_set_mode`); **não redireciona** ao abrir o app | Não altera a experiência atual de quem abre o Nino |
 
 Para ligar para uma pessoa: `insert into hb_access(user_id, note) values ('<uuid>', 'piloto');`
+
+---
+
+## Apêndice G. Atualização do F2 (WhatsApp e lembretes): o que foi construído e o que mudou
+
+Construído e testado (127 testes de Hábitos; suítes de política de envio e pilares seguem verdes):
+
+- **Espelho do motor no servidor** (`_shared/habits-core`, gerado por `scripts/sync-habits-core.mjs`, com teste de paridade).
+- **Migração 2** (`20261111210000_habitos_f2_whatsapp_lembretes.sql`): preferências (`nudges_enabled`, `whatsapp_logging`,
+  `max_nudges_per_day`), `hb_set_prefs`, `hb_log_as` / `hb_unlog_as` / `hb_snapshot_as` (só para o serviço; a `hb_log` do app
+  passa a delegar para a mesma regra) e as duas linhas de catálogo (`hb_cue_reminder`, `hb_daily_recap`).
+- **Marcar e consultar pelo WhatsApp** (`_shared/habits/interpret.ts` + `whatsappReply.ts`, gancho no `whatsapp-webhook` logo depois da
+  resposta do fim de semana): "meditei", "li 12 páginas", "caminhei ontem", "feito", "hoje não", "folga", "só o mínimo",
+  "como estão meus hábitos?", "desfaz". **Determinístico, sem IA**: casa a frase com os hábitos ativos da pessoa e **falha fechado**
+  (dúvida, pergunta, assunto de dinheiro ou erro devolvem a conversa ao agente, como antes). Empate entre hábitos vira pergunta.
+- **Lembretes** (`_shared/habits/reminders.ts` + `reminderSuggestions.ts`, plugados no `ProactiveEngineV2`): lembrete do gatilho
+  (só 90 min depois do horário, só se não foi registrado, um por horário do dia, nunca depois das 22h), resumo do dia (21:30–23:00,
+  com 2+ hábitos e pendência), máximo pessoal por dia (padrão 2, teto 3) e **parada automática** depois de 3 lembretes seguidos
+  ignorados (a menos que a pessoa tenha registrado algo nas últimas 24 h).
+- **Escopo próprio na política de envio** (`intelligence/habitKinds.ts`, `communicationPolicy.ts`, `CommunicationDispatcherV3.ts`):
+  descobri no código três regras que travariam hábitos e foram tratadas só para os tipos `hb_*` (o comportamento dos demais tipos
+  não muda; as suítes existentes seguem verdes): (1) intervalo fixo de 24 h **por tipo** (`kind_cooldown_24h`), que só deixaria
+  passar um lembrete por dia; (2) cota diária e semanal **compartilhada com os alertas financeiros**; (3) piso de materialidade em
+  reais ("below_materiality"), que descartaria qualquer aviso sem valor em dinheiro. Também: consentimento de insight financeiro não
+  se aplica a hábitos (a pessoa liga/desliga em Hábitos) e o texto é fixo (nunca passa pela camada de linguagem).
+- **Tela Mais**: chaves para ligar/desligar lembretes e "marcar pelo WhatsApp".
+
+Diferenças em relação ao plano e pendências:
+
+| Item | Plano | F2 | Motivo |
+|---|---|---|---|
+| Entendimento das frases | interpretador V3 (LLM) | **regras determinísticas** | Menos risco, custo zero e sem mexer no núcleo do agente; cobre os casos comuns. Frases fora do padrão continuam indo ao agente e **não** registram. Se a cobertura for baixa na prática, o passo seguinte é um classificador pequeno (F6) |
+| Pilar `rotina` próprio | novo pilar | tipos tratados como **rotina assinada** (`ROUTINE_KINDS`) + escopo próprio na política | Não toca a taxonomia de pilares; o teto de 5/dia do WhatsApp continua valendo |
+| Botões de resposta rápida | Feito / Mínimo / Hoje não | **resposta por texto** ("feito", "mínimo", "hoje não") | O envio atual é texto; botões exigiriam o formato interativo da Meta |
+| Modelos de WhatsApp (D5) | modelos novos aprovados | **reaproveita o envio proativo existente** | O despachante já entrega fora da janela de 24 h com o modelo genérico aprovado; confirmar na primeira entrega real |
+| `hb_streak_milestone`, `hb_day_after`, `hb_weekly_review`, `hb_phase_change`, `hb_automaticity_due` etc. | no F2 (parte) | **não incluídos** | Ficam para F4/F3; F2 entrega só os dois tipos que fecham o ciclo diário |
+| Medição de resposta | `interacted_at` / `acted_at` | o webhook já chama `recordInteraction`; o registro por WhatsApp chama `recordAction("habit_log_*")` | Mesma telemetria dos demais tipos |
+
+**Antes de ligar para alguém**: aplicar a migração 2 (as funções `hb_*_as` e as preferências não existem sem ela; o webhook e os
+lembretes tratam a ausência como "sem Hábitos" e seguem o caminho normal, e a tela Mais mostra erro ao salvar preferências).
