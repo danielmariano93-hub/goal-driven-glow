@@ -134,3 +134,15 @@ describe("momento do dia", () => {
     for (const it of CATALOG) if (it.cue) expect(splitCue(it.cue).period, it.id).not.toBeNull();
   });
 });
+
+describe("meta da semana explicada", () => {
+  const v = (started_on: string, weekly_target = 4) => ({ form: "weekly", habit: { kind: "do_weekly_count", weekly_target, quantity_target: null, started_on } }) as never;
+  it("primeira semana proporcional explica de onde vem o número", async () => {
+    const { weekTargetNote } = await import("@/lib/habits/present");
+    // 11/11/2026 é quarta-feira: 4 por semana vira 3 na primeira semana
+    expect(weekTargetNote(v("2026-11-11"), { week_start: "2026-11-09", target: 3 })).toBe("Sua meta é 4 por semana. Como você começou na quarta-feira, esta primeira semana vale 3.");
+    expect(weekTargetNote(v("2026-11-09"), { week_start: "2026-11-09", target: 4 })).toBeNull();
+    expect(weekTargetNote(v("2026-11-01"), { week_start: "2026-11-09", target: 3 })).toContain("pausa");
+    expect(weekTargetNote(v("2026-11-11"), null)).toBeNull();
+  });
+});
