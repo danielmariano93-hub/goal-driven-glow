@@ -4,7 +4,7 @@ import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } f
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { hbErrorMessage, useLogHabit, useUnlogHabit, type HabitView } from "@/lib/habits/api";
-import { weekStart, type LogRow, type LogStatus } from "@/lib/habits/engine";
+import { addDays, weekStart, type LogRow, type LogStatus } from "@/lib/habits/engine";
 import { OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
 import { dayOutcome } from "@/lib/habits/engine";
 
@@ -33,7 +33,8 @@ export function DayActionsSheet({
 
   const send = async (status: LogStatus, quantity?: number) => {
     try {
-      await log.mutateAsync({ habit_id: habit.id, date, status, quantity });
+      const source = date < habit.started_on || date < addDays(today, -7) ? ("backfill" as const) : ("app" as const);
+      await log.mutateAsync({ habit_id: habit.id, date, status, quantity, source });
       onOpenChange(false);
     } catch (e) {
       toast.error(hbErrorMessage(e));
@@ -71,6 +72,7 @@ export function DayActionsSheet({
             <DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">{habit.title}</DrawerTitle>
             <DrawerDescription>
               {dayLabel(date, today)} · {OUTCOME_LABEL[outcome]}
+              {date < habit.started_on ? " · o hábito passa a contar desde este dia" : ""}
             </DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-2 px-4">

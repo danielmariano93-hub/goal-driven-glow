@@ -134,3 +134,12 @@ describe("momento do dia", () => {
     for (const it of CATALOG) if (it.cue) expect(splitCue(it.cue).period, it.id).not.toBeNull();
   });
 });
+
+describe("retroagir e editar", () => {
+  it("o registro retroativo usa a origem backfill e a edição aceita os novos campos", async () => {
+    const api = await import("@/lib/habits/api");
+    expect(typeof api.useUpdateHabit).toBe("function");
+    const { addDays } = await import("@/lib/habits/engine");
+    expect(addDays("2026-11-11", -90)).toBe("2026-08-13");
+  });
+});

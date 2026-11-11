@@ -278,6 +278,8 @@ function patchSnapshot(qc: ReturnType<typeof useQueryClient>, uid: string | unde
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
 export interface LogInput {
+  /** "backfill" registra um dia anterior (até 90 dias) e recua o início do hábito. */
+  source?: "app" | "backfill";
   habit_id: string;
   date: string;
   status: LogStatus;
@@ -291,7 +293,7 @@ export function useLogHabit() {
   return useMutation({
     mutationFn: (i: LogInput) =>
       rpc<string>("hb_log", {
-        p_habit: i.habit_id, p_date: i.date, p_status: i.status, p_quantity: i.quantity ?? null, p_note: null, p_source: "app", p_idem: newKey(),
+        p_habit: i.habit_id, p_date: i.date, p_status: i.status, p_quantity: i.quantity ?? null, p_note: null, p_source: i.source ?? "app", p_idem: newKey(),
       }),
     onMutate: async (i) => {
       await qc.cancelQueries({ queryKey: keys.snapshot(user?.id) });
@@ -374,7 +376,7 @@ export function useUpdateHabit() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: (i: { id: string; patch: Partial<Pick<HbHabitRow, "title" | "cue_text" | "minimum_text" | "rest_per_week" | "weekly_target" | "quantity_target" | "craving_plan">> }) =>
+    mutationFn: (i: { id: string; patch: Partial<Pick<HbHabitRow, "title" | "cue_text" | "cue_kind" | "minimum_text" | "rest_per_week" | "weekly_target" | "quantity_target" | "quantity_unit" | "interval_days" | "days_of_week" | "started_on" | "craving_plan">> }) =>
       rpc<null>("hb_update_habit", { p_id: i.id, p: i.patch }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
   });
