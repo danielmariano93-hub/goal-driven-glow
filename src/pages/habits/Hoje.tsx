@@ -8,7 +8,7 @@ import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { QuickLogSheet } from "@/components/hb/QuickLogSheet";
-import { formSubtitle, recurringLine } from "@/lib/habits/present";
+import { countsDone, dayFraction, formSubtitle, recurringLine } from "@/lib/habits/present";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
 import { AreaTile, RowCard, SectionLabel, WeekSteps } from "@/components/hb/kit";
 import { sentenceCase } from "@/lib/habits/format";
@@ -36,7 +36,7 @@ export default function Hoje() {
     const daily = views.filter((v) => v.summary.model === "daily");
     const dueToday = daily.filter((v) => v.summary.today.outcome !== "not_expected");
     const total = dueToday.filter((v) => v.summary.today.outcome !== "rest").length;
-    const done = dueToday.filter((v) => v.summary.today.outcome === "done" || v.summary.today.outcome === "minimum").length;
+    const done = dueToday.filter(countsDone).length;
     return {
       days, total, done,
       dueToday,
@@ -92,17 +92,22 @@ export default function Hoje() {
 
   const renderRow = (v: HabitView) => {
     const o = v.summary.today.outcome;
-    const doneNow = o === "done" || o === "minimum";
+    const doneNow = countsDone(v);
+    const simple = v.form === "check" || v.form === "weekly";
+    const frac = dayFraction(v);
     return (
       <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 pr-2 shadow-card">
         <button
           type="button"
           onClick={() => void quickToggle(v)}
-          aria-pressed={doneNow}
-          aria-label={doneNow ? `Desmarcar ${v.habit.title}` : `Marcar ${v.habit.title} como feito`}
-          className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200 active:scale-90", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : "border-border bg-card hover:border-primary/50")}
+          aria-pressed={simple ? doneNow : undefined}
+          aria-label={simple ? (doneNow ? `Desmarcar ${v.habit.title}` : `Marcar ${v.habit.title} como feito`) : `Registrar ${v.habit.title}`}
+          className={cn("relative grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200 active:scale-90", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : simple ? "border-border bg-card hover:border-primary/50" : "border-primary/30 bg-primary/5 text-primary")}
         >
-          {doneNow ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="animate-in zoom-in-50 fade-in duration-200"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : null}
+          {!doneNow && frac != null && frac > 0 ? (
+            <svg viewBox="0 0 48 48" className="absolute inset-[-2px] h-[calc(100%+4px)] w-[calc(100%+4px)] -rotate-90" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="none" stroke="hsl(var(--primary))" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${frac * 138.2} 138.2`} /></svg>
+          ) : null}
+          {doneNow ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="animate-in zoom-in-50 fade-in duration-200"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : !simple ? <Plus className="h-5 w-5" strokeWidth={2.4} aria-hidden="true" /> : null}
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
           <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
