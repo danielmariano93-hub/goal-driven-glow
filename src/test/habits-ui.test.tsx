@@ -179,6 +179,24 @@ describe("tela Hoje", () => {
     fireEvent.click(screen.getByRole("button", { name: "Desmarcar Meditar 5 min" }));
     await waitFor(() => expect(h.unlogAsync).toHaveBeenCalledWith({ habit_id: "a", date: "2026-11-10" }));
   });
+  it("hábito semanal atrasado entra na conta como pendente e é avisado no topo", () => {
+    const a = row({ id: "a", title: "Meditar 5 min" });
+    const t = row({ id: "t", title: "Treinar", kind: "do_weekly_count", weekly_target: 7, started_on: "2026-11-09" });
+    const logs = [L("a", "2026-11-10")];
+    h.views = { ...h.views, views: [view(a, logs), view(t, logs)], logs };
+    render(<MemoryRouter><Hoje /></MemoryRouter>);
+    expect(screen.getByRole("img", { name: /1 de 2 hábitos de hoje feitos/ })).toBeTruthy();
+    expect(screen.getByText("em dia hoje")).toBeTruthy();
+    expect(screen.getByText("Atrasado: Treinar")).toBeTruthy();
+    expect(screen.getByText(/Atrasado: faltam 7 em 6 dias/)).toBeTruthy();
+  });
+  it("hábito semanal em dia conta como feito no contador", () => {
+    const t = row({ id: "t", title: "Treinar", kind: "do_weekly_count", weekly_target: 3, started_on: "2026-11-09" });
+    h.views = { ...h.views, views: [view(t, [])], logs: [] };
+    render(<MemoryRouter><Hoje /></MemoryRouter>);
+    expect(screen.getByRole("img", { name: /1 de 1 hábitos de hoje feitos/ })).toBeTruthy();
+    expect(screen.getByText("tudo em dia")).toBeTruthy();
+  });
   it("hábito que só começa amanhã aparece em 'Não previstos hoje', fora da conta", () => {
     const a = row({ id: "a", title: "Dormir cedo", started_on: "2026-11-11" });
     h.views = { ...h.views, views: [view(a, [])], logs: [] };

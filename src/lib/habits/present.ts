@@ -98,3 +98,21 @@ export function weekTargetNote(v: HabitView, week: { week_start: string; target:
   }
   return `Sua meta é ${base} por semana. Esta semana vale ${t} porque teve dias de pausa.`;
 }
+
+import { weekPace, type WeekPace } from "@/lib/habits/engine/pace";
+
+/** Ritmo da semana de um hábito semanal; nulo nos demais. */
+export function paceOf(v: HabitView, today: string): WeekPace | null {
+  const w = v.summary.week;
+  if (v.summary.model !== "weekly" || !w) return null;
+  return weekPace(w, v.habit.started_on, today, v.habit.kind === "do_weekly_count");
+}
+
+/** Texto curto do ritmo: "Em dia", "Meta batida" ou "Atrasado: faltam 2 em 3 dias". */
+export function paceNote(p: WeekPace | null): string | null {
+  if (!p) return null;
+  if (p.state === "met") return "Meta batida";
+  if (p.state === "on_track") return "Em dia";
+  const n = Math.ceil(p.needed - 1e-9);
+  return `Atrasado: faltam ${n} em ${p.days_left} ${p.days_left === 1 ? "dia" : "dias"}`;
+}
