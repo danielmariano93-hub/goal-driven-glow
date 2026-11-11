@@ -3,14 +3,13 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
+import { BackfillSheet } from "@/components/hb/BackfillSheet";
+import { EditPlanSheet } from "@/components/hb/EditPlanSheet";
 import { OUTCOME_CELL, OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
 import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
 import { AreaTile } from "@/components/hb/kit";
@@ -18,9 +17,8 @@ import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
 import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
-import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
+import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
-import { composeCue, normalizeCue, PERIODS, splitCue } from "@/lib/habits/period";
 
 const WEEKDAY_SHORT = ["D", "S", "T", "Q", "Q", "S", "S"];
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
@@ -51,13 +49,12 @@ export default function Detalhe() {
   const navigate = useNavigate();
   const { views, paused, rules, today, logs, isLoading } = useHabitViews();
   const setStatus = useSetHabitStatus();
-  const update = useUpdateHabit();
   const archive = useArchiveHabit();
   const [editing, setEditing] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
   const view = [...views, ...paused].find((v) => v.habit.id === id);
-  const [form, setForm] = useState({ title: "", cue_text: "", minimum_text: "" });
+  const [backfillOpen, setBackfillOpen] = useState(false);
 
   if (isLoading || !today) return <div className="grid min-h-[50vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>;
   if (!view) {
@@ -70,7 +67,6 @@ export default function Detalhe() {
   }
 
   const { habit, summary } = view;
-  const cueParts = splitCue(form.cue_text);
   const weekly = summary.model === "weekly";
   const recurring = view.form === "recurring";
   const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
@@ -79,19 +75,7 @@ export default function Detalhe() {
     ? (weekly ? "A força aparece depois de 2 semanas de prática." : `A força aparece depois de ${MIN_CLOSED_DAILY} dias de prática.`)
     : "Sobe com constância, cai devagar. É uma estimativa, não uma nota.";
 
-  const openEdit = () => {
-    setForm({ title: habit.title, cue_text: normalizeCue(habit.cue_text), minimum_text: habit.minimum_text ?? "" });
-    setEditing(true);
-  };
-  const save = async () => {
-    try {
-      await update.mutateAsync({ id: habit.id, patch: { title: form.title, cue_text: form.cue_text, minimum_text: form.minimum_text } });
-      setEditing(false);
-      toast.success("Plano atualizado");
-    } catch (e) {
-      toast.error(hbErrorMessage(e));
-    }
-  };
+  const openEdit = () => setEditing(true);
   const isPaused = habit.status === "paused";
   const togglePause = async () => {
     try {
@@ -157,7 +141,7 @@ export default function Detalhe() {
       </dl>}
 
       {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
-        <h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>
+        <div className="flex items-center justify-between gap-2"><h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>{view.form !== "steps" ? <button type="button" onClick={() => setBackfillOpen(true)} className="shrink-0 rounded-full px-2 py-1 text-[12.5px] font-medium text-primary hover:bg-primary/5">Dia anterior</button> : null}</div>
         <ul className="mt-3 grid grid-cols-7 gap-1.5">
           {recent.map((d, i) => {
             const o = recentRows[i].outcome;
@@ -195,28 +179,8 @@ export default function Detalhe() {
 
       {dayOpen ? <DayActionsSheet view={view} date={dayOpen} today={today} logs={logs} open onOpenChange={(o) => !o && setDayOpen(null)} /> : null}
 
-      <Drawer open={editing} onOpenChange={setEditing}>
-        <DrawerContent>
-          <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-            <DrawerHeader className="text-left"><DrawerTitle className="font-display text-xl">Editar o plano</DrawerTitle></DrawerHeader>
-            <div className="flex flex-col gap-4 px-4">
-              <div><Label htmlFor="hb-title">Nome</Label><Input id="hb-title" value={form.title} maxLength={80} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-1 h-12 rounded-2xl" /></div>
-              <div>
-                <Label>Em que parte do dia</Label>
-                <div className="mt-1 grid grid-cols-4 gap-1.5" role="group" aria-label="Momento do dia">
-                  {PERIODS.map((p) => (
-                    <button key={p.id} type="button" aria-pressed={cueParts.period === p.id} onClick={() => setForm({ ...form, cue_text: composeCue(p.id, cueParts.anchor) })} className={cn("min-h-11 rounded-xl border px-1 text-[13px] font-medium leading-4 transition-colors", cueParts.period === p.id ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card")}>{p.id}</button>
-                  ))}
-                </div>
-                <Input id="hb-cue" value={cueParts.anchor} disabled={!cueParts.period} maxLength={80} onChange={(e) => setForm({ ...form, cue_text: composeCue(cueParts.period, e.target.value) })} placeholder="Ligar a algo que você já faz? Ex.: depois do café" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-12 rounded-2xl" />
-              </div>
-              <div><Label htmlFor="hb-min">Versão mínima (dia ruim)</Label><Input id="hb-min" value={form.minimum_text} maxLength={120} onChange={(e) => setForm({ ...form, minimum_text: e.target.value })} placeholder="3 respirações" className="mt-1 h-12 rounded-2xl" /></div>
-              <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={update.isPending || form.title.trim().length < 2} onClick={() => void save()}>Salvar</Button>
-              <p className="text-center text-xs text-muted-foreground">Mudar o plano não altera o seu histórico.</p>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      {editing ? <EditPlanSheet key={habit.id} view={view} open onOpenChange={setEditing} /> : null}
+      {today ? <BackfillSheet today={today} weekly={weekly} open={backfillOpen} onOpenChange={setBackfillOpen} onPick={(d) => setDayOpen(d)} /> : null}
 
       <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}>
         <AlertDialogContent>
