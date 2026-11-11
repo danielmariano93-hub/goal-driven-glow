@@ -20,6 +20,7 @@ import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
 import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
+import { composeCue, normalizeCue, PERIODS, splitCue } from "@/lib/habits/period";
 
 const WEEKDAY_SHORT = ["D", "S", "T", "Q", "Q", "S", "S"];
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
@@ -69,6 +70,7 @@ export default function Detalhe() {
   }
 
   const { habit, summary } = view;
+  const cueParts = splitCue(form.cue_text);
   const weekly = summary.model === "weekly";
   const recurring = view.form === "recurring";
   const recent = Array.from({ length: 7 }, (_, i) => addDays(today, -(6 - i)));
@@ -78,7 +80,7 @@ export default function Detalhe() {
     : "Sobe com constância, cai devagar. É uma estimativa, não uma nota.";
 
   const openEdit = () => {
-    setForm({ title: habit.title, cue_text: habit.cue_text ?? "", minimum_text: habit.minimum_text ?? "" });
+    setForm({ title: habit.title, cue_text: normalizeCue(habit.cue_text), minimum_text: habit.minimum_text ?? "" });
     setEditing(true);
   };
   const save = async () => {
@@ -199,7 +201,15 @@ export default function Detalhe() {
             <DrawerHeader className="text-left"><DrawerTitle className="font-display text-xl">Editar o plano</DrawerTitle></DrawerHeader>
             <div className="flex flex-col gap-4 px-4">
               <div><Label htmlFor="hb-title">Nome</Label><Input id="hb-title" value={form.title} maxLength={80} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-1 h-12 rounded-2xl" /></div>
-              <div><Label htmlFor="hb-cue">Quando você vai fazer (depois de…)</Label><Input id="hb-cue" value={form.cue_text} maxLength={120} onChange={(e) => setForm({ ...form, cue_text: e.target.value })} placeholder="Depois de tomar café" className="mt-1 h-12 rounded-2xl" /></div>
+              <div>
+                <Label>Em que parte do dia</Label>
+                <div className="mt-1 grid grid-cols-4 gap-1.5" role="group" aria-label="Momento do dia">
+                  {PERIODS.map((p) => (
+                    <button key={p.id} type="button" aria-pressed={cueParts.period === p.id} onClick={() => setForm({ ...form, cue_text: composeCue(p.id, cueParts.anchor) })} className={cn("min-h-11 rounded-xl border px-1 text-[13px] font-medium leading-4 transition-colors", cueParts.period === p.id ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card")}>{p.id}</button>
+                  ))}
+                </div>
+                <Input id="hb-cue" value={cueParts.anchor} disabled={!cueParts.period} maxLength={80} onChange={(e) => setForm({ ...form, cue_text: composeCue(cueParts.period, e.target.value) })} placeholder="Ligar a algo que você já faz? Ex.: depois do café" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-12 rounded-2xl" />
+              </div>
               <div><Label htmlFor="hb-min">Versão mínima (dia ruim)</Label><Input id="hb-min" value={form.minimum_text} maxLength={120} onChange={(e) => setForm({ ...form, minimum_text: e.target.value })} placeholder="3 respirações" className="mt-1 h-12 rounded-2xl" /></div>
               <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={update.isPending || form.title.trim().length < 2} onClick={() => void save()}>Salvar</Button>
               <p className="text-center text-xs text-muted-foreground">Mudar o plano não altera o seu histórico.</p>

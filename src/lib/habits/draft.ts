@@ -4,6 +4,8 @@ import type { HabitForm } from "@/lib/habits/engine";
 import { hhmm, minutesOf } from "@/lib/habits/engine";
 import type { CatalogItem, IconKey, QuitItem } from "@/lib/habits/catalog";
 
+import { splitCue } from "@/lib/habits/period";
+
 export interface Draft {
   catalog_id: string | null;
   title: string;
@@ -50,7 +52,7 @@ const dailyDays = (d: Draft) => (d.days.length > 0 && d.days.length < 7 ? d.days
 export function draftToInput(d: Draft): CreateHabitInput {
   const base = {
     title: d.title.trim(), area: d.area, template_id: null,
-    cue_kind: d.cue_text.trim() ? ("after_event" as const) : null, cue_text: d.cue_text.trim() || null,
+    cue_kind: d.cue_text.trim() ? (splitCue(d.cue_text).anchor ? ("after_event" as const) : ("free" as const)) : null, cue_text: d.cue_text.trim() || null,
     minimum_text: d.minimum_text.trim() || null, rest_per_week: d.rest_per_week, start_today: d.start_today,
     sensitivity: d.sensitive ? ("health" as const) : ("normal" as const),
   };
