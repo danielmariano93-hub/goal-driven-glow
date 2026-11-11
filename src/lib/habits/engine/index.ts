@@ -5,3 +5,4 @@ export * from "./metrics";
 export * from "./quit";
 export * from "./automaticity";
 export * from "./insights";
+export * from "./forms";

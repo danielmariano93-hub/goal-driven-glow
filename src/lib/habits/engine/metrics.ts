@@ -2,7 +2,7 @@
 // Fórmulas e limiares: docs/NINO_HABITOS_REFINAMENTO_TECNICO.md (seção 6.1). Os valores marcados [calibrar] serão
 // revistos na fase F4 com dados reais (a versão da fórmula fica em FORMULA_VERSION).
 import { addDays, weekStart } from "./dates";
-import { dayRows, isWeeklyModel, MINIMUM_WEIGHT, weekRows } from "./outcomes";
+import { dayRows, isRecurringModel, isWeeklyModel, MINIMUM_WEIGHT, weekRows } from "./outcomes";
 import type { DayRow, HabitDef, HabitSummary, LogRow, Outcome, PauseRange, Phase, WeekRow } from "./types";
 
 export const FORMULA_VERSION = "hb_formula.v1";
@@ -119,6 +119,14 @@ export function summarizeHabit(h: HabitDef, logs: LogRow[], today: string, pause
   const rests = mine.filter((l) => l.status === "rest" && l.local_date >= wkStart && l.local_date <= addDays(wkStart, 6)).length;
   const restsLeft = Math.max(0, h.rest_per_week - rests);
   const todayLog = mine.find((l) => l.local_date === today);
+
+  if (isRecurringModel(h)) {
+    return {
+      model: "recurring", today: { outcome: todayLog ? "done" : "not_expected", quantity: null }, week: null,
+      adherence7: null, adherence30: null, adherence90: null, streak: 0, best_streak: 0, strength: null, phase: "starting",
+      closed_count: 0, rests_used_this_week: 0, rests_left_this_week: 0,
+    };
+  }
 
   if (weekly) {
     const weeks = weekRows(h, logs, today, pauses);

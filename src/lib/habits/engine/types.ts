@@ -17,6 +17,14 @@ export interface HabitDef {
   quantity_target: number | null;
   quantity_period: "day" | "week" | null;
   rest_per_week: number;
+  /** Forma de medir (opcional; sem ela vale o que `kind` diz). */
+  form?: string | null;
+  /** Como a quantidade é julgada: no mínimo (padrão), no máximo (teto, horário) ou só acompanhar um valor. */
+  direction?: "at_least" | "at_most" | "track" | null;
+  /** Teto: dia fechado sem registro conta como dentro do limite. */
+  implicit_ok?: boolean | null;
+  /** Cuidado recorrente: a cada quantos dias. */
+  interval_days?: number | null;
 }
 
 export interface LogRow {
@@ -50,7 +58,7 @@ export interface WeekRow {
   met: boolean;
 }
 
-export type CadenceModel = "daily" | "weekly";
+export type CadenceModel = "daily" | "weekly" | "recurring";
 
 export interface HabitSummary {
   model: CadenceModel;

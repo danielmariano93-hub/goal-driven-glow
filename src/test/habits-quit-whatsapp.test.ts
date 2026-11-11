@@ -164,3 +164,27 @@ describe("F5/F6: medido e revisão semanal", () => {
     expect(r?.reply).toBeTruthy();
   });
 });
+
+describe("M5: formas que o WhatsApp não marca", () => {
+  it("projeto e rotina em passos não recebem 'feito' nem quantidade por mensagem", async () => {
+    const s = snap({
+      habits: [
+        { ...base, id: "ler", title: "Ler", kind: "do_quantity", quantity_target: 10, quantity_unit: "páginas", quantity_period: "day", form: "project" },
+        { ...base, id: "man", title: "Rotina da manhã", kind: "do_daily", form: "steps" },
+      ],
+      cycles: [],
+    });
+    const db = fakeDb(s);
+    expect(await run(db, "li 12 páginas")).toBeNull();
+    expect(await run(db, "feito")).toBeNull();
+    expect(db.calls.some((c) => c.fn === "hb_log_as")).toBe(false);
+  });
+  it("teto sem registro conta como dentro do limite e não gera lembrete pendente", () => {
+    const s = snap({
+      habits: [{ ...base, id: "tela", title: "Tempo de tela", kind: "do_quantity", quantity_target: 3, quantity_unit: "horas", quantity_period: "day", cue_time: "21:00:00", form: "ceiling", direction: "at_most", implicit_ok: true }],
+      cycles: [],
+    });
+    const r = habitReminders({ snap: s, now: NOW, alreadySentToday: 0, sentKeys: new Set(), ignoredCueStreak: 0 });
+    expect(r.filter((x) => x.kind === "hb_cue_reminder").length).toBeLessThanOrEqual(1);
+  });
+});

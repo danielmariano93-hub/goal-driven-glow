@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
+import { QuickLogSheet } from "@/components/hb/QuickLogSheet";
+import { formSubtitle, recurringLine } from "@/lib/habits/present";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
 import { AreaTile, RowCard, SectionLabel, WeekSteps } from "@/components/hb/kit";
 import { sentenceCase } from "@/lib/habits/format";
@@ -14,19 +16,6 @@ import { hbErrorMessage, useHabitViews, useHbTemplates, useLogHabit, useSetHbMod
 import { addDays, dayRows } from "@/lib/habits/engine";
 
 const pluralDias = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
-
-function subtitle(v: HabitView): string {
-  const { habit, summary } = v;
-  const parts: string[] = [];
-  if (habit.kind === "do_quantity" && summary.model === "daily") {
-    parts.push(`${summary.today.quantity ?? 0} de ${habit.quantity_target} ${habit.quantity_unit ?? ""}`.trim());
-  } else if (summary.model === "weekly" && summary.week) {
-    const w = summary.week;
-    parts.push(habit.kind === "do_quantity" ? `${Math.round(w.count)} de ${Math.round(w.target)} ${habit.quantity_unit ?? ""}`.trim() : `${Math.min(Math.round(w.count * 10) / 10, 99)} de ${w.target} esta semana`);
-  } else if (habit.cue_text) parts.push(habit.cue_text);
-  if (summary.streak >= 2) parts.push(`${summary.streak} ${summary.model === "weekly" ? "semanas" : "dias"} seguidos`);
-  return parts.join(" · ");
-}
 
 export default function Hoje() {
   const navigate = useNavigate();
@@ -36,6 +25,7 @@ export default function Hoje() {
   const setMode = useSetHbMode();
   const templates = useHbTemplates();
   const [sheet, setSheet] = useState<{ id: string; date: string } | null>(null);
+  const [quick, setQuick] = useState<string | null>(null);
 
   const model = useMemo(() => {
     if (!today) return null;
@@ -62,8 +52,9 @@ export default function Hoje() {
 
   const quickToggle = async (v: HabitView) => {
     if (!today) return;
-    if (v.habit.kind === "do_quantity" && v.summary.model === "daily") {
-      setSheet({ id: v.habit.id, date: today });
+    // Só "feito ou não" e "X por semana" marcam com um toque; as outras formas abrem o registro certo.
+    if (v.form !== "check" && v.form !== "weekly") {
+      setQuick(v.habit.id);
       return;
     }
     try {
@@ -96,6 +87,8 @@ export default function Hoje() {
   const weekday = sentenceCase(new Date(`${today}T12:00:00Z`).toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }));
   const starters = (templates.data ?? []).filter((t) => ["meditar-5", "caminhar-20", "agua-2l"].includes(t.slug));
   const active = sheet ? views.find((v) => v.habit.id === sheet.id) : undefined;
+  const quickView = quick ? views.find((v) => v.habit.id === quick) : undefined;
+  const recurring = views.filter((v) => v.summary.model === "recurring");
 
   const renderRow = (v: HabitView) => {
     const o = v.summary.today.outcome;
@@ -113,7 +106,7 @@ export default function Hoje() {
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
           <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
-          <p className="truncate text-xs leading-4 text-muted-foreground">{subtitle(v) || "Toque para ver o plano"}</p>
+          <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}</p>
         </Link>
         <Dots rows={dotsFor(v)} />
         <button
@@ -187,6 +180,27 @@ export default function Hoje() {
                   <ul className="flex flex-col gap-2" aria-label="Hábitos de meta semanal">{model.weekly.map(renderRow)}</ul>
                 </>
               ) : null}
+              {recurring.length > 0 ? (
+                <>
+                  <SectionLabel>Cuidados</SectionLabel>
+                  <ul className="flex flex-col gap-2" aria-label="Cuidados recorrentes">
+                    {recurring.map((v) => {
+                      const last = [...logs].filter((l) => l.habit_id === v.habit.id).map((l) => l.local_date).sort().pop() ?? null;
+                      const r = recurringLine(v, last, today);
+                      return (
+                        <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 pr-2 shadow-card">
+                          <AreaTile area={v.habit.area} title={v.habit.title} />
+                          <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
+                            <p className="truncate font-display text-[16.5px] font-semibold leading-5">{v.habit.title}</p>
+                            <p className={cn("truncate text-xs leading-4", r.tone === "overdue" ? "text-destructive" : "text-muted-foreground")}>{r.text}</p>
+                          </Link>
+                          <button type="button" onClick={() => setQuick(v.habit.id)} className="h-9 rounded-full bg-primary/10 px-3.5 text-[13px] font-medium text-primary transition-colors hover:bg-primary/15">Fiz hoje</button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
               {quitViews.length > 0 ? (
                 <>
                   <h2 className="mb-2 mt-5 text-[13px] font-medium text-muted-foreground">Largando</h2>
@@ -218,6 +232,7 @@ export default function Hoje() {
         </div>
       </div>
 
+      {quickView ? <QuickLogSheet key={quickView.habit.id} view={quickView} date={today} open onOpenChange={(o) => !o && setQuick(null)} /> : null}
       {active && sheet ? <DayActionsSheet view={active} date={sheet.date} today={today} logs={logs} open onOpenChange={(o) => !o && setSheet(null)} /> : null}
     </div>
   );

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import {
+  formOf, type HabitForm,
   automaticityDue, automaticitySummary, isMaintenance, mergeAutoLogs, quitStats, summarizeHabit, FIRM_FROM,
   type AutoCheckin, type AutomaticitySummary, type CravingRow, type CycleRow, type HabitDef, type HabitKind, type HabitSummary, type LogRow, type LogStatus,
   type PauseRange, type QuitStats, type SlipRow,
@@ -31,6 +32,11 @@ export interface HbHabitRow {
   quantity_period: "day" | "week" | null;
   rest_per_week: number;
   craving_plan?: string | null;
+  form?: string | null;
+  direction?: "at_least" | "at_most" | "track" | null;
+  implicit_ok?: boolean;
+  interval_days?: number | null;
+  meta?: Record<string, unknown> | null;
   status: "active" | "paused" | "archived";
   started_on: string;
   created_at: string;
@@ -55,7 +61,13 @@ export interface HbSnapshot {
   /** Hábitos medidos pelo Nino (F5). */
   auto_rules?: Array<{ habit_id: string; rule_type: "no_spend_category" | "spend_under_limit"; category_id: string; limit_amount: number | null }>;
   auto_logs?: LogRow[];
+  projects?: HbProject[];
+  steps?: HbStep[];
+  step_logs?: Array<{ habit_id: string; step_id: string; local_date: string }>;
 }
+
+export interface HbProject { id: string; habit_id: string; title: string; total: number; current: number; unit: string | null; started_on: string; finished_on: string | null }
+export interface HbStep { id: string; habit_id: string; position: number; title: string }
 
 export interface HbTemplate {
   id: string;
@@ -99,6 +111,11 @@ const ERROR_TEXT: Array<[string, string]> = [
   ["future_date", "Esse dia ainda não chegou."],
   ["before_start", "Esse dia é anterior ao início do hábito."],
   ["quantity_not_supported", "Este hábito não usa quantidade."],
+  ["project_already_complete", "Este projeto já foi concluído."],
+  ["open_project_exists", "Conclua ou ajuste o projeto atual antes de começar outro."],
+  ["interval_required", "Informe de quantos em quantos dias."],
+  ["steps_required", "Adicione de 1 a 12 passos."],
+  ["invalid_amount", "Informe um valor válido."],
   ["consent_required", "Esse tipo de hábito precisa da sua autorização antes."],
   ["quit_cannot_pause", "Largar um hábito não pausa: se precisar, use “Só anotar” ou recomece a contagem."],
   ["not_a_quit_habit", "Isso só vale para hábitos de largar."],
@@ -123,6 +140,10 @@ export const habitToDef = (h: HbHabitRow): HabitDef => ({
   quantity_target: h.quantity_target,
   quantity_period: h.quantity_period,
   rest_per_week: h.rest_per_week,
+  form: h.form ?? null,
+  direction: h.direction ?? null,
+  implicit_ok: h.implicit_ok ?? false,
+  interval_days: h.interval_days ?? null,
 });
 
 const keys = {
@@ -185,6 +206,13 @@ export interface HabitView {
   auto: AutomaticitySummary;
   /** Já está na hora de perguntar o quanto está automático? */
   auto_due: boolean;
+  form: HabitForm;
+  /** Projeto aberto (livro, curso, reserva) e os já concluídos. */
+  project: HbProject | null;
+  projects_done: HbProject[];
+  steps: HbStep[];
+  /** Passos marcados hoje. */
+  steps_today: string[];
 }
 
 export interface QuitView {
@@ -213,8 +241,14 @@ export function useHabitViews() {
       const summary = summarizeHabit(def, logs, data.today, pauses);
       const auto = automaticitySummary(habit.id, checkins);
       const maintenance = isMaintenance(auto, summary.strength, FIRM_FROM);
+      const projects = (data.projects ?? []).filter((x) => x.habit_id === habit.id);
       return {
         habit, def, pauses, auto,
+        form: formOf(habit),
+        project: projects.find((x) => x.finished_on == null) ?? null,
+        projects_done: projects.filter((x) => x.finished_on != null),
+        steps: (data.steps ?? []).filter((x) => x.habit_id === habit.id).sort((a, b) => a.position - b.position),
+        steps_today: (data.step_logs ?? []).filter((x) => x.habit_id === habit.id && x.local_date === data.today).map((x) => x.step_id),
         summary: maintenance ? { ...summary, phase: "maintenance" } : summary,
         auto_due: habit.status === "active" && automaticityDue(habit, checkins, data.today),
       };
@@ -298,6 +332,13 @@ export function useUnlogHabit() {
 
 export interface CreateHabitInput {
   kind: HabitKind;
+  form?: HabitForm;
+  direction?: "at_least" | "at_most" | "track";
+  implicit_ok?: boolean;
+  interval_days?: number;
+  meta?: Record<string, unknown>;
+  steps?: string[];
+  project?: { title: string; total: number; current?: number; unit?: string | null };
   sensitivity?: "normal" | "health" | "substance";
   craving_plan?: string | null;
   /** Largar: categoria de despesa usada para estimar o gasto médio (Nino calcula). */
@@ -525,4 +566,39 @@ export function useSuggestPlan() {
 }
 export function useNarrateWeek() {
   return useMutation({ mutationFn: () => callHabitsAi<{ ok: boolean; source: "ai" | "template" | "none"; text: string }>({ action: "narrate_week" }) });
+}
+
+// ---------------------------------------------------------------- M5: formas de medir
+
+export function useProjectAdd() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: { habit_id: string; amount: number; date?: string | null }) =>
+      rpc<{ current: number; total: number; finished: boolean; added: number }>("hb_project_add", { p_habit: i.habit_id, p_amount: i.amount, p_date: i.date ?? null }),
+    onSuccess: inv,
+  });
+}
+export function useProjectStart() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: { habit_id: string; title: string; total: number; unit?: string | null }) =>
+      rpc<string>("hb_project_start", { p_habit: i.habit_id, p_title: i.title, p_total: i.total, p_unit: i.unit ?? null }),
+    onSuccess: inv,
+  });
+}
+export function useProjectUpdate() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: { id: string; title?: string; total?: number; current?: number }) =>
+      rpc<null>("hb_project_update", { p_project: i.id, p_title: i.title ?? null, p_total: i.total ?? null, p_current: i.current ?? null }),
+    onSuccess: inv,
+  });
+}
+export function useStepToggle() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: { habit_id: string; step_id: string; date: string; done: boolean }) =>
+      rpc<{ done: number; total: number }>("hb_step_toggle", { p_habit: i.habit_id, p_step: i.step_id, p_date: i.date, p_done: i.done }),
+    onSuccess: inv,
+  });
 }

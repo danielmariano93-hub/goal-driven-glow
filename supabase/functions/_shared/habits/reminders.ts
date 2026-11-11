@@ -54,6 +54,7 @@ const pausesOf = (snap: HbSnapshotAs, id: string): PauseRange[] => (snap.pauses 
 const toDef = (h: HbSnapshotAs["habits"][number]): HabitDef => ({
   id: h.id, kind: h.kind, started_on: h.started_on, days_of_week: h.days_of_week, weekly_target: h.weekly_target,
   quantity_target: h.quantity_target, quantity_period: h.quantity_period, rest_per_week: h.rest_per_week,
+  form: h.form ?? null, direction: h.direction ?? null, implicit_ok: h.implicit_ok ?? false, interval_days: h.interval_days ?? null,
 });
 
 /** O último registro (de qualquer origem) foi nas últimas 24 h? Quem está registrando não está "ignorando". */

@@ -14,7 +14,8 @@ export type HbSnapshotAs = {
   habits: Array<{
     id: string; title: string; kind: HabitDef["kind"]; started_on: string; days_of_week: number[] | null; weekly_target: number | null;
     quantity_target: number | null; quantity_unit: string | null; quantity_period: "day" | "week" | null; rest_per_week: number; cue_time: string | null;
-    cue_text: string | null; minimum_text: string | null; craving_plan?: string | null; status?: string; sensitivity?: "normal" | "health" | "substance";
+    cue_text: string | null; minimum_text: string | null; craving_plan?: string | null; status?: string;
+    form?: string | null; direction?: "at_least" | "at_most" | "track" | null; implicit_ok?: boolean; interval_days?: number | null; sensitivity?: "normal" | "health" | "substance";
   }>;
   logs: Array<LogRow & { source?: string; logged_at?: string }>;
   pauses?: Array<{ habit_id: string; from: string; to: string | null }>;
@@ -43,6 +44,7 @@ export const resetHabitGateCache = () => NOT_ENABLED_UNTIL.clear();
 const toDef = (h: HbSnapshotAs["habits"][number]): HabitDef => ({
   id: h.id, kind: h.kind, started_on: h.started_on, days_of_week: h.days_of_week, weekly_target: h.weekly_target,
   quantity_target: h.quantity_target, quantity_period: h.quantity_period, rest_per_week: h.rest_per_week,
+  form: h.form ?? null, direction: h.direction ?? null, implicit_ok: h.implicit_ok ?? false, interval_days: h.interval_days ?? null,
 });
 
 /** Minutos desde 00:00 no fuso da pessoa. */
@@ -198,7 +200,8 @@ export async function handleHabitReply(
     .filter((l) => l.source === "whatsapp" && l.logged_at && now.getTime() - Date.parse(l.logged_at) <= RECENT_UNDO_MS)
     .sort((a, b) => String(b.logged_at).localeCompare(String(a.logged_at)))[0];
 
-  const lite: HabitLite[] = snap.habits.filter((h) => h.kind !== "quit").map((h) => ({ id: h.id, title: h.title, kind: h.kind, quantity_target: h.quantity_target, quantity_unit: h.quantity_unit, cue_time: h.cue_time }));
+  // Projeto, rotina em passos e cuidado recorrente têm registro próprio no app: o WhatsApp não marca "feito" neles.
+  const lite: HabitLite[] = snap.habits.filter((h) => h.kind !== "quit" && !["project", "steps", "recurring", "time"].includes(h.form ?? "")).map((h) => ({ id: h.id, title: h.title, kind: h.kind, quantity_target: h.quantity_target, quantity_unit: h.quantity_unit, cue_time: h.cue_time }));
   const intent: HabitIntent | null = interpretHabitMessage(args.text, {
     habits: lite, dueUnlogged: due.map((v) => v.habit.id), dueNow: dueNow.map((v) => v.habit.id), recentWhatsappLog: !!recent,
   });
