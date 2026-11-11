@@ -60,7 +60,7 @@ export default function Habitos() {
                 </div>
                 <div className="mt-3"><StrengthBar value={v.summary.strength} /></div>
                 <dl className="mt-3 flex gap-6 text-xs text-muted-foreground">
-                  <div><dt className="sr-only">Sequência</dt><dd><b className="text-sm text-foreground">{v.summary.streak}</b> {v.summary.model === "weekly" ? "sem." : "dias"} seguidos</dd></div>
+                  <div><dt className="sr-only">Sequência</dt><dd><b className="text-sm text-foreground">{v.summary.streak}</b> {v.summary.model === "weekly" ? (v.summary.streak === 1 ? "semana seguida" : "sem. seguidas") : v.summary.streak === 1 ? "dia seguido" : "dias seguidos"}</dd></div>
                   <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-sm text-foreground">{pct(v.summary.adherence30)}</b> em 30 dias</dd></div>
                 </dl>
               </Link>

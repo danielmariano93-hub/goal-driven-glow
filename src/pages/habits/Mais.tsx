@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { hbErrorMessage, useGrantConsent, useHabitViews, useHbPrefs, useRevokeConsent, useSetHbMode, useSetHbPrefs } from "@/lib/habits/api";
 
 const ITEMS: Array<{ tag: string; title: string; text: string }> = [
-  { tag: "medido", title: "Contagem do que você marcou", text: "Dias cumpridos, sequência e recorde. É só contar o que você registrou." },
+  { tag: "medido", title: "Contagem do que você marcou", text: "Constância, sequência e recorde. É só contar o que você registrou." },
   { tag: "estimado", title: "Força do hábito", text: "Dá mais peso aos últimos dias. Sobe com constância e cai devagar. É uma estimativa, não uma nota." },
   { tag: "autorrelatado", title: "O que você responde", text: "A cada 2 semanas o Nino pergunta o quanto o hábito está automático (1 a 7). Só você sabe. Quanto mais automático, menos lembretes." },
   { tag: "estimado", title: "Dinheiro que ficou com você", text: "Em hábitos de largar, é a sua média de gasto antes de começar menos o que você gastou depois. É uma estimativa, não um extrato." },

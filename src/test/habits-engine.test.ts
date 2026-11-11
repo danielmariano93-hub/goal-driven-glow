@@ -47,11 +47,13 @@ describe("resultado do dia (modelo diário)", () => {
     expect(isExpectedDay(seg, "2026-11-10")).toBe(false); // terça
     expect(dayOutcome(seg, undefined, "2026-11-10", "2026-11-12")).toBe("not_expected");
   });
-  it("quantidade por dia: meta batida é feito, parcial é versão mínima, zero é falha", () => {
+  it("quantidade por dia: meta batida é feito; parcial de dia fechado vale mínima só a partir de metade; hoje parcial segue aberto", () => {
     const q = base({ kind: "do_quantity", quantity_target: 10, quantity_period: "day", started_on: "2026-11-01" });
     expect(dayOutcome(q, L("2026-11-09", "quantity", 10), "2026-11-09", today)).toBe("done");
-    expect(dayOutcome(q, L("2026-11-09", "quantity", 4), "2026-11-09", today)).toBe("minimum");
+    expect(dayOutcome(q, L("2026-11-09", "quantity", 6), "2026-11-09", today)).toBe("minimum");
+    expect(dayOutcome(q, L("2026-11-09", "quantity", 4), "2026-11-09", today)).toBe("missed");
     expect(dayOutcome(q, L("2026-11-09", "quantity", 0), "2026-11-09", today)).toBe("missed");
+    expect(dayOutcome(q, L(today, "quantity", 2.5), today, today)).toBe("unlogged");
   });
   it("pausa: dias pausados não são previstos, então não viram falha", () => {
     const pauses = [{ from: "2026-11-03", to: "2026-11-05" }];
