@@ -38,15 +38,15 @@ export async function habitSuggestions(client: unknown, userId: string, now: Dat
     const { data: rows } = await sb.from("communication_deliveries")
       .select("kind,dedup_key,status,interacted_at,created_at")
       .eq("user_id", userId)
-      .in("kind", ["hb_cue_reminder", "hb_daily_recap"])
+      .in("kind", ["hb_cue_reminder", "hb_daily_recap", "hb_automaticity_due", "hb_streak_milestone"])
       .gte("created_at", new Date(now.getTime() - 14 * 86_400_000).toISOString())
       .order("created_at", { ascending: false })
-      .limit(40);
+      .limit(80);
     const history = ((rows as Array<{ kind: string; dedup_key: string | null; status: string; interacted_at: string | null; created_at: string }> | null) ?? []);
 
     const sentKeys = new Set<string>(cooldowns ?? []);
     for (const r of history) if (r.dedup_key && ACCEPTED.has(r.status)) sentKeys.add(r.dedup_key);
-    const alreadySentToday = [...sentKeys].filter((k) => k.startsWith("hb-") && k.includes(`:${snap.today}`) || k === `hb-recap:${snap.today}`).length;
+    const alreadySentToday = [...sentKeys].filter((k) => (k.startsWith("hb-cue:") || k.startsWith("hb-recap:")) && k.includes(`:${snap.today}`)).length;
 
     // Lembretes de gatilho mais recentes seguidos sem resposta (só os já entregues há mais de 2 h contam como "ignorados").
     let ignored = 0;

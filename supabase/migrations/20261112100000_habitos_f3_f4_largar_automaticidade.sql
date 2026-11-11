@@ -459,6 +459,7 @@ begin
     'today', today,
     'timezone', coalesce(tz, 'America/Sao_Paulo'),
     'whatsapp_logging', coalesce(prefs.whatsapp_logging, true),
+    'consent_sensitive', prefs.consent_sensitive_at is not null,
     'nudges_enabled', coalesce(prefs.nudges_enabled, true),
     'max_nudges_per_day', coalesce(prefs.max_nudges_per_day, 2),
     'habits', coalesce((select jsonb_agg(to_jsonb(h) order by h.created_at) from public.hb_habits h where h.user_id = p_user and h.status = 'active'), '[]'::jsonb),
@@ -473,7 +474,13 @@ begin
     'slips', coalesce((select jsonb_agg(jsonb_build_object('habit_id', s.habit_id, 'local_date', s.local_date, 'reset', s.reset, 'created_at', s.created_at) order by s.created_at)
                        from public.hb_slips s where s.user_id = p_user and s.local_date >= today - 90), '[]'::jsonb),
     'automaticity', coalesce((select jsonb_agg(jsonb_build_object('habit_id', a.habit_id, 'answered_on', a.answered_on, 'score', a.score, 'skipped', a.skipped) order by a.answered_on)
-                       from public.hb_automaticity_checkins a where a.user_id = p_user), '[]'::jsonb)
+                       from public.hb_automaticity_checkins a where a.user_id = p_user), '[]'::jsonb),
+    -- Pergunta de automaticidade enviada pelo WhatsApp nas últimas 24 h (um "5" solto só vale como resposta nesse caso).
+    'auto_prompt', (select jsonb_build_object('habit_id', d.evidence->>'habit_id', 'sent_at', d.created_at)
+                    from public.communication_deliveries d
+                    where d.user_id = p_user and d.kind = 'hb_automaticity_due' and d.channel = 'whatsapp'
+                      and d.status in ('queued','sent','delivered','acted') and d.created_at >= now() - interval '24 hours'
+                    order by d.created_at desc limit 1)
   );
 end $$;
 

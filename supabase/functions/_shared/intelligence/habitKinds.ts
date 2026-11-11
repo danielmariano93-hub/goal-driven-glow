@@ -3,7 +3,7 @@
 // Têm escopo PRÓPRIO na política de envio: não consomem a cota dos alertas financeiros (nem o contrário), não dependem do
 // consentimento de "insight financeiro" (a pessoa liga/desliga em Hábitos), e repetem por chave (um lembrete por horário
 // do dia), não por tipo. O teto geral de WhatsApp e o horário de silêncio continuam valendo para elas.
-export const HABIT_KINDS = new Set<string>(["hb_cue_reminder", "hb_daily_recap"]);
+export const HABIT_KINDS = new Set<string>(["hb_cue_reminder", "hb_daily_recap", "hb_automaticity_due", "hb_streak_milestone"]);
 
 export const isHabitKind = (kind: string): boolean => HABIT_KINDS.has(kind);
 

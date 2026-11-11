@@ -1,8 +1,9 @@
 // Hábitos no WhatsApp (F2): marcar, consultar e desfazer por mensagem. Só para quem tem Hábitos liberado (`hb_access`).
 // Tudo é determinístico (sem IA) e falha fechado: qualquer dúvida devolve null e a conversa segue o caminho normal.
 // O registro vai por `hb_log_as` (mesma regra única da hb_log do app: janela de 7 dias, folgas, idempotência).
-import { addDays, summarizeHabit, type HabitDef, type LogRow } from "../habits-core/index.ts";
+import { addDays, automaticityDue, quitStats, summarizeHabit, type AutoCheckin, type CravingRow, type CycleRow, type HabitDef, type LogRow, type PauseRange, type SlipRow } from "../habits-core/index.ts";
 import { interpretHabitMessage, type HabitIntent, type HabitLite, type HabitStatusWord } from "./interpret.ts";
+import { interpretQuitMessage } from "./quitInterpret.ts";
 
 export type HbSnapshotAs = {
   today: string;
@@ -13,9 +14,16 @@ export type HbSnapshotAs = {
   habits: Array<{
     id: string; title: string; kind: HabitDef["kind"]; started_on: string; days_of_week: number[] | null; weekly_target: number | null;
     quantity_target: number | null; quantity_unit: string | null; quantity_period: "day" | "week" | null; rest_per_week: number; cue_time: string | null;
-    cue_text: string | null; minimum_text: string | null;
+    cue_text: string | null; minimum_text: string | null; craving_plan?: string | null; status?: string; sensitivity?: "normal" | "health" | "substance";
   }>;
   logs: Array<LogRow & { source?: string; logged_at?: string }>;
+  pauses?: Array<{ habit_id: string; from: string; to: string | null }>;
+  cycles?: CycleRow[];
+  cravings?: Array<CravingRow & { id: string; occurred_at: string }>;
+  slips?: Array<SlipRow & { created_at?: string }>;
+  automaticity?: AutoCheckin[];
+  consent_sensitive?: boolean;
+  auto_prompt?: { habit_id: string | null; sent_at: string } | null;
 };
 
 export type HabitReply = { action: string; reply: string };
@@ -56,10 +64,13 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 type View = { habit: HbSnapshotAs["habits"][number]; def: HabitDef; summary: ReturnType<typeof summarizeHabit> };
 
+const pausesOf = (snap: HbSnapshotAs, id: string): PauseRange[] => (snap.pauses ?? []).filter((p) => p.habit_id === id).map((p) => ({ from: p.from, to: p.to }));
+
+/** Só hábitos de fazer ativos: os de largar têm contagem própria e nunca recebem "feito". */
 function views(snap: HbSnapshotAs, logs: LogRow[]): View[] {
-  return snap.habits.map((habit) => {
+  return snap.habits.filter((h) => h.kind !== "quit" && (h.status ?? "active") === "active").map((habit) => {
     const def = toDef(habit);
-    return { habit, def, summary: summarizeHabit(def, logs, snap.today, []) };
+    return { habit, def, summary: summarizeHabit(def, logs, snap.today, pausesOf(snap, habit.id)) };
   });
 }
 
@@ -129,6 +140,18 @@ function errorReply(message: string, title: string): string | null {
   return null;
 }
 
+const CRISIS_REPLY = "Sinto muito que esteja tão pesado. Você não precisa passar por isso sem apoio: no Brasil, o CVV atende 24 horas pelo 188 (ligação gratuita) e, em emergência, o SAMU é o 192. Se puder, fale agora com alguém de confiança.";
+
+const dias = (n: number) => `${n} ${n === 1 ? "dia" : "dias"}`;
+
+/** Linhas de "largar" para o resumo dos hábitos. */
+export function quitStatusLines(snap: HbSnapshotAs): string[] {
+  return snap.habits.filter((h) => h.kind === "quit" && (h.status ?? "active") === "active").map((h) => {
+    const st = quitStats(h.id, snap.cycles ?? [], snap.cravings ?? [], snap.slips ?? [], snap.today);
+    return `${h.title}: ${dias(st.days_clean)} sem (recorde ${dias(st.best)}).`;
+  });
+}
+
 export async function handleHabitReply(
   client: unknown,
   args: { userId: string; text: string; idempotencyKey?: string | null; now?: Date },
@@ -145,7 +168,21 @@ export async function handleHabitReply(
     return null;
   }
   const snap = data as HbSnapshotAs;
-  if (!snap.whatsapp_logging || snap.habits.length === 0) return null;
+  if (!snap.whatsapp_logging) return null;
+
+  // Hábitos de largar e automaticidade (F3/F4): vêm antes do registro comum, que nunca toca em hábito de largar.
+  const quitHabits = snap.habits.filter((h) => h.kind === "quit" && (h.status ?? "active") === "active");
+  const cravings = snap.cravings ?? [];
+  const recentMs = (iso: string) => now.getTime() - Date.parse(iso);
+  const openCraving = quitHabits.filter((h) => cravings.some((c) => c.habit_id === h.id && c.handled == null && recentMs(c.occurred_at) <= 3 * 3_600_000)).map((h) => h.id);
+  const noteOnly = quitHabits.filter((h) => (snap.slips ?? []).some((x) => x.habit_id === h.id && !x.reset && x.created_at && recentMs(x.created_at) <= 24 * 3_600_000)).map((h) => h.id);
+  const autoPrompt = snap.auto_prompt?.habit_id && recentMs(snap.auto_prompt.sent_at) <= 24 * 3_600_000 ? snap.auto_prompt.habit_id : null;
+  const qIntent = interpretQuitMessage(args.text, { quits: quitHabits.map((h) => ({ id: h.id, title: h.title })), openCravingHabitIds: openCraving, noteOnlySlipHabitIds: noteOnly, autoPromptHabitId: autoPrompt });
+  if (qIntent) {
+    const reply = await handleQuitIntent(sb, snap, args.userId, qIntent);
+    if (reply) return reply;
+  }
+  if (snap.habits.length === 0) return null;
 
   const all = views(snap, snap.logs);
   const nowMin = localMinutes(now, snap.timezone);
@@ -158,14 +195,14 @@ export async function handleHabitReply(
     .filter((l) => l.source === "whatsapp" && l.logged_at && now.getTime() - Date.parse(l.logged_at) <= RECENT_UNDO_MS)
     .sort((a, b) => String(b.logged_at).localeCompare(String(a.logged_at)))[0];
 
-  const lite: HabitLite[] = snap.habits.map((h) => ({ id: h.id, title: h.title, kind: h.kind, quantity_target: h.quantity_target, quantity_unit: h.quantity_unit, cue_time: h.cue_time }));
+  const lite: HabitLite[] = snap.habits.filter((h) => h.kind !== "quit").map((h) => ({ id: h.id, title: h.title, kind: h.kind, quantity_target: h.quantity_target, quantity_unit: h.quantity_unit, cue_time: h.cue_time }));
   const intent: HabitIntent | null = interpretHabitMessage(args.text, {
     habits: lite, dueUnlogged: due.map((v) => v.habit.id), dueNow: dueNow.map((v) => v.habit.id), recentWhatsappLog: !!recent,
   });
   if (!intent) return null;
 
   if (intent.kind === "status") {
-    const reply = statusReply(all);
+    const reply = [statusReply(all), ...quitStatusLines(snap)].filter(Boolean).join("\n");
     return reply ? { action: "habit_status", reply } : null;
   }
 
@@ -207,4 +244,50 @@ export async function handleHabitReply(
     action: `habit_log_${intent.status}`,
     reply: `${logReply(v2, intent.status, intent.kind === "log" ? intent.quantity : undefined, all2, intent.day)}\nSe foi engano, responda "desfaz".`,
   };
+}
+
+async function handleQuitIntent(sb: RpcLike, snap: HbSnapshotAs, userId: string, intent: NonNullable<ReturnType<typeof interpretQuitMessage>>): Promise<HabitReply | null> {
+  const titleOf = (id: string) => snap.habits.find((h) => h.id === id)?.title ?? "o hábito";
+  const call = async (fn: string, a: Record<string, unknown>) => {
+    const { data, error } = await sb.rpc(fn, a);
+    if (error) throw new Error(`${fn}: ${String(error.message ?? error).slice(0, 120)}`);
+    return data;
+  };
+  switch (intent.kind) {
+    case "crisis":
+      return { action: "habit_crisis_support", reply: CRISIS_REPLY };
+    case "quit_status": {
+      const lines = quitStatusLines(snap);
+      return lines.length ? { action: "habit_quit_status", reply: lines.join("\n") } : null;
+    }
+    case "quit_ask": {
+      const names = intent.candidates.map(titleOf);
+      return { action: "habit_quit_ask", reply: `De qual hábito? ${names.join(", ")}.\nResponda, por exemplo: "${intent.what === "slip" ? "cedi" : "bateu vontade"} ${names[0].toLowerCase()}".` };
+    }
+    case "craving": {
+      await call("hb_craving_as", { p_user: userId, p_habit: intent.habit_id, p_tags: [] });
+      const plan = snap.habits.find((h) => h.id === intent.habit_id)?.craving_plan;
+      return { action: "habit_craving", reply: `${plan ? `Seu plano: ${plan}. ` : "Espere 10 minutos antes de decidir: a vontade costuma diminuir. "}Quando passar, me avise: "resisti".` };
+    }
+    case "resisted": {
+      const c = (snap.cravings ?? []).filter((x) => x.habit_id === intent.craving_habit_id && x.handled == null).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0];
+      if (!c) return null;
+      await call("hb_craving_answer_as", { p_user: userId, p_craving: c.id, p_handled: true });
+      return { action: "habit_craving_resisted", reply: `Isso conta. A vontade passou e você seguiu em ${titleOf(intent.craving_habit_id)}.` };
+    }
+    case "slip": {
+      await call("hb_relapse_as", { p_user: userId, p_habit: intent.habit_id, p_reset: false, p_tags: [], p_date: null });
+      return { action: "habit_slip_noted", reply: `Anotado, sem culpa. Seu recorde e o total de dias sem continuam guardados. A contagem de ${titleOf(intent.habit_id)} segue. Se quiser recomeçar do zero hoje, responda "recomeçar".` };
+    }
+    case "restart": {
+      const out = await call("hb_relapse_as", { p_user: userId, p_habit: intent.habit_id, p_reset: true, p_tags: [], p_date: null }) as { started_on?: string } | null;
+      return { action: "habit_restart", reply: `Contagem de ${titleOf(intent.habit_id)} recomeçada${out?.started_on ? ` em ${out.started_on.slice(8, 10)}/${out.started_on.slice(5, 7)}` : ""}. O recorde fica guardado.` };
+    }
+    case "automaticity": {
+      const h = snap.habits.find((x) => x.id === intent.habit_id);
+      if (!h || h.kind === "quit" || !automaticityDue({ id: h.id, kind: h.kind, started_on: h.started_on, status: h.status }, snap.automaticity ?? [], snap.today)) return null;
+      await call("hb_automaticity_as", { p_user: userId, p_habit: intent.habit_id, p_score: intent.score, p_skipped: false });
+      return { action: "habit_automaticity", reply: `Anotado: ${intent.score} de 7 para ${h.title}. Obrigado! Eu pergunto de novo em 2 semanas.` };
+    }
+  }
 }
