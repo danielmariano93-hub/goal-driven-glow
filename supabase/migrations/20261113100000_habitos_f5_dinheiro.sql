@@ -150,10 +150,14 @@ grant execute on function public.hb_weekly_category_spend(uuid, int) to authenti
 
 -- Fotografias: regras e marcações medidas. As versões da migração 3 viram `_v3` (uma só vez) e as novas acrescentam os campos.
 do $$ begin
-  if not exists (select 1 from pg_proc where proname = 'hb_snapshot_as_v3') then
+  -- Idempotente e à prova de ordem: renomeia a versão "pura" (a que NÃO chama a _v3) para _v3. Se a migração 3 for aplicada depois da 4,
+  -- ela recria a versão pura; rodar esta migração de novo troca a _v3 antiga pela nova.
+  if position('hb_snapshot_as_v3' in pg_get_functiondef('public.hb_snapshot_as(uuid,int)'::regprocedure)) = 0 then
+    drop function if exists public.hb_snapshot_as_v3(uuid, int);
     alter function public.hb_snapshot_as(uuid, int) rename to hb_snapshot_as_v3;
   end if;
-  if not exists (select 1 from pg_proc where proname = 'hb_snapshot_v3') then
+  if position('hb_snapshot_v3' in pg_get_functiondef('public.hb_snapshot(int)'::regprocedure)) = 0 then
+    drop function if exists public.hb_snapshot_v3(int);
     alter function public.hb_snapshot(int) rename to hb_snapshot_v3;
   end if;
 end $$;
