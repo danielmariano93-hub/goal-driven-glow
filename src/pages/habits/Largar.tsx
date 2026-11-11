@@ -66,35 +66,35 @@ export default function Largar() {
     <div className="px-4 pb-6">
       <PageHeader title={habit.title} subtitle="Largando" back="/h/habitos" />
 
-      <section className="rounded-[20px] bg-gradient-hero p-5 text-primary-foreground shadow-hero" aria-label="Dias sem">
-        <p className="text-[13px] font-semibold tracking-wide text-white/75">Dias sem</p>
-        <p className="mt-1 font-display text-[56px] font-extrabold leading-none tracking-tight tabular-nums">{stats.days_clean}</p>
+      <section className="rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Dias sem">
+        <p className="text-[14px] font-medium text-white/75">Dias sem</p>
+        <p className="mt-1 font-display text-[88px] font-semibold leading-[0.9] tracking-[-0.05em] tabular-nums">{stats.days_clean}</p>
         <p className="mt-2 text-[13px] text-white/80">
           {stats.next_milestone != null ? `Próximo marco: ${dias(stats.next_milestone)}` : "Você passou de 1 ano. Isso é seu."}
         </p>
       </section>
 
-      <dl className="mt-3 grid grid-cols-3 gap-2 rounded-[20px] bg-card p-3 text-center shadow-card">
+      <dl className="mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
         {[{ k: "recorde", v: dias(stats.best) }, { k: "total sem", v: dias(stats.total_days_clean) }, { k: "recomeços", v: String(stats.relapses) }].map((i) => (
-          <div key={i.k}><dd className="font-display text-lg font-extrabold tabular-nums">{i.v}</dd><dt className="text-[11px] text-muted-foreground">{i.k}</dt></div>
+          <div key={i.k}><dd className="font-display text-lg font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] text-muted-foreground">{i.k}</dt></div>
         ))}
       </dl>
 
-      <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Marcos">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Marcos</h2>
+      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Marcos">
+        <h2 className="text-[13px] font-medium text-muted-foreground">Marcos</h2>
         <ul className="mt-3 flex flex-wrap gap-2">
-          {QUIT_MILESTONES.map((m) => <li key={m} className={cn("rounded-full border px-3 py-1 text-xs font-bold tabular-nums", stats.days_clean >= m ? "border-success bg-success/15 text-foreground" : "border-border text-muted-foreground")}>{m}</li>)}
+          {QUIT_MILESTONES.map((m) => <li key={m} className={cn("rounded-full border px-3 py-1 text-xs font-medium tabular-nums", stats.days_clean >= m ? "border-success bg-success/15 text-foreground" : "border-border text-muted-foreground")}>{m}</li>)}
         </ul>
       </section>
 
-      <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Dinheiro">
+      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Dinheiro">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dinheiro que ficou com você</h2>
-          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">estimativa</span>
+          <h2 className="text-[13px] font-medium text-muted-foreground">Dinheiro que ficou com você</h2>
+          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">estimativa</span>
         </div>
         {est?.estimate != null ? (
           <>
-            <p className="mt-2 font-display text-[30px] font-extrabold leading-none tabular-nums">{brl(est.estimate)}</p>
+            <p className="mt-2 font-display text-[30px] font-semibold leading-none tabular-nums">{brl(est.estimate)}</p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
               {est.source === "nino_data"
                 ? `Calculado pela sua média de ${brl(est.baseline_daily_cost ?? 0)} por dia antes de começar, menos o que você gastou na categoria desde então.`
@@ -107,8 +107,8 @@ export default function Largar() {
       </section>
 
       {habit.craving_plan ? (
-        <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Plano para a vontade">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quando bater a vontade</h2>
+        <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Plano para a vontade">
+          <h2 className="text-[13px] font-medium text-muted-foreground">Quando bater a vontade</h2>
           <p className="mt-2 text-[15px] leading-6">{habit.craving_plan}</p>
         </section>
       ) : null}

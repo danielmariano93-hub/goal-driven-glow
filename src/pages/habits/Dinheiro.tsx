@@ -11,8 +11,8 @@ function InsightCard({ view, categoryId, categoryName, today, logs }: { view: Ha
   const spend = useWeeklyCategorySpend(categoryId, 12);
   const insight = useMemo(() => (spend.data ? moneyInsight(weekPoints(view.def, logs, today, spend.data, view.pauses)) : null), [spend.data, view, logs, today]);
   return (
-    <li className="rounded-[20px] bg-card p-4 shadow-card">
-      <Link to={`/h/habito/${view.habit.id}`} className="font-display text-base font-bold">{view.habit.title}</Link>
+    <li className="rounded-2xl border border-border/60 bg-card p-4 shadow-card">
+      <Link to={`/h/habito/${view.habit.id}`} className="font-display text-base font-semibold">{view.habit.title}</Link>
       <p className="text-xs text-muted-foreground">Gasto semanal em {categoryName}</p>
       {!insight ? <Loader2 className="mt-3 h-4 w-4 animate-spin text-primary" aria-label="Carregando" /> : insight.status === "ok" ? (
         <>
@@ -44,18 +44,18 @@ export default function Dinheiro() {
     <div className="px-4 pb-6">
       <PageHeader title="Hábitos e dinheiro" subtitle="Só o que o Nino consegue medir pelos seus lançamentos" back="/h/mais" />
       {empty ? (
-        <div className="rounded-[20px] bg-card p-5 text-center shadow-card">
-          <p className="font-display text-lg font-bold">Nada ligado ao dinheiro ainda</p>
+        <div className="rounded-2xl border border-border/60 bg-card p-5 text-center shadow-card">
+          <p className="font-display text-lg font-semibold">Nada ligado ao dinheiro ainda</p>
           <p className="mx-auto mt-1 max-w-xs text-sm leading-5 text-muted-foreground">Crie um hábito de largar (como delivery por impulso) ou, no detalhe de um hábito, escolha “Medir pelo Nino”.</p>
         </div>
       ) : null}
       {quitViews.length > 0 ? (
-        <section className="mb-4 rounded-[20px] bg-card p-4 shadow-card" aria-label="Dinheiro que ficou com você">
+        <section className="mb-4 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Dinheiro que ficou com você">
           <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dinheiro que ficou com você</h2>
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">estimativa</span>
+            <h2 className="text-[13px] font-medium text-muted-foreground">Dinheiro que ficou com você</h2>
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">estimativa</span>
           </div>
-          <p className="mt-2 font-display text-[30px] font-extrabold leading-none tabular-nums">{brl(total)}</p>
+          <p className="mt-2 font-display text-[30px] font-semibold leading-none tabular-nums">{brl(total)}</p>
           <ul className="mt-3 flex flex-col gap-1 text-sm">
             {quitViews.map((q) => <li key={q.habit.id} className="flex justify-between gap-3"><Link to={`/h/largar/${q.habit.id}`} className="truncate">{q.habit.title}</Link><span className="shrink-0 tabular-nums text-muted-foreground">{money.data?.[q.habit.id]?.estimate != null ? brl(money.data[q.habit.id].estimate as number) : "sem base"}</span></li>)}
           </ul>

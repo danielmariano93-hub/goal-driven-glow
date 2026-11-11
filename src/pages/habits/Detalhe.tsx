@@ -117,32 +117,32 @@ export default function Detalhe() {
         </div>
       ) : null}
 
-      <section className="rounded-[20px] bg-card p-4 shadow-card" aria-label="Força do hábito">
+      <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Força do hábito">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Força do hábito</h2>
-          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">estimativa</span>
+          <h2 className="text-[13px] font-medium text-muted-foreground">Força do hábito</h2>
+          <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">estimativa</span>
         </div>
         <div className="mt-2 flex items-baseline gap-3">
-          <p className="font-display text-[34px] font-extrabold leading-none tracking-tight tabular-nums">{summary.strength == null ? "-" : `${Math.round(summary.strength * 100)}%`}</p>
+          <p className="font-display text-[34px] font-semibold leading-none tracking-tight tabular-nums">{summary.strength == null ? "-" : `${Math.round(summary.strength * 100)}%`}</p>
           <PhaseChip phase={summary.phase} />
         </div>
         <div className="mt-3"><StrengthBar value={summary.strength} /></div>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">{strengthNote}</p>
       </section>
 
-      <dl className="mt-3 grid grid-cols-4 gap-2 rounded-[20px] bg-card p-3 text-center shadow-card">
+      <dl className="mt-3 grid grid-cols-4 gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card">
         {[
           { k: weekly ? "semanas seguidas" : "dias seguidos", v: String(summary.streak) },
           { k: "recorde", v: String(summary.best_streak) },
           { k: weekly ? "folgas" : `folga${summary.rests_left_this_week === 1 ? "" : "s"} na semana`, v: weekly ? "-" : String(summary.rests_left_this_week) },
           { k: "últimos 30 dias", v: pct(summary.adherence30) },
         ].map((i) => (
-          <div key={i.k}><dd className="font-display text-xl font-extrabold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
+          <div key={i.k}><dd className="font-display text-xl font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
         ))}
       </dl>
 
-      <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>
+      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
+        <h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>
         <ul className="mt-3 grid grid-cols-7 gap-1.5">
           {recent.map((d, i) => {
             const o = recentRows[i].outcome;
@@ -165,8 +165,8 @@ export default function Detalhe() {
         </ul>
       </section>
 
-      <section className="mt-3 rounded-[20px] bg-card p-4 shadow-card" aria-label="Mapa de 20 semanas">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Últimas 20 semanas</h2>
+      <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Mapa de 20 semanas">
+        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">Últimas 20 semanas</h2>
         <Heatmap view={view} today={today} logs={logs} />
       </section>
 

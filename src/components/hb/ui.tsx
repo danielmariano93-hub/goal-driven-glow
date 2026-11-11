@@ -18,7 +18,7 @@ export function ModePill({ current, onChange, tone = "light" }: { current: HbMod
         aria-pressed={on}
         onClick={() => onChange(mode)}
         className={cn(
-          "min-h-9 rounded-full px-3.5 text-[13px] font-semibold transition-colors",
+          "min-h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors",
           hero
             ? on ? "bg-white text-[#2A1380]" : "text-white/80 hover:text-white"
             : on ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -46,7 +46,7 @@ export function PageHeader({ title, subtitle, back, right }: { title: string; su
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </Link>
         ) : null}
-        <h1 className="font-display text-[26px] font-bold leading-[1.1] tracking-tight">{title}</h1>
+        <h1 className="font-display text-[28px] font-semibold leading-[1.1] tracking-[-0.02em]">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{subtitle}</p> : null}
       </div>
       {right}
@@ -62,7 +62,7 @@ const PHASE_STYLE: Record<Phase, string> = {
 };
 
 export function PhaseChip({ phase }: { phase: Phase }) {
-  return <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-bold", PHASE_STYLE[phase])}>{PHASE_LABEL[phase]}</span>;
+  return <span className={cn("rounded-full px-2.5 py-1 text-[12px] font-medium", PHASE_STYLE[phase])}>{PHASE_LABEL[phase]}</span>;
 }
 
 /** Barra de força (estimativa) com as duas marcas de faixa. */
@@ -120,7 +120,7 @@ export function Dial({ days, done, total }: { days: DayAggregate[]; done: number
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
         {total > 0 ? (
           <>
-            <p className="font-display text-[68px] font-extrabold leading-[0.95] tracking-[-0.05em] tabular-nums">{done}<span className="text-[30px] tracking-tight text-white/70">/{total}</span></p>
+            <p className="font-display text-[68px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{done}<span className="text-[30px] tracking-tight text-white/70">/{total}</span></p>
             <p className="mt-1.5 text-sm font-medium text-white/80">feitos hoje</p>
           </>
         ) : (
