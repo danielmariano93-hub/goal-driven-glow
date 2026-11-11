@@ -1,0 +1,34 @@
+import { NavLink } from "react-router-dom";
+import { BarChart3, CalendarCheck, ListChecks, MoreHorizontal } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const TABS = [
+  { to: "/h/hoje", label: "Hoje", Icon: CalendarCheck },
+  { to: "/h/habitos", label: "Hábitos", Icon: ListChecks },
+  { to: "/h/progresso", label: "Progresso", Icon: BarChart3 },
+  { to: "/h/mais", label: "Mais", Icon: MoreHorizontal },
+] as const;
+
+/** Casca do lado Hábitos: fundo e tipografia do Nino (`data-surface="home"`) e barra de abas própria. */
+export function HabitsShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-surface="home" className="min-h-screen bg-background text-foreground" style={{ background: "var(--home-bg)" }}>
+      <div className="mx-auto w-full max-w-[720px] pb-[calc(env(safe-area-inset-bottom)+5.5rem)]">{children}</div>
+      <nav aria-label="Navegação de Hábitos" className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur-xl">
+        <div className="mx-auto grid h-[64px] max-w-lg grid-cols-4 items-center px-2">
+          {TABS.map(({ to, label, Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => cn("flex h-14 flex-col items-center justify-center gap-0.5 rounded-xl text-xs font-medium", isActive ? "text-primary" : "text-muted-foreground")}
+            >
+              <Icon className="h-5 w-5" aria-hidden="true" />
+              <span className="leading-4">{label}</span>
+            </NavLink>
+          ))}
+        </div>
+        <div className="h-[env(safe-area-inset-bottom)]" />
+      </nav>
+    </div>
+  );
+}

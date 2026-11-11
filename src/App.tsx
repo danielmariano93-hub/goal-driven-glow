@@ -37,6 +37,7 @@ const ShortLink = lazyRoute(() => import("./pages/ShortLink"));
 
 // Financial user (lazy)
 const Onboarding = lazyRoute(() => import("./pages/Onboarding"));
+const HabitsApp = lazyRoute(() => import("./pages/habits/HabitsApp"));
 const Index = lazyRoute(() => import("./pages/Index"));
 const Lancamentos = lazyRoute(() => import("./pages/Lancamentos"));
 const LancamentoDetalhe = lazyRoute(() => import("./pages/LancamentoDetalhe"));
@@ -157,6 +158,9 @@ const App = () => (
                 path="/onboarding"
                 element={<ProtectedRoute><Onboarding /></ProtectedRoute>}
               />
+
+              {/* Nino Hábitos (flag por usuário `hb_access`): árvore própria, fora do AppLayout financeiro */}
+              <Route path="/h/*" element={<ProtectedRoute><HabitsApp /></ProtectedRoute>} />
 
               {/* Financial user app */}
               <Route

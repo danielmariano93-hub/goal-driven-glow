@@ -7,6 +7,7 @@ import { usePrivacyMode } from '@/context/PrivacyModeContext';
 import { SessionInactivityGuard } from '@/components/auth/SessionInactivityGuard';
 import { BehavioralUsageTracker } from '@/components/behavioral/BehavioralUsageTracker';
 import { usePrefetchShellContexts } from '@/lib/nino/intelligence';
+import { ModeSwitch } from '@/components/hb/ModeSwitch';
 
 /**
  * Painel único e global do Assessor. Fica montado condicionalmente aqui
@@ -37,6 +38,7 @@ export function AppLayout() {
               {/* Cada rota é responsável pelo próprio cabeçalho.
                   Reatividade do olho: remonta a rota quando a preferência muda,
                   garantindo formatBRL/formatPrivateBRL atualizados. */}
+              <ModeSwitch />
               <div key={valuesHidden ? "priv-on" : "priv-off"}>
                 <Outlet />
               </div>

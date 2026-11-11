@@ -51,7 +51,7 @@ export function pillarOf(kind: string): Pillar {
  * Replay de 40 dias na conta dona: o check-in emocional foi o que mais gerou resposta em até 2h (9 de 16), e a cota
  * semanal de Organização o teria cortado quase pela metade.
  */
-export const ROUTINE_KINDS: ReadonlySet<string> = new Set(["emotional_checkin_due"]);
+export const ROUTINE_KINDS: ReadonlySet<string> = new Set(["emotional_checkin_due", "hb_cue_reminder", "hb_daily_recap", "hb_automaticity_due", "hb_streak_milestone", "hb_weekly_review"]);
 export const isRoutine = (kind: string) => ROUTINE_KINDS.has(kind);
 
 /**

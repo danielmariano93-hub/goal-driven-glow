@@ -26,6 +26,12 @@ export const OPERATIONAL_KINDS = new Set<string>([
   "forgotten_bill",
   "categorize_transaction",
   "emotional_checkin_due",
+  // Hábitos: o texto (hábito, gatilho, o que falta) SÃO o conteúdo; nunca passam pela camada de linguagem.
+  "hb_cue_reminder",
+  "hb_daily_recap",
+  "hb_automaticity_due",
+  "hb_streak_milestone",
+  "hb_weekly_review",
   "duplicate_expense",
   // Previsão/fechamento do fim de semana e aviso por dia da semana: os números
   // (faixa, projeção, quanto cabe) SÃO o conteúdo. A camada de linguagem limita o
