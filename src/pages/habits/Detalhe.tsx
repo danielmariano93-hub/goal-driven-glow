@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { OUTCOME_CELL, OUTCOME_LABEL } from "@/components/hb/outcomeStyles";
 import { PageHeader, PhaseChip, StrengthBar } from "@/components/hb/ui";
-import { hbErrorMessage, useArchiveHabit, useHabitViews, useUpdateHabit, type HabitView } from "@/lib/habits/api";
+import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
+import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, useUpdateHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
 
 const WEEKDAY_SHORT = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -43,13 +44,14 @@ function Heatmap({ view, today, logs }: { view: HabitView; today: string; logs: 
 export default function Detalhe() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { views, today, logs, isLoading } = useHabitViews();
+  const { views, paused, today, logs, isLoading } = useHabitViews();
+  const setStatus = useSetHabitStatus();
   const update = useUpdateHabit();
   const archive = useArchiveHabit();
   const [editing, setEditing] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
-  const view = views.find((v) => v.habit.id === id);
+  const view = [...views, ...paused].find((v) => v.habit.id === id);
   const [form, setForm] = useState({ title: "", cue_text: "", minimum_text: "" });
 
   if (isLoading || !today) return <div className="grid min-h-[50vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>;
@@ -83,6 +85,15 @@ export default function Detalhe() {
       toast.error(hbErrorMessage(e));
     }
   };
+  const isPaused = habit.status === "paused";
+  const togglePause = async () => {
+    try {
+      await setStatus.mutateAsync({ id: habit.id, status: isPaused ? "active" : "paused" });
+      toast.success(isPaused ? "Hábito retomado" : "Hábito pausado. Os dias parados não contam como falha.");
+    } catch (e) {
+      toast.error(hbErrorMessage(e));
+    }
+  };
   const doArchive = async () => {
     try {
       await archive.mutateAsync(habit.id);
@@ -97,6 +108,13 @@ export default function Detalhe() {
     <div className="px-4 pb-6">
       <PageHeader title={habit.title} subtitle={habit.cue_text ? `${habit.cue_text}` : undefined} back="/h/habitos" right={<Button variant="ghost" className="mt-6 h-11 rounded-full" onClick={openEdit}>Editar</Button>} />
       {habit.minimum_text ? <p className="-mt-1 mb-3 text-sm text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
+
+      {isPaused ? (
+        <div role="status" className="mb-3 rounded-[20px] bg-warning/15 p-4 text-sm leading-5">
+          <p className="font-semibold">Hábito pausado</p>
+          <p className="text-muted-foreground">Os dias pausados não contam como falha nem quebram a sua sequência. Retome quando quiser.</p>
+        </div>
+      ) : null}
 
       <section className="rounded-[20px] bg-card p-4 shadow-card" aria-label="Força do hábito">
         <div className="flex items-center justify-between">
@@ -151,7 +169,10 @@ export default function Detalhe() {
         <Heatmap view={view} today={today} logs={logs} />
       </section>
 
-      <Button variant="ghost" className="mt-5 h-11 w-full rounded-full text-muted-foreground" onClick={() => setConfirmArchive(true)}>Arquivar este hábito</Button>
+      {!isPaused ? <div className="mt-3"><AutomaticityCard view={view} /></div> : null}
+
+      <Button variant="outline" className="mt-5 h-11 w-full rounded-full font-semibold" disabled={setStatus.isPending} onClick={() => void togglePause()}>{isPaused ? "Retomar este hábito" : "Pausar este hábito"}</Button>
+      <Button variant="ghost" className="mt-2 h-11 w-full rounded-full text-muted-foreground" onClick={() => setConfirmArchive(true)}>Arquivar este hábito</Button>
       <p className="mt-1 text-center text-xs text-muted-foreground"><Link to="/h/habitos" className="underline underline-offset-2">Ver todos os hábitos</Link></p>
 
       {dayOpen ? <DayActionsSheet view={view} date={dayOpen} today={today} logs={logs} open onOpenChange={(o) => !o && setDayOpen(null)} /> : null}

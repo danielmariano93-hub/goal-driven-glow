@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Dial, Dots, ModePill } from "@/components/hb/ui";
+import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
 import { hbErrorMessage, useHabitViews, useLogHabit, useSetHbMode, useUnlogHabit, type HabitView } from "@/lib/habits/api";
@@ -27,7 +28,7 @@ function subtitle(v: HabitView): string {
 
 export default function Hoje() {
   const navigate = useNavigate();
-  const { views, today, logs, isLoading, isError, refetch } = useHabitViews();
+  const { views, quitViews, activeCount, today, logs, isLoading, isError, refetch } = useHabitViews();
   const log = useLogHabit();
   const unlog = useUnlogHabit();
   const setMode = useSetHbMode();
@@ -152,7 +153,7 @@ export default function Hoje() {
 
       <div className="-mt-6 rounded-t-[28px] bg-background px-4 pt-5">
         <div className="mx-auto max-w-[720px]">
-          {views.length === 0 ? (
+          {views.length === 0 && quitViews.length === 0 ? (
             <Button asChild className="h-12 w-full rounded-full text-[15px] font-semibold">
               <Link to="/h/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Criar meu primeiro hábito</Link>
             </Button>
@@ -165,10 +166,28 @@ export default function Hoje() {
                   <ul className="flex flex-col gap-2" aria-label="Hábitos de meta semanal">{model.weekly.map(renderRow)}</ul>
                 </>
               ) : null}
+              {quitViews.length > 0 ? (
+                <>
+                  <h2 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Largando</h2>
+                  <ul className="flex flex-col gap-2" aria-label="Hábitos que você está largando">
+                    {quitViews.map((q) => (
+                      <li key={q.habit.id}>
+                        <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-[20px] bg-card p-4 shadow-card">
+                          <div className="min-w-0"><p className="truncate font-display text-[16.5px] font-bold leading-5">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {pluralDias(q.stats.best)}</p></div>
+                          <p className="shrink-0 text-right font-display text-2xl font-extrabold tabular-nums leading-none">{q.stats.days_clean}<span className="block text-[11px] font-semibold text-muted-foreground">{q.stats.days_clean === 1 ? "dia sem" : "dias sem"}</span></p>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
               {model.notToday.length > 0 ? (
                 <p className="mt-5 text-xs leading-5 text-muted-foreground">Não previstos hoje: {model.notToday.map((v) => v.habit.title).join(", ")}.</p>
               ) : null}
-              {views.length < 5 ? (
+              {views.some((v) => v.auto_due) ? (
+                <div className="mt-5"><AutomaticityCard view={views.find((v) => v.auto_due)!} compact /></div>
+              ) : null}
+              {activeCount < 5 ? (
                 <Button asChild variant="ghost" className="mt-4 h-11 w-full rounded-full text-primary">
                   <Link to="/h/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Novo hábito</Link>
                 </Button>

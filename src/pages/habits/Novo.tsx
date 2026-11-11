@@ -7,8 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
-import { hbErrorMessage, useCreateHabit, useHbTemplates, type HbArea } from "@/lib/habits/api";
-import { draftError, draftToInput, EMPTY, fromTemplate, type Draft } from "@/lib/habits/draft";
+import { ConsentSheet } from "@/components/hb/ConsentSheet";
+import { hbErrorMessage, useCreateHabit, useExpenseCategories, useHabitViews, useHbTemplates, type HbArea } from "@/lib/habits/api";
+import {
+  draftError, draftToInput, EMPTY, EMPTY_QUIT, fromTemplate, needsConsent, quitDraftError, quitDraftToInput, quitFromTemplate, type Draft, type QuitDraft,
+} from "@/lib/habits/draft";
 
 const AREAS: Array<[HbArea, string]> = [["body", "Corpo"], ["mind", "Mente"], ["routine", "Rotina"], ["money", "Dinheiro"], ["other", "Outro"]];
 const DAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
@@ -17,8 +20,14 @@ export default function Novo() {
   const navigate = useNavigate();
   const templates = useHbTemplates();
   const create = useCreateHabit();
-  const [step, setStep] = useState<"choose" | "plan">("choose");
+  const { consent } = useHabitViews();
+  const [step, setStep] = useState<"choose" | "plan" | "quit">("choose");
   const [d, setD] = useState<Draft>(EMPTY);
+  const [q, setQ] = useState<QuitDraft>(EMPTY_QUIT);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const categories = useExpenseCategories(step === "quit");
+  const setQuit = (patch: Partial<QuitDraft>) => setQ((prev) => ({ ...prev, ...patch }));
+  const quitErr = quitDraftError(q);
   const set = (patch: Partial<Draft>) => setD((prev) => ({ ...prev, ...patch }));
   const err = draftError(d);
 
@@ -33,7 +42,21 @@ export default function Novo() {
     }
   };
 
+  const submitQuit = async (granted = false) => {
+    if (quitErr) return toast.error(quitErr);
+    if (needsConsent(q) && !consent && !granted) return setConsentOpen(true);
+    try {
+      await create.mutateAsync(quitDraftToInput(q));
+      toast.success("Pronto. A contagem começou hoje.");
+      navigate("/h/hoje", { replace: true });
+    } catch (e) {
+      toast.error(hbErrorMessage(e));
+    }
+  };
+
   if (step === "choose") {
+    const doing = (templates.data ?? []).filter((t) => t.kind !== "quit");
+    const quitting = (templates.data ?? []).filter((t) => t.kind === "quit");
     return (
       <div className="px-4 pb-6">
         <PageHeader title="O que você quer que vire rotina?" subtitle="Comece com um só. Dois ou três ao mesmo tempo é o que mais derruba." back="/h/hoje" />
@@ -41,7 +64,7 @@ export default function Novo() {
           <div className="grid min-h-[30vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>
         ) : (
           <ul className="flex flex-col gap-2">
-            {(templates.data ?? []).map((t) => (
+            {doing.map((t) => (
               <li key={t.id}>
                 <button type="button" onClick={() => { setD(fromTemplate(t)); setStep("plan"); }} className="w-full rounded-[20px] bg-card p-4 text-left shadow-card transition-colors hover:bg-muted">
                   <p className="font-display text-base font-bold leading-5">{t.title}</p>
@@ -52,6 +75,60 @@ export default function Novo() {
           </ul>
         )}
         <Button variant="outline" className="mt-4 h-12 w-full rounded-full text-[15px] font-semibold text-primary" onClick={() => { setD(EMPTY); setStep("plan"); }}>Criar o meu próprio</Button>
+        <h2 className="mb-2 mt-8 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ou largar algo</h2>
+        <ul className="flex flex-col gap-2">
+          {quitting.map((t) => (
+            <li key={t.id}>
+              <button type="button" onClick={() => { setQ(quitFromTemplate(t)); setStep("quit"); }} className="w-full rounded-[20px] bg-card p-4 text-left shadow-card transition-colors hover:bg-muted">
+                <p className="font-display text-base font-bold leading-5">{t.title}</p>
+                <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{t.why_it_works}</p>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Button variant="outline" className="mt-3 h-12 w-full rounded-full text-[15px] font-semibold text-primary" onClick={() => { setQ(EMPTY_QUIT); setStep("quit"); }}>Largar outra coisa</Button>
+      </div>
+    );
+  }
+
+  if (step === "quit") {
+    return (
+      <div className="px-4 pb-8">
+        <header className="flex items-center gap-1 pt-3">
+          <button type="button" onClick={() => setStep("choose")} className="-ml-2 inline-flex h-11 items-center rounded-full px-3 text-sm font-semibold text-muted-foreground hover:bg-muted">Voltar</button>
+        </header>
+        <h1 className="font-display text-[26px] font-bold leading-tight tracking-tight">Largar com um plano</h1>
+        <p className="mt-1 text-sm text-muted-foreground">A contagem começa hoje. Se escorregar, você recomeça sem perder o recorde.</p>
+        <div className="mt-4 flex flex-col gap-5">
+          <div>
+            <Label htmlFor="hb-q-title">O que você quer largar?</Label>
+            <Input id="hb-q-title" value={q.title} maxLength={80} onChange={(e) => setQuit({ title: e.target.value })} placeholder="Ex.: Delivery por impulso" className="mt-1 h-12 rounded-2xl" />
+          </div>
+          <div>
+            <Label htmlFor="hb-q-plan">Quando bater a vontade, eu vou…</Label>
+            <Input id="hb-q-plan" value={q.craving_plan} maxLength={160} onChange={(e) => setQuit({ craving_plan: e.target.value })} placeholder="beber água e esperar 10 minutos" className="mt-1 h-12 rounded-2xl" />
+            <p className="mt-1 text-xs text-muted-foreground">Decidir antes ajuda mais do que contar com força de vontade na hora.</p>
+          </div>
+          <div className="rounded-[20px] bg-card p-4 shadow-card">
+            <p className="text-[15px] font-semibold">Quanto isso custa? (opcional)</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">Eu mostro uma estimativa do que ficou com você. Escolha uma categoria para eu usar a sua média real, ou informe um valor por dia.</p>
+            <select
+              aria-label="Categoria de gasto"
+              value={q.category_id}
+              onChange={(e) => setQuit({ category_id: e.target.value, category_label: (categories.data ?? []).find((c) => c.id === e.target.value)?.name ?? "" })}
+              className="mt-3 h-12 w-full rounded-2xl border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Sem categoria</option>
+              {(categories.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <Input aria-label="Gasto por dia" inputMode="decimal" value={q.daily_cost} onChange={(e) => setQuit({ daily_cost: e.target.value })} placeholder="Gasto por dia, em reais (opcional)" className="mt-2 h-12 rounded-2xl" />
+          </div>
+          <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={create.isPending} onClick={() => void submitQuit(false)}>
+            {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Começar a contagem"}
+          </Button>
+          {quitErr && q.title ? <p className="-mt-3 text-center text-xs text-muted-foreground">{quitErr}</p> : null}
+        </div>
+        <ConsentSheet open={consentOpen} onOpenChange={setConsentOpen} onGranted={() => { setConsentOpen(false); void submitQuit(true); }} />
       </div>
     );
   }

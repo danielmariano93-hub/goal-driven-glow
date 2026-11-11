@@ -4,7 +4,11 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
-import { summarizeHabit, type HabitDef, type HabitKind, type HabitSummary, type LogRow, type LogStatus, type PauseRange } from "@/lib/habits/engine";
+import {
+  automaticityDue, automaticitySummary, isMaintenance, quitStats, summarizeHabit, FIRM_FROM,
+  type AutoCheckin, type AutomaticitySummary, type CravingRow, type CycleRow, type HabitDef, type HabitKind, type HabitSummary, type LogRow, type LogStatus,
+  type PauseRange, type QuitStats, type SlipRow,
+} from "@/lib/habits/engine";
 
 export type HbMode = "money" | "habits";
 export type HbArea = "body" | "mind" | "routine" | "money" | "other";
@@ -26,6 +30,7 @@ export interface HbHabitRow {
   quantity_unit: string | null;
   quantity_period: "day" | "week" | null;
   rest_per_week: number;
+  craving_plan?: string | null;
   status: "active" | "paused" | "archived";
   started_on: string;
   created_at: string;
@@ -38,8 +43,15 @@ export interface HbSnapshot {
   whatsapp_logging?: boolean;
   nudges_enabled?: boolean;
   max_nudges_per_day?: number;
+  /** Autorização para hábitos de saúde e substâncias (migração 3; ausente = não). */
+  consent_sensitive?: boolean;
   habits: HbHabitRow[];
   logs: LogRow[];
+  pauses?: Array<{ habit_id: string; from: string; to: string | null }>;
+  cycles?: CycleRow[];
+  cravings?: Array<CravingRow & { id: string; occurred_at: string }>;
+  slips?: SlipRow[];
+  automaticity?: AutoCheckin[];
 }
 
 export interface HbTemplate {
@@ -55,6 +67,8 @@ export interface HbTemplate {
   quantity_target: number | null;
   quantity_unit: string | null;
   quantity_period: "day" | "week" | null;
+  sensitivity?: "normal" | "health" | "substance";
+  craving_suggestion?: string | null;
   sort_order: number;
 }
 
@@ -82,7 +96,11 @@ const ERROR_TEXT: Array<[string, string]> = [
   ["future_date", "Esse dia ainda não chegou."],
   ["before_start", "Esse dia é anterior ao início do hábito."],
   ["quantity_not_supported", "Este hábito não usa quantidade."],
-  ["consent_required", "Hábitos de saúde precisam de uma autorização antes. Isso chega em uma próxima etapa."],
+  ["consent_required", "Esse tipo de hábito precisa da sua autorização antes."],
+  ["quit_cannot_pause", "Largar um hábito não pausa: se precisar, use “Só anotar” ou recomece a contagem."],
+  ["not_a_quit_habit", "Isso só vale para hábitos de largar."],
+  ["no_open_cycle", "Não encontrei a contagem em andamento."],
+  ["quit_has_no_automaticity", "Hábitos de largar não têm esse check-in."],
   ["not_enabled", "Hábitos ainda não está liberado para a sua conta."],
   ["habit_not_active", "Este hábito está arquivado."],
 ];
@@ -148,7 +166,7 @@ export function useHbTemplates() {
     staleTime: 60 * 60_000,
     queryFn: async () => {
       const from = (supabase as unknown as { from: (t: string) => { select: (c: string) => { order: (c: string) => Promise<{ data: HbTemplate[] | null; error: { message: string } | null }> } } }).from("hb_templates");
-      const { data, error } = await from.select("id,slug,title,area,kind,cue_suggestion,minimum_suggestion,why_it_works,weekly_target,quantity_target,quantity_unit,quantity_period,sort_order").order("sort_order");
+      const { data, error } = await from.select("id,slug,title,area,kind,cue_suggestion,minimum_suggestion,why_it_works,weekly_target,quantity_target,quantity_unit,quantity_period,sensitivity,craving_suggestion,sort_order").order("sort_order");
       if (error) throw new HbError(error.message);
       return data ?? [];
     },
@@ -160,24 +178,56 @@ export interface HabitView {
   def: HabitDef;
   summary: HabitSummary;
   pauses: PauseRange[];
+  /** Automaticidade (só hábitos de fazer). */
+  auto: AutomaticitySummary;
+  /** Já está na hora de perguntar o quanto está automático? */
+  auto_due: boolean;
+}
+
+export interface QuitView {
+  habit: HbHabitRow;
+  stats: QuitStats;
+  cycle: CycleRow | null;
 }
 
 const NO_PAUSES: PauseRange[] = [];
 
-/** Hábitos ativos com o resumo já calculado pelo motor (habits-core). */
+/** Hábitos de fazer ativos com o resumo do motor (habits-core), mais os de largar e os pausados. */
 export function useHabitViews() {
   const snap = useHabitsSnapshot();
   const data = snap.data;
-  const views = useMemo<HabitView[]>(() => {
-    if (!data) return [];
-    return data.habits
-      .filter((h) => h.status === "active")
-      .map((habit) => {
-        const def = habitToDef(habit);
-        return { habit, def, pauses: NO_PAUSES, summary: summarizeHabit(def, data.logs, data.today, NO_PAUSES) };
-      });
+  const model = useMemo(() => {
+    if (!data) return { views: [] as HabitView[], paused: [] as HabitView[], quitViews: [] as QuitView[], activeCount: 0 };
+    const pausesOf = (id: string): PauseRange[] => {
+      const list = (data.pauses ?? []).filter((p) => p.habit_id === id).map((p) => ({ from: p.from, to: p.to }));
+      return list.length ? list : NO_PAUSES;
+    };
+    const checkins = data.automaticity ?? [];
+    const build = (habit: HbHabitRow): HabitView => {
+      const def = habitToDef(habit);
+      const pauses = pausesOf(habit.id);
+      const summary = summarizeHabit(def, data.logs, data.today, pauses);
+      const auto = automaticitySummary(habit.id, checkins);
+      const maintenance = isMaintenance(auto, summary.strength, FIRM_FROM);
+      return {
+        habit, def, pauses, auto,
+        summary: maintenance ? { ...summary, phase: "maintenance" } : summary,
+        auto_due: habit.status === "active" && automaticityDue(habit, checkins, data.today),
+      };
+    };
+    const doing = data.habits.filter((h) => h.kind !== "quit");
+    const quits = data.habits.filter((h) => h.kind === "quit" && h.status === "active");
+    return {
+      views: doing.filter((h) => h.status === "active").map(build),
+      paused: doing.filter((h) => h.status === "paused").map(build),
+      quitViews: quits.map((habit) => {
+        const cycles = data.cycles ?? [];
+        return { habit, cycle: cycles.find((c) => c.habit_id === habit.id && c.ended_on == null) ?? null, stats: quitStats(habit.id, cycles, data.cravings ?? [], data.slips ?? [], data.today) };
+      }),
+      activeCount: data.habits.filter((h) => h.status === "active").length,
+    };
   }, [data]);
-  return { ...snap, views, today: data?.today ?? null, logs: data?.logs ?? [] };
+  return { ...snap, ...model, today: data?.today ?? null, logs: data?.logs ?? [], consent: data?.consent_sensitive === true };
 }
 
 // ---------------------------------------------------------------- escritas
@@ -242,7 +292,14 @@ export function useUnlogHabit() {
 }
 
 export interface CreateHabitInput {
-  kind: Exclude<HabitKind, "quit">;
+  kind: HabitKind;
+  sensitivity?: "normal" | "health" | "substance";
+  craving_plan?: string | null;
+  /** Largar: categoria de despesa usada para estimar o gasto médio (Nino calcula). */
+  money_category_id?: string | null;
+  money_label?: string | null;
+  /** Largar: gasto diário informado pela pessoa (usado quando não há dados suficientes). */
+  daily_cost?: number | null;
   title: string;
   area: HbArea;
   template_id?: string | null;
@@ -271,7 +328,7 @@ export function useUpdateHabit() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: (i: { id: string; patch: Partial<Pick<HbHabitRow, "title" | "cue_text" | "minimum_text" | "rest_per_week" | "weekly_target" | "quantity_target">> }) =>
+    mutationFn: (i: { id: string; patch: Partial<Pick<HbHabitRow, "title" | "cue_text" | "minimum_text" | "rest_per_week" | "weekly_target" | "quantity_target" | "craving_plan">> }) =>
       rpc<null>("hb_update_habit", { p_id: i.id, p: i.patch }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
   });
@@ -327,5 +384,85 @@ export function useSetHbPrefs() {
       if (ctx?.prev) qc.setQueryData(keys.snapshot(user?.id), ctx.prev);
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
+  });
+}
+
+// ---------------------------------------------------------------- M3: largar, automaticidade, pausa, consentimento
+
+function useInvalidate() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
+}
+
+export function useGrantConsent() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: () => rpc<null>("hb_grant_consent"), onSuccess: inv });
+}
+export function useRevokeConsent() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: () => rpc<null>("hb_revoke_consent"), onSuccess: inv });
+}
+
+/** Pausa ou retoma um hábito de fazer (os dias pausados não contam como falha). */
+export function useSetHabitStatus() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: (i: { id: string; status: "active" | "paused" }) => rpc<null>("hb_set_status", { p_id: i.id, p_status: i.status }), onSuccess: inv });
+}
+
+export function useCraving() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: (i: { habit_id: string; tags?: string[] }) => rpc<string>("hb_craving", { p_habit: i.habit_id, p_tags: i.tags ?? [] }), onSuccess: inv });
+}
+export function useCravingAnswer() {
+  const inv = useInvalidate();
+  return useMutation({ mutationFn: (i: { craving_id: string; handled: boolean }) => rpc<null>("hb_craving_answer", { p_craving: i.craving_id, p_handled: i.handled }), onSuccess: inv });
+}
+
+export interface RelapseInput { habit_id: string; reset: boolean; tags?: string[]; date?: string | null }
+export function useRelapse() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: RelapseInput) => rpc<{ reset: boolean; started_on: string }>("hb_relapse", { p_habit: i.habit_id, p_reset: i.reset, p_tags: i.tags ?? [], p_date: i.date ?? null }),
+    onSuccess: inv,
+  });
+}
+
+export function useAnswerAutomaticity() {
+  const inv = useInvalidate();
+  return useMutation({
+    mutationFn: (i: { habit_id: string; score?: number | null; skipped?: boolean }) =>
+      rpc<null>("hb_answer_automaticity", { p_habit: i.habit_id, p_score: i.skipped ? null : i.score ?? null, p_skipped: i.skipped === true }),
+    onSuccess: inv,
+  });
+}
+
+export interface QuitMoney { estimate: number | null; reason?: string; days: number; baseline_daily_cost?: number; spent?: number | null; source?: "nino_data" | "user_informed" }
+
+/** Estimativa do que deixou de ser gasto, por hábito. Sempre exibida como "estimativa". */
+export function useQuitMoney(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["hb", "quit-money", user?.id],
+    enabled: !!user && enabled,
+    staleTime: 5 * 60_000,
+    retry: 0,
+    queryFn: () => rpc<Record<string, QuitMoney>>("hb_quit_money"),
+  });
+}
+
+export interface CategoryOption { id: string; name: string }
+export function useExpenseCategories(enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["hb", "categories", user?.id],
+    enabled: !!user && enabled,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const q = (supabase as unknown as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: string) => { is: (c: string, v: null) => { order: (c: string) => Promise<{ data: CategoryOption[] | null; error: { message: string } | null }> } } } } }).from("categories");
+      const { data, error } = await q.select("id,name").eq("type", "expense").is("archived_at", null).order("name");
+      if (error) throw new HbError(error.message);
+      return data ?? [];
+    },
   });
 }

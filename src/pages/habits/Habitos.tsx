@@ -17,13 +17,13 @@ const cadence = (v: HabitView): string => {
 const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
 
 export default function Habitos() {
-  const { views, isLoading } = useHabitViews();
-  const full = views.length >= MAX_ACTIVE_HABITS;
+  const { views, paused, quitViews, activeCount, isLoading } = useHabitViews();
+  const full = activeCount >= MAX_ACTIVE_HABITS;
   return (
     <div className="px-4">
       <PageHeader
         title="Hábitos"
-        subtitle={views.length > 0 ? `${views.length} ${views.length === 1 ? "ativo" : "ativos"} · poucos de cada vez funcionam melhor` : "Comece com um só"}
+        subtitle={activeCount > 0 ? `${activeCount} ${activeCount === 1 ? "ativo" : "ativos"} · poucos de cada vez funcionam melhor` : "Comece com um só"}
         right={
           <Button asChild={!full} disabled={full} size="sm" className="mt-1 h-11 rounded-full px-4">
             {full ? <span>Limite de {MAX_ACTIVE_HABITS}</span> : <Link to="/h/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Novo</Link>}
@@ -32,7 +32,7 @@ export default function Habitos() {
       />
       {isLoading ? (
         <div className="grid min-h-[40vh] place-items-center"><Loader2 className="h-6 w-6 animate-spin text-primary" aria-label="Carregando" /></div>
-      ) : views.length === 0 ? (
+      ) : activeCount === 0 && paused.length === 0 ? (
         <div className="rounded-[20px] bg-card p-6 text-center shadow-card">
           <p className="font-display text-lg font-bold">Nenhum hábito ainda</p>
           <p className="mx-auto mt-1 max-w-xs text-sm leading-5 text-muted-foreground">Escolha um pequeno, ligado a algo que você já faz todo dia.</p>
@@ -60,6 +60,31 @@ export default function Habitos() {
           ))}
         </ul>
       )}
+      {quitViews.length > 0 ? (
+        <>
+          <h2 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Largando</h2>
+          <ul className="flex flex-col gap-3">
+            {quitViews.map((q) => (
+              <li key={q.habit.id}>
+                <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-[20px] bg-card p-4 shadow-card">
+                  <div className="min-w-0"><p className="truncate font-display text-[17px] font-bold leading-6">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {q.stats.best} {q.stats.best === 1 ? "dia" : "dias"}</p></div>
+                  <p className="shrink-0 font-display text-2xl font-extrabold tabular-nums">{q.stats.days_clean}<span className="ml-1 text-xs font-semibold text-muted-foreground">dias sem</span></p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {paused.length > 0 ? (
+        <>
+          <h2 className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pausados</h2>
+          <ul className="flex flex-col gap-2">
+            {paused.map((v) => (
+              <li key={v.habit.id}><Link to={`/h/habito/${v.habit.id}`} className="block rounded-[20px] bg-card p-4 text-muted-foreground shadow-card"><p className="truncate font-display text-base font-bold">{v.habit.title}</p><p className="text-xs">Pausado. Toque para retomar.</p></Link></li>
+            ))}
+          </ul>
+        </>
+      ) : null}
     </div>
   );
 }

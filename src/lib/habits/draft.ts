@@ -50,3 +50,42 @@ export function draftError(d: Draft): string | null {
   return null;
 }
 
+
+// ---------------------------------------------------------------- largar (F3)
+
+export interface QuitDraft {
+  template_id: string | null;
+  title: string;
+  area: HbArea;
+  sensitivity: "normal" | "health" | "substance";
+  craving_plan: string;
+  /** Categoria de despesa ligada ao hábito (opcional). */
+  category_id: string;
+  category_label: string;
+  /** Gasto diário informado (texto, para o campo). */
+  daily_cost: string;
+}
+
+export const EMPTY_QUIT: QuitDraft = { template_id: null, title: "", area: "other", sensitivity: "normal", craving_plan: "", category_id: "", category_label: "", daily_cost: "" };
+
+export const quitFromTemplate = (t: HbTemplate): QuitDraft => ({
+  ...EMPTY_QUIT, template_id: t.id, title: t.title, area: t.area, sensitivity: t.sensitivity ?? "normal", craving_plan: t.craving_suggestion ?? "",
+});
+
+export const needsConsent = (d: QuitDraft): boolean => d.sensitivity !== "normal";
+
+export function quitDraftToInput(d: QuitDraft): CreateHabitInput {
+  const cost = Number(d.daily_cost.replace(",", "."));
+  return {
+    kind: "quit", title: d.title.trim(), area: d.area, template_id: d.template_id, sensitivity: d.sensitivity,
+    craving_plan: d.craving_plan.trim() || null,
+    money_category_id: d.category_id || null, money_label: d.category_label || null,
+    daily_cost: d.daily_cost.trim() && Number.isFinite(cost) && cost >= 0 ? cost : null,
+  };
+}
+
+export function quitDraftError(d: QuitDraft): string | null {
+  if (d.title.trim().length < 2) return "Diga o que você quer largar.";
+  if (d.daily_cost.trim() && !(Number(d.daily_cost.replace(",", ".")) >= 0)) return "Informe um valor válido para o gasto por dia.";
+  return null;
+}

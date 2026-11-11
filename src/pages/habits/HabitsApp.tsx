@@ -5,6 +5,7 @@ import { useHabitsEnabled } from "@/lib/habits/api";
 import Hoje from "@/pages/habits/Hoje";
 import Habitos from "@/pages/habits/Habitos";
 import Detalhe from "@/pages/habits/Detalhe";
+import Largar from "@/pages/habits/Largar";
 import Novo from "@/pages/habits/Novo";
 import Progresso from "@/pages/habits/Progresso";
 import Mais from "@/pages/habits/Mais";
@@ -23,6 +24,7 @@ export default function HabitsApp() {
         <Route path="hoje" element={<Hoje />} />
         <Route path="habitos" element={<Habitos />} />
         <Route path="habito/:id" element={<Detalhe />} />
+        <Route path="largar/:id" element={<Largar />} />
         <Route path="novo" element={<Novo />} />
         <Route path="progresso" element={<Progresso />} />
         <Route path="mais" element={<Mais />} />

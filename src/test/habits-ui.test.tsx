@@ -4,18 +4,19 @@ import { join, resolve } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { HbHabitRow } from "@/lib/habits/api";
-import { draftError, draftToInput, EMPTY, fromTemplate } from "@/lib/habits/draft";
+import { draftError, draftToInput, EMPTY, EMPTY_QUIT, fromTemplate, needsConsent, quitDraftError, quitDraftToInput } from "@/lib/habits/draft";
 import { isMoneyTabRoot } from "@/lib/habits/modeRoutes";
 import { summarizeHabit, type LogRow } from "@/lib/habits/engine";
 
 const h = vi.hoisted(() => ({
   enabled: { data: true as boolean | undefined, isLoading: false },
-  views: { views: [] as unknown[], today: "2026-11-10" as string | null, logs: [] as unknown[], isLoading: false, isError: false, refetch: vi.fn() },
+  views: { views: [] as unknown[], paused: [] as unknown[], quitViews: [] as unknown[], activeCount: 0, consent: false, today: "2026-11-10" as string | null, logs: [] as unknown[], isLoading: false, isError: false, refetch: vi.fn() },
   setMode: vi.fn(),
   logAsync: vi.fn(),
   unlogAsync: vi.fn(),
   createAsync: vi.fn(),
   templates: { data: [] as unknown[], isLoading: false },
+  grantAsync: vi.fn(),
 }));
 
 vi.mock("@/lib/habits/api", async () => {
@@ -29,6 +30,10 @@ vi.mock("@/lib/habits/api", async () => {
     useUnlogHabit: () => ({ mutateAsync: h.unlogAsync, isPending: false }),
     useCreateHabit: () => ({ mutateAsync: h.createAsync, isPending: false }),
     useHbTemplates: () => h.templates,
+    useExpenseCategories: () => ({ data: [{ id: "c1", name: "Delivery" }] }),
+    useAnswerAutomaticity: () => ({ mutateAsync: vi.fn(), isPending: false }),
+    useGrantConsent: () => ({ mutateAsync: h.grantAsync, mutate: vi.fn(), isPending: false }),
+    useRevokeConsent: () => ({ mutate: vi.fn(), isPending: false }),
   };
 });
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -49,15 +54,16 @@ const view = (habit: HbHabitRow, logs: LogRow[], today = "2026-11-10") => {
     id: habit.id, kind: habit.kind, started_on: habit.started_on, days_of_week: habit.days_of_week, weekly_target: habit.weekly_target,
     quantity_target: habit.quantity_target, quantity_period: habit.quantity_period, rest_per_week: habit.rest_per_week,
   };
-  return { habit, def, pauses: [], summary: summarizeHabit(def, logs, today, []) };
+  return { habit, def, pauses: [], auto: { latest: null, first: null, delta: null, answers: 0, consecutive_high: 0, series: [] }, auto_due: false, summary: summarizeHabit(def, logs, today, []) };
 };
 const L = (habit_id: string, local_date: string, status: LogRow["status"] = "done"): LogRow => ({ habit_id, local_date, status, quantity: null });
 
 beforeEach(() => {
   h.enabled = { data: true, isLoading: false };
-  h.views = { views: [], today: "2026-11-10", logs: [], isLoading: false, isError: false, refetch: vi.fn() };
+  h.views = { views: [], paused: [], quitViews: [], activeCount: 0, consent: false, today: "2026-11-10", logs: [], isLoading: false, isError: false, refetch: vi.fn() };
   h.setMode.mockReset(); h.logAsync.mockReset().mockResolvedValue("id"); h.unlogAsync.mockReset().mockResolvedValue(null); h.createAsync.mockReset().mockResolvedValue("new");
   h.templates = { data: [], isLoading: false };
+  h.grantAsync.mockReset().mockResolvedValue(null);
 });
 
 describe("rascunho do novo hábito", () => {
@@ -207,5 +213,26 @@ describe("contrato: as telas financeiras não mudam", () => {
     const hAt = app.indexOf('path="/h/*"');
     expect(hAt).toBeGreaterThan(-1);
     expect(hAt).toBeLessThan(app.indexOf('path="/app"'));
+  });
+});
+
+
+describe("largar (F3)", () => {
+  it("rascunho de largar vira kind quit com plano e valor informado", () => {
+    expect(quitDraftToInput({ ...EMPTY_QUIT, title: " Delivery ", craving_plan: "esperar 10 min", daily_cost: "25,5" }))
+      .toMatchObject({ kind: "quit", title: "Delivery", craving_plan: "esperar 10 min", daily_cost: 25.5, sensitivity: "normal", money_category_id: null });
+    expect(quitDraftError({ ...EMPTY_QUIT, title: "" })).toBeTruthy();
+    expect(quitDraftError({ ...EMPTY_QUIT, title: "Cigarro", daily_cost: "abc" })).toBeTruthy();
+  });
+  it("só substância e saúde pedem autorização", () => {
+    expect(needsConsent({ ...EMPTY_QUIT, sensitivity: "normal" })).toBe(false);
+    expect(needsConsent({ ...EMPTY_QUIT, sensitivity: "substance" })).toBe(true);
+  });
+  it("Hoje mostra a seção Largando com os dias sem", () => {
+    h.views = { ...h.views, quitViews: [{ habit: row({ id: "q1", kind: "quit", title: "Delivery por impulso" }), cycle: null, stats: { days_clean: 12, best: 20, total_days_clean: 32, relapses: 1, noted_slips: 0, cravings_30: 0, craving_handled_rate: null, last_milestone: 7, next_milestone: 14, started_on: "2026-10-29" } }], activeCount: 1 };
+    render(<MemoryRouter initialEntries={["/h/hoje"]}><Routes><Route path="*" element={<Hoje />} /></Routes></MemoryRouter>);
+    expect(screen.getByText("Largando")).toBeTruthy();
+    expect(screen.getByText("Delivery por impulso")).toBeTruthy();
+    expect(screen.getByText(/recorde 20 dias/)).toBeTruthy();
   });
 });
