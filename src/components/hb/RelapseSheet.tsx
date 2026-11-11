@@ -27,23 +27,23 @@ export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { h
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-          <DrawerHeader className="text-left">
-            <DrawerTitle className="font-display text-[22px] font-semibold tracking-[-0.02em]">Acontece. Vamos anotar.</DrawerTitle>
-            <p className="text-sm text-muted-foreground">{title}: um escorregão não apaga o que você já construiu.</p>
+          <DrawerHeader className="px-5 pb-1 text-left">
+            <DrawerTitle className="font-display text-[26px] font-semibold leading-[1.1] tracking-[-0.025em]">Acontece. Vamos anotar.</DrawerTitle>
+            <p className="pt-1 text-[15px] leading-6 text-muted-foreground">{title}: um escorregão não apaga o que você já construiu.</p>
           </DrawerHeader>
-          <div className="flex flex-col gap-4 px-4">
+          <div className="flex flex-col gap-5 px-5 pt-2">
             <div>
-              <p className="mb-2 text-sm font-medium">O que estava rolando? (opcional)</p>
+              <p className="mb-3 text-[15px] font-medium">O que estava rolando? <span className="font-normal text-muted-foreground">(opcional)</span></p>
               <div className="flex flex-wrap gap-2" role="group" aria-label="O que estava acontecendo">
                 {TRIGGER_TAGS.map(([k, label]) => {
                   const on = tags.includes(k);
-                  return <button key={k} type="button" aria-pressed={on} onClick={() => toggle(k)} className={cn("min-h-11 rounded-full border px-4 text-sm font-semibold", on ? "border-foreground bg-foreground text-background" : "border-border bg-card")}>{label}</button>;
+                  return <button key={k} type="button" aria-pressed={on} onClick={() => toggle(k)} className={cn("min-h-11 rounded-full border px-4 text-sm font-medium transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted")}>{label}</button>;
                 })}
               </div>
             </div>
-            <Button className="h-12 rounded-full text-[15px] font-medium" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
-            <Button variant="outline" className="h-12 rounded-full text-[15px] font-medium" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
-            <p className="text-center text-xs text-muted-foreground">Seu recorde e o total de dias sem continuam guardados.</p>
+            <Button className="h-14 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
+            <Button variant="outline" className="-mt-2 h-14 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
+            <p className="pb-1 text-center text-[13px] text-muted-foreground">Seu recorde e o total de dias sem continuam guardados.</p>
           </div>
         </div>
       </DrawerContent>

@@ -8,7 +8,7 @@ import { Dial, Dots, ModePill } from "@/components/hb/ui";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { DayActionsSheet } from "@/components/hb/DayActionsSheet";
 import { aggregateAdherence, dayAggregates, rowsFor } from "@/lib/habits/aggregate";
-import { AreaTile, RowCard, SectionLabel } from "@/components/hb/kit";
+import { AreaTile, RowCard, SectionLabel, WeekSteps } from "@/components/hb/kit";
 import { sentenceCase } from "@/lib/habits/format";
 import { hbErrorMessage, useHabitViews, useHbTemplates, useLogHabit, useSetHbMode, useUnlogHabit, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows } from "@/lib/habits/engine";
@@ -151,6 +151,7 @@ export default function Hoje() {
           <div className="mx-auto max-w-[720px] pb-6 pt-8">
             <h2 className="font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">Um hábito vira seu em semanas ou meses.</h2>
             <p className="mt-3 text-[15px] leading-6 text-white/80">Escolha um só para começar, diga em que momento do dia vai fazê-lo e comece pequeno. Sem pontos, sem ranking.</p>
+            <WeekSteps className="mt-6" />
           </div>
         )}
       </section>

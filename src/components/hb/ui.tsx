@@ -119,10 +119,10 @@ export function Dial({ days, done, total }: { days: DayAggregate[]; done: number
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
         {total > 0 ? (
-          <>
-            <p className="font-display text-[68px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{done}<span className="text-[30px] tracking-tight text-white/70">/{total}</span></p>
-            <p className="mt-1.5 text-sm font-medium text-white/80">feitos hoje</p>
-          </>
+          <div key={`${done}/${total}`} className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
+            <p className="font-display text-[72px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{done}<span className="text-[30px] tracking-tight text-white/70">/{total}</span></p>
+            <p className="mt-1.5 text-sm font-medium text-white/80">{done === total ? "tudo feito hoje" : "feitos hoje"}</p>
+          </div>
         ) : (
           <p className="max-w-[140px] text-center text-sm font-medium leading-5 text-white/80">Nada previsto para hoje</p>
         )}
