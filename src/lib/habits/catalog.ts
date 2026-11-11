@@ -85,4 +85,12 @@ export const QUIT_CATALOG: QuitItem[] = [
   { id: "q-bebida", label: "Bebida alcoólica", area: "body", icon: "smoke", plan: "Avisar alguém de confiança e sair para uma caminhada", sensitivity: "substance" },
 ];
 
-export const findCatalog = (id: string): CatalogItem | undefined => CATALOG.find((c) => c.id === id);
+// Os atalhos do primeiro acesso usam o "slug" dos modelos do servidor (ex.: agua-2l).
+const SLUG_TO_ID: Record<string, string> = {
+  "agua-2l": "agua", "caminhar-20": "caminhar", "meditar-5": "meditar", "ler-10": "ler",
+  "dormir-23": "dormir", "treinar-3x": "treinar",
+};
+export const findCatalog = (id: string): CatalogItem | undefined => {
+  const key = SLUG_TO_ID[id] ?? id;
+  return CATALOG.find((c) => c.id === key);
+};

@@ -82,3 +82,12 @@ describe("conquistas de marco", () => {
     expect(achievementsFor({ form: "quit", best_streak: 0, days_clean: 8, best_clean: 20 }).filter((a) => a.earned).length).toBe(3);
   });
 });
+
+describe("atalhos do primeiro acesso", () => {
+  it("os modelos do servidor abrem o hábito certo no catálogo", async () => {
+    const { findCatalog } = await import("@/lib/habits/catalog");
+    for (const [slug, id] of [["agua-2l", "agua"], ["caminhar-20", "caminhar"], ["meditar-5", "meditar"], ["ler-10", "ler"], ["dormir-23", "dormir"], ["treinar-3x", "treinar"]]) {
+      expect(findCatalog(slug)?.id).toBe(id);
+    }
+  });
+});
