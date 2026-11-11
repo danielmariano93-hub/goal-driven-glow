@@ -187,15 +187,16 @@ describe("ritmo da semana (hábito semanal)", () => {
     const { weekPace } = await import("@/lib/habits/engine/pace");
     // 3x, domingo, fez 2: falta 1 e só resta hoje
     const p = weekPace({ week_start: "2026-11-09", target: 3, count: 2 }, "2026-11-01", "2026-11-15");
-    expect(p.state).toBe("behind");
+    expect(p.state).toBe("due_today");
     expect(p.days_left).toBe(1);
   });
   it("7x por semana se comporta como diário", async () => {
     const { weekPace } = await import("@/lib/habits/engine/pace");
     const wk = (count: number) => ({ week_start: "2026-11-09", target: 7, count });
-    expect(weekPace(wk(0), "2026-11-01", "2026-11-09").state).toBe("behind"); // segunda, nada feito: precisa hoje
+    expect(weekPace(wk(0), "2026-11-01", "2026-11-09").state).toBe("due_today"); // segunda, nada feito: sem folga, ainda possível
     expect(weekPace(wk(1), "2026-11-01", "2026-11-09").state).toBe("on_track"); // segunda, já treinou
-    expect(weekPace(wk(1), "2026-11-01", "2026-11-10").state).toBe("behind"); // terça, só 1: precisa hoje
+    expect(weekPace(wk(1), "2026-11-01", "2026-11-10").state).toBe("due_today"); // terça, só 1: sem folga, ainda possível
+    expect(weekPace(wk(0), "2026-11-01", "2026-11-10").state).toBe("out_of_reach"); // terça, nada feito: 7 em 6 dias
     expect(weekPace(wk(2), "2026-11-01", "2026-11-10").state).toBe("on_track");
   });
   it("primeira semana proporcional: começou na quarta, meta 3", async () => {
@@ -205,9 +206,10 @@ describe("ritmo da semana (hábito semanal)", () => {
   it("texto do ritmo", async () => {
     const { paceNote } = await import("@/lib/habits/present");
     expect(paceNote(null)).toBeNull();
-    expect(paceNote({ state: "met", needed: 0, days_left: 3, expected: 2 })).toBe("Meta batida");
+    expect(paceNote({ state: "met", needed: 0, days_left: 3, expected: 2 })).toBe("Meta da semana batida");
     expect(paceNote({ state: "on_track", needed: 2, days_left: 5, expected: 1 })).toBe("Em dia");
     expect(paceNote({ state: "behind", needed: 2, days_left: 3, expected: 2 })).toBe("Atrasado: faltam 2 em 3 dias");
-    expect(paceNote({ state: "behind", needed: 1, days_left: 1, expected: 2 })).toBe("Atrasado: faltam 1 em 1 dia");
+    expect(paceNote({ state: "due_today", needed: 1, days_left: 1, expected: 2 })).toBe("Hoje é dia: faltam 1 em 1 dia");
+    expect(paceNote({ state: "out_of_reach", needed: 7, days_left: 6, expected: 2 })).toBe("Fora de alcance: faltam 7 em 6 dias");
   });
 });

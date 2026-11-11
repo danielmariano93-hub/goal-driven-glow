@@ -65,7 +65,7 @@ export function dayAggregates(rowsByHabit: RowsByHabit, from: string, to: string
 }
 
 /** Adesão agregada dos últimos `n` dias (mesma fórmula do hábito individual, somando todos). */
-export function aggregateAdherence(rowsByHabit: RowsByHabit, endDate: string, n: number): number | null {
+export function aggregateAdherence(rowsByHabit: RowsByHabit, endDate: string, n: number, minDays = 0): number | null {
   const from = addDays(endDate, -(n - 1));
   let num = 0;
   let den = 0;
@@ -73,7 +73,8 @@ export function aggregateAdherence(rowsByHabit: RowsByHabit, endDate: string, n:
     const t = tally(rows.filter((r) => r.date >= from && r.date <= endDate));
     num += t.num; den += t.den;
   }
-  return den === 0 ? null : num / den;
+  // Com poucos dias fechados a conta engana (1 dia feito = 100%): abaixo do mínimo, não mostra.
+  return den === 0 || den < minDays ? null : num / den;
 }
 
 export interface WindowDelta {

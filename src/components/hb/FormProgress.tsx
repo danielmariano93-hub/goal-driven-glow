@@ -4,7 +4,7 @@ import type { HabitView } from "@/lib/habits/api";
 import {
   achievementsFor, addDays, ceilingStats, dayRows, hhmm, projectStats, recurringStatus, timeStats, valueTrend, weekRows, type LogRow,
 } from "@/lib/habits/engine";
-import { paceNote, paceOf, targetText, weekTargetNote } from "@/lib/habits/present";
+import { OUT_OF_REACH_HINT, paceNote, paceOf, paceTone, targetText, weekTargetNote } from "@/lib/habits/present";
 
 const num = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -79,7 +79,8 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
               <div className="mt-3 flex gap-1.5" aria-hidden="true">{Array.from({ length: cur.target }, (_, i) => <i key={i} className={cn("h-2 flex-1 rounded-full", i < Math.floor(cur.count) ? "bg-primary" : "bg-muted")} />)}</div>
             </>
           ) : null}
-          {paceNote(paceOf(view, today)) ? <p className={cn("mt-2 text-[13px] font-medium", paceOf(view, today)?.state === "behind" ? "text-amber-700" : "text-muted-foreground")}>{paceNote(paceOf(view, today))}</p> : null}
+          {paceOf(view, today) ? <p className={cn("mt-3 inline-flex rounded-full px-2.5 py-1 text-[12.5px] font-medium", paceTone(paceOf(view, today)!.state))}>{paceNote(paceOf(view, today))}</p> : null}
+          {paceOf(view, today)?.state === "out_of_reach" ? <p className="mt-2 text-[12.5px] leading-[18px] text-muted-foreground">{OUT_OF_REACH_HINT}</p> : null}
           {weekTargetNote(view, cur) ? <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12.5px] leading-[18px] text-muted-foreground">{weekTargetNote(view, cur)}</p> : null}
           <p className="mt-4 text-[12px] text-muted-foreground">Últimas semanas</p>
           <div className="mt-1 grid grid-cols-8 items-end gap-1.5" style={{ height: 44 }}>{weeks.map((w) => <i key={w.week_start} title={dm(w.week_start)} className={cn("block w-full rounded-md", w.met ? "bg-primary" : w.progress > 0 ? "bg-primary/35" : "bg-muted")} style={{ height: `${Math.max(10, w.progress * 100)}%` }} />)}</div>

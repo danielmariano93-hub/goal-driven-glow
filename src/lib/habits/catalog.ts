@@ -94,3 +94,29 @@ export const findCatalog = (id: string): CatalogItem | undefined => {
   const key = SLUG_TO_ID[id] ?? id;
   return CATALOG.find((c) => c.id === key);
 };
+
+/** Ícone de um hábito já criado: pelo item do catálogo com o mesmo nome; senão por palavras do nome; senão pela forma de medir. */
+export function habitIconKey(title: string, form: string, area: string): IconKey {
+  const t = title.trim().toLowerCase();
+  const hit = CATALOG.find((c) => c.label.toLowerCase() === t) ?? QUIT_CATALOG.find((c) => c.label.toLowerCase() === t);
+  if (hit) return hit.icon;
+  if (/[áa]gua|beber|hidrat/.test(t)) return "drop";
+  if (/ler|livro|leitura|estud|curso|idioma/.test(t)) return /ler|livro|leitura/.test(t) ? "book" : "brain";
+  if (/dorm|sono|deitar/.test(t)) return "moon";
+  if (/acord|manh/.test(t)) return "sun";
+  if (/medit|respir|foco|mente/.test(t)) return "brain";
+  if (/trein|academia|corrida|correr|caminh|exerc|alonga/.test(t)) return "heart";
+  if (/tela|celular|redes/.test(t)) return "phone";
+  if (/gasto|fatura|poupar|guardar|dinheiro|delivery/.test(t)) return "coin";
+  if (/cozinh|casa|arrum|filtro/.test(t)) return "home";
+  switch (form) {
+    case "recurring": return "calendar";
+    case "steps": return "list";
+    case "time": return "clock";
+    case "project": return "book";
+    case "ceiling": return "phone";
+    case "weekly": return "heart";
+    case "value": return "activity";
+  }
+  return area === "mind" ? "brain" : area === "money" ? "coin" : area === "routine" ? "sun" : "activity";
+}
