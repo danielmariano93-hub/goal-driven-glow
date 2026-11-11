@@ -5,7 +5,7 @@ import { parseMoney } from "@/lib/mapa/questions";
 import { useAddBenefitEntry, useEditBenefitEntry, type BenefitEntryRow } from "@/lib/db/benefitWallet";
 import type { BenefitKind } from "@/lib/engine/benefitWallet";
 
-type Mode = "reading" | "spend" | "credit";
+export type Mode = "reading" | "spend" | "credit";
 
 const TABS: Array<{ id: Mode; label: string }> = [
   { id: "reading", label: "Saldo agora" },
@@ -27,7 +27,7 @@ export const isEditableBenefitEntry = (e: { kind: BenefitKind }) => e.kind in MO
  * Registro rápido: um campo para o saldo, valor + lugar para o gasto, valor para o crédito.
  * Com `entry`, vira a correção desse lançamento (valor, dia e lugar; o tipo não muda).
  */
-export function EntrySheet({ open, onOpenChange, walletId, today, entry = null }: { open: boolean; onOpenChange: (v: boolean) => void; walletId: string; today: string; entry?: BenefitEntryRow | null }) {
+export function EntrySheet({ open, onOpenChange, walletId, today, entry = null, initialMode = "reading" }: { open: boolean; onOpenChange: (v: boolean) => void; walletId: string; today: string; entry?: BenefitEntryRow | null; initialMode?: Mode }) {
   const [mode, setMode] = useState<Mode>("reading");
   const [amount, setAmount] = useState("");
   const [merchant, setMerchant] = useState("");
@@ -44,9 +44,9 @@ export function EntrySheet({ open, onOpenChange, walletId, today, entry = null }
       setMerchant(entry.merchant ?? "");
       setDate(entry.occurred_on);
     } else {
-      setMode("reading"); setAmount(""); setMerchant(""); setDate(today);
+      setMode(initialMode); setAmount(""); setMerchant(""); setDate(today);
     }
-  }, [open, entry, today]);
+  }, [open, entry, today, initialMode]);
 
   const submit = (ev: React.FormEvent) => {
     ev.preventDefault();

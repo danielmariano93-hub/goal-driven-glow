@@ -16,6 +16,7 @@ import {
   type TxFilters,
 } from "@/lib/db/finance";
 import { useCreditCards } from "@/lib/db/creditCards";
+import { useAddBenefitEntry, useBenefitEnabled, useBenefitWallet } from "@/lib/db/benefitWallet";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { transactionSchema, transferSchema, type TransactionMovementKind } from "@/lib/validation/finance";
@@ -84,6 +85,9 @@ export default function Lancamentos() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const { data: accounts } = useAccounts();
+  const benefitEnabled = useBenefitEnabled();
+  const benefitWallet = useBenefitWallet(benefitEnabled.data === true);
+  const addBenefit = useAddBenefitEntry();
   const { data: categories } = useCategories();
   const { data: investments } = useInvestments();
   const [filters, setFilters] = useState<PersistedFilters>(() => {
@@ -720,6 +724,16 @@ export default function Lancamentos() {
           categories={categories ?? []}
           investments={(investments ?? []).map((item) => ({ id: item.id, name: item.name, current_value: Number(item.current_value) }))}
           saving={save.isPending}
+          ticket={benefitWallet.data ? {
+            saving: addBenefit.isPending,
+            onSubmit: (v) => addBenefit.mutate(
+              { wallet_id: benefitWallet.data!.id, kind: "spend", amount: v.amount, occurred_on: v.occurred_on, merchant: v.merchant },
+              {
+                onSuccess: () => { notifySuccess("Gasto lançado no Ticket"); setOpenTx(false); },
+                onError: (e: unknown) => notifyError("Não consegui lançar no Ticket", humanizeError(e)),
+              },
+            ),
+          } : null}
           onClose={() => setOpenTx(false)}
           onSubmit={(v) =>
             save.mutate(
@@ -877,9 +891,11 @@ export default function Lancamentos() {
 // ============================================================
 
 function TxModal({
-  initial, accounts, cards, categories, investments, saving, onClose, onSubmit,
+  initial, accounts, cards, categories, investments, saving, ticket, onClose, onSubmit,
 }: {
   initial: TransactionRow | null;
+  /** Ticket Alimentação: quando existe, "De onde saiu?" ganha a opção Ticket (o gasto vai só para a carteira do Ticket). */
+  ticket?: { saving: boolean; onSubmit: (v: { amount: number; occurred_on: string; merchant: string }) => void } | null;
   accounts: { id: string; name: string }[];
   cards: { id: string; name: string }[];
   categories: { id: string; name: string; type: "income" | "expense" }[];
@@ -894,7 +910,7 @@ function TxModal({
   );
   const [investmentId, setInvestmentId] = useState(initial?.investment_id ?? "");
   const [accountId, setAccountId] = useState(initial?.account_id ?? accounts[0]?.id ?? "");
-  const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card">(
+  const [paymentMethod, setPaymentMethod] = useState<"account" | "credit_card" | "ticket">(
     initial?.payment_method === "credit_card" ? "credit_card" : "account"
   );
   const [creditCardId, setCreditCardId] = useState(initial?.credit_card_id ?? cards[0]?.id ?? "");
@@ -912,6 +928,8 @@ function TxModal({
 
   void categories; // filtrado dentro do CategorySelect
   const allowsCard = type === "expense" && movementKind === "transaction";
+  const ticketOn = !!ticket && !initial && allowsCard;
+  const isTicket = ticketOn && paymentMethod === "ticket";
   const isInvestmentMovement = movementKind === "investment_application" || movementKind === "investment_redemption";
   const classifiable = ["transaction", "refund", "fee", "interest"].includes(movementKind);
   const movementOptions: Array<{ value: TransactionMovementKind; label: string }> = type === "income"
@@ -932,8 +950,15 @@ function TxModal({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (isTicket && ticket) {
+      const value = Number(amount.replace(",", "."));
+      if (!(value > 0)) { setError("Informe um valor maior que zero."); return; }
+      if (occurredAt > todayISO()) { setError("A data não pode ser no futuro."); return; }
+      ticket.onSubmit({ amount: value, occurred_on: occurredAt, merchant: description ?? "" });
+      return;
+    }
     const parsed = transactionSchema.safeParse({
-      payment_method: allowsCard ? paymentMethod : "account",
+      payment_method: allowsCard && paymentMethod !== "ticket" ? paymentMethod : "account",
       account_id: !allowsCard || paymentMethod === "account" ? accountId : null,
       credit_card_id: allowsCard && paymentMethod === "credit_card" ? creditCardId : null,
       category_id: categoryId || null,
@@ -987,13 +1012,15 @@ function TxModal({
               </p>
             )}
           </div>
-          {allowsCard && cards.length > 0 ? (
+          {allowsCard && (cards.length > 0 || ticketOn) ? (
             <div>
               <label className="mb-1 block text-xs font-medium">De onde saiu?</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid gap-2 ${[true, cards.length > 0, ticketOn].filter(Boolean).length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
                 <button type="button" onClick={() => setPaymentMethod("account")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "account" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Conta</button>
-                <button type="button" onClick={() => setPaymentMethod("credit_card")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "credit_card" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Cartão de crédito</button>
+                {cards.length > 0 ? <button type="button" onClick={() => setPaymentMethod("credit_card")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "credit_card" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Cartão</button> : null}
+                {ticketOn ? <button type="button" onClick={() => setPaymentMethod("ticket")} className={`rounded-xl border px-3 py-2 text-sm ${paymentMethod === "ticket" ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>Ticket</button> : null}
               </div>
+              {isTicket ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">Vai para o seu Ticket Alimentação. Não entra nas contas nem na categoria dos gastos.</p> : null}
             </div>
           ) : null}
           {isInvestmentMovement ? (
@@ -1006,7 +1033,7 @@ function TxModal({
               {investments.length === 0 ? <p className="mt-1 text-[11px] text-destructive">Cadastre primeiro o investimento na aba Patrimônio.</p> : null}
             </div>
           ) : null}
-          {(type === "income" || paymentMethod === "account") ? (
+          {isTicket ? null : (type === "income" || paymentMethod === "account") ? (
             <div>
               <label className="mb-1 block text-xs font-medium">{type === "income" ? "Conta que recebeu" : "Conta de saída"}</label>
               <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="input-base">
@@ -1061,7 +1088,7 @@ function TxModal({
               )}
             </div>
           )}
-          {classifiable ? <div>
+          {classifiable && !isTicket ? <div>
             <label className="mb-1 block text-xs font-medium">Categoria</label>
             <CategorySelect value={categoryId || null} onChange={(id) => setCategoryId(id ?? "")} type={type} />
           </div> : null}
@@ -1070,24 +1097,24 @@ function TxModal({
               <label className="mb-1 block text-xs font-medium">Data</label>
               <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} className="input-base" />
             </div>
-            <div>
+            {isTicket ? null : <div>
               <label className="mb-1 block text-xs font-medium">Status</label>
               <select value={status} onChange={(e) => setStatus(e.target.value as "confirmed" | "planned")} className="input-base">
                 <option value="confirmed">Confirmado</option>
                 <option value="planned">Planejado</option>
               </select>
-            </div>
+            </div>}
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Descrição (opcional)</label>
+            <label className="mb-1 block text-xs font-medium">{isTicket ? "Onde? (opcional)" : "Descrição (opcional)"}</label>
             <input value={description ?? ""} onChange={(e) => setDescription(e.target.value)} className="input-base" />
           </div>
         </div>
         {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded-full border border-border bg-card px-4 py-2 text-sm">Cancelar</button>
-          <button type="submit" disabled={saving} className="btn-brand inline-flex items-center gap-2">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+          <button type="submit" disabled={saving || (isTicket && !!ticket?.saving)} className="btn-brand inline-flex items-center gap-2">
+            {saving || (isTicket && ticket?.saving) ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
           </button>
         </div>
       </form>
