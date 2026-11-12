@@ -1,3 +1,4 @@
+import { CravingHoursCard } from "@/components/hb/Rhythm";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
@@ -103,6 +104,8 @@ export default function Largar() {
           <p className="mt-2 text-sm leading-5 text-muted-foreground">Sem base para estimar ainda. Quando houver gastos suficientes da categoria, ou um valor informado por você, eu mostro aqui.</p>
         )}
       </section>
+
+      <div className="mt-3"><CravingHoursCard habitId={habit.id} /></div>
 
       {habit.craving_plan ? (
         <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Plano para a vontade">

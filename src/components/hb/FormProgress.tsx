@@ -4,6 +4,8 @@ import type { HabitView } from "@/lib/habits/api";
 import {
   achievementsFor, addDays, ceilingStats, dayRows, hhmm, projectStats, recurringStatus, timeStats, valueTrend, weekRows, type LogRow,
 } from "@/lib/habits/engine";
+import { DayRhythmCard } from "@/components/hb/Rhythm";
+import { weekHistory } from "@/lib/habits/engine/rhythm";
 import { OUT_OF_REACH_HINT, paceNote, paceOf, paceTone, targetText, weekTargetNote } from "@/lib/habits/present";
 
 const num = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
@@ -58,6 +60,8 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
       const best = filled.length ? Math.max(...filled) : null;
       const totalMin = view.form === "duration" ? mine.reduce((a, l) => a + (l.status === "quantity" ? l.quantity ?? 0 : 0), 0) : 0;
       return (
+        <>
+        {view.form === "amount" && target > 0 ? <DayRhythmCard view={view} today={today} logs={logs} /> : null}
         <Card title={view.form === "duration" ? "Minutos por dia" : `${unit ? unit[0].toUpperCase() + unit.slice(1) : "Quantidade"} por dia`} tag="meta tracejada">
           <Bars values={vals} labels={labels} target={target} today={6} />
           <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -66,11 +70,13 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
             <div><dd className="font-display text-lg font-semibold tabular-nums">{view.form === "duration" ? `${Math.floor(totalMin / 60)} h` : view.summary.streak}</dd><dt className="text-[11px] text-muted-foreground">{view.form === "duration" ? "no total" : "dias seguidos"}</dt></div>
           </dl>
         </Card>
+        </>
       );
     }
     case "weekly": {
       const weeks = weekRows(view.def, mine, today, view.pauses).slice(-8);
       const cur = weeks[weeks.length - 1];
+      const hist = weekHistory(weeks);
       return (
         <Card title="Esta semana" tag={`${view.summary.streak} ${view.summary.streak === 1 ? "semana" : "semanas"} seguidas`}>
           {cur ? (
@@ -82,7 +88,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
           {paceOf(view, today) ? <p className={cn("mt-3 inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium", paceTone(paceOf(view, today)!.state))}>{paceNote(paceOf(view, today))}</p> : null}
           {paceOf(view, today)?.state === "out_of_reach" ? <p className="mt-2 text-[12px] leading-[18px] text-muted-foreground">{OUT_OF_REACH_HINT}</p> : null}
           {weekTargetNote(view, cur) ? <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[18px] text-muted-foreground">{weekTargetNote(view, cur)}</p> : null}
-          <p className="mt-4 text-[12px] text-muted-foreground">Últimas semanas</p>
+          <p className="mt-4 text-[12px] text-muted-foreground">{hist.closed >= 2 ? `Meta batida em ${hist.met} de ${hist.closed} semanas fechadas` : "Últimas semanas"}</p>
           <div className="mt-1 grid grid-cols-8 items-end gap-1.5" style={{ height: 44 }}>{weeks.map((w) => <i key={w.week_start} title={dm(w.week_start)} className={cn("block w-full rounded-md", w.met ? "bg-primary" : w.progress > 0 ? "bg-primary/35" : "bg-muted")} style={{ height: `${Math.max(10, w.progress * 100)}%` }} />)}</div>
         </Card>
       );
@@ -142,7 +148,8 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
     case "project": {
       const proj = view.project;
       const recent = days7.map((d) => qtyOf(d) ?? 0);
-      const p = proj ? projectStats(proj.total, proj.current, recent, today) : null;
+      const recent15 = Array.from({ length: 15 }, (_, i) => qtyOf(addDays(today, i - 14)) ?? 0);
+      const p = proj ? projectStats(proj.total, proj.current, recent15, today) : null;
       return (
         <>
           <Card title={proj ? proj.title : "Projeto"} tag={p ? `${p.percent}%` : undefined}>
@@ -152,7 +159,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
                 <div className="relative mt-3 h-2 rounded-full bg-muted"><i className="block h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${p.percent}%` }} />{[25, 50, 75].map((m) => <b key={m} className="absolute top-[-2px] h-3 w-0.5 bg-card" style={{ left: `${m}%` }} aria-hidden="true" />)}</div>
                 <div className="mt-1 flex justify-between text-[11px] text-muted-foreground" aria-hidden="true"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
                 <div className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-5">
-                  {p.done ? "Projeto concluído." : p.eta && p.days_left != null ? <><b className="font-medium">Termina em {p.days_left} {p.days_left === 1 ? "dia" : "dias"} ({dm(p.eta)})</b><span className="text-muted-foreground"> no ritmo de {num(p.pace ?? 0)} {proj.unit ?? ""} por dia. Faltam {num(p.remaining)}.</span></> : <span className="text-muted-foreground">Faltam {num(p.remaining)} {proj.unit ?? ""}. Registre alguns dias e eu calculo a previsão.</span>}
+                  {p.done ? "Projeto concluído." : p.eta && p.days_left != null ? <><b className="font-medium">Termina em {p.days_left} {p.days_left === 1 ? "dia" : "dias"} ({dm(p.eta)})</b><span className="text-muted-foreground"> no ritmo de {num(p.pace ?? 0)} {proj.unit ?? ""} por dia (média dos dias fechados, contando os sem leitura). Faltam {num(p.remaining)}.</span></> : <span className="text-muted-foreground">Faltam {num(p.remaining)} {proj.unit ?? ""}. A previsão aparece depois de 3 dias com leitura.</span>}
                 </div>
                 <Bars values={recent} labels={labels} today={6} />
               </>
@@ -171,7 +178,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
       const full = rows.filter((r) => r.outcome === "done").length;
       return (
         <Card title="Rotina de hoje" tag={`${view.steps_today.length} de ${view.steps.length}`}>
-          <ul className="mt-2 flex flex-col gap-1.5">{view.steps.map((s) => <li key={s.id} className="flex items-center gap-2.5 text-[14px]"><i className={cn("block h-2.5 w-2.5 rounded-full", view.steps_today.includes(s.id) ? "bg-success" : "border border-muted-foreground/40")} /><span className={cn(view.steps_today.includes(s.id) && "text-muted-foreground line-through")}>{s.title}</span></li>)}</ul>
+          <ul className="mt-2 flex flex-col gap-1.5">{view.steps.map((s) => <li key={s.id} className="flex items-center gap-2.5 text-[14px]"><i className={cn("block h-2.5 w-2.5 rounded-full", view.steps_today.includes(s.id) ? "bg-primary" : "border border-muted-foreground/40")} /><span className={cn(view.steps_today.includes(s.id) && "text-muted-foreground line-through")}>{s.title}</span></li>)}</ul>
           <p className="mt-3 text-[12px] text-muted-foreground">Rotina completa em {full} dos últimos 14 dias.</p>
         </Card>
       );

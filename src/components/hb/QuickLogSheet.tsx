@@ -170,7 +170,7 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
                   const on = view.steps_today.includes(s.id);
                   return (
                     <li key={s.id}>
-                      <button type="button" aria-pressed={on} disabled={stepToggle.isPending} onClick={() => stepToggle.mutate({ habit_id: habit.id, step_id: s.id, date, done: !on }, { onError: fail })} className={cn("flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors", on ? "border-success/40 bg-success/10" : "border-border/60 bg-card")}>
+                      <button type="button" aria-pressed={on} disabled={stepToggle.isPending} onClick={() => stepToggle.mutate({ habit_id: habit.id, step_id: s.id, date, done: !on }, { onError: fail })} className={cn("flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors", on ? "border-primary/40 bg-primary/10" : "border-border/60 bg-card")}>
                         <span className={cn("grid h-[22px] w-[22px] place-items-center rounded-full border-2", on ? "border-primary bg-primary text-primary-foreground" : "border-border")} aria-hidden="true">{on ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg> : null}</span>
                         <span className={cn("flex-1 text-[14px] font-medium", on && "text-muted-foreground line-through")}>{s.title}</span>
                       </button>
