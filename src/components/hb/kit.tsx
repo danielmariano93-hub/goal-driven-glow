@@ -30,7 +30,7 @@ export function HabitTile({ title, form, area, size = 44, onDark = false }: { ti
 
 /** Rótulo de seção: frase normal, discreto. */
 export function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <h2 className={cn("mb-2 mt-7 px-1 text-[13px] font-medium text-muted-foreground", className)}>{children}</h2>;
+  return <h2 className={cn("mb-2 mt-7 px-1 text-[12px] font-medium text-muted-foreground", className)}>{children}</h2>;
 }
 
 /** Linha de lista tocável: ícone, título, apoio e seta. */
@@ -39,8 +39,8 @@ export function RowCard({ lead, title, hint, trailing, className }: { lead?: Rea
     <span className={cn("flex items-center gap-3.5 rounded-2xl border border-border/60 bg-card p-3.5 shadow-card transition-colors hover:bg-muted/50", className)}>
       {lead}
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-display text-[16px] font-semibold leading-5 tracking-[-0.01em]">{title}</span>
-        {hint ? <span className="mt-0.5 block text-[13px] leading-[18px] text-muted-foreground">{hint}</span> : null}
+        <span className="block truncate font-display text-[14px] font-semibold leading-5 tracking-[-0.01em]">{title}</span>
+        {hint ? <span className="mt-0.5 block text-[12px] leading-[18px] text-muted-foreground">{hint}</span> : null}
       </span>
       {trailing ?? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" aria-hidden="true" />}
     </span>
@@ -63,14 +63,14 @@ export function MilestoneTrack({ days, milestones }: { days: number; milestones:
   const pct = next == null ? 100 : Math.round(((days - prev) / (next - prev)) * 100);
   return (
     <div>
-      <div className="flex items-baseline justify-between text-[13px] tabular-nums">
+      <div className="flex items-baseline justify-between text-[12px] tabular-nums">
         <span className="text-muted-foreground">{prev} {prev === 1 ? "dia" : "dias"}</span>
         <span className="font-medium">{next == null ? "Todos os marcos" : `${next} dias`}</span>
       </div>
       <div className="mt-2 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Caminho até o próximo marco">
         <div className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-2 text-[13px] text-muted-foreground">{next == null ? "Você passou de 1 ano. Isso é seu." : `Faltam ${next - days} ${next - days === 1 ? "dia" : "dias"} para o próximo marco.`}</p>
+      <p className="mt-2 text-[12px] text-muted-foreground">{next == null ? "Você passou de 1 ano. Isso é seu." : `Faltam ${next - days} ${next - days === 1 ? "dia" : "dias"} para o próximo marco.`}</p>
     </div>
   );
 }

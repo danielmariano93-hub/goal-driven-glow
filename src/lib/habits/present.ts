@@ -130,13 +130,13 @@ export function paceShort(p: WeekPace | null): string | null {
   return p.state === "due_today" ? "hoje é dia" : p.state === "behind" ? "atrasado" : p.state === "out_of_reach" ? "fora de alcance" : null;
 }
 
-/** Cores da etiqueta de ritmo. Âmbar só para o que pede atenção; o resto é calmo. */
+/** Cores da etiqueta de ritmo. Um matiz só (roxo): o que pede atenção vira cinza escuro, sem alarme. */
 export function paceTone(state: WeekPace["state"]): string {
   switch (state) {
-    case "met": return "bg-success/15 text-success";
-    case "on_track": return "bg-success/10 text-success";
+    case "met": return "bg-primary/15 text-primary";
+    case "on_track": return "bg-primary/10 text-primary";
     case "due_today": return "bg-primary/10 text-primary";
-    default: return "bg-warning/20 text-amber-800";
+    default: return "bg-muted text-foreground";
   }
 }
 

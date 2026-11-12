@@ -99,48 +99,48 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
     }
   };
 
-  const chip = (on: boolean) => cn("min-h-11 rounded-xl border px-1 text-[13px] font-medium leading-4 transition-colors", on ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card");
+  const chip = (on: boolean) => cn("min-h-11 rounded-xl border px-1 text-[12px] font-medium leading-4 transition-colors", on ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card");
   const busy = update.isPending || projUpdate.isPending;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-          <DrawerHeader className="text-left"><DrawerTitle className="font-display text-xl">Editar o plano</DrawerTitle></DrawerHeader>
+          <DrawerHeader className="text-left"><DrawerTitle className="font-display text-lg">Editar o plano</DrawerTitle></DrawerHeader>
           <div className="flex flex-col gap-4 px-4">
-            <Field label="Nome"><Input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} className="h-12 rounded-2xl" /></Field>
+            <Field label="Nome"><Input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} className="h-11 rounded-2xl" /></Field>
 
             {isWeekly ? (
               <Field label="Quantas vezes por semana">
                 <div className="flex items-center gap-2">
-                  <button type="button" aria-label="Menos" onClick={() => setWeekly(String(Math.max(1, Math.round(toNum(weekly)) - 1)))} className="grid h-12 w-12 place-items-center rounded-full bg-muted text-xl active:scale-95">−</button>
+                  <button type="button" aria-label="Menos" onClick={() => setWeekly(String(Math.max(1, Math.round(toNum(weekly)) - 1)))} className="grid h-11 w-12 place-items-center rounded-full bg-muted text-lg active:scale-95">−</button>
                   <p className="flex-1 text-center font-display text-[24px] font-semibold tabular-nums">{weekly}</p>
-                  <button type="button" aria-label="Mais" onClick={() => setWeekly(String(Math.min(7, Math.round(toNum(weekly)) + 1)))} className="grid h-12 w-12 place-items-center rounded-full bg-muted text-xl active:scale-95">+</button>
+                  <button type="button" aria-label="Mais" onClick={() => setWeekly(String(Math.min(7, Math.round(toNum(weekly)) + 1)))} className="grid h-11 w-12 place-items-center rounded-full bg-muted text-lg active:scale-95">+</button>
                 </div>
               </Field>
             ) : null}
 
             {hasTarget ? (
               <Field label={form === "duration" ? "Meta em minutos" : form === "ceiling" ? "Limite por dia" : form === "project" ? "Meta por dia" : "Meta por dia"}>
-                <Input value={target} inputMode="decimal" onChange={(e) => setTarget(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-12 rounded-2xl" />
+                <Input value={target} inputMode="decimal" onChange={(e) => setTarget(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-11 rounded-2xl" />
               </Field>
             ) : null}
             {form === "time" ? (
               <Field label="Horário alvo" hint={lateTime ? "Depois da meia-noite vale como a mesma noite (00:30 = 24:30)." : undefined}>
-                <Input type="time" value={target} onChange={(e) => setTarget(e.target.value)} className="h-12 rounded-2xl" />
+                <Input type="time" value={target} onChange={(e) => setTarget(e.target.value)} className="h-11 rounded-2xl" />
               </Field>
             ) : null}
             {hasUnit ? (
-              <Field label="Unidade"><Input value={unit} maxLength={20} onChange={(e) => setUnit(e.target.value)} placeholder="litros, copos, kg..." className="h-12 rounded-2xl" /></Field>
+              <Field label="Unidade"><Input value={unit} maxLength={20} onChange={(e) => setUnit(e.target.value)} placeholder="litros, copos, kg..." className="h-11 rounded-2xl" /></Field>
             ) : null}
             {isRecurring ? (
-              <Field label="Repetir a cada quantos dias"><Input value={interval} inputMode="numeric" onChange={(e) => setIntervalDays(e.target.value.replace(/[^0-9]/g, ""))} className="h-12 rounded-2xl" /></Field>
+              <Field label="Repetir a cada quantos dias"><Input value={interval} inputMode="numeric" onChange={(e) => setIntervalDays(e.target.value.replace(/[^0-9]/g, ""))} className="h-11 rounded-2xl" /></Field>
             ) : null}
             {view.project ? (
               <>
-                <Field label="Nome do projeto"><Input value={projTitle} maxLength={120} onChange={(e) => setProjTitle(e.target.value)} className="h-12 rounded-2xl" /></Field>
-                <Field label={`Total (${view.project.unit ?? ""})`}><Input value={projTotal} inputMode="decimal" onChange={(e) => setProjTotal(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-12 rounded-2xl" /></Field>
-                <Field label={`Onde você está agora (${view.project.unit ?? ""})`} hint="Corrige o avanço se você anotou errado."><Input value={projCurrent} inputMode="decimal" onChange={(e) => setProjCurrent(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-12 rounded-2xl" /></Field>
+                <Field label="Nome do projeto"><Input value={projTitle} maxLength={120} onChange={(e) => setProjTitle(e.target.value)} className="h-11 rounded-2xl" /></Field>
+                <Field label={`Total (${view.project.unit ?? ""})`}><Input value={projTotal} inputMode="decimal" onChange={(e) => setProjTotal(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-11 rounded-2xl" /></Field>
+                <Field label={`Onde você está agora (${view.project.unit ?? ""})`} hint="Corrige o avanço se você anotou errado."><Input value={projCurrent} inputMode="decimal" onChange={(e) => setProjCurrent(e.target.value.replace(/[^0-9.,]/g, ""))} className="h-11 rounded-2xl" /></Field>
               </>
             ) : null}
 
@@ -150,10 +150,10 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
               </div>
               {parts.period && ANCHORS[parts.period].length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Ligar a algo que você já faz">
-                  {ANCHORS[parts.period].map((a) => <button key={a} type="button" aria-pressed={parts.anchor.toLowerCase() === a} onClick={() => setCue(composeCue(parts.period, parts.anchor.toLowerCase() === a ? "" : a))} className={cn("min-h-9 rounded-full border px-3 text-[13px] font-medium transition-colors", parts.anchor.toLowerCase() === a ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card")}>{a[0].toUpperCase() + a.slice(1)}</button>)}
+                  {ANCHORS[parts.period].map((a) => <button key={a} type="button" aria-pressed={parts.anchor.toLowerCase() === a} onClick={() => setCue(composeCue(parts.period, parts.anchor.toLowerCase() === a ? "" : a))} className={cn("min-h-9 rounded-full border px-3 text-[12px] font-medium transition-colors", parts.anchor.toLowerCase() === a ? "border-primary bg-primary/5 text-primary" : "border-border/60 bg-card")}>{a[0].toUpperCase() + a.slice(1)}</button>)}
                 </div>
               ) : null}
-              <Input value={parts.anchor} disabled={!parts.period} maxLength={80} onChange={(e) => setCue(composeCue(parts.period, e.target.value))} placeholder="Ou escreva o seu gatilho (opcional)" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-12 rounded-2xl" />
+              <Input value={parts.anchor} disabled={!parts.period} maxLength={80} onChange={(e) => setCue(composeCue(parts.period, e.target.value))} placeholder="Ou escreva o seu gatilho (opcional)" aria-label="Ligar a algo que você já faz (opcional)" className="mt-2 h-11 rounded-2xl" />
             </Field>
 
             {dailyModel ? (
@@ -171,12 +171,12 @@ export function EditPlanSheet({ view, today, open, onOpenChange }: { view: Habit
               </Field>
             ) : null}
 
-            <Field label="Versão mínima (dia ruim)"><Input value={minimum} maxLength={120} onChange={(e) => setMinimum(e.target.value)} placeholder="3 respirações" className="h-12 rounded-2xl" /></Field>
+            <Field label="Versão mínima (dia ruim)"><Input value={minimum} maxLength={120} onChange={(e) => setMinimum(e.target.value)} placeholder="3 respirações" className="h-11 rounded-2xl" /></Field>
             <Field label="Fazendo desde" hint="Pode ser uma data anterior, se você já fazia antes de criar aqui.">
-              <input type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} aria-label="Fazendo desde" className="h-12 w-full rounded-2xl border border-border/70 bg-card px-4" />
+              <input type="date" value={since} max={today} onChange={(e) => setSince(e.target.value)} aria-label="Fazendo desde" className="h-11 w-full rounded-2xl border border-border/70 bg-card px-4" />
             </Field>
 
-            <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={busy || title.trim().length < 2} onClick={() => void save()}>Salvar</Button>
+            <Button className="h-11 rounded-full text-[14px] font-semibold" disabled={busy || title.trim().length < 2} onClick={() => void save()}>Salvar</Button>
             <p className="text-center text-xs text-muted-foreground">Mudar o plano não altera o seu histórico.</p>
           </div>
         </div>

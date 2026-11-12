@@ -50,7 +50,7 @@ export default function Progresso() {
       <PageHeader title="Progresso" />
       <div className="flex rounded-xl bg-muted p-0.5" role="group" aria-label="Período">
         {WINDOWS.map((w) => (
-          <button key={w} type="button" aria-pressed={win === w} onClick={() => setWin(w)} className={cn("min-h-10 flex-1 rounded-[10px] text-[13px] font-semibold", win === w ? "bg-card shadow-sm" : "text-muted-foreground")}>{w} dias</button>
+          <button key={w} type="button" aria-pressed={win === w} onClick={() => setWin(w)} className={cn("min-h-10 flex-1 rounded-[10px] text-[12px] font-semibold", win === w ? "bg-card shadow-sm" : "text-muted-foreground")}>{w} dias</button>
         ))}
       </div>
 
@@ -60,34 +60,34 @@ export default function Progresso() {
         <>
           <section className="mt-4 rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Resumo do período">
             <p className="text-[14px] font-medium text-white/75">Constância nos últimos {win} dias</p>
-            <p className="mt-1 font-display text-[64px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{m.adh == null ? "-" : Math.round(m.adh * 100)}{m.adh == null ? null : <span className="text-[28px] text-white/70">%</span>}</p>
-            <p className="mt-2 text-[12.5px] leading-[18px] text-white/65">Dia completo vale 1 e versão mínima vale 0,6. O dia de hoje só entra quando fecha.</p>
+            <p className="mt-1 font-display text-[44px] font-semibold leading-none tracking-[-0.05em] tabular-nums">{m.adh == null ? "-" : Math.round(m.adh * 100)}{m.adh == null ? null : <span className="text-[28px] text-white/70">%</span>}</p>
+            <p className="mt-2 text-[12px] leading-[18px] text-white/65">Dia completo vale 1 e versão mínima vale 0,6. O dia de hoje só entra quando fecha.</p>
             <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
               <div>
-                <dd className="font-display text-xl font-semibold tabular-nums">{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp} pts`}</dd>
-                <dt className="text-[13px] text-white/70">vs. {win} dias antes</dt>
+                <dd className="font-display text-lg font-semibold tabular-nums">{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp} pts`}</dd>
+                <dt className="text-[12px] text-white/70">vs. {win} dias antes</dt>
               </div>
               <div>
-                <dd className="font-display text-xl font-semibold tabular-nums">{firm}</dd>
-                <dt className="text-[13px] text-white/70">{firm === 1 ? "hábito firme" : "hábitos firmes"}</dt>
+                <dd className="font-display text-lg font-semibold tabular-nums">{firm}</dd>
+                <dt className="text-[12px] text-white/70">{firm === 1 ? "hábito firme" : "hábitos firmes"}</dt>
               </div>
             </dl>
           </section>
-          {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-[13px] text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
+          {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-[12px] text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
 
           {reviewBody ? (
             <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Resumo da semana">
               <div className="flex items-center justify-between">
-                <h2 className="text-[13px] font-medium text-muted-foreground">Resumo da semana</h2>
+                <h2 className="text-[12px] font-medium text-muted-foreground">Resumo da semana</h2>
                 {aiText ? <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">escrito por IA</span> : null}
               </div>
-              <p className="mt-2 whitespace-pre-line text-[15px] leading-6">{aiText ?? reviewBody}</p>
+              <p className="mt-2 whitespace-pre-line text-[14px] leading-6">{aiText ?? reviewBody}</p>
               {!aiText ? <Button variant="ghost" className="mt-2 h-11 rounded-full text-primary" disabled={narrate.isPending} onClick={() => void askAi()}>Reescrever com IA</Button> : <p className="mt-2 text-xs text-muted-foreground">Os números vêm das suas marcações; a IA só escreve o texto. Hábitos de saúde não entram.</p>}
             </section>
           ) : null}
 
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por hábito">
-            <h2 className="mb-2 text-[13px] font-medium text-muted-foreground">Por hábito</h2>
+            <h2 className="mb-2 text-[12px] font-medium text-muted-foreground">Por hábito</h2>
             <ul>
               {views.map((v) => {
                 const a = perHabit(v);
@@ -104,7 +104,7 @@ export default function Progresso() {
           </section>
 
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por dia da semana">
-            <h2 className="mb-2 text-[13px] font-medium text-muted-foreground">Quando você mais consegue</h2>
+            <h2 className="mb-2 text-[12px] font-medium text-muted-foreground">Quando você mais consegue</h2>
             {m.hasWeekdays ? (
               <>
                 <ul className="grid grid-cols-7 items-end gap-1.5" style={{ height: 96 }}>

@@ -58,15 +58,15 @@ export default function Habitos() {
                 <Link to={`/h/habito/${v.habit.id}`} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3.5 shadow-card transition-colors hover:bg-muted/50">
                   <HabitTile title={v.habit.title} form={v.form} area={v.habit.area} size={42} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-display text-[16px] font-semibold leading-5 tracking-[-0.01em]">{v.habit.title}</p>
-                    <p className="truncate text-[12.5px] leading-[17px] text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
+                    <p className="truncate font-display text-[14px] font-semibold leading-5 tracking-[-0.01em]">{v.habit.title}</p>
+                    <p className="truncate text-[12px] leading-[17px] text-muted-foreground">{cadence(v)}{v.habit.cue_text ? ` · ${v.habit.cue_text}` : ""}</p>
                     <p className="mt-0.5 truncate text-[12px] leading-4 text-muted-foreground">
                       {streak > 0 ? <><b className="font-semibold text-foreground">{streak}</b> {weekly ? (streak === 1 ? "semana seguida" : "semanas seguidas") : streak === 1 ? "dia seguido" : "dias seguidos"}</> : "Sem sequência ainda"}
                       {enough ? <> · <b className="font-semibold text-foreground">{pct(v.summary.adherence30)}</b> em 30 dias</> : null}
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1.5">
-                    {pace ? <span className={`rounded-full px-2 py-0.5 text-[11.5px] font-medium ${paceTone(pace.state)}`}>{pace.state === "met" ? "Meta batida" : pace.state === "on_track" ? "Em dia" : pace.state === "due_today" ? "Hoje é dia" : pace.state === "behind" ? "Atrasado" : "Fora de alcance"}</span> : v.summary.phase !== "starting" ? <PhaseChip phase={v.summary.phase} /> : null}
+                    {pace ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${paceTone(pace.state)}`}>{pace.state === "met" ? "Meta batida" : pace.state === "on_track" ? "Em dia" : pace.state === "due_today" ? "Hoje é dia" : pace.state === "behind" ? "Atrasado" : "Fora de alcance"}</span> : v.summary.phase !== "starting" ? <PhaseChip phase={v.summary.phase} /> : null}
                   </div>
                 </Link>
               </li>

@@ -97,7 +97,7 @@ function Heatmap({ view, today, logs, weeks }: { view: HabitView; today: string;
 
 function Legend() {
   return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-muted-foreground">
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
       {(["done", "minimum", "rest", "missed", "not_expected"] as const).map((o) => (
         <span key={o} className="inline-flex items-center gap-1.5"><i className={cn("inline-block h-2.5 w-2.5 rounded-[3px]", OUTCOME_CELL[o])} />{OUTCOME_LABEL[o]}</span>
       ))}
@@ -169,7 +169,7 @@ export default function Detalhe() {
         <div className="mt-1 flex items-center gap-3">
           <HabitTile area={habit.area} title={habit.title} form={view.form} size={44} onDark />
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[26px] font-semibold leading-[1.1] tracking-[-0.02em]">{habit.title}</h1>
+            <h1 className="truncate font-display text-[20px] font-semibold leading-[1.1] tracking-[-0.02em]">{habit.title}</h1>
             {habit.cue_text ? <p className="truncate text-[14px] text-white/75">{habit.cue_text}</p> : null}
           </div>
         </div>
@@ -177,7 +177,7 @@ export default function Detalhe() {
           <>
             {summary.strength != null ? <div className="mt-6"><StrengthRing value={summary.strength} /></div> : null}
             <div className={cn("flex items-center justify-center gap-2", summary.strength != null ? "mt-4" : "mt-5")}><PhaseChip phase={summary.phase} />{summary.strength != null ? <span className="rounded-full bg-white/15 px-2.5 py-1 text-[12px] font-medium">estimativa</span> : null}</div>
-            <p className="mx-auto mt-3 max-w-[300px] text-center text-[13px] leading-5 text-white/75">{strengthNote}</p>
+            <p className="mx-auto mt-3 max-w-[300px] text-center text-[12px] leading-5 text-white/75">{strengthNote}</p>
           </>
         )}
       </section>
@@ -185,7 +185,7 @@ export default function Detalhe() {
       {habit.minimum_text ? <p className="mt-3 px-1 text-[14px] text-muted-foreground">Dia ruim: {habit.minimum_text}</p> : null}
 
       {isPaused ? (
-        <div role="status" className="mt-3 rounded-2xl bg-warning/15 p-4 text-sm leading-5">
+        <div role="status" className="mt-3 rounded-2xl bg-muted p-4 text-sm leading-5">
           <p className="font-medium">Hábito pausado</p>
           <p className="text-muted-foreground">Os dias pausados não contam como falha nem quebram a sua sequência. Retome quando quiser.</p>
         </div>
@@ -201,13 +201,13 @@ export default function Detalhe() {
             ...(weekly ? [] : [{ k: `folga${summary.rests_left_this_week === 1 ? "" : "s"} na semana`, v: String(summary.rests_left_this_week) }]),
             { k: "últimos 30 dias", v: enough ? pct(summary.adherence30) : "-" },
           ].map((i) => (
-            <div key={i.k}><dd className="font-display text-xl font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
+            <div key={i.k}><dd className="font-display text-lg font-semibold tabular-nums">{i.v}</dd><dt className="text-[11px] leading-4 text-muted-foreground">{i.k}</dt></div>
           ))}
         </dl>
       )}
 
       {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Últimos 7 dias">
-        <div className="flex items-center justify-between gap-2"><h2 className="text-[13px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>{view.form !== "steps" ? <button type="button" onClick={() => setBackfillOpen(true)} className="shrink-0 rounded-full px-2 py-1 text-[12.5px] font-medium text-primary hover:bg-primary/5">Dia anterior</button> : null}</div>
+        <div className="flex items-center justify-between gap-2"><h2 className="text-[12px] font-medium text-muted-foreground">Últimos 7 dias · toque para corrigir</h2>{view.form !== "steps" ? <button type="button" onClick={() => setBackfillOpen(true)} className="shrink-0 rounded-full px-2 py-1 text-[12px] font-medium text-primary hover:bg-primary/5">Dia anterior</button> : null}</div>
         <ul className="mt-3 grid grid-cols-7 gap-1.5">
           {recent.map((d, i) => {
             const o = recentRows[i].outcome;
@@ -231,7 +231,7 @@ export default function Detalhe() {
       </section>}
 
       {recurring ? null : <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label={`Mapa de ${heatWeeks} semanas`}>
-        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">{heatWeeks === 20 ? "Últimas 20 semanas" : heatWeeks === 1 ? "Esta semana" : `Desde o início (${heatWeeks} semanas)`}</h2>
+        <h2 className="mb-3 text-[12px] font-medium text-muted-foreground">{heatWeeks === 20 ? "Últimas 20 semanas" : heatWeeks === 1 ? "Esta semana" : `Desde o início (${heatWeeks} semanas)`}</h2>
         <Heatmap view={view} today={today} logs={logs} weeks={heatWeeks} />
       </section>}
 

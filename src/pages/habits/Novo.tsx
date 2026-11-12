@@ -36,13 +36,13 @@ const isCareItem = (it: CatalogItem) => it.options[0]?.form === "recurring";
 const CARE_CUSTOM: CatalogItem = { id: "care-custom", label: "", area: "routine", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 30, step: 7, min: 1, max: 3650 }] };
 
 const chip = (on: boolean) => cn("h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors", on ? "border-foreground bg-foreground text-background" : "border-border bg-card hover:bg-muted");
-const field = "h-11 w-full rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none transition-colors focus:border-primary";
+const field = "h-11 w-full rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none transition-colors focus:border-primary";
 
 function Segmented<T extends string | number>({ value, options, onChange, label }: { value: T; options: Array<[T, string]>; onChange: (v: T) => void; label: string }) {
   return (
     <div role="group" aria-label={label} className="flex rounded-xl bg-muted p-[3px]">
       {options.map(([k, l]) => (
-        <button key={String(k)} type="button" aria-pressed={value === k} onClick={() => onChange(k)} className={cn("h-[34px] flex-1 rounded-[9px] px-1 text-[13px] font-medium transition-colors", value === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}>{l}</button>
+        <button key={String(k)} type="button" aria-pressed={value === k} onClick={() => onChange(k)} className={cn("h-[34px] flex-1 rounded-[9px] px-1 text-[12px] font-medium transition-colors", value === k ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}>{l}</button>
       ))}
     </div>
   );
@@ -66,7 +66,7 @@ function Stepper({ value, onChange, step, min, max, big, unit }: { value: number
           <input autoFocus value={text} inputMode="decimal" aria-label="Digitar o valor" onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} className="mx-auto h-9 w-28 rounded-lg border border-primary bg-card text-center font-display font-semibold tabular-nums outline-none" />
         ) : (
           <button type="button" aria-label={`${shown} ${unit}. Toque para digitar outro valor`} onClick={() => { setText(String(value).replace(".", ",")); setTyping(true); }} className="mx-auto block rounded-lg px-2 active:bg-muted">
-            <span className="block font-display text-[26px] font-semibold leading-7 tracking-[-0.03em] tabular-nums">{shown}</span>
+            <span className="block font-display text-[22px] font-semibold leading-7 tracking-[-0.03em] tabular-nums">{shown}</span>
           </button>
         )}
         <p className="text-[12px] text-muted-foreground">{typing ? "Digite e toque fora" : `${unit} · toque no número para digitar`}</p>
@@ -91,7 +91,7 @@ function TimeTarget({ value, onChange, unit }: { value: number; onChange: (n: nu
           // Depois da meia-noite vale como a mesma noite (00:30 = 24:30), quando o alvo é noturno.
           onChange((value >= 18 && m < 720 ? m + 1440 : m) / 60);
         }}
-        className="h-12 w-full rounded-xl border border-border/70 bg-card px-4 text-center font-display text-[26px] font-semibold tabular-nums"
+        className="h-11 w-full rounded-xl border border-border/70 bg-card px-4 text-center font-display text-[22px] font-semibold tabular-nums"
       />
       <p className="mt-2 text-center text-[12px] text-muted-foreground">{unit.startsWith("acordar") ? "Acordar até esse horário conta como feito" : "Deitar até esse horário conta como feito"}</p>
     </div>
@@ -211,7 +211,7 @@ export default function Novo() {
           <div className="flex items-center gap-1.5" role="progressbar" aria-valuemin={1} aria-valuemax={seq.length - 1} aria-valuenow={Math.max(1, idx)} aria-label="Progresso">
             {seq.slice(1).map((s, i) => <i key={s} className={cn("block h-1.5 rounded-full transition-all duration-300", i + 1 === idx ? "w-[22px] bg-white" : i + 1 < idx ? "w-1.5 bg-white" : "w-1.5 bg-white/30")} />)}
           </div>
-          <span className="w-10 text-right text-[13px] text-white/70">{idx === 0 ? "" : `${idx}/${seq.length - 1}`}</span>
+          <span className="w-10 text-right text-[12px] text-white/70">{idx === 0 ? "" : `${idx}/${seq.length - 1}`}</span>
         </div>
         <div className="mt-1.5 flex flex-col gap-2 rounded-2xl bg-white/12 px-3 py-2.5">
           <div className="flex items-center gap-3">
@@ -224,7 +224,7 @@ export default function Novo() {
                   placeholder={isQuit ? "O que você quer largar" : isCare ? "Seu cuidado" : "Seu hábito"}
                   aria-label="Nome do hábito (toque para editar)"
                   maxLength={80}
-                  className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 font-display text-[15px] font-semibold leading-[19px] tracking-[-0.01em] text-white outline-none placeholder:text-white/55"
+                  className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 font-display text-[14px] font-semibold leading-[19px] tracking-[-0.01em] text-white outline-none placeholder:text-white/55"
                 />
                 <Pencil className="h-3 w-3 shrink-0 text-white/65" aria-hidden="true" />
               </label>
@@ -241,8 +241,8 @@ export default function Novo() {
       {/* Folha clara: uma pergunta por vez */}
       <section className="-mt-4 flex min-h-0 flex-1 flex-col rounded-t-3xl bg-background">
         <div key={screen} className="flex min-h-0 flex-1 flex-col px-5 pt-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <h1 className="font-display text-[22px] font-semibold leading-[26px] tracking-[-0.02em]">{title}</h1>
-          <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">{helper}</p>
+          <h1 className="font-display text-[18px] font-semibold leading-[26px] tracking-[-0.02em]">{title}</h1>
+          <p className="mt-1 text-[12px] leading-[18px] text-muted-foreground">{helper}</p>
 
           <div className="mt-3.5 flex-1 overflow-y-auto pb-3">
             {screen === "choose" ? (
@@ -250,7 +250,7 @@ export default function Novo() {
                 <Segmented value={mode} label="Tipo de hábito" options={[["do", "Começar a fazer"], ["care", "Cuidados"], ["quit", "Largar algo"]] as Array<[Mode, string]>} onChange={(m) => { setMode(m); setItem(null); setD(EMPTY); setQ(EMPTY_QUIT); }} />
                 <form onSubmit={(e) => { e.preventDefault(); const v = (new FormData(e.currentTarget).get("own") as string ?? "").trim(); if (v.length >= 2) startOwn(v); }} className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card pl-3.5 pr-1.5">
                   <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <input name="own" placeholder={isQuit ? "Escreva o que quer largar" : isCare ? "Escreva o seu cuidado" : "Escreva o seu próprio hábito"} aria-label="Nome do hábito" maxLength={80} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
+                  <input name="own" placeholder={isQuit ? "Escreva o que quer largar" : isCare ? "Escreva o seu cuidado" : "Escreva o seu próprio hábito"} aria-label="Nome do hábito" maxLength={80} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] outline-none" />
                   <button type="submit" aria-label="Continuar" className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground"><ChevronRight className="h-4 w-4" aria-hidden="true" /></button>
                 </form>
                 <p className="text-[12px] text-muted-foreground">Ou comece por uma sugestão</p>
@@ -259,13 +259,13 @@ export default function Novo() {
                     ? QUIT_CATALOG.map((it) => (
                         <button key={it.id} type="button" aria-label={it.label} onClick={() => pickQuit(it.id)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
-                          <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
+                          <span className="font-display text-[12px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
                         </button>
                       ))
                     : CATALOG.filter((it) => (isCare ? isCareItem(it) : !isCareItem(it))).map((it) => (
                         <button key={it.id} type="button" aria-label={it.label} onClick={() => pickItem(it)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
-                          <span className="font-display text-[13px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
+                          <span className="font-display text-[12px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
                         </button>
                       ))}
                 </div>
@@ -282,7 +282,7 @@ export default function Novo() {
                     return (
                       <button key={p.id} type="button" aria-pressed={on} onClick={() => set({ cue_text: switchPeriod(d.cue_text, p.id) })} className={cn("flex items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-colors active:scale-[0.98]", on ? "border-primary bg-primary/5" : "border-border/60 bg-card")}>
                         <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl", on ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary")} aria-hidden="true"><Icon className="h-[18px] w-[18px]" strokeWidth={1.9} /></span>
-                        <span className="min-w-0"><span className="block text-[15px] font-semibold leading-5">{p.id}</span><span className="block truncate text-[12px] leading-4 text-muted-foreground">{p.hint}</span></span>
+                        <span className="min-w-0"><span className="block text-[14px] font-semibold leading-5">{p.id}</span><span className="block truncate text-[12px] leading-4 text-muted-foreground">{p.hint}</span></span>
                       </button>
                     );
                   })}
@@ -293,7 +293,7 @@ export default function Novo() {
                   </div>
                 ) : null}
                 <input value={cue.anchor} disabled={!cue.period} onChange={(e) => set({ cue_text: composeCue(cue.period, e.target.value) })} placeholder="Ou escreva o seu gatilho (opcional)" aria-label="Ligar a algo que você já faz (opcional)" maxLength={80} className={cn(field, "disabled:opacity-50")} />
-                <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askAi()} className="inline-flex min-h-10 items-center gap-2 self-start px-1 text-[13px] font-medium text-primary disabled:opacity-40">
+                <button type="button" disabled={suggest.isPending || d.title.trim().length < 2} onClick={() => void askAi()} className="inline-flex min-h-10 items-center gap-2 self-start px-1 text-[12px] font-medium text-primary disabled:opacity-40">
                   {suggest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Sugerir gatilho e versão mínima (IA)
                 </button>
               </div>
@@ -324,7 +324,7 @@ export default function Novo() {
                     <div className="grid grid-cols-7 gap-1.5" role="group" aria-label="Dias da semana (vazio = todos)">
                       {DAY_LETTERS.map((l, i) => {
                         const on = d.days.includes(i);
-                        return <button key={i} type="button" aria-pressed={on} aria-label={DAY_NAMES[i]} onClick={() => set({ days: on ? d.days.filter((x) => x !== i) : [...d.days, i].sort() })} className={cn("h-[38px] rounded-[11px] border text-[13px] font-medium transition-colors", on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground")}>{l}</button>;
+                        return <button key={i} type="button" aria-pressed={on} aria-label={DAY_NAMES[i]} onClick={() => set({ days: on ? d.days.filter((x) => x !== i) : [...d.days, i].sort() })} className={cn("h-[38px] rounded-[11px] border text-[12px] font-medium transition-colors", on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground")}>{l}</button>;
                       })}
                     </div>
                     <p className="mt-2 text-[12px] text-muted-foreground">Sem escolher nenhum, vale todos os dias.</p>
@@ -346,18 +346,18 @@ export default function Novo() {
                   <div className="flex flex-col gap-2">
                     <input value={d.project_title} onChange={(e) => set({ project_title: e.target.value })} placeholder={item?.project?.example ?? "Nome"} aria-label={item?.project?.titleLabel} maxLength={120} className={field} />
                     <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card px-3.5">
-                      <input value={d.project_total} onChange={(e) => set({ project_total: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder={item?.project?.totalLabel} aria-label={item?.project?.totalLabel} className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
-                      <span className="text-[13px] text-muted-foreground">{item?.project?.unit}</span>
+                      <input value={d.project_total} onChange={(e) => set({ project_total: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder={item?.project?.totalLabel} aria-label={item?.project?.totalLabel} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] outline-none" />
+                      <span className="text-[12px] text-muted-foreground">{item?.project?.unit}</span>
                     </label>
                     <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 bg-card px-3.5">
-                      <input value={d.project_current} onChange={(e) => set({ project_current: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder="Onde você está agora (opcional)" aria-label="Avanço atual" className="min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
-                      <span className="text-[13px] text-muted-foreground">{item?.project?.unit}</span>
+                      <input value={d.project_current} onChange={(e) => set({ project_current: e.target.value.replace(/[^0-9.,]/g, "") })} inputMode="decimal" placeholder="Onde você está agora (opcional)" aria-label="Avanço atual" className="min-w-0 flex-1 border-0 bg-transparent text-[14px] outline-none" />
+                      <span className="text-[12px] text-muted-foreground">{item?.project?.unit}</span>
                     </label>
                     <Stepper value={d.target} onChange={(n) => set({ target: n })} step={opt.step} min={opt.min ?? 1} unit={d.unit} />
                     <p className="rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[17px] text-muted-foreground">{forecast}</p>
                   </div>
                 ) : null}
-                {d.form === "check" && options.length === 1 ? <p className="text-[13px] text-muted-foreground">Você marca como feito todo dia que cumprir.</p> : null}
+                {d.form === "check" && options.length === 1 ? <p className="text-[12px] text-muted-foreground">Você marca como feito todo dia que cumprir.</p> : null}
               </div>
             ) : null}
 
@@ -407,12 +407,12 @@ export default function Novo() {
                 type="button"
                 disabled={create.isPending || !canNext || (screen === "done" && !!err)}
                 onClick={next}
-                className="flex h-[46px] w-full items-center justify-center rounded-full bg-primary text-[15px] font-medium text-primary-foreground transition-all active:scale-[0.98] disabled:bg-muted-foreground/30"
+                className="flex h-[46px] w-full items-center justify-center rounded-full bg-primary text-[14px] font-medium text-primary-foreground transition-all active:scale-[0.98] disabled:bg-muted-foreground/30"
               >
                 {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : screen === "done" ? (isQuit ? "Começar a contagem" : isCare ? "Criar cuidado" : "Criar hábito") : "Continuar"}
               </button>
-              {screen === "min" ? <button type="button" onClick={() => { set({ minimum_text: "" }); setScreen("measure"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
-              {screen === "cost" ? <button type="button" onClick={() => { setQuit({ daily_cost: "" }); setScreen("done"); }} className="mt-0.5 h-9 w-full text-[13px] text-muted-foreground">Pular por agora</button> : null}
+              {screen === "min" ? <button type="button" onClick={() => { set({ minimum_text: "" }); setScreen("measure"); }} className="mt-0.5 h-9 w-full text-[12px] text-muted-foreground">Pular por agora</button> : null}
+              {screen === "cost" ? <button type="button" onClick={() => { setQuit({ daily_cost: "" }); setScreen("done"); }} className="mt-0.5 h-9 w-full text-[12px] text-muted-foreground">Pular por agora</button> : null}
               {screen === "done" && err ? <p className="mt-1 text-center text-[12px] text-muted-foreground">{err}</p> : null}
             </div>
           ) : null}
