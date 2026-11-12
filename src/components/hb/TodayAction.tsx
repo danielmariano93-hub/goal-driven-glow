@@ -51,7 +51,7 @@ export function TodayAction({ view, today, logs, paused }: { view: HabitView; to
         </div>
         {done ? <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Check className="h-5 w-5" strokeWidth={3} aria-hidden="true" /></span> : null}
       </div>
-      {frac != null ? <div className="mt-3 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)} aria-label="Progresso de hoje"><i className={cn("block h-full rounded-full transition-[width] duration-500", frac >= 1 ? "bg-success" : "bg-primary")} style={{ width: `${Math.round(frac * 100)}%` }} /></div> : null}
+      {frac != null ? <div className="mt-3 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)} aria-label="Progresso de hoje"><i className={cn("block h-full rounded-full transition-[width] duration-500", "bg-primary")} style={{ width: `${Math.round(frac * 100)}%` }} /></div> : null}
       <button
         type="button"
         onClick={() => void press()}

@@ -150,6 +150,7 @@ const keys = {
   enabled: (uid?: string) => ["hb", "enabled", uid] as const,
   snapshot: (uid?: string) => ["hb", "snapshot", uid] as const,
   templates: ["hb", "templates"] as const,
+  rhythm: (uid?: string, habitId?: string) => ["hb", "rhythm", uid, habitId] as const,
 };
 
 /** Liberação por usuário (`hb_access`). Falha fechada: qualquer erro = sem Hábitos. */
@@ -310,7 +311,10 @@ export function useLogHabit() {
     onError: (_e, _i, ctx) => {
       if (ctx?.prev) qc.setQueryData(keys.snapshot(user?.id), ctx.prev);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
+      void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+    },
   });
 }
 
@@ -328,7 +332,10 @@ export function useUnlogHabit() {
     onError: (_e, _i, ctx) => {
       if (ctx?.prev) qc.setQueryData(keys.snapshot(user?.id), ctx.prev);
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
+      void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+    },
   });
 }
 
@@ -440,7 +447,10 @@ export function useSetHbPrefs() {
 function useInvalidate() {
   const qc = useQueryClient();
   const { user } = useAuth();
-  return () => void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
+  return () => {
+    void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
+    void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+  };
 }
 
 export function useGrantConsent() {
@@ -602,5 +612,22 @@ export function useStepToggle() {
     mutationFn: (i: { habit_id: string; step_id: string; date: string; done: boolean }) =>
       rpc<{ done: number; total: number }>("hb_step_toggle", { p_habit: i.habit_id, p_step: i.step_id, p_date: i.date, p_done: i.done }),
     onSuccess: inv,
+  });
+}
+
+/** Inclusões com hora e vontades por hora de um hábito (função hb_rhythm_data). Falha sem ruído: o gráfico só não aparece. */
+export interface RhythmData {
+  timezone: string;
+  entries: Array<{ local_date: string; amount: number; at: string | null }>;
+  cravings: Array<{ occurred_at: string; handled: boolean | null }>;
+}
+export function useRhythmData(habitId: string | undefined, enabled = true) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: keys.rhythm(user?.id, habitId),
+    enabled: !!user && !!habitId && enabled,
+    staleTime: 30_000,
+    retry: 1,
+    queryFn: () => rpc<RhythmData>("hb_rhythm_data", { p_habit: habitId, p_days: 30 }),
   });
 }

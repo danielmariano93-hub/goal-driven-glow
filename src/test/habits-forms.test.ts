@@ -39,8 +39,17 @@ describe("forma de medir", () => {
 
 describe("projeto", () => {
   it("percentual, falta, ritmo e previsão", () => {
+    // hoje (último) fica fora do ritmo; os dias sem leitura contam: (14+20+0+12+18+10)/6 = 12,3
     const p = projectStats(224, 128, [14, 20, 0, 12, 18, 10, 0], "2026-11-11");
-    expect(p).toMatchObject({ percent: 57, remaining: 96, pace: 14.8, days_left: 7, eta: "2026-11-18", done: false, next_mark: 75 });
+    expect(p).toMatchObject({ percent: 57, remaining: 96, pace: 12.3, days_left: 8, eta: "2026-11-19", done: false, next_mark: 75 });
+  });
+  it("não conta os dias antes da primeira leitura e exige 3 dias de avanço", () => {
+    // só começou a ler há 4 dias: 3 dias com leitura em 4 dias fechados
+    expect(projectStats(200, 40, [0, 0, 0, 0, 0, 0, 10, 0, 15, 15, 0], "2026-11-11")).toMatchObject({ pace: 10, days_left: 16 });
+    // só 2 dias de leitura: sem previsão
+    expect(projectStats(200, 40, [0, 0, 0, 20, 20, 0], "2026-11-11")).toMatchObject({ pace: null, days_left: null, eta: null });
+    // leu só hoje: sem previsão
+    expect(projectStats(200, 20, [0, 0, 20], "2026-11-11").pace).toBeNull();
   });
   it("sem histórico não inventa previsão", () => {
     expect(projectStats(100, 10, [], "2026-11-11")).toMatchObject({ pace: null, days_left: null, eta: null });

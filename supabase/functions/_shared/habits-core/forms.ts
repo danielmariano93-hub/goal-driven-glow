@@ -22,7 +22,7 @@ export function formOf(h: { form?: string | null; kind: string }): HabitForm {
 export interface ProjectStats {
   percent: number;
   remaining: number;
-  /** Ritmo médio nos dias em que houve avanço (últimos 14). Nulo sem histórico. */
+  /** Ritmo médio por dia (dias fechados, contando os sem avanço). Nulo com menos de 3 dias de avanço. */
   pace: number | null;
   days_left: number | null;
   eta: string | null;
@@ -32,14 +32,24 @@ export interface ProjectStats {
 
 export const PROJECT_MARKS = [25, 50, 75, 100] as const;
 
-/** `recent` = avanço por dia (mais recente por último); só dias com avanço (> 0) entram no ritmo. */
+/** Mínimo de dias com leitura (de avanço) para prometer uma data de término. */
+export const MIN_PROJECT_DAYS = 3;
+
+/**
+ * `recent` = avanço por dia, o mais recente (hoje) por último. O ritmo usa só dias FECHADOS (hoje fica de fora, ainda está
+ * em andamento) e conta os dias sem avanço, a partir do primeiro dia com avanço; senão o ritmo seria otimista.
+ * Com menos de MIN_PROJECT_DAYS dias de avanço não há previsão.
+ */
 export function projectStats(total: number, current: number, recent: number[], today: string): ProjectStats {
   const t = Math.max(0, total);
   const c = Math.min(Math.max(0, current), t);
   const remaining = Math.max(0, t - c);
   const percent = t > 0 ? Math.round((c / t) * 100) : 0;
-  const active = recent.slice(-14).filter((n) => n > 0);
-  const pace = active.length ? Math.round((active.reduce((a, b) => a + b, 0) / active.length) * 10) / 10 : null;
+  const closed = recent.slice(-15, -1);
+  const first = closed.findIndex((n) => n > 0);
+  const window = first < 0 ? [] : closed.slice(first);
+  const activeDays = window.filter((n) => n > 0).length;
+  const pace = activeDays >= MIN_PROJECT_DAYS ? Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10 : null;
   const days_left = remaining === 0 ? 0 : pace ? Math.ceil(remaining / pace) : null;
   return {
     percent, remaining, pace, days_left, eta: days_left == null ? null : addDays(today, days_left), done: t > 0 && c >= t,
