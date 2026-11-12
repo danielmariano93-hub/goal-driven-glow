@@ -15,6 +15,7 @@ import { PageHeader, PhaseChip, StrengthRing } from "@/components/hb/ui";
 import { HabitTile } from "@/components/hb/kit";
 import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
+import { RegularityCard } from "@/components/hb/RegularityCard";
 import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
 import { hbErrorMessage, useArchiveHabit, useGoals, useHabitViews, useSetHabitStatus, type HabitView } from "@/lib/habits/api";
@@ -201,7 +202,7 @@ export default function Detalhe() {
           </Link>
         ) : null;
       })()}
-      <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /></div>
+      <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /><RegularityCard view={view} /></div>
 
       {recurring ? null : (
         <dl className={cn("mt-4 grid gap-2 rounded-2xl border border-border/60 bg-card p-3 text-center shadow-card", weekly ? "grid-cols-3" : "grid-cols-4")}>
