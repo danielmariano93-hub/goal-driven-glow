@@ -98,6 +98,7 @@ export default function Progresso() {
           ) : null}
 
           <TrajectoryCard weeks={m.weeks} />
+          <RegularityOverview views={views} />
           <ResilienceCard res={m.res} />
 
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por hábito">
