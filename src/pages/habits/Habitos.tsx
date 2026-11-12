@@ -6,7 +6,7 @@ import { PageHeader, PhaseChip } from "@/components/hb/ui";
 import { HabitTile, SectionLabel } from "@/components/hb/kit";
 import { paceOf, paceTone } from "@/lib/habits/present";
 import { targetText } from "@/lib/habits/present";
-import { useHabitViews, type HabitView } from "@/lib/habits/api";
+import { useGoals, useHabitViews, type HabitView } from "@/lib/habits/api";
 
 export { MAX_ACTIVE_HABITS };
 
@@ -28,6 +28,7 @@ const pct = (n: number | null) => (n == null ? "-" : `${Math.round(n * 100)}%`);
 export default function Habitos() {
   const { views, paused, quitViews, activeCount, isLoading, today } = useHabitViews();
   const full = activeCount >= MAX_ACTIVE_HABITS;
+  const goals = useGoals();
   return (
     <div className="px-4">
       <PageHeader
@@ -75,6 +76,29 @@ export default function Habitos() {
           })}
         </ul>
       )}
+      {!isLoading ? (
+        <>
+          <SectionLabel>Objetivos</SectionLabel>
+          {goals.data && goals.data.goals.length > 0 ? (
+            <ul className="flex flex-col gap-2.5">
+              {goals.data.goals.map((g) => (
+                <li key={g.id}>
+                  <Link to={`/h/objetivo/${g.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-3.5 shadow-card transition-colors hover:bg-muted/50">
+                    <div className="min-w-0">
+                      <p className="truncate font-display text-[14px] font-semibold leading-5 tracking-[-0.01em]">{g.title}</p>
+                      <p className="truncate text-[12px] leading-[17px] text-muted-foreground">{g.measures.length} {g.measures.length === 1 ? "medida" : "medidas"} · {g.habit_ids.length} {g.habit_ids.length === 1 ? "hábito" : "hábitos"}</p>
+                    </div>
+                    <span className="shrink-0 text-[12px] font-medium text-primary">Ver</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-1 text-[12px] leading-[18px] text-muted-foreground">Perder peso ou ganhar massa são metas, não hábitos. Crie um objetivo para acompanhar as medidas e ligar os hábitos que levam até ele.</p>
+          )}
+          {(goals.data?.goals.length ?? 0) < 3 ? <Button asChild variant="outline" className="mt-2.5 h-11 w-full rounded-full text-[14px] font-medium"><Link to="/h/objetivo/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" />Novo objetivo</Link></Button> : null}
+        </>
+      ) : null}
       {quitViews.length > 0 ? (
         <>
           <SectionLabel>Largando</SectionLabel>

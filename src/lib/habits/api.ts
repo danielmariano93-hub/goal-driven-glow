@@ -106,6 +106,8 @@ export class HbError extends Error {
 
 const ERROR_TEXT: Array<[string, string]> = [
   ["habit_limit_reached", "Você já tem 10 hábitos ativos. Arquive ou pause um para criar outro."],
+  ["goal_limit_reached", "Você já tem 3 objetivos. Arquive um para criar outro."],
+  ["measure_limit_reached", "Este objetivo já tem 6 medidas."],
   ["rest_budget_exhausted", "As folgas desta semana acabaram para este hábito."],
   ["edit_window_closed", "Só dá para corrigir os últimos 7 dias."],
   ["future_date", "Esse dia ainda não chegou."],
@@ -151,6 +153,7 @@ const keys = {
   snapshot: (uid?: string) => ["hb", "snapshot", uid] as const,
   templates: ["hb", "templates"] as const,
   rhythm: (uid?: string, habitId?: string) => ["hb", "rhythm", uid, habitId] as const,
+  goals: (uid?: string) => ["hb", "goals", uid] as const,
 };
 
 /** Liberação por usuário (`hb_access`). Falha fechada: qualquer erro = sem Hábitos. */
@@ -630,4 +633,83 @@ export function useRhythmData(habitId: string | undefined, enabled = true) {
     retry: 1,
     queryFn: () => rpc<RhythmData>("hb_rhythm_data", { p_habit: habitId, p_days: 30 }),
   });
+}
+
+// ---------------------------------------------------------------- objetivos e medidas
+
+export interface GoalMeasure {
+  id: string;
+  kind: "weight" | "waist" | "arm" | "thigh" | "custom";
+  label: string;
+  unit: string;
+  cadence: "weekly" | "monthly";
+  points: Array<{ id: string; date: string; value: number }>;
+}
+export interface GoalData {
+  id: string;
+  title: string;
+  started_on: string;
+  habit_ids: string[];
+  measures: GoalMeasure[];
+}
+export interface GoalsPayload {
+  today: string;
+  goals: GoalData[];
+}
+
+/** Objetivos (hipertrofia, perder peso...) com as medidas e os hábitos ligados a eles. */
+export function useGoals() {
+  const { user } = useAuth();
+  const enabled = useHabitsEnabled();
+  return useQuery({
+    queryKey: keys.goals(user?.id),
+    enabled: !!user && enabled.data === true,
+    staleTime: 30_000,
+    retry: 1,
+    queryFn: () => rpc<GoalsPayload>("hb_goals_data"),
+  });
+}
+
+function useGoalInvalidate() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return () => void qc.invalidateQueries({ queryKey: keys.goals(user?.id) });
+}
+
+export interface CreateGoalInput {
+  title: string;
+  habits: string[];
+  measures: Array<{ kind: GoalMeasure["kind"]; label: string; unit: string; cadence: GoalMeasure["cadence"] }>;
+}
+export function useCreateGoal() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (i: CreateGoalInput) => rpc<string>("hb_goal_create", { p_title: i.title, p_habits: i.habits, p_measures: i.measures }), onSuccess: inv });
+}
+export function useUpdateGoal() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (i: { id: string; title?: string; habits?: string[] }) => rpc<null>("hb_goal_update", { p_goal: i.id, p_title: i.title ?? null, p_habits: i.habits ?? null }), onSuccess: inv });
+}
+export function useArchiveGoal() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (id: string) => rpc<null>("hb_goal_archive", { p_goal: id }), onSuccess: inv });
+}
+export function useAddMeasure() {
+  const inv = useGoalInvalidate();
+  return useMutation({
+    mutationFn: (i: { goal: string; kind: GoalMeasure["kind"]; label: string; unit: string; cadence: GoalMeasure["cadence"] }) =>
+      rpc<string>("hb_measure_add", { p_goal: i.goal, p_kind: i.kind, p_label: i.label, p_unit: i.unit, p_cadence: i.cadence }),
+    onSuccess: inv,
+  });
+}
+export function useArchiveMeasure() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (id: string) => rpc<null>("hb_measure_archive", { p_measure: id }), onSuccess: inv });
+}
+export function useSetMeasurement() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (i: { measure: string; date: string; value: number }) => rpc<string>("hb_measurement_set", { p_measure: i.measure, p_date: i.date, p_value: i.value }), onSuccess: inv });
+}
+export function useDeleteMeasurement() {
+  const inv = useGoalInvalidate();
+  return useMutation({ mutationFn: (id: string) => rpc<null>("hb_measurement_delete", { p_id: id }), onSuccess: inv });
 }

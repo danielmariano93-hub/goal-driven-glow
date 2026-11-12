@@ -10,6 +10,8 @@ import Largar from "@/pages/habits/Largar";
 import Novo from "@/pages/habits/Novo";
 import Progresso from "@/pages/habits/Progresso";
 import Mais from "@/pages/habits/Mais";
+import Objetivo from "@/pages/habits/Objetivo";
+import NovoObjetivo from "@/pages/habits/NovoObjetivo";
 
 /** Entrada do lado Hábitos (`/h/*`). Sem liberação, volta para o Nino Dinheiro como se esta rota não existisse. */
 export default function HabitsApp() {
@@ -28,6 +30,8 @@ export default function HabitsApp() {
         <Route path="largar/:id" element={<Largar />} />
         <Route path="dinheiro" element={<Dinheiro />} />
         <Route path="novo" element={<Novo />} />
+        <Route path="objetivo/novo" element={<NovoObjetivo />} />
+        <Route path="objetivo/:id" element={<Objetivo />} />
         <Route path="progresso" element={<Progresso />} />
         <Route path="mais" element={<Mais />} />
         <Route path="*" element={<Navigate to="hoje" replace />} />
