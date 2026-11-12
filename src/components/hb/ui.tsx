@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -90,8 +90,35 @@ const TICK_COLOR: Record<DayState, string> = {
   empty: "rgba(255,255,255,.14)",
 };
 
-/** Mostrador dos últimos dias (um traço por dia) com o progresso de hoje por dentro. */
+const WEEKDAY_ABBR = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const MONTH_ABBR = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const DAY_STATE_TEXT: Record<DayState, string> = { full: "dia completo", partial: "dia parcial", none: "sem registro", rest: "folga", empty: "nada previsto" };
+
+function dayLabel(d: DayAggregate): string {
+  if (d.is_today) return "Hoje";
+  const wd = WEEKDAY_ABBR[new Date(`${d.date}T12:00:00Z`).getUTCDay()];
+  return `${wd[0].toUpperCase()}${wd.slice(1)}, ${Number(d.date.slice(8, 10))} ${MONTH_ABBR[Number(d.date.slice(5, 7)) - 1]}`;
+}
+
+/**
+ * Mostrador dos últimos dias (um traço por dia) com o progresso de hoje por dentro.
+ * Movimento discreto: o anel enche ao abrir e a cada marcação; os traços entram em sequência; tocar num traço mostra aquele dia
+ * por alguns segundos. Quem pede "reduzir movimento" no aparelho vê tudo direto, sem animação.
+ */
 export function Dial({ days, done, total, withWeekly = false }: { days: DayAggregate[]; done: number; total: number; /** Com hábito semanal na conta, o rótulo diz "em dia" em vez de "feitos". */ withWeekly?: boolean }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const pct = total > 0 ? done / total : 0;
+  // O anel parte de zero ao montar e anda até o valor (a transição CSS faz o resto).
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setShown(pct));
+    return () => cancelAnimationFrame(id);
+  }, [pct]);
+  useEffect(() => {
+    if (!selected) return;
+    const id = window.setTimeout(() => setSelected(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [selected]);
   const ticks = useMemo(() => {
     const n = days.length || 1;
     return days.map((d, i) => {
@@ -99,7 +126,7 @@ export function Dial({ days, done, total, withWeekly = false }: { days: DayAggre
       const r1 = d.is_today ? 108 : 112;
       const r2 = d.is_today ? 134 : 128;
       return {
-        key: d.date,
+        key: d.date, day: d, i,
         x1: (Math.cos(a) * r1).toFixed(1), y1: (Math.sin(a) * r1).toFixed(1),
         x2: (Math.cos(a) * r2).toFixed(1), y2: (Math.sin(a) * r2).toFixed(1),
         color: d.is_today ? "#FFFFFF" : TICK_COLOR[d.state], width: d.is_today ? 4 : 3,
@@ -107,19 +134,46 @@ export function Dial({ days, done, total, withWeekly = false }: { days: DayAggre
     });
   }, [days]);
   const C = 578.05;
-  const pct = total > 0 ? done / total : 0;
+  const picked = selected ? days.find((d) => d.date === selected) ?? null : null;
   return (
     <div className="relative mx-auto h-[206px] w-[274px] max-w-full">
       <svg viewBox="0 0 390 292" className="h-full w-full" role="img" aria-label={total > 0 ? `${done} de ${total} hábitos de hoje feitos, e os últimos ${days.length} dias` : `Nenhum hábito previsto hoje; últimos ${days.length} dias`}>
         <g transform="translate(195 146)">
-          {ticks.map((t) => <line key={t.key} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={t.color} strokeWidth={t.width} strokeLinecap="round" />)}
+          {ticks.map((t) => (
+            <line
+              key={t.key} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} strokeLinecap="round"
+              stroke={selected === t.key ? "#FFFFFF" : t.color} strokeWidth={selected === t.key ? 6 : t.width}
+              className="transition-[stroke-width,stroke] duration-200 motion-safe:animate-in motion-safe:fade-in"
+              style={{ animationDelay: `${t.i * 25}ms`, animationDuration: "450ms", animationFillMode: "backwards" }}
+            />
+          ))}
           <circle r="92" fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="10" />
-          <circle r="92" fill="none" stroke="#FFFFFF" strokeWidth="10" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)} transform="rotate(-90)" className="transition-[stroke-dashoffset] duration-500" />
+          <circle r="92" fill="none" stroke="#FFFFFF" strokeWidth="10" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - shown)} transform="rotate(-90)" className="transition-[stroke-dashoffset] duration-700 ease-out motion-reduce:transition-none" />
+        </g>
+      </svg>
+      {/* Camada de toque: áreas largas sobre cada traço (o traço fino sozinho é difícil de acertar com o dedo). */}
+      <svg viewBox="0 0 390 292" className="absolute inset-0 h-full w-full" role="group" aria-label="Dias recentes">
+        <g transform="translate(195 146)">
+          {ticks.map((t) => (
+            <line
+              key={t.key} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke="transparent" strokeWidth={30} strokeLinecap="round"
+              style={{ pointerEvents: "stroke", cursor: "pointer", outline: "none" }}
+              role="button" tabIndex={0} aria-pressed={selected === t.key}
+              aria-label={`${dayLabel(t.day)}: ${DAY_STATE_TEXT[t.day.state]}`}
+              onClick={() => setSelected((cur) => (cur === t.key ? null : t.key))}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected((cur) => (cur === t.key ? null : t.key)); } }}
+            />
+          ))}
         </g>
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
-        {total > 0 ? (
-          <div key={`${done}/${total}`} className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
+        {picked ? (
+          <div key={picked.date} className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none" aria-live="polite">
+            <p className="font-display text-[22px] font-semibold leading-none tracking-[-0.02em]">{dayLabel(picked)}</p>
+            <p className="mt-1.5 text-sm font-medium text-white/80">{DAY_STATE_TEXT[picked.state]}</p>
+          </div>
+        ) : total > 0 ? (
+          <div key={`${done}/${total}`} className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-1 duration-300 motion-reduce:animate-none">
             <p className="font-display text-[48px] font-semibold leading-none tracking-[-0.05em] tabular-nums">{done}<span className="text-[20px] tracking-tight text-white/70">/{total}</span></p>
             <p className="mt-1.5 text-sm font-medium text-white/80">{withWeekly ? (done === total ? "tudo em dia" : "em dia hoje") : done === total ? "tudo feito hoje" : "feitos hoje"}</p>
           </div>
