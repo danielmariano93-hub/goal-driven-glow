@@ -1,3 +1,4 @@
+import { MAX_ACTIVE_HABITS } from "@/lib/habits/limits";
 import { Link } from "react-router-dom";
 import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { paceOf, paceTone } from "@/lib/habits/present";
 import { targetText } from "@/lib/habits/present";
 import { useHabitViews, type HabitView } from "@/lib/habits/api";
 
-export const MAX_ACTIVE_HABITS = 5;
+export { MAX_ACTIVE_HABITS };
 
 const cadence = (v: HabitView): string => {
   const h = v.habit;
@@ -31,7 +32,7 @@ export default function Habitos() {
     <div className="px-4">
       <PageHeader
         title="Hábitos"
-        subtitle={activeCount > 0 ? `${activeCount} ${activeCount === 1 ? "ativo" : "ativos"} · poucos de cada vez funcionam melhor` : "Comece com um só"}
+        subtitle={activeCount > 0 ? `${activeCount} de ${MAX_ACTIVE_HABITS} ativos` : "Comece com um só"}
         right={
           <Button asChild={!full} disabled={full} size="sm" className="mt-1 h-11 rounded-full px-4">
             {full ? <span>Limite de {MAX_ACTIVE_HABITS}</span> : <Link to="/h/novo"><Plus className="mr-1 h-4 w-4" aria-hidden="true" /> Novo</Link>}

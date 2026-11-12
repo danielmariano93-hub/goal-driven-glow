@@ -1,3 +1,4 @@
+import { MAX_ACTIVE_HABITS } from "@/lib/habits/limits";
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Clock, Loader2, Moon, Pencil, Plus, Sun, Sunrise, X } from "lucide-react";
@@ -396,7 +397,7 @@ export default function Novo() {
                   ))}
                 </div>
                 {!isQuit && !isCare ? <Segmented value={d.start_today ? "today" : "tomorrow"} label="Quando começa" options={[["today", "Começar hoje"], ["tomorrow", "Começar amanhã"]]} onChange={(v) => set({ start_today: v === "today" })} /> : null}
-                {activeCount >= 5 ? <p className="text-[12px] text-destructive">Você já tem 5 hábitos ativos. Arquive um antes de criar outro.</p> : null}
+                {activeCount >= MAX_ACTIVE_HABITS ? <p className="text-[12px] text-destructive">Você já tem {MAX_ACTIVE_HABITS} hábitos ativos. Arquive ou pause um antes de criar outro.</p> : null}
               </div>
             ) : null}
           </div>

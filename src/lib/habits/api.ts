@@ -105,7 +105,7 @@ export class HbError extends Error {
 }
 
 const ERROR_TEXT: Array<[string, string]> = [
-  ["habit_limit_reached", "Você já tem 5 hábitos ativos. Arquive um para criar outro; poucos de cada vez funcionam melhor."],
+  ["habit_limit_reached", "Você já tem 10 hábitos ativos. Arquive ou pause um para criar outro."],
   ["rest_budget_exhausted", "As folgas desta semana acabaram para este hábito."],
   ["edit_window_closed", "Só dá para corrigir os últimos 7 dias."],
   ["future_date", "Esse dia ainda não chegou."],

@@ -347,3 +347,12 @@ describe("valores livres na criação", () => {
     expect(draftToInput({ ...fromCatalog(cat), target: 17 })).toMatchObject({ form: "project", quantity_target: 17 });
   });
 });
+
+describe("limite de hábitos ativos", () => {
+  it("é 10 (igual ao banco) e a mensagem de erro do servidor diz 10", async () => {
+    const { MAX_ACTIVE_HABITS } = await import("@/lib/habits/limits");
+    expect(MAX_ACTIVE_HABITS).toBe(10);
+    const { hbErrorMessage, HbError } = await import("@/lib/habits/api");
+    expect(hbErrorMessage(new HbError("habit_limit_reached"))).toMatch(/10 hábitos ativos/);
+  });
+});
