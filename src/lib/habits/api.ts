@@ -154,6 +154,7 @@ const keys = {
   templates: ["hb", "templates"] as const,
   rhythm: (uid?: string, habitId?: string) => ["hb", "rhythm", uid, habitId] as const,
   goals: (uid?: string) => ["hb", "goals", uid] as const,
+  logTimes: (uid?: string) => ["hb", "logTimes", uid] as const,
 };
 
 /** Liberação por usuário (`hb_access`). Falha fechada: qualquer erro = sem Hábitos. */
@@ -317,6 +318,7 @@ export function useLogHabit() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
       void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+    void qc.invalidateQueries({ queryKey: ["hb", "logTimes"] });
     },
   });
 }
@@ -338,6 +340,7 @@ export function useUnlogHabit() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
       void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+    void qc.invalidateQueries({ queryKey: ["hb", "logTimes"] });
     },
   });
 }
@@ -453,6 +456,7 @@ function useInvalidate() {
   return () => {
     void qc.invalidateQueries({ queryKey: keys.snapshot(user?.id) });
     void qc.invalidateQueries({ queryKey: ["hb", "rhythm"] });
+    void qc.invalidateQueries({ queryKey: ["hb", "logTimes"] });
   };
 }
 
@@ -712,4 +716,21 @@ export function useSetMeasurement() {
 export function useDeleteMeasurement() {
   const inv = useGoalInvalidate();
   return useMutation({ mutationFn: (id: string) => rpc<null>("hb_measurement_delete", { p_id: id }), onSuccess: inv });
+}
+
+/** Quando cada dia foi marcado (função hb_log_times). Falha sem ruído: a regularidade só não aparece. */
+export interface LogTimesData {
+  timezone: string;
+  logs: Array<{ habit_id: string; local_date: string; status: string; source: string; logged_at: string | null }>;
+}
+export function useLogTimes() {
+  const { user } = useAuth();
+  const enabled = useHabitsEnabled();
+  return useQuery({
+    queryKey: keys.logTimes(user?.id),
+    enabled: !!user && enabled.data === true,
+    staleTime: 5 * 60_000,
+    retry: 1,
+    queryFn: () => rpc<LogTimesData>("hb_log_times", { p_days: 90 }),
+  });
 }

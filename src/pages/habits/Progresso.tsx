@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
 import { WeekSummary } from "@/components/hb/WeekSummary";
+import { RegularityOverview } from "@/components/hb/RegularityCard";
 import { aggregateAdherence, resilience, rowsFor, weekdayAdherence, weakestWeekday, weeklyConsistency, windowDelta } from "@/lib/habits/aggregate";
 import { useHabitViews, useNarrateWeek } from "@/lib/habits/api";
 import { addDays, weeklyReview } from "@/lib/habits/engine";
@@ -97,6 +98,7 @@ export default function Progresso() {
           ) : null}
 
           <TrajectoryCard weeks={m.weeks} />
+          <RegularityOverview views={views} />
           <ResilienceCard res={m.res} />
 
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por hábito">
