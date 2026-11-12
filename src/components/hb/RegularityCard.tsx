@@ -2,19 +2,22 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { HabitTile } from "@/components/hb/kit";
 import { useLogTimes, type HabitView } from "@/lib/habits/api";
-import { clockText, regularity, REGULARITY_FORMS, type Regularity } from "@/lib/habits/engine/regularity";
+import { clockText, regularity, regularityDays, REGULARITY_FORMS, type Regularity } from "@/lib/habits/engine/regularity";
 
 /** Horários dos registros por hábito (só os que têm dias suficientes e uma forma em que o horário faz sentido). */
-function useRegularity(habitIds: string[]): Map<string, Regularity> {
+export function useRegularity(habitIds: string[]): { map: Map<string, Regularity>; days: Map<string, number> } {
   const data = useLogTimes();
   return useMemo(() => {
     const out = new Map<string, Regularity>();
-    if (!data.data) return out;
+    const days = new Map<string, number>();
+    if (!data.data) return { map: out, days };
     for (const id of habitIds) {
-      const r = regularity(data.data.logs.filter((l) => l.habit_id === id), data.data.timezone);
+      const mine = data.data.logs.filter((l) => l.habit_id === id);
+      days.set(id, regularityDays(mine, data.data.timezone));
+      const r = regularity(mine, data.data.timezone);
       if (r) out.set(id, r);
     }
-    return out;
+    return { map: out, days };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.data, habitIds.join(",")]);
 }
@@ -34,7 +37,7 @@ const advice = (r: Regularity) =>
 export function RegularityCard({ view }: { view: HabitView }) {
   const eligible = REGULARITY_FORMS.has(view.form) && view.habit.kind !== "quit";
   const ids = useMemo(() => (eligible ? [view.habit.id] : []), [eligible, view.habit.id]);
-  const r = useRegularity(ids).get(view.habit.id);
+  const r = useRegularity(ids).map.get(view.habit.id);
   if (!eligible || !r) return null;
   return (
     <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Regularidade do horário">
@@ -51,7 +54,7 @@ export function RegularityCard({ view }: { view: HabitView }) {
 export function RegularityOverview({ views }: { views: HabitView[] }) {
   const eligible = useMemo(() => views.filter((v) => REGULARITY_FORMS.has(v.form) && v.habit.kind !== "quit"), [views]);
   const ids = useMemo(() => eligible.map((v) => v.habit.id), [eligible]);
-  const map = useRegularity(ids);
+  const { map } = useRegularity(ids);
   const rows = eligible.filter((v) => map.has(v.habit.id));
   if (rows.length === 0) return null;
   return (

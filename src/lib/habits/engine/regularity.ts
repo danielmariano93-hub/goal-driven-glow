@@ -54,7 +54,7 @@ export interface Regularity {
  * Horários confiáveis de um hábito: só marcação feita no próprio dia (o dia do registro, com virada às 03:00, é o dia do hábito),
  * nunca "dia anterior"/retroativo, e só os dias feitos. Nulo com menos de MIN_REGULARITY_DAYS dias.
  */
-export function regularity(logs: LogTime[], timeZone: string): Regularity | null {
+function reliableShifted(logs: LogTime[], timeZone: string): number[] {
   const seen = new Set<string>();
   const shifted: number[] = [];
   for (const l of logs) {
@@ -66,6 +66,16 @@ export function regularity(logs: LogTime[], timeZone: string): Regularity | null
     seen.add(l.local_date);
     shifted.push((p.minutes - TURNOVER_MIN + 1440) % 1440);
   }
+  return shifted;
+}
+
+/** Quantos dias com horário confiável o hábito já tem (para mostrar o quanto falta para a regularidade aparecer). */
+export function regularityDays(logs: LogTime[], timeZone: string): number {
+  return reliableShifted(logs, timeZone).length;
+}
+
+export function regularity(logs: LogTime[], timeZone: string): Regularity | null {
+  const shifted = reliableShifted(logs, timeZone);
   if (shifted.length < MIN_REGULARITY_DAYS) return null;
   const sorted = [...shifted].sort((a, b) => a - b);
   const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
