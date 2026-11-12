@@ -17,7 +17,7 @@ import { AutomaticityCard } from "@/components/hb/AutomaticityCard";
 import { MeasureCard } from "@/components/hb/MeasureCard";
 import { TodayAction } from "@/components/hb/TodayAction";
 import { AchievementsCard, FormProgress } from "@/components/hb/FormProgress";
-import { hbErrorMessage, useArchiveHabit, useHabitViews, useSetHabitStatus, type HabitView } from "@/lib/habits/api";
+import { hbErrorMessage, useArchiveHabit, useGoals, useHabitViews, useSetHabitStatus, type HabitView } from "@/lib/habits/api";
 import { addDays, dayRows, MIN_CLOSED_DAILY, weekStart } from "@/lib/habits/engine";
 import { diffDays } from "@/lib/habits/engine/dates";
 
@@ -110,6 +110,7 @@ export default function Detalhe() {
   const navigate = useNavigate();
   const { views, paused, rules, today, logs, isLoading } = useHabitViews();
   const setStatus = useSetHabitStatus();
+  const goals = useGoals();
   const archive = useArchiveHabit();
   const [editing, setEditing] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -191,6 +192,15 @@ export default function Detalhe() {
         </div>
       ) : null}
 
+      {(() => {
+        const g = goals.data?.goals.find((x) => x.habit_ids.includes(habit.id));
+        return g ? (
+          <Link to={`/h/objetivo/${g.id}`} className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-3.5 shadow-card">
+            <div className="min-w-0"><p className="text-[12px] text-muted-foreground">Faz parte do objetivo</p><p className="truncate font-display text-[14px] font-semibold leading-5">{g.title}</p></div>
+            <span className="shrink-0 text-[12px] font-medium text-primary">Ver medidas</span>
+          </Link>
+        ) : null;
+      })()}
       <div className="mt-4 flex flex-col gap-3"><FormProgress view={view} today={today} logs={logs} /></div>
 
       {recurring ? null : (
