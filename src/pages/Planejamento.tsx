@@ -9,6 +9,7 @@ import { useFinancialSnapshot } from "@/lib/hooks/useFinancialSnapshot";
 import { monthLabel, simulateSpending, type SimulationVerdict } from "@/lib/engine/spendingSimulation";
 import { categoryLimitsFor, purchaseMonths, usePurchasePlan, type PurchasePlanVerdict } from "@/lib/nino/purchasePlan";
 import { PurchaseMonthByMonth } from "@/components/planning/PurchaseMonthByMonth";
+import { CategoryGoalImpact } from "@/components/planning/CategoryGoalImpact";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -227,6 +228,8 @@ export default function Planejamento() {
               </>
             ) : null}
           </section>
+
+          {result.categoryGoalImpact ? <CategoryGoalImpact impact={result.categoryGoalImpact} installments={result.installments} plan={planReady} /> : null}
 
           <button
             type="button"
