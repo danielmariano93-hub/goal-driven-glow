@@ -242,3 +242,42 @@ describe("ritmo do dia (fonte única)", () => {
     expect(dayPace(0, 0, 12)).toBeNull();
   });
 });
+
+describe("progresso: trajetória, recomeços e dia mais fraco", () => {
+  const rows = (items: Array<[string, "done" | "minimum" | "missed" | "rest" | "unlogged" | "not_expected"]>) => items.map(([date, outcome]) => ({ date, outcome }));
+  it("constância por semana: só dias fechados, hoje fora, semana atual marcada", async () => {
+    const { weeklyConsistency } = await import("@/lib/habits/aggregate");
+    // hoje = quarta 11/11; semana anterior (02 a 08/11) 3 feitos de 4; semana atual: seg feito, ter não feito, hoje em aberto
+    const map = new Map([["a", rows([["2026-11-02", "done"], ["2026-11-03", "done"], ["2026-11-04", "missed"], ["2026-11-05", "done"], ["2026-11-09", "done"], ["2026-11-10", "missed"], ["2026-11-11", "unlogged"]])]]);
+    const w = weeklyConsistency(map, "2026-11-11", 2);
+    expect(w).toHaveLength(2);
+    expect(w[0]).toMatchObject({ week_start: "2026-11-02", value: 0.75, n: 4, current: false });
+    expect(w[1]).toMatchObject({ week_start: "2026-11-09", value: 0.5, n: 2, current: true });
+  });
+  it("semana sem nenhum dia previsto fica nula", async () => {
+    const { weeklyConsistency } = await import("@/lib/habits/aggregate");
+    expect(weeklyConsistency(new Map(), "2026-11-11", 1)[0].value).toBeNull();
+  });
+  it("recomeços: depois de falhar, voltou no dia seguinte? versão mínima conta como voltar", async () => {
+    const { resilience } = await import("@/lib/habits/aggregate");
+    const map = new Map([["a", rows([
+      ["2026-11-01", "missed"], ["2026-11-02", "done"], // falhou e voltou
+      ["2026-11-03", "missed"], ["2026-11-04", "minimum"], // falhou e voltou pela versão mínima
+      ["2026-11-05", "missed"], ["2026-11-06", "missed"], ["2026-11-07", "done"], // falhou duas: a 1ª não voltou, a 2ª voltou
+      ["2026-11-10", "missed"], ["2026-11-11", "unlogged"], // falha de ontem: o dia seguinte é hoje, ainda não fechou
+    ])]]);
+    expect(resilience(map, "2026-11-11", 30)).toEqual({ lapses: 4, recovered: 3, minimum_days: 1 });
+  });
+  it("folga e dia não previsto no dia seguinte não contam como retorno nem como falha", async () => {
+    const { resilience } = await import("@/lib/habits/aggregate");
+    const map = new Map([["a", rows([["2026-11-01", "missed"], ["2026-11-02", "rest"], ["2026-11-03", "not_expected"]])]]);
+    expect(resilience(map, "2026-11-11", 30)).toEqual({ lapses: 0, recovered: 0, minimum_days: 0 });
+  });
+  it("dia da semana mais fraco só aparece com diferença clara e dados suficientes", async () => {
+    const { weakestWeekday } = await import("@/lib/habits/aggregate");
+    const st = (v: Array<number | null>) => v.map((adherence, dow) => ({ dow, adherence, n: adherence == null ? 0 : 8 }));
+    expect(weakestWeekday(st([0.9, 0.85, 0.9, 0.8, 0.9, 0.5, 0.8]))).toMatchObject({ dow: 5, adherence: 0.5 });
+    expect(weakestWeekday(st([0.9, 0.85, 0.9, 0.8, 0.9, 0.8, 0.82]))).toBeNull(); // diferença pequena
+    expect(weakestWeekday(st([0.9, 0.5, null, null, null, null, null]))).toBeNull(); // poucos dias com dado
+  });
+});
