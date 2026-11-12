@@ -180,7 +180,7 @@ create table hb_habits (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create index on hb_habits (user_id) where status = 'active';
--- limite de 5 hábitos ativos por pessoa aplicado na RPC (P4/anti-sobrecarga), não por constraint
+-- limite de hábitos ativos por pessoa (5 no início; 10 desde a migração 20261118100000) aplicado na RPC (P4/anti-sobrecarga), não por constraint
 
 create table hb_logs (
   id uuid primary key default gen_random_uuid(),
@@ -297,7 +297,7 @@ create table hb_templates (
 - RLS: `using (user_id = auth.uid())` em todas, `with check` idêntico. `hb_templates` leitura para autenticados.
 - **Escrita só por RPC** `SECURITY DEFINER` (sem `insert` direto): `hb_create_habit`, `hb_update_habit`, `hb_log` (idempotente,
   valida janela de edição retroativa de 7 dias), `hb_rest`, `hb_pause`, `hb_reset_cycle`, `hb_craving`, `hb_answer_automaticity`.
-  Cada RPC valida limites (máx. 5 hábitos ativos, textos, `rest_per_week`) e grava `product_events`.
+  Cada RPC valida limites (máx. 10 hábitos ativos, textos, `rest_per_week`) e grava `product_events`.
 - Teste de RLS por tabela (como as suítes existentes) e `get_advisors` sem alertas novos.
 - Inclusão obrigatória das tabelas `hb_*` em `user-data-export` e `account-deletion-processor` (seção 11).
 
@@ -649,7 +649,7 @@ qualquer insight; F7 depende de D4 e D6.
 | Dado sensível vaza ou é visto pelo admin | Baixa | Muito alta | RLS, views mascaradas, consentimento, teste de exportação/exclusão |
 | Estimativa de dinheiro "parece garantia" | Média | Alta | Rótulo fixo "estimativa", base mínima, fórmula contrafactual com gasto real |
 | IA grava marcação errada | Média | Média | Só grava com confiança alta; senão pergunta; "desfazer"; held-out com 0 erro |
-| Sobrecarga: pessoa cria muitos hábitos | Alta | Média | Limite de 5, sugestão de pausa > 3, onboarding de "um por vez" |
+| Sobrecarga: pessoa cria muitos hábitos | Alta | Média | Limite de 10, sugestão de pausa > 3, onboarding de "um por vez" |
 | Efeito não comprovável com 8 usuários | Certa | Média | Medição intra-pessoa + qualitativo; não declarar vitória cedo |
 | Regressão visual nas telas financeiras | Baixa | Alta | Captura pixel a pixel no CI; flag; shell separado |
 | Meta recusa modelos de WhatsApp | Média | Média | Lançar F2 só com janela de 24 h e app/push |
