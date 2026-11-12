@@ -30,6 +30,13 @@ export interface CatalogItem {
   /** Projeto: unidade ("páginas", "R$", "aulas") e rótulos. */
   project?: { unit: string; titleLabel: string; totalLabel: string; example: string };
   sensitive?: boolean;
+  /**
+   * Fora das sugestões (a pessoa ainda pode criar escrevendo o nome). Critério: sugerimos hábitos que mudam a vida (comportamentos
+   * com efeito real e evidência), não resultados nem tarefas de um passo só. Ficam no catálogo para o ícone e a busca por nome.
+   * - resultados e medidas (peso, horas de sono, humor): são metas e medidas, e vivem num Objetivo, não numa tarefa diária;
+   * - tarefas triviais (vitamina, arrumar a cama, alongar) e manutenção doméstica (filtro, carro).
+   */
+  hidden?: boolean;
 }
 
 const CHECK: MeasureOption = { form: "check", label: "Feito ou não", unit: "", target: 0, step: 1 };
@@ -43,10 +50,10 @@ export const CATALOG: CatalogItem[] = [
   { id: "agua", label: "Beber água", area: "body", icon: "drop", cue: "Durante o dia", minimum: "Mais 1 copo", options: [{ form: "amount", label: "Litros", unit: "litros por dia", target: 2, step: 0.5, min: 0.5, max: 8 }, { form: "amount", label: "Copos", unit: "copos por dia", target: 8, step: 1, min: 1, max: 30 }] },
   { id: "dormir", label: "Dormir cedo", area: "body", icon: "moon", cue: "Noite · depois de escovar os dentes", minimum: "Deitar 15 minutos mais cedo", options: [{ form: "time", label: "Horário", unit: "deitar até às __h", target: 23, step: 1, min: 20, max: 24 }, CHECK] },
   { id: "acordar", label: "Acordar cedo", area: "routine", icon: "sun", cue: "Manhã · ao acordar", minimum: "Acordar 10 minutos mais cedo", options: [{ form: "time", label: "Horário", unit: "acordar até às __h", target: 7, step: 1, min: 4, max: 11 }, CHECK] },
-  { id: "alongar", label: "Alongar", area: "body", icon: "activity", cue: "Manhã · ao acordar", minimum: "Alongar 1 minuto", options: [CHECK, mins(10, 5)] },
-  { id: "vitamina", label: "Tomar vitamina", area: "body", icon: "heart", cue: "Manhã · depois do café", options: [CHECK] },
-  { id: "peso", label: "Acompanhar o peso", area: "body", icon: "activity", cue: "Manhã · ao acordar", sensitive: true, options: [{ form: "value", label: "Peso (kg)", unit: "quilos", target: 70, step: 0.5, min: 20, max: 300 }] },
-  { id: "sono", label: "Horas de sono", area: "body", icon: "moon", cue: "Manhã · ao acordar", options: [{ form: "value", label: "Horas dormidas", unit: "horas", target: 7.5, step: 0.5, min: 1, max: 14 }] },
+  { id: "alongar", hidden: true, label: "Alongar", area: "body", icon: "activity", cue: "Manhã · ao acordar", minimum: "Alongar 1 minuto", options: [CHECK, mins(10, 5)] },
+  { id: "vitamina", hidden: true, label: "Tomar vitamina", area: "body", icon: "heart", cue: "Manhã · depois do café", options: [CHECK] },
+  { id: "peso", hidden: true, label: "Acompanhar o peso", area: "body", icon: "activity", cue: "Manhã · ao acordar", sensitive: true, options: [{ form: "value", label: "Peso (kg)", unit: "quilos", target: 70, step: 0.5, min: 20, max: 300 }] },
+  { id: "sono", hidden: true, label: "Horas de sono", area: "body", icon: "moon", cue: "Manhã · ao acordar", options: [{ form: "value", label: "Horas dormidas", unit: "horas", target: 7.5, step: 0.5, min: 1, max: 14 }] },
   // Mente
   { id: "meditar", label: "Meditar", area: "mind", icon: "sun", cue: "Manhã · depois do café", minimum: "3 respirações", options: [mins(5, 1), CHECK] },
   { id: "ler", label: "Ler", area: "mind", icon: "book", cue: "Noite · antes de dormir", minimum: "Ler 1 página", options: [{ form: "project", label: "Um livro", unit: "páginas por dia", target: 10, step: 5, min: 1 }, { form: "amount", label: "Páginas por dia", unit: "páginas por dia", target: 10, step: 5, min: 1 }, mins(20, 5), CHECK], project: { unit: "páginas", titleLabel: "Qual livro?", totalLabel: "Quantas páginas tem?", example: "Título do livro" } },
@@ -55,9 +62,9 @@ export const CATALOG: CatalogItem[] = [
   { id: "curso", label: "Fazer um curso", area: "mind", icon: "brain", cue: "Noite · depois do trabalho", minimum: "Uma aula curta", options: [{ form: "project", label: "Um curso", unit: "aulas por dia", target: 1, step: 1, min: 1 }, CHECK], project: { unit: "aulas", titleLabel: "Qual curso?", totalLabel: "Quantas aulas tem?", example: "Nome do curso" } },
   { id: "foco", label: "Foco profundo", area: "mind", icon: "brain", cue: "Manhã", minimum: "25 minutos", options: [mins(90, 15), CHECK] },
   { id: "tela", label: "Tempo de tela", area: "mind", icon: "phone", cue: "Noite", options: [{ form: "ceiling", label: "Horas no máximo", unit: "horas por dia, no máximo", target: 3, step: 0.5, min: 0.5, max: 12 }] },
-  { id: "humor", label: "Como me sinto", area: "mind", icon: "heart", cue: "Noite", options: [{ form: "value", label: "Humor de 1 a 5", unit: "de 1 a 5", target: 4, step: 1, min: 1, max: 5 }] },
+  { id: "humor", hidden: true, label: "Como me sinto", area: "mind", icon: "heart", cue: "Noite", options: [{ form: "value", label: "Humor de 1 a 5", unit: "de 1 a 5", target: 4, step: 1, min: 1, max: 5 }] },
   // Rotina
-  { id: "cama", label: "Arrumar a cama", area: "routine", icon: "home", cue: "Manhã · ao acordar", options: [CHECK] },
+  { id: "cama", hidden: true, label: "Arrumar a cama", area: "routine", icon: "home", cue: "Manhã · ao acordar", options: [CHECK] },
   { id: "manha", label: "Rotina da manhã", area: "routine", icon: "list", cue: "Manhã · ao acordar", minimum: "Só o primeiro passo", options: [{ form: "steps", label: "Passos", unit: "", target: 0, step: 1 }], steps: ["Beber água", "Arrumar a cama", "Alongar", "Tomar café sem celular"] },
   { id: "noite", label: "Rotina da noite", area: "routine", icon: "list", cue: "Noite · depois do jantar", minimum: "Só o primeiro passo", options: [{ form: "steps", label: "Passos", unit: "", target: 0, step: 1 }], steps: ["Deixar a roupa separada", "Escovar os dentes", "Ler 5 minutos"] },
   { id: "planejar", label: "Planejar o dia", area: "routine", icon: "calendar", cue: "Manhã", minimum: "Uma prioridade", options: [CHECK] },
@@ -71,8 +78,8 @@ export const CATALOG: CatalogItem[] = [
   // Cuidados
   { id: "consulta", label: "Consulta médica", area: "body", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 365, step: 30, min: 7, max: 3650 }] },
   { id: "dentista", label: "Dentista", area: "body", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 180, step: 30, min: 7, max: 3650 }] },
-  { id: "filtro", label: "Trocar o filtro da água", area: "routine", icon: "home", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 180, step: 30, min: 7, max: 3650 }] },
-  { id: "carro", label: "Revisão do carro", area: "routine", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 365, step: 30, min: 7, max: 3650 }] },
+  { id: "filtro", hidden: true, label: "Trocar o filtro da água", area: "routine", icon: "home", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 180, step: 30, min: 7, max: 3650 }] },
+  { id: "carro", hidden: true, label: "Revisão do carro", area: "routine", icon: "calendar", options: [{ form: "recurring", label: "Repetir a cada", unit: "dias", target: 365, step: 30, min: 7, max: 3650 }] },
 ];
 
 export interface QuitItem { id: string; label: string; area: HbArea; icon: IconKey; plan: string; sensitivity: "normal" | "substance" }

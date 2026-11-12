@@ -12,6 +12,8 @@ import type { LogRow } from "@/lib/habits/engine";
 const num = (n: number) => String(n >= 10 ? Math.round(n) : Math.round(n * 100) / 100).replace(".", ",");
 const hh = (h: number) => `${h}h`;
 /** "1 litro", "2 litros": o plural do apoio acompanha o número. */
+/** Litros abaixo de 1 viram ml (0,125 litros = 125 ml), que é como se bebe. */
+const amountText = (n: number, unit: string) => (unit === "litros" && n < 1 ? `${Math.round(n * 1000)} ml` : withUnit(n, unit));
 const withUnit = (n: number, unit: string) => `${num(n)}${unit ? ` ${num(n) === "1" && unit.endsWith("s") ? unit.slice(0, -1) : unit}` : ""}`;
 
 const Card = ({ title, tag, children }: { title: string; tag?: string; children: React.ReactNode }) => (
@@ -54,9 +56,9 @@ function headline(r: DayRhythm, unit: string): { title: string; note: string } {
   if (r.state === "done") return { title: "Meta do dia batida", note: "O resto do dia é folga." };
   const hours = Math.floor(r.hours_left);
   const hoursText = hours >= 1 ? ` em ${hours} ${hours === 1 ? "hora" : "horas"}` : "";
-  const left = `Faltam ${withUnit(r.remaining, unit)}${hoursText}`;
-  if (r.state === "closed") return { title: `Ficou ${withUnit(r.remaining, unit)} abaixo da meta`, note: "O dia de hoje já passou do horário previsto. Amanhã começa do zero." };
-  if (r.state === "behind") return { title: `${withUnit(r.gap, unit)} abaixo do ritmo`, note: r.per_hour_needed ? `${left} (cerca de ${withUnit(r.per_hour_needed, unit)} por hora).` : `${left}.` };
+  const left = `Faltam ${amountText(r.remaining, unit)}${hoursText}`;
+  if (r.state === "closed") return { title: `Ficou ${amountText(r.remaining, unit)} abaixo da meta`, note: "O dia de hoje já passou do horário previsto. Amanhã começa do zero." };
+  if (r.state === "behind") return { title: `${amountText(r.gap, unit)} abaixo do ritmo`, note: r.per_hour_needed ? `${left} (cerca de ${amountText(r.per_hour_needed, unit)} por hora).` : `${left}.` };
   return { title: "No ritmo", note: `${left}.` };
 }
 
@@ -91,6 +93,9 @@ export function DayRhythmCard({ view, today, logs }: { view: HabitView; today: s
       <Card title="Ritmo do dia" tag={`${num(total)} de ${withUnit(target, unit)}`}>
         <p className="mt-2 font-display text-[18px] font-semibold leading-tight tracking-[-0.02em]">{title}</p>
         <p className="mt-1 text-[12px] leading-[18px] text-muted-foreground">{note}</p>
+        <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[18px] text-muted-foreground">
+          <b className="font-medium text-foreground">Sugestão do Nino:</b> cerca de {amountText(r.per_hour_plan, unit)} por hora, ou {amountText(r.per_hour_plan * 2, unit)} a cada 2 horas, das {hh(6)} às {hh(22)}.
+        </p>
         <HourBars from={r.from} values={r.perHour.map((p) => p.amount)} nowHour={model.nowHour} max={max} labelEvery={2} ariaLabel={`Quantidade por hora, de ${hh(r.from)} a ${hh(r.to)}`} />
         <div className="relative mt-4 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(totalPct)} aria-label="Progresso do dia contra o ritmo esperado">
           <i className="block h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${totalPct}%` }} />

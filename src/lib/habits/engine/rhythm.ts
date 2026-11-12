@@ -1,9 +1,11 @@
 // Ritmo ao longo do dia e padrões por horário (puro, só para a interface; não é espelhado no servidor).
+import { dayPace, PACE_SLEEP, PACE_WAKE, type DayPaceState } from "./forms";
+
 // Horas sempre no relógio local da pessoa, de 0 a 24 (14,5 = 14h30).
 
 /** Janela em que se espera que a pessoa esteja acordada (a meta do dia se distribui nela). */
-export const DEFAULT_WAKE = 6;
-export const DEFAULT_SLEEP = 22;
+export const DEFAULT_WAKE = PACE_WAKE;
+export const DEFAULT_SLEEP = PACE_SLEEP;
 /** Mínimo de dias com hora registrada antes de falar em "padrão". */
 export const MIN_PATTERN_DAYS = 7;
 /** Mínimo de vontades para apontar um horário difícil. */
@@ -30,7 +32,7 @@ export interface TimedEntry {
   hour: number;
 }
 
-export type RhythmState = "done" | "ahead" | "on_pace" | "behind" | "closed";
+export type RhythmState = DayPaceState;
 
 export interface DayRhythm {
   /** Horas mostradas: de `from` (inclusive) até `to` (exclusivo). Cresce se houve registro fora da janela padrão. */
@@ -48,6 +50,8 @@ export interface DayRhythm {
   hours_left: number;
   /** Quanto por hora falta para fechar a meta no que resta do dia. Nulo se não há horas restantes ou a meta foi batida. */
   per_hour_needed: number | null;
+  /** Meta dividida igualmente entre as horas acordado. */
+  per_hour_plan: number;
   state: RhythmState;
 }
 
@@ -68,16 +72,11 @@ export function dayRhythm(i: { target: number; total: number; entries: TimedEntr
   const perHour = Array.from({ length: hi - lo }, (_, k) => ({ hour: lo + k, amount: 0 }));
   for (const e of entries) perHour[Math.floor(e.hour) - lo].amount += e.amount;
   const timed = entries.reduce((a, e) => a + e.amount, 0);
-  const frac = Math.min(1, Math.max(0, (i.nowHour - wake) / (sleep - wake)));
-  const expected = i.target * frac;
-  const gap = expected - total;
-  const remaining = Math.max(0, i.target - total);
-  const hours_left = Math.max(0, sleep - Math.max(i.nowHour, wake));
-  const tol = i.target * 0.1;
-  const state: RhythmState = total >= i.target ? "done" : i.nowHour >= sleep ? "closed" : gap <= 0 ? "ahead" : gap <= tol ? "on_pace" : "behind";
+  const pace = dayPace(i.target, total, i.nowHour, wake, sleep);
+  if (!pace) return null;
   return {
-    from: lo, to: hi, perHour, untimed: Math.max(0, total - timed), expected, gap, remaining, hours_left,
-    per_hour_needed: remaining > 0 && hours_left > 0 ? remaining / hours_left : null, state,
+    from: lo, to: hi, perHour, untimed: Math.max(0, total - timed), expected: pace.expected, gap: pace.gap, remaining: pace.remaining,
+    hours_left: pace.hours_left, per_hour_needed: pace.per_hour_needed, per_hour_plan: pace.per_hour_plan, state: pace.state,
   };
 }
 

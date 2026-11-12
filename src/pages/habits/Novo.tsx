@@ -263,7 +263,7 @@ export default function Novo() {
                           <span className="font-display text-[12px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>
                         </button>
                       ))
-                    : CATALOG.filter((it) => (isCare ? isCareItem(it) : !isCareItem(it))).map((it) => (
+                    : CATALOG.filter((it) => !it.hidden && (isCare ? isCareItem(it) : !isCareItem(it))).map((it) => (
                         <button key={it.id} type="button" aria-label={it.label} onClick={() => pickItem(it)} className="flex min-h-[68px] flex-col gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-left transition-colors hover:bg-muted/50">
                           <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/10 text-primary"><HabitIcon name={it.icon} size={15} /></span>
                           <span className="font-display text-[12px] font-semibold leading-[17px] tracking-[-0.01em]">{it.label}</span>

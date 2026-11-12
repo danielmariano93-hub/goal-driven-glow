@@ -201,3 +201,61 @@ describe("política de envio: Hábitos tem escopo próprio, o resto não muda", 
     expect(isRoutine("hb_cue_reminder")).toBe(true);
   });
 });
+
+describe("lembrete de ritmo (água)", () => {
+  const AGUA = habit({ id: "agua", title: "Beber água", kind: "do_quantity", form: "amount", quantity_target: 2, quantity_unit: "litros", quantity_period: "day", cue_text: "Durante o dia" });
+  const waterSnap = (total: number | null, over: Partial<HbSnapshotAs> = {}) =>
+    snap({ habits: [AGUA], logs: total == null ? [] : [{ habit_id: "agua", local_date: "2026-11-10", status: "quantity", quantity: total }], ...over });
+
+  it("16h10 com 0,5 de 2 litros: sugere quanto beber agora, com o ideal do momento", () => {
+    // 16h10: esperado 2 × (10,17 / 16) = 1,27 L; abaixo do ritmo (gap 0,77 > 0,2)
+    const r = habitReminders(input("16:10", { snap: waterSnap(0.5) }));
+    expect(r).toHaveLength(1);
+    expect(r[0].dedup_key).toBe("hb-pace:2026-11-10:16");
+    expect(r[0].body).toContain("Beber água: você está em 500 ml de 2 litros");
+    expect(r[0].body).toContain("cerca de 1,27 litros");
+    expect(r[0].body).toContain("Que tal 250 ml agora?"); // meta/16 h = 125 ml por hora; 2 horas = 250 ml
+  });
+  it("no ritmo, acima do ritmo ou meta batida: não manda nada", () => {
+    expect(habitReminders(input("16:10", { snap: waterSnap(1.2) }))).toEqual([]);
+    expect(habitReminders(input("16:10", { snap: waterSnap(2) }))).toEqual([]);
+  });
+  it("só nas horas de lembrete (10h, 12h, 14h, 16h, 18h, 20h) e na primeira hora de cada uma", () => {
+    expect(habitReminders(input("15:10", { snap: waterSnap(0) }))).toEqual([]);
+    expect(habitReminders(input("09:30", { snap: waterSnap(0) }))).toEqual([]);
+    expect(habitReminders(input("20:30", { snap: waterSnap(0) }))).toHaveLength(1);
+    expect(habitReminders(input("21:10", { snap: waterSnap(0) }))).toEqual([]);
+  });
+  it("um por horário; teto de 3 por dia, com orçamento próprio (não gasta os 2 do gatilho)", () => {
+    expect(habitReminders(input("16:10", { snap: waterSnap(0), sentKeys: new Set(["hb-pace:2026-11-10:16"]) }))).toEqual([]);
+    expect(habitReminders(input("18:10", { snap: waterSnap(0), sentKeys: new Set(["hb-pace:2026-11-10:10", "hb-pace:2026-11-10:12", "hb-pace:2026-11-10:14"]) }))).toEqual([]);
+    expect(habitReminders(input("16:10", { snap: waterSnap(0), alreadySentToday: 2 }))).toHaveLength(1);
+  });
+  it("respeita lembretes desligados e a parada por lembretes ignorados", () => {
+    expect(habitReminders(input("16:10", { snap: waterSnap(0, { nudges_enabled: false }) }))).toEqual([]);
+    expect(habitReminders(input("16:10", { snap: waterSnap(0), ignoredCueStreak: IGNORED_STOP }))).toEqual([]);
+  });
+  it("não vale para teto (no máximo), pausado ou que ainda não começou", () => {
+    const teto = habit({ ...AGUA, id: "t", form: "ceiling", direction: "at_most" });
+    expect(habitReminders(input("16:10", { snap: snap({ habits: [teto] }) }))).toEqual([]);
+    expect(habitReminders(input("16:10", { snap: snap({ habits: [{ ...AGUA, status: "paused" }] }) }))).toEqual([]);
+    expect(habitReminders(input("16:10", { snap: snap({ habits: [{ ...AGUA, started_on: "2026-11-11" }] }) }))).toEqual([]);
+  });
+});
+
+describe("horário padrão pelo momento do dia", () => {
+  it("'Manhã' vira 08:00, 'Tarde' 14:00 e 'Noite' 20:00 (o lembrete sai 90 min depois)", () => {
+    const m = habit({ id: "m", title: "Meditar", cue_text: "Manhã · depois do café" });
+    expect(habitReminders(input("09:00", { snap: snap({ habits: [m] }) }))).toEqual([]);
+    expect(habitReminders(input("09:40", { snap: snap({ habits: [m] }) }))).toHaveLength(1);
+    const t = habit({ id: "t", title: "Caminhar", cue_text: "Tarde" });
+    expect(habitReminders(input("15:40", { snap: snap({ habits: [t] }) }))).toHaveLength(1);
+    const n = habit({ id: "n", title: "Ler", cue_text: "Noite · antes de dormir" });
+    expect(habitReminders(input("21:40", { snap: snap({ habits: [n] }) }))).toHaveLength(1);
+  });
+  it("'Durante o dia' não tem horário e o horário exato tem prioridade", () => {
+    expect(habitReminders(input("15:00", { snap: snap({ habits: [habit({ id: "d", title: "Algo", cue_text: "Durante o dia" })] }) }))).toEqual([]);
+    const exact = habit({ id: "e", title: "Meditar", cue_time: "07:30:00", cue_text: "Manhã · depois do café" });
+    expect(habitReminders(input("09:10", { snap: snap({ habits: [exact] }) }))).toHaveLength(1);
+  });
+});
