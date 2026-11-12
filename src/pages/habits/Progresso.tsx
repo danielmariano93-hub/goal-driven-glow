@@ -5,9 +5,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
+import { WeekSummary } from "@/components/hb/WeekSummary";
 import { aggregateAdherence, rowsFor, weekdayAdherence, windowDelta } from "@/lib/habits/aggregate";
 import { useHabitViews, useNarrateWeek } from "@/lib/habits/api";
-import { addDays, reviewText, weeklyReview } from "@/lib/habits/engine";
+import { addDays, weeklyReview } from "@/lib/habits/engine";
 
 const WINDOWS = [7, 30, 90] as const;
 const WEEKDAY = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -33,7 +34,6 @@ export default function Progresso() {
 
   const perHabit = (v: (typeof views)[number]) => (v.summary.closed_count < (v.summary.model === "weekly" ? 2 : 7) ? null : win === 7 ? v.summary.adherence7 : win === 30 ? v.summary.adherence30 : v.summary.adherence90);
   const review = weeklyReview(views.filter((v) => v.habit.sensitivity === "normal").map((v) => ({ def: v.def, pauses: v.pauses })), logs, today);
-  const reviewBody = reviewText(review, (id) => views.find((v) => v.habit.id === id)?.habit.title ?? "Hábito");
   const askAi = async () => {
     try {
       const r = await narrate.mutateAsync();
@@ -60,8 +60,17 @@ export default function Progresso() {
         <>
           <section className="mt-4 rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Resumo do período">
             <p className="text-[14px] font-medium text-white/75">Constância nos últimos {win} dias</p>
-            <p className="mt-1 font-display text-[44px] font-semibold leading-none tracking-[-0.05em] tabular-nums">{m.adh == null ? "-" : Math.round(m.adh * 100)}{m.adh == null ? null : <span className="text-[28px] text-white/70">%</span>}</p>
-            <p className="mt-2 text-[12px] leading-[18px] text-white/65">Dia completo vale 1 e versão mínima vale 0,6. O dia de hoje só entra quando fecha.</p>
+            {m.adh == null ? (
+              <>
+                <p className="mt-2 font-display text-[18px] font-semibold leading-tight tracking-[-0.02em]">Ainda juntando dados</p>
+                <p className="mt-1.5 text-[12px] leading-[18px] text-white/65">A constância aparece depois de 7 dias de registros. Ela soma os dias completos (valem 1) e as versões mínimas (valem 0,6); o dia de hoje só entra quando fecha.</p>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 font-display text-[44px] font-semibold leading-none tracking-[-0.05em] tabular-nums">{Math.round(m.adh * 100)}<span className="text-[28px] text-white/70">%</span></p>
+                <p className="mt-2 text-[12px] leading-[18px] text-white/65">Dia completo vale 1 e versão mínima vale 0,6. O dia de hoje só entra quando fecha.</p>
+              </>
+            )}
             <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-white/15 pt-4">
               <div>
                 <dd className="font-display text-lg font-semibold tabular-nums">{m.delta.delta_pp == null ? "-" : `${m.delta.delta_pp > 0 ? "+" : ""}${m.delta.delta_pp} pts`}</dd>
@@ -75,15 +84,11 @@ export default function Progresso() {
           </section>
           {m.delta.delta_pp == null ? <p className="mt-2 px-1 text-[12px] text-muted-foreground">A comparação aparece quando há dados nos dois períodos.</p> : null}
 
-          {reviewBody ? (
-            <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Resumo da semana">
-              <div className="flex items-center justify-between">
-                <h2 className="text-[12px] font-medium text-muted-foreground">Resumo da semana</h2>
-                {aiText ? <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">escrito por IA</span> : null}
-              </div>
-              <p className="mt-2 whitespace-pre-line text-[14px] leading-6">{aiText ?? reviewBody}</p>
-              {!aiText ? <Button variant="ghost" className="mt-2 h-11 rounded-full text-primary" disabled={narrate.isPending} onClick={() => void askAi()}>Reescrever com IA</Button> : <p className="mt-2 text-xs text-muted-foreground">Os números vêm das suas marcações; a IA só escreve o texto. Hábitos de saúde não entram.</p>}
-            </section>
+          {review.length > 0 ? (
+            <WeekSummary
+              rows={review} views={views} logs={logs} today={today} aiText={aiText}
+              footer={aiText ? <p className="mt-2 text-xs text-muted-foreground">Os números vêm dos seus registros; a IA só reescreveu o texto.</p> : <Button variant="ghost" className="-ml-3 mt-1 h-10 rounded-full px-3 text-[13px] text-primary" disabled={narrate.isPending} onClick={() => void askAi()}>Reescrever com IA</Button>}
+            />
           ) : null}
 
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por hábito">
