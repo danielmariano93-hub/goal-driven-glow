@@ -30,11 +30,11 @@ export default function Mais() {
       <SectionLabel className="mt-2">Lembretes e WhatsApp</SectionLabel>
       <section className="divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card" aria-label="Lembretes e WhatsApp">
         <div className="flex items-center justify-between gap-4 p-4">
-          <div className="min-w-0"><p id="hb-pref-nudges" className="text-[15px] font-medium">Lembretes dos meus hábitos</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Até 2 por dia, só depois do horário combinado, sem passar das 22h. Se você ignorar 3 seguidos, eu paro.</p></div>
+          <div className="min-w-0"><p id="hb-pref-nudges" className="text-[14px] font-medium">Lembretes dos meus hábitos</p><p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">Até 2 por dia, só depois do horário combinado, sem passar das 22h. Se você ignorar 3 seguidos, eu paro.</p></div>
           <Switch aria-labelledby="hb-pref-nudges" checked={prefs.nudges_enabled} onCheckedChange={(v) => change({ nudges_enabled: v })} />
         </div>
         <div className="flex items-center justify-between gap-4 p-4">
-          <div className="min-w-0"><p id="hb-pref-wa" className="text-[15px] font-medium">Marcar pelo WhatsApp</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Mande “meditei”, “feito” ou “como estão meus hábitos?”. Para desfazer, “desfaz”.</p></div>
+          <div className="min-w-0"><p id="hb-pref-wa" className="text-[14px] font-medium">Marcar pelo WhatsApp</p><p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">Mande “meditei”, “feito” ou “como estão meus hábitos?”. Para desfazer, “desfaz”.</p></div>
           <Switch aria-labelledby="hb-pref-wa" checked={prefs.whatsapp_logging} onCheckedChange={(v) => change({ whatsapp_logging: v })} />
         </div>
       </section>
@@ -42,7 +42,7 @@ export default function Mais() {
       <SectionLabel>Privacidade</SectionLabel>
       <section className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-card" aria-label="Saúde e privacidade">
         <div className="flex items-center justify-between gap-4 p-4">
-          <div className="min-w-0"><p id="hb-pref-consent" className="text-[15px] font-medium">Hábitos de saúde e substâncias</p><p className="mt-0.5 text-[13px] leading-[18px] text-muted-foreground">Autoriza o Nino a guardar e lembrar de hábitos como largar cigarro ou bebida. Só você vê. Pode retirar quando quiser.</p></div>
+          <div className="min-w-0"><p id="hb-pref-consent" className="text-[14px] font-medium">Hábitos de saúde e substâncias</p><p className="mt-0.5 text-[12px] leading-[18px] text-muted-foreground">Autoriza o Nino a guardar e lembrar de hábitos como largar cigarro ou bebida. Só você vê. Pode retirar quando quiser.</p></div>
           <Switch aria-labelledby="hb-pref-consent" checked={consent} disabled={grant.isPending || revoke.isPending} onCheckedChange={(v) => (v ? grant : revoke).mutate(undefined, { onError: (e) => toast.error(hbErrorMessage(e)) })} />
         </div>
       </section>
@@ -57,7 +57,7 @@ export default function Mais() {
         {ITEMS.map((i) => (
           <li key={i.title} className="p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="font-display text-[16px] font-semibold tracking-[-0.01em]">{i.title}</p>
+              <p className="font-display text-[15px] font-semibold tracking-[-0.01em]">{i.title}</p>
               <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-[12px] font-medium text-primary">{i.tag}</span>
             </div>
             <p className="mt-1 text-[14px] leading-5 text-muted-foreground">{i.text}</p>
@@ -69,7 +69,7 @@ export default function Mais() {
         <p className="font-display text-[17px] font-semibold tracking-[-0.01em]">Sem pontos, sem ranking</p>
         <p className="mt-1 text-[14px] leading-6 text-muted-foreground">Falhar um dia não quebra nada. O que importa é voltar. Um hábito costuma levar semanas ou meses para ficar automático, e varia muito de pessoa para pessoa.</p>
       </div>
-      <Button variant="outline" className="mt-6 h-12 w-full rounded-full text-[15px] font-medium" onClick={() => { setMode.mutate("money"); navigate("/app"); }}>Voltar para o Nino Dinheiro</Button>
+      <Button variant="outline" className="mt-6 h-11 w-full rounded-full text-[14px] font-medium" onClick={() => { setMode.mutate("money"); navigate("/app"); }}>Voltar para o Nino Dinheiro</Button>
     </div>
   );
 }

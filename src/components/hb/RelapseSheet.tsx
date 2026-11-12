@@ -28,12 +28,12 @@ export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { h
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="px-5 pb-1 text-left">
-            <DrawerTitle className="font-display text-[26px] font-semibold leading-[1.1] tracking-[-0.025em]">Acontece. Vamos anotar.</DrawerTitle>
-            <p className="pt-1 text-[15px] leading-6 text-muted-foreground">{title}: um escorregão não apaga o que você já construiu.</p>
+            <DrawerTitle className="font-display text-[22px] font-semibold leading-[1.1] tracking-[-0.025em]">Acontece. Vamos anotar.</DrawerTitle>
+            <p className="pt-1 text-[14px] leading-6 text-muted-foreground">{title}: um escorregão não apaga o que você já construiu.</p>
           </DrawerHeader>
           <div className="flex flex-col gap-5 px-5 pt-2">
             <div>
-              <p className="mb-3 text-[15px] font-medium">O que estava rolando? <span className="font-normal text-muted-foreground">(opcional)</span></p>
+              <p className="mb-3 text-[14px] font-medium">O que estava rolando? <span className="font-normal text-muted-foreground">(opcional)</span></p>
               <div className="flex flex-wrap gap-2" role="group" aria-label="O que estava acontecendo">
                 {TRIGGER_TAGS.map(([k, label]) => {
                   const on = tags.includes(k);
@@ -41,9 +41,9 @@ export function RelapseSheet({ habitId, title, open, onOpenChange, onDone }: { h
                 })}
               </div>
             </div>
-            <Button className="h-14 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
-            <Button variant="outline" className="-mt-2 h-14 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
-            <p className="pb-1 text-center text-[13px] text-muted-foreground">Seu recorde e o total de dias sem continuam guardados.</p>
+            <Button className="h-11 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(true)}>Recomeçar a contagem hoje</Button>
+            <Button variant="outline" className="-mt-2 h-11 rounded-full text-base font-medium" disabled={relapse.isPending} onClick={() => void save(false)}>Só anotar, sem zerar</Button>
+            <p className="pb-1 text-center text-[12px] text-muted-foreground">Seu recorde e o total de dias sem continuam guardados.</p>
           </div>
         </div>
       </DrawerContent>

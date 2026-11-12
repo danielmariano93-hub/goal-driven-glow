@@ -46,17 +46,17 @@ export function TodayAction({ view, today, logs, paused }: { view: HabitView; to
     <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Hoje">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium text-muted-foreground">Hoje</h2>
+          <h2 className="text-[12px] font-medium text-muted-foreground">Hoje</h2>
           <p className="mt-0.5 truncate font-display text-[18px] font-semibold leading-6 tracking-[-0.01em]">{status}</p>
         </div>
-        {done ? <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-success text-success-foreground"><Check className="h-5 w-5" strokeWidth={3} aria-hidden="true" /></span> : null}
+        {done ? <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Check className="h-5 w-5" strokeWidth={3} aria-hidden="true" /></span> : null}
       </div>
       {frac != null ? <div className="mt-3 h-2 rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)} aria-label="Progresso de hoje"><i className={cn("block h-full rounded-full transition-[width] duration-500", frac >= 1 ? "bg-success" : "bg-primary")} style={{ width: `${Math.round(frac * 100)}%` }} /></div> : null}
       <button
         type="button"
         onClick={() => void press()}
         disabled={log.isPending || unlog.isPending}
-        className={cn("mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full text-[15px] font-medium transition-colors active:scale-[0.99]", simple && done ? "border border-border bg-card text-muted-foreground" : "bg-primary text-primary-foreground hover:bg-primary/90")}
+        className={cn("mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full text-[14px] font-medium transition-colors active:scale-[0.99]", simple && done ? "border border-border bg-card text-muted-foreground" : "bg-primary text-primary-foreground hover:bg-primary/90")}
       >
         {simple && done ? "Desfazer" : <><Plus className="h-4 w-4" strokeWidth={2.4} aria-hidden="true" />{logLabel(view.form)}</>}
       </button>

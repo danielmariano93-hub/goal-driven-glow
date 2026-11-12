@@ -112,7 +112,7 @@ export default function Hoje() {
           onClick={() => void quickToggle(v)}
           aria-pressed={simple ? doneNow : undefined}
           aria-label={simple ? (doneNow ? `Desmarcar ${v.habit.title}` : `Marcar ${v.habit.title} como feito`) : `Registrar ${v.habit.title}`}
-          className={cn("relative grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200 active:scale-90", doneNow ? "border-success bg-success text-success-foreground" : o === "rest" ? "border-warning bg-warning/20" : simple ? "border-border bg-card hover:border-primary/50" : "border-primary/30 bg-primary/5 text-primary")}
+          className={cn("relative grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 transition-[transform,background-color,border-color] duration-200 active:scale-90", doneNow ? "border-primary bg-primary text-primary-foreground" : o === "rest" ? "border-primary/30 bg-primary/10" : simple ? "border-border bg-card hover:border-primary/50" : "border-primary/30 bg-primary/5 text-primary")}
         >
           {!doneNow && frac != null && frac > 0 ? (
             <svg viewBox="0 0 48 48" className="absolute inset-[-2px] h-[calc(100%+4px)] w-[calc(100%+4px)] -rotate-90" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="none" stroke="hsl(var(--primary))" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${frac * 138.2} 138.2`} /></svg>
@@ -120,9 +120,9 @@ export default function Hoje() {
           {doneNow ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="animate-in zoom-in-50 fade-in duration-200"><path d="M5 12l5 5 9-10" /></svg> : o === "rest" ? <span className="text-[10px] font-medium">folga</span> : !simple ? <Plus className="h-5 w-5" strokeWidth={2.4} aria-hidden="true" /> : null}
         </button>
         <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
-          <p className={cn("truncate font-display text-[16.5px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
+          <p className={cn("truncate font-display text-[14px] font-semibold leading-5", doneNow && "text-muted-foreground")}>{v.habit.title}</p>
           <p className="truncate text-xs leading-4 text-muted-foreground">{formSubtitle(v, today) || "Toque para ver o plano"}</p>
-          {paceOf(v, today) ? <span className={cn("mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[11.5px] font-medium leading-4", paceTone(paceOf(v, today)!.state))}>{paceNote(paceOf(v, today))}</span> : null}
+          {paceOf(v, today) ? <span className={cn("mt-1 inline-flex max-w-full rounded-full px-2 py-0.5 text-[11px] font-medium leading-4", paceTone(paceOf(v, today)!.state))}>{paceNote(paceOf(v, today))}</span> : null}
         </Link>
         <Dots rows={dotsFor(v)} />
         <button
@@ -143,7 +143,7 @@ export default function Hoje() {
         <div className="mx-auto flex max-w-[720px] items-start justify-between gap-3">
           <div>
             <p className="text-[14px] font-medium text-white/75">{weekday}</p>
-            <h1 className="mt-1 font-display text-[32px] font-semibold leading-none tracking-[-0.03em]">Hoje</h1>
+            <h1 className="mt-1 font-display text-[24px] font-semibold leading-none tracking-[-0.03em]">Hoje</h1>
           </div>
           <ModePill tone="hero" current="habits" onChange={(m) => m === "money" && goMoney()} />
         </div>
@@ -152,21 +152,21 @@ export default function Hoje() {
             <div className="mx-auto mt-1 max-w-[720px]"><Dial days={model.days} done={model.done} total={model.total} withWeekly={model.weekly.length > 0} /></div>
             {model.pendingWeekly.length > 0 ? (
               <ul className="mx-auto -mt-1 mb-2 flex max-w-[720px] flex-wrap justify-center gap-1.5" aria-label="Metas semanais que pedem atenção">
-                {model.pendingWeekly.slice(0, 2).map(({ v, p }) => <li key={v.habit.id} className="rounded-full bg-white/15 px-3 py-1 text-[12.5px] font-medium text-white">{v.habit.title}: {paceShort(p)}</li>)}
-                {model.pendingWeekly.length > 2 ? <li className="rounded-full bg-white/15 px-3 py-1 text-[12.5px] font-medium text-white">+{model.pendingWeekly.length - 2}</li> : null}
+                {model.pendingWeekly.slice(0, 2).map(({ v, p }) => <li key={v.habit.id} className="rounded-full bg-white/15 px-3 py-1 text-[12px] font-medium text-white">{v.habit.title}: {paceShort(p)}</li>)}
+                {model.pendingWeekly.length > 2 ? <li className="rounded-full bg-white/15 px-3 py-1 text-[12px] font-medium text-white">+{model.pendingWeekly.length - 2}</li> : null}
               </ul>
             ) : null}
-            {outsideCount > 0 ? <p className="mx-auto -mt-1 mb-2 max-w-[720px] text-center text-[12.5px] text-white/65">{outsideText}</p> : null}
-            <dl className="mx-auto -mt-1 flex max-w-[720px] justify-center gap-6 text-[13px]">
-              <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-[15px]">{model.adherence30 == null ? "-" : `${Math.round(model.adherence30 * 100)}%`}</b> <span className="text-white/75">em 30 dias</span></dd></div>
-              <div><dt className="sr-only">Maior sequência</dt><dd><b className="text-[15px]">{pluralDias(model.longest)}</b> <span className="text-white/75">seguidos</span></dd></div>
-              <div><dt className="sr-only">Hábitos firmes</dt><dd><b className="text-[15px]">{model.firm}</b> <span className="text-white/75">{model.firm === 1 ? "firme" : "firmes"}</span></dd></div>
+            {outsideCount > 0 ? <p className="mx-auto -mt-1 mb-2 max-w-[720px] text-center text-[12px] text-white/65">{outsideText}</p> : null}
+            <dl className="mx-auto -mt-1 flex max-w-[720px] justify-center gap-6 text-[12px]">
+              <div><dt className="sr-only">Adesão em 30 dias</dt><dd><b className="text-[14px]">{model.adherence30 == null ? "-" : `${Math.round(model.adherence30 * 100)}%`}</b> <span className="text-white/75">em 30 dias</span></dd></div>
+              <div><dt className="sr-only">Maior sequência</dt><dd><b className="text-[14px]">{pluralDias(model.longest)}</b> <span className="text-white/75">seguidos</span></dd></div>
+              <div><dt className="sr-only">Hábitos firmes</dt><dd><b className="text-[14px]">{model.firm}</b> <span className="text-white/75">{model.firm === 1 ? "firme" : "firmes"}</span></dd></div>
             </dl>
           </>
         ) : (
           <div className="mx-auto max-w-[720px] pb-6 pt-8">
-            <h2 className="font-display text-[30px] font-semibold leading-[1.08] tracking-[-0.025em]">Um hábito vira seu em semanas ou meses.</h2>
-            <p className="mt-3 text-[15px] leading-6 text-white/80">Escolha um só para começar, diga em que momento do dia vai fazê-lo e comece pequeno. Sem pontos, sem ranking.</p>
+            <h2 className="font-display text-[24px] font-semibold leading-[1.15] tracking-[-0.025em]">Um hábito vira seu em semanas ou meses.</h2>
+            <p className="mt-3 text-[14px] leading-6 text-white/80">Escolha um só para começar, diga em que momento do dia vai fazê-lo e comece pequeno. Sem pontos, sem ranking.</p>
             <WeekSteps className="mt-6" />
           </div>
         )}
@@ -190,7 +190,7 @@ export default function Hoje() {
                   </ul>
                 </>
               ) : null}
-              <Button asChild className="mt-4 h-14 w-full rounded-full text-base font-medium">
+              <Button asChild className="mt-4 h-11 w-full rounded-full text-base font-medium">
                 <Link to="/h/novo"><Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Criar meu primeiro hábito</Link>
               </Button>
             </div>
@@ -199,7 +199,7 @@ export default function Hoje() {
               {model.dueToday.length > 0 ? <ul className="flex flex-col gap-2" aria-label="Hábitos de hoje">{model.dueToday.map(renderRow)}</ul> : null}
               {model.weekly.length > 0 ? (
                 <>
-                  <h2 className="mb-2 mt-5 text-[13px] font-medium text-muted-foreground">Esta semana</h2>
+                  <h2 className="mb-2 mt-5 text-[12px] font-medium text-muted-foreground">Esta semana</h2>
                   <ul className="flex flex-col gap-2" aria-label="Hábitos de meta semanal">{model.weekly.map(renderRow)}</ul>
                 </>
               ) : null}
@@ -214,10 +214,10 @@ export default function Hoje() {
                         <li key={v.habit.id} className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-3 pr-2 shadow-card">
                           <AreaTile area={v.habit.area} title={v.habit.title} />
                           <Link to={`/h/habito/${v.habit.id}`} className="min-w-0 flex-1 py-1">
-                            <p className="truncate font-display text-[16.5px] font-semibold leading-5">{v.habit.title}</p>
+                            <p className="truncate font-display text-[14px] font-semibold leading-5">{v.habit.title}</p>
                             <p className={cn("truncate text-xs leading-4", r.tone === "overdue" ? "text-destructive" : "text-muted-foreground")}>{r.text}</p>
                           </Link>
-                          <button type="button" onClick={() => setQuick(v.habit.id)} className="h-9 rounded-full bg-primary/10 px-3.5 text-[13px] font-medium text-primary transition-colors hover:bg-primary/15">Fiz hoje</button>
+                          <button type="button" onClick={() => setQuick(v.habit.id)} className="h-9 rounded-full bg-primary/10 px-3.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/15">Fiz hoje</button>
                         </li>
                       );
                     })}
@@ -226,12 +226,12 @@ export default function Hoje() {
               ) : null}
               {quitViews.length > 0 ? (
                 <>
-                  <h2 className="mb-2 mt-5 text-[13px] font-medium text-muted-foreground">Largando</h2>
+                  <h2 className="mb-2 mt-5 text-[12px] font-medium text-muted-foreground">Largando</h2>
                   <ul className="flex flex-col gap-2" aria-label="Hábitos que você está largando">
                     {quitViews.map((q) => (
                       <li key={q.habit.id}>
                         <Link to={`/h/largar/${q.habit.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card">
-                          <div className="min-w-0"><p className="truncate font-display text-[16.5px] font-semibold leading-5">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {pluralDias(q.stats.best)}</p></div>
+                          <div className="min-w-0"><p className="truncate font-display text-[14px] font-semibold leading-5">{q.habit.title}</p><p className="text-xs text-muted-foreground">recorde {pluralDias(q.stats.best)}</p></div>
                           <p className="shrink-0 text-right font-display text-2xl font-semibold tabular-nums leading-none">{q.stats.days_clean}<span className="block text-[11px] font-semibold text-muted-foreground">{q.stats.days_clean === 1 ? "dia sem" : "dias sem"}</span></p>
                         </Link>
                       </li>

@@ -69,7 +69,7 @@ export default function Largar() {
       <section className="rounded-3xl bg-gradient-hero p-6 text-primary-foreground shadow-hero" aria-label="Dias sem">
         <p className="text-[14px] font-medium text-white/75">Dias sem</p>
         <p className="mt-1 font-display text-[88px] font-semibold leading-[0.9] tracking-[-0.05em] tabular-nums">{stats.days_clean}</p>
-        <p className="mt-2 text-[13px] text-white/80">
+        <p className="mt-2 text-[12px] text-white/80">
           {stats.next_milestone != null ? `Dias sem. Próximo marco em ${dias(stats.next_milestone)}` : "Você passou de 1 ano. Isso é seu."}
         </p>
       </section>
@@ -81,18 +81,18 @@ export default function Largar() {
       </dl>
 
       <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Marcos">
-        <h2 className="mb-3 text-[13px] font-medium text-muted-foreground">Próximo marco</h2>
+        <h2 className="mb-3 text-[12px] font-medium text-muted-foreground">Próximo marco</h2>
         <MilestoneTrack days={stats.days_clean} milestones={QUIT_MILESTONES} />
       </section>
 
       <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Dinheiro">
         <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-medium text-muted-foreground">Dinheiro que ficou com você</h2>
+          <h2 className="text-[12px] font-medium text-muted-foreground">Dinheiro que ficou com você</h2>
           <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">estimativa</span>
         </div>
         {est?.estimate != null ? (
           <>
-            <p className="mt-2 font-display text-[30px] font-semibold leading-none tabular-nums">{brl(est.estimate)}</p>
+            <p className="mt-2 font-display text-[24px] font-semibold leading-none tabular-nums">{brl(est.estimate)}</p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
               {est.source === "nino_data"
                 ? `Calculado pela sua média de ${brl(est.baseline_daily_cost ?? 0)} por dia antes de começar, menos o que você gastou na categoria desde então.`
@@ -106,14 +106,14 @@ export default function Largar() {
 
       {habit.craving_plan ? (
         <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Plano para a vontade">
-          <h2 className="text-[13px] font-medium text-muted-foreground">Quando bater a vontade</h2>
-          <p className="mt-2 text-[15px] leading-6">{habit.craving_plan}</p>
+          <h2 className="text-[12px] font-medium text-muted-foreground">Quando bater a vontade</h2>
+          <p className="mt-2 text-[14px] leading-6">{habit.craving_plan}</p>
         </section>
       ) : null}
 
       <div className="mt-4 flex flex-col gap-2">
-        <Button className="h-12 rounded-full text-[15px] font-semibold" disabled={craving.isPending} onClick={() => void onCraving()}>Bateu a vontade</Button>
-        <Button variant="outline" className="h-12 rounded-full text-[15px] font-semibold" onClick={() => setRelapseOpen(true)}>Eu escorreguei</Button>
+        <Button className="h-11 rounded-full text-[14px] font-semibold" disabled={craving.isPending} onClick={() => void onCraving()}>Bateu a vontade</Button>
+        <Button variant="outline" className="h-11 rounded-full text-[14px] font-semibold" onClick={() => setRelapseOpen(true)}>Eu escorreguei</Button>
       </div>
       {stats.cravings_30 > 0 ? (
         <p className="mt-3 text-center text-xs text-muted-foreground">
@@ -130,12 +130,12 @@ export default function Largar() {
         <DrawerContent>
           <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
             <DrawerHeader className="text-left">
-              <DrawerTitle className="font-display text-xl">A vontade passa</DrawerTitle>
+              <DrawerTitle className="font-display text-lg">A vontade passa</DrawerTitle>
               <p className="text-sm text-muted-foreground">{habit.craving_plan ?? "Espere 10 minutos antes de decidir. A maioria das vontades diminui nesse tempo."}</p>
             </DrawerHeader>
             <div className="flex flex-col gap-2 px-4">
-              <Button className="h-12 rounded-full text-[15px] font-semibold" onClick={() => void closeCraving(true)}>Passou, segui firme</Button>
-              <Button variant="outline" className="h-12 rounded-full text-[15px] font-semibold" onClick={() => { void closeCraving(false); setRelapseOpen(true); }}>Eu cedi</Button>
+              <Button className="h-11 rounded-full text-[14px] font-semibold" onClick={() => void closeCraving(true)}>Passou, segui firme</Button>
+              <Button variant="outline" className="h-11 rounded-full text-[14px] font-semibold" onClick={() => { void closeCraving(false); setRelapseOpen(true); }}>Eu cedi</Button>
               <Button variant="ghost" className="h-11 rounded-full text-muted-foreground" onClick={() => setCravingId(null)}>Responder depois</Button>
             </div>
           </div>

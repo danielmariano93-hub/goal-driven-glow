@@ -18,7 +18,7 @@ export function ModePill({ current, onChange, tone = "light" }: { current: HbMod
         aria-pressed={on}
         onClick={() => onChange(mode)}
         className={cn(
-          "min-h-9 rounded-full px-3.5 text-[13px] font-medium transition-colors",
+          "min-h-9 rounded-full px-3.5 text-[12px] font-medium transition-colors",
           hero
             ? on ? "bg-white text-[#2A1380]" : "text-white/80 hover:text-white"
             : on ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -46,7 +46,7 @@ export function PageHeader({ title, subtitle, back, right }: { title: string; su
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </Link>
         ) : null}
-        <h1 className="font-display text-[28px] font-semibold leading-[1.1] tracking-[-0.02em]">{title}</h1>
+        <h1 className="font-display text-[24px] font-semibold leading-[1.1] tracking-[-0.02em]">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{subtitle}</p> : null}
       </div>
       {right}
@@ -56,8 +56,8 @@ export function PageHeader({ title, subtitle, back, right }: { title: string; su
 
 const PHASE_STYLE: Record<Phase, string> = {
   starting: "bg-muted text-muted-foreground",
-  rooting: "bg-warning/20 text-foreground",
-  firm: "bg-success/15 text-success",
+  rooting: "bg-primary/10 text-primary",
+  firm: "bg-primary/15 text-primary",
   maintenance: "bg-primary/10 text-primary",
 };
 
@@ -83,10 +83,10 @@ export function StrengthBar({ value }: { value: number | null }) {
 }
 
 const TICK_COLOR: Record<DayState, string> = {
-  full: "#7CF0C4",
-  partial: "rgba(124,240,196,.5)",
-  none: "rgba(255,255,255,.28)",
-  rest: "#FFB020",
+  full: "#E4DAFF",
+  partial: "rgba(228,218,255,.5)",
+  none: "rgba(255,255,255,.26)",
+  rest: "rgba(196,176,255,.75)",
   empty: "rgba(255,255,255,.14)",
 };
 
@@ -109,7 +109,7 @@ export function Dial({ days, done, total, withWeekly = false }: { days: DayAggre
   const C = 578.05;
   const pct = total > 0 ? done / total : 0;
   return (
-    <div className="relative mx-auto h-[250px] w-[333px] max-w-full">
+    <div className="relative mx-auto h-[206px] w-[274px] max-w-full">
       <svg viewBox="0 0 390 292" className="h-full w-full" role="img" aria-label={total > 0 ? `${done} de ${total} hábitos de hoje feitos, e os últimos ${days.length} dias` : `Nenhum hábito previsto hoje; últimos ${days.length} dias`}>
         <g transform="translate(195 146)">
           {ticks.map((t) => <line key={t.key} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={t.color} strokeWidth={t.width} strokeLinecap="round" />)}
@@ -120,7 +120,7 @@ export function Dial({ days, done, total, withWeekly = false }: { days: DayAggre
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
         {total > 0 ? (
           <div key={`${done}/${total}`} className="flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
-            <p className="font-display text-[72px] font-semibold leading-[0.95] tracking-[-0.05em] tabular-nums">{done}<span className="text-[30px] tracking-tight text-white/70">/{total}</span></p>
+            <p className="font-display text-[48px] font-semibold leading-none tracking-[-0.05em] tabular-nums">{done}<span className="text-[20px] tracking-tight text-white/70">/{total}</span></p>
             <p className="mt-1.5 text-sm font-medium text-white/80">{withWeekly ? (done === total ? "tudo em dia" : "em dia hoje") : done === total ? "tudo feito hoje" : "feitos hoje"}</p>
           </div>
         ) : (
@@ -132,9 +132,9 @@ export function Dial({ days, done, total, withWeekly = false }: { days: DayAggre
 }
 
 const DOT: Record<Outcome, string> = {
-  done: "bg-success",
-  minimum: "bg-success/55",
-  rest: "bg-warning",
+  done: "bg-primary",
+  minimum: "bg-primary/45",
+  rest: "bg-primary/20",
   missed: "bg-muted-foreground/25",
   unlogged: "border border-muted-foreground/40",
   not_expected: "bg-transparent border border-dashed border-muted-foreground/25",
@@ -161,8 +161,8 @@ export function StrengthRing({ value }: { value: number | null }) {
         <circle cx="84" cy="84" r={R} fill="none" stroke="#FFFFFF" strokeWidth="12" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - (value ?? 0))} className="transition-[stroke-dashoffset] duration-700 ease-out" />
       </svg>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-primary-foreground">
-        <p className="font-display text-[44px] font-semibold leading-none tracking-[-0.04em] tabular-nums">{value == null ? "-" : pct}{value == null ? null : <span className="text-[20px] text-white/70">%</span>}</p>
-        <p className="mt-1 text-[13px] text-white/75">força estimada</p>
+        <p className="font-display text-[32px] font-semibold leading-none tracking-[-0.04em] tabular-nums">{value == null ? "-" : pct}{value == null ? null : <span className="text-[20px] text-white/70">%</span>}</p>
+        <p className="mt-1 text-[12px] text-white/75">força estimada</p>
       </div>
     </div>
   );

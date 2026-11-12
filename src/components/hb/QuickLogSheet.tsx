@@ -92,8 +92,8 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
       <DrawerContent>
         <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="px-5 pb-1 text-left">
-            <DrawerTitle className="font-display text-[22px] font-semibold leading-[26px] tracking-[-0.02em]">{habit.title}</DrawerTitle>
-            <p className="text-[13px] text-muted-foreground">
+            <DrawerTitle className="font-display text-[18px] font-semibold leading-[26px] tracking-[-0.02em]">{habit.title}</DrawerTitle>
+            <p className="text-[12px] text-muted-foreground">
               {view.form === "project" ? (proj ? proj.title : "Nenhum projeto em andamento") : view.form === "steps" ? "Marque o que você já fez" : view.form === "recurring" ? "Cuidado recorrente" : view.habit.direction === "track" ? "Sem meta: só acompanhar" : `Meta: ${targetText(view)}`}
             </p>
           </DrawerHeader>
@@ -102,16 +102,16 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
             {["amount", "duration", "ceiling"].includes(view.form) ? (
               <>
                 <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-card p-2">
-                  <button type="button" aria-label="Menos" onClick={() => setQty(Math.max(0, Math.round((qty - step) * 100) / 100))} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-xl active:scale-95">−</button>
+                  <button type="button" aria-label="Menos" onClick={() => setQty(Math.max(0, Math.round((qty - step) * 100) / 100))} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-lg active:scale-95">−</button>
                   <div className="min-w-0 flex-1 text-center">
-                    <p className="font-display text-[30px] font-semibold leading-9 tracking-[-0.03em] tabular-nums" aria-live="polite">{num(qty)}</p>
+                    <p className="font-display text-[24px] font-semibold leading-9 tracking-[-0.03em] tabular-nums" aria-live="polite">{num(qty)}</p>
                     <p className="text-[12px] text-muted-foreground">{view.form === "duration" ? "minutos hoje" : `${unit} hoje`}</p>
                   </div>
-                  <button type="button" aria-label="Mais" onClick={() => setQty(Math.round((qty + step) * 100) / 100)} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-xl active:scale-95">+</button>
+                  <button type="button" aria-label="Mais" onClick={() => setQty(Math.round((qty + step) * 100) / 100)} className="grid h-11 w-11 place-items-center rounded-full bg-muted text-lg active:scale-95">+</button>
                 </div>
-                {quick.length > 0 ? <div className="flex gap-1.5">{quick.map((n) => <button key={n} type="button" onClick={() => setQty(Math.round((qty + n) * 100) / 100)} className="h-10 flex-1 rounded-full border border-border bg-card text-[13.5px] font-medium active:scale-95">{chipText(view, n)}</button>)}</div> : null}
+                {quick.length > 0 ? <div className="flex gap-1.5">{quick.map((n) => <button key={n} type="button" onClick={() => setQty(Math.round((qty + n) * 100) / 100)} className="h-10 flex-1 rounded-full border border-border bg-card text-[12px] font-medium active:scale-95">{chipText(view, n)}</button>)}</div> : null}
                 <label className="flex items-center gap-3 rounded-xl border border-border/70 bg-card px-3.5">
-                  <span className="shrink-0 text-[13px] text-muted-foreground">Ou digite o total do dia</span>
+                  <span className="shrink-0 text-[12px] text-muted-foreground">Ou digite o total do dia</span>
                   <input
                     value={qtyText}
                     onChange={(e) => { const t = e.target.value.replace(/[^0-9.,]/g, ""); setQtyText(t); const n = Number(t.replace(",", ".")); if (Number.isFinite(n)) setQtyRaw(n); }}
@@ -121,24 +121,24 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
                     className="h-11 min-w-0 flex-1 bg-transparent text-right font-medium tabular-nums outline-none"
                   />
                 </label>
-                <Button className="h-12 rounded-full text-[15px] font-medium" disabled={log.isPending} onClick={() => void saveQty(qty)}>{log.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Salvar"}</Button>
+                <Button className="h-11 rounded-full text-[14px] font-medium" disabled={log.isPending} onClick={() => void saveQty(qty)}>{log.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Salvar"}</Button>
                 {view.form === "ceiling" ? <Button variant="outline" className="h-11 rounded-full" disabled={log.isPending} onClick={() => void saveQty(0)}>Nada hoje</Button> : null}
               </>
             ) : null}
 
             {view.form === "time" ? (
               <>
-                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Horário" className="h-14 rounded-2xl border border-border/70 bg-card px-4 text-center font-display text-[28px] font-semibold tabular-nums outline-none focus:border-primary" />
+                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Horário" className="h-11 rounded-2xl border border-border/70 bg-card px-4 text-center font-display text-[28px] font-semibold tabular-nums outline-none focus:border-primary" />
                 <p className="text-center text-[12px] text-muted-foreground">Meta: {targetText(view)}{current ? ` · hoje: ${hhmm(current)}` : ""}</p>
-                <Button className="h-12 rounded-full text-[15px] font-medium" disabled={log.isPending} onClick={() => void saveTime()}>Salvar</Button>
+                <Button className="h-11 rounded-full text-[14px] font-medium" disabled={log.isPending} onClick={() => void saveTime()}>Salvar</Button>
               </>
             ) : null}
 
             {view.form === "value" ? (
               <>
-                <input value={text} onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={current ? num(current) : "Valor de hoje"} aria-label="Valor" className="h-14 rounded-2xl border border-border/70 bg-card px-4 text-center font-display text-[28px] font-semibold tabular-nums outline-none focus:border-primary" />
+                <input value={text} onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={current ? num(current) : "Valor de hoje"} aria-label="Valor" className="h-11 rounded-2xl border border-border/70 bg-card px-4 text-center font-display text-[28px] font-semibold tabular-nums outline-none focus:border-primary" />
                 <p className="text-center text-[12px] text-muted-foreground">{unit}</p>
-                <Button className="h-12 rounded-full text-[15px] font-medium" disabled={log.isPending} onClick={() => void saveValue()}>Salvar</Button>
+                <Button className="h-11 rounded-full text-[14px] font-medium" disabled={log.isPending} onClick={() => void saveValue()}>Salvar</Button>
               </>
             ) : null}
 
@@ -146,20 +146,20 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
               proj && pStats ? (
                 <>
                   <div className="rounded-2xl border border-border/60 bg-card p-3.5">
-                    <div className="flex items-baseline justify-between"><p className="font-display text-[22px] font-semibold tabular-nums tracking-[-0.02em]">{num(proj.current)}<span className="text-[14px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p><p className="text-[13px] text-muted-foreground">{pStats.percent}%</p></div>
+                    <div className="flex items-baseline justify-between"><p className="font-display text-[18px] font-semibold tabular-nums tracking-[-0.02em]">{num(proj.current)}<span className="text-[14px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p><p className="text-[12px] text-muted-foreground">{pStats.percent}%</p></div>
                     <div className="mt-2 h-1.5 rounded-full bg-muted"><i className="block h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${pStats.percent}%` }} /></div>
                   </div>
                   <div className="flex gap-1.5">{(proj.unit === "R$" ? [50, 100, 200, 500] : [5, 10, 20, 30]).map((n) => <button key={n} type="button" onClick={() => void addPages(n)} disabled={projectAdd.isPending} className="h-10 flex-1 rounded-full border border-border bg-card text-[14px] font-medium active:scale-95">+{n}</button>)}</div>
                   <div className="flex gap-2">
-                    <input value={pages} onChange={(e) => setPages(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Outro valor (${proj.unit ?? ""})`} aria-label="Avanço" className="h-11 min-w-0 flex-1 rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none focus:border-primary" />
+                    <input value={pages} onChange={(e) => setPages(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Outro valor (${proj.unit ?? ""})`} aria-label="Avanço" className="h-11 min-w-0 flex-1 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />
                     <Button className="h-11 rounded-full px-5" disabled={projectAdd.isPending} onClick={() => void addPages(Number(pages.replace(",", ".")))}>Registrar</Button>
                   </div>
                 </>
               ) : (
                 <>
-                  <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="Nome do novo projeto" aria-label="Nome do projeto" maxLength={120} className="h-11 rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none focus:border-primary" />
-                  <input value={pTotal} onChange={(e) => setPTotal(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Total (${unit})`} aria-label="Total" className="h-11 rounded-xl border border-border/70 bg-card px-3.5 text-[15px] outline-none focus:border-primary" />
-                  <Button className="h-12 rounded-full text-[15px] font-medium" disabled={projectStart.isPending} onClick={() => void startProject()}>Começar projeto</Button>
+                  <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="Nome do novo projeto" aria-label="Nome do projeto" maxLength={120} className="h-11 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />
+                  <input value={pTotal} onChange={(e) => setPTotal(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Total (${unit})`} aria-label="Total" className="h-11 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />
+                  <Button className="h-11 rounded-full text-[14px] font-medium" disabled={projectStart.isPending} onClick={() => void startProject()}>Começar projeto</Button>
                 </>
               )
             ) : null}
@@ -171,8 +171,8 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
                   return (
                     <li key={s.id}>
                       <button type="button" aria-pressed={on} disabled={stepToggle.isPending} onClick={() => stepToggle.mutate({ habit_id: habit.id, step_id: s.id, date, done: !on }, { onError: fail })} className={cn("flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors", on ? "border-success/40 bg-success/10" : "border-border/60 bg-card")}>
-                        <span className={cn("grid h-[22px] w-[22px] place-items-center rounded-full border-2", on ? "border-success bg-success text-success-foreground" : "border-border")} aria-hidden="true">{on ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg> : null}</span>
-                        <span className={cn("flex-1 text-[15px] font-medium", on && "text-muted-foreground line-through")}>{s.title}</span>
+                        <span className={cn("grid h-[22px] w-[22px] place-items-center rounded-full border-2", on ? "border-primary bg-primary text-primary-foreground" : "border-border")} aria-hidden="true">{on ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg> : null}</span>
+                        <span className={cn("flex-1 text-[14px] font-medium", on && "text-muted-foreground line-through")}>{s.title}</span>
                       </button>
                     </li>
                   );
@@ -181,10 +181,10 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
             ) : null}
 
             {view.form === "recurring" ? (
-              <Button className="h-12 rounded-full text-[15px] font-medium" disabled={log.isPending} onClick={async () => { try { await log.mutateAsync({ habit_id: habit.id, date, status: "done" }); toast.success("Anotado. Eu marco o próximo."); close(); } catch (e) { fail(e); } }}>Fiz hoje</Button>
+              <Button className="h-11 rounded-full text-[14px] font-medium" disabled={log.isPending} onClick={async () => { try { await log.mutateAsync({ habit_id: habit.id, date, status: "done" }); toast.success("Anotado. Eu marco o próximo."); close(); } catch (e) { fail(e); } }}>Fiz hoje</Button>
             ) : null}
 
-            {!["steps", "recurring", "project"].includes(view.form) ? <button type="button" onClick={() => void skipToday()} className="h-10 text-[13px] text-muted-foreground">Hoje não deu</button> : null}
+            {!["steps", "recurring", "project"].includes(view.form) ? <button type="button" onClick={() => void skipToday()} className="h-10 text-[12px] text-muted-foreground">Hoje não deu</button> : null}
           </div>
         </div>
       </DrawerContent>

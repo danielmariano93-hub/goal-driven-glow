@@ -18,7 +18,7 @@ export function HabitsTabBar() {
           <NavLink
             key={to}
             to={to}
-            className={({ isActive }) => cn("flex h-14 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-medium transition-colors", isActive ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+            className={({ isActive }) => cn("flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[12px] font-medium transition-colors", isActive ? "text-primary" : "text-muted-foreground hover:text-foreground")}
           >
             <Icon className="h-[22px] w-[22px]" strokeWidth={1.75} aria-hidden="true" />
             <span className="leading-4">{label}</span>

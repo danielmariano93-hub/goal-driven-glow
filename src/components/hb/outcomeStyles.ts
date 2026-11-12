@@ -10,10 +10,10 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
 };
 
 export const OUTCOME_CELL: Record<Outcome, string> = {
-  done: "bg-success",
-  minimum: "bg-success/55",
-  rest: "bg-warning",
-  missed: "bg-muted-foreground/25",
+  done: "bg-primary",
+  minimum: "bg-primary/45",
+  rest: "bg-primary/20",
+  missed: "bg-muted-foreground/20",
   unlogged: "border border-muted-foreground/40",
   not_expected: "border border-dashed border-muted-foreground/25",
 };

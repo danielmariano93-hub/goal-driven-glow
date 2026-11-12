@@ -12,7 +12,7 @@ const WD = ["D", "S", "T", "Q", "Q", "S", "S"];
 
 const Card = ({ title, tag, children }: { title: string; tag?: string; children: React.ReactNode }) => (
   <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label={title}>
-    <div className="flex items-center justify-between"><h2 className="text-[13px] font-medium text-muted-foreground">{title}</h2>{tag ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">{tag}</span> : null}</div>
+    <div className="flex items-center justify-between"><h2 className="text-[12px] font-medium text-muted-foreground">{title}</h2>{tag ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">{tag}</span> : null}</div>
     {children}
   </section>
 );
@@ -37,7 +37,7 @@ function Spark({ points }: { points: number[] }) {
   const max = Math.max(...points);
   const span = max - min || 1;
   const d = points.map((p, i) => `${(i / (points.length - 1)) * 100},${40 - ((p - min) / span) * 32 - 4}`).join(" ");
-  return <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-3 h-14 w-full" role="img" aria-label="Tendência"><polyline points={d} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></svg>;
+  return <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-3 h-11 w-full" role="img" aria-label="Tendência"><polyline points={d} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" /></svg>;
 }
 
 /** Progresso próprio de cada forma de medir: o que a pessoa vê muda conforme o hábito. */
@@ -75,13 +75,13 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
         <Card title="Esta semana" tag={`${view.summary.streak} ${view.summary.streak === 1 ? "semana" : "semanas"} seguidas`}>
           {cur ? (
             <>
-              <p className="mt-2 font-display text-[30px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{Math.min(Math.round(cur.count * 10) / 10, 99)}<span className="text-[16px] font-normal text-muted-foreground"> de {cur.target}</span></p>
+              <p className="mt-2 font-display text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{Math.min(Math.round(cur.count * 10) / 10, 99)}<span className="text-[15px] font-normal text-muted-foreground"> de {cur.target}</span></p>
               <div className="mt-3 flex gap-1.5" aria-hidden="true">{Array.from({ length: cur.target }, (_, i) => <i key={i} className={cn("h-2 flex-1 rounded-full", i < Math.floor(cur.count) ? "bg-primary" : "bg-muted")} />)}</div>
             </>
           ) : null}
-          {paceOf(view, today) ? <p className={cn("mt-3 inline-flex rounded-full px-2.5 py-1 text-[12.5px] font-medium", paceTone(paceOf(view, today)!.state))}>{paceNote(paceOf(view, today))}</p> : null}
-          {paceOf(view, today)?.state === "out_of_reach" ? <p className="mt-2 text-[12.5px] leading-[18px] text-muted-foreground">{OUT_OF_REACH_HINT}</p> : null}
-          {weekTargetNote(view, cur) ? <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12.5px] leading-[18px] text-muted-foreground">{weekTargetNote(view, cur)}</p> : null}
+          {paceOf(view, today) ? <p className={cn("mt-3 inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium", paceTone(paceOf(view, today)!.state))}>{paceNote(paceOf(view, today))}</p> : null}
+          {paceOf(view, today)?.state === "out_of_reach" ? <p className="mt-2 text-[12px] leading-[18px] text-muted-foreground">{OUT_OF_REACH_HINT}</p> : null}
+          {weekTargetNote(view, cur) ? <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[18px] text-muted-foreground">{weekTargetNote(view, cur)}</p> : null}
           <p className="mt-4 text-[12px] text-muted-foreground">Últimas semanas</p>
           <div className="mt-1 grid grid-cols-8 items-end gap-1.5" style={{ height: 44 }}>{weeks.map((w) => <i key={w.week_start} title={dm(w.week_start)} className={cn("block w-full rounded-md", w.met ? "bg-primary" : w.progress > 0 ? "bg-primary/35" : "bg-muted")} style={{ height: `${Math.max(10, w.progress * 100)}%` }} />)}</div>
         </Card>
@@ -94,8 +94,8 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
         <Card title="Regularidade do horário" tag={targetText(view)}>
           {st.n === 0 ? <p className="mt-2 text-[14px] text-muted-foreground">Registre o horário por alguns dias e eu mostro a sua regularidade.</p> : (
             <>
-              <p className="mt-2 font-display text-[30px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{hhmm(st.avg_min ?? 0)}</p>
-              <p className="mt-1 text-[13px] text-muted-foreground">horário médio nos últimos {st.n} registros</p>
+              <p className="mt-2 font-display text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{hhmm(st.avg_min ?? 0)}</p>
+              <p className="mt-1 text-[12px] text-muted-foreground">horário médio nos últimos {st.n} registros</p>
               <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
                 <div><dd className="font-display text-lg font-semibold tabular-nums">{st.within}/{st.n}</dd><dt className="text-[11px] text-muted-foreground">dentro do alvo</dt></div>
                 <div><dd className="font-display text-lg font-semibold tabular-nums">±{st.spread_min} min</dd><dt className="text-[11px] text-muted-foreground">variação</dt></div>
@@ -113,9 +113,9 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
       const todayQ = qtyOf(today);
       return (
         <Card title="Dentro do limite" tag={targetText(view)}>
-          <p className="mt-2 font-display text-[30px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{st.within}<span className="text-[16px] font-normal text-muted-foreground"> de {st.days} dias</span></p>
+          <p className="mt-2 font-display text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{st.within}<span className="text-[15px] font-normal text-muted-foreground"> de {st.days} dias</span></p>
           <div className="mt-3 h-2 rounded-full bg-muted" role="img" aria-label="Hoje contra o limite"><i className={cn("block h-full rounded-full transition-[width] duration-500", (todayQ ?? 0) > target ? "bg-destructive" : "bg-primary")} style={{ width: `${Math.min(100, target > 0 ? ((todayQ ?? 0) / target) * 100 : (todayQ ?? 0) > 0 ? 100 : 0)}%` }} /></div>
-          <p className="mt-2 text-[13px] text-muted-foreground">Hoje: {todayQ == null ? "nada registrado" : `${num(todayQ)} ${unit}`}{st.avg != null ? ` · média: ${num(st.avg)}` : ""}. Dias sem registro contam como dentro do limite.</p>
+          <p className="mt-2 text-[12px] text-muted-foreground">Hoje: {todayQ == null ? "nada registrado" : `${num(todayQ)} ${unit}`}{st.avg != null ? ` · média: ${num(st.avg)}` : ""}. Dias sem registro contam como dentro do limite.</p>
         </Card>
       );
     }
@@ -126,7 +126,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
         <Card title="Tendência" tag={target > 0 ? `meta ${num(target)}` : "sem meta"}>
           {t.last == null ? <p className="mt-2 text-[14px] text-muted-foreground">Registre o primeiro valor e eu desenho a tendência.</p> : (
             <>
-              <p className="mt-2 font-display text-[30px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{num(t.last)}<span className="text-[16px] font-normal text-muted-foreground"> {unit}</span></p>
+              <p className="mt-2 font-display text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{num(t.last)}<span className="text-[15px] font-normal text-muted-foreground"> {unit}</span></p>
               <Spark points={pts.slice(-30).map((p) => p.value)} />
               <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
                 <div><dd className="font-display text-lg font-semibold tabular-nums">{t.delta_30 == null ? "-" : `${t.delta_30 > 0 ? "+" : ""}${num(t.delta_30)}`}</dd><dt className="text-[11px] text-muted-foreground">em 30 dias</dt></div>
@@ -148,10 +148,10 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
           <Card title={proj ? proj.title : "Projeto"} tag={p ? `${p.percent}%` : undefined}>
             {proj && p ? (
               <>
-                <p className="mt-2 font-display text-[30px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{num(proj.current)}<span className="text-[16px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p>
+                <p className="mt-2 font-display text-[22px] font-semibold leading-none tracking-[-0.03em] tabular-nums">{num(proj.current)}<span className="text-[15px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p>
                 <div className="relative mt-3 h-2 rounded-full bg-muted"><i className="block h-full rounded-full bg-primary transition-[width] duration-700" style={{ width: `${p.percent}%` }} />{[25, 50, 75].map((m) => <b key={m} className="absolute top-[-2px] h-3 w-0.5 bg-card" style={{ left: `${m}%` }} aria-hidden="true" />)}</div>
                 <div className="mt-1 flex justify-between text-[11px] text-muted-foreground" aria-hidden="true"><span>0</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
-                <div className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[13px] leading-5">
+                <div className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-5">
                   {p.done ? "Projeto concluído." : p.eta && p.days_left != null ? <><b className="font-medium">Termina em {p.days_left} {p.days_left === 1 ? "dia" : "dias"} ({dm(p.eta)})</b><span className="text-muted-foreground"> no ritmo de {num(p.pace ?? 0)} {proj.unit ?? ""} por dia. Faltam {num(p.remaining)}.</span></> : <span className="text-muted-foreground">Faltam {num(p.remaining)} {proj.unit ?? ""}. Registre alguns dias e eu calculo a previsão.</span>}
                 </div>
                 <Bars values={recent} labels={labels} today={6} />
@@ -172,7 +172,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
       return (
         <Card title="Rotina de hoje" tag={`${view.steps_today.length} de ${view.steps.length}`}>
           <ul className="mt-2 flex flex-col gap-1.5">{view.steps.map((s) => <li key={s.id} className="flex items-center gap-2.5 text-[14px]"><i className={cn("block h-2.5 w-2.5 rounded-full", view.steps_today.includes(s.id) ? "bg-success" : "border border-muted-foreground/40")} /><span className={cn(view.steps_today.includes(s.id) && "text-muted-foreground line-through")}>{s.title}</span></li>)}</ul>
-          <p className="mt-3 text-[13px] text-muted-foreground">Rotina completa em {full} dos últimos 14 dias.</p>
+          <p className="mt-3 text-[12px] text-muted-foreground">Rotina completa em {full} dos últimos 14 dias.</p>
         </Card>
       );
     }
@@ -181,10 +181,10 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
       const st = recurringStatus(last, view.habit.started_on, view.habit.interval_days ?? 30, today);
       return (
         <Card title="Próximo cuidado" tag={`a cada ${view.habit.interval_days} dias`}>
-          <p className={cn("mt-2 font-display text-[26px] font-semibold leading-tight tracking-[-0.02em]", st.state === "overdue" && "text-destructive")}>
+          <p className={cn("mt-2 font-display text-[22px] font-semibold leading-tight tracking-[-0.02em]", st.state === "overdue" && "text-destructive")}>
             {st.state === "overdue" ? `Atrasado há ${Math.abs(st.days_to ?? 0)} dias` : st.days_to === 0 ? "É hoje" : `Em ${st.days_to} dias`}
           </p>
-          <p className="mt-1 text-[13px] text-muted-foreground">{st.next ? `Previsto para ${dm(st.next)}.` : ""} {last ? `Última vez: ${dm(last)}.` : "Ainda não registrado."}</p>
+          <p className="mt-1 text-[12px] text-muted-foreground">{st.next ? `Previsto para ${dm(st.next)}.` : ""} {last ? `Última vez: ${dm(last)}.` : "Ainda não registrado."}</p>
         </Card>
       );
     }
@@ -207,9 +207,9 @@ export function AchievementsCard({ view, today, logs }: { view: HabitView; today
   const earned = list.filter((a) => a.earned).length;
   return (
     <section className="rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Conquistas">
-      <div className="flex items-center justify-between"><h2 className="text-[13px] font-medium text-muted-foreground">Conquistas</h2><span className="text-[12px] text-muted-foreground">{earned} de {list.length}</span></div>
+      <div className="flex items-center justify-between"><h2 className="text-[12px] font-medium text-muted-foreground">Conquistas</h2><span className="text-[12px] text-muted-foreground">{earned} de {list.length}</span></div>
       <ul className="mt-3 flex flex-wrap gap-2">
-        {list.map((a) => <li key={a.key} title={a.hint} className={cn("rounded-full border px-3 py-1 text-[12px] font-medium", a.earned ? "border-success/40 bg-success/10 text-foreground" : "border-border text-muted-foreground")}>{a.title}</li>)}
+        {list.map((a) => <li key={a.key} title={a.hint} className={cn("rounded-full border px-3 py-1 text-[12px] font-medium", a.earned ? "border-primary/40 bg-primary/10 text-foreground" : "border-border text-muted-foreground")}>{a.title}</li>)}
       </ul>
       <p className="mt-2 text-[12px] text-muted-foreground">Marcos do seu próprio progresso. Sem pontos e sem ranking.</p>
     </section>
