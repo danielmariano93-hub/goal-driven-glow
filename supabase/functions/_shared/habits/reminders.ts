@@ -3,7 +3,7 @@
 // no máximo 2 mensagens de hábito por dia; um lembrete por horário do dia; nada depois das 22h; resumo só com pendência;
 // parada automática depois de 3 lembretes seguidos ignorados; tom sem culpa.
 import {
-  addDays, automaticityDue, automaticitySummary, dow, FIRM_FROM, isMaintenance, mergeAutoLogs, milestoneToday, nudgeLevel, quitStats, reviewText, streakMilestoneToday, summarizeHabit, weekStart, weeklyReview, type HabitDef, type PauseRange,
+  addDays, automaticityDue, dayPace, automaticitySummary, dow, FIRM_FROM, isMaintenance, mergeAutoLogs, milestoneToday, nudgeLevel, quitStats, reviewText, streakMilestoneToday, summarizeHabit, weekStart, weeklyReview, type HabitDef, type PauseRange,
 } from "../habits-core/index.ts";
 import { localMinutes, type HbSnapshotAs } from "./whatsappReply.ts";
 
@@ -42,10 +42,20 @@ export const MILESTONE_TO_MIN = 20 * 60;
 export const AUTO_REPEAT_DAYS = 7;
 export const REVIEW_FROM_MIN = 18 * 60;
 export const REVIEW_TO_MIN = 20 * 60 + 30;
+/** Lembretes de ritmo (metas de quantidade, como água): horas cheias em que podem sair e teto por dia (orçamento próprio, à parte dos 2 do gatilho). */
+export const PACE_SLOT_HOURS = [10, 12, 14, 16, 18, 20] as const;
+export const PACE_MAX_PER_DAY = 3;
+/** Hora de referência de cada momento do dia para quem escolheu só "Manhã", "Tarde" ou "Noite" (o lembrete sai 90 min depois). */
+export const PERIOD_CUE_MIN: Record<string, number> = { "Manhã": 8 * 60, "Tarde": 14 * 60, "Noite": 20 * 60 };
 
 const cueMin = (cue: string | null): number | null => {
   const m = cue ? /^(\d{1,2}):(\d{2})/.exec(cue) : null;
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+/** Sem horário exato, usa o momento do dia escolhido ("Manhã · depois do café" vira 08:00). "Durante o dia" não tem hora. */
+const periodCueMin = (cueText: string | null): number | null => {
+  const m = cueText ? /^(Manhã|Tarde|Noite)( · |$)/.exec(cueText) : null;
+  return m ? PERIOD_CUE_MIN[m[1]] : null;
 };
 const slotOf = (min: number): "am" | "pm" | "ev" => (min < 12 * 60 ? "am" : min < 18 * 60 ? "pm" : "ev");
 
@@ -134,6 +144,36 @@ function automaticityReminder(input: ReminderInput): HabitReminder | null {
   return null;
 }
 
+/** Meta de quantidade "no mínimo" por dia (água): se está abaixo do ritmo numa das horas de lembrete, sugere quanto beber agora. */
+function paceReminder(input: ReminderInput, mergedLogs: HbSnapshotAs["logs"]): HabitReminder | null {
+  const { snap, now } = input;
+  const nowHour = localMinutes(now, snap.timezone) / 60;
+  const slot = [...PACE_SLOT_HOURS].reverse().find((h) => nowHour >= h && nowHour - h < 1);
+  if (slot == null) return null;
+  const sentToday = [...input.sentKeys].filter((k) => k.startsWith(`hb-pace:${snap.today}:`)).length;
+  if (sentToday >= PACE_MAX_PER_DAY) return null;
+  for (const habit of snap.habits) {
+    if ((habit.status ?? "active") !== "active" || habit.kind !== "do_quantity" || habit.form !== "amount" || habit.direction === "at_most") continue;
+    if (habit.quantity_period !== "day" || !(habit.quantity_target && habit.quantity_target > 0) || !allowed(snap, habit) || (habit.sensitivity ?? "normal") !== "normal") continue;
+    if (habit.started_on > snap.today) continue;
+    const key = `hb-pace:${snap.today}:${slot}`;
+    if (input.sentKeys.has(key)) return null;
+    const total = mergedLogs.find((l) => l.habit_id === habit.id && l.local_date === snap.today && l.status === "quantity")?.quantity ?? 0;
+    const pace = dayPace(habit.quantity_target, total, nowHour);
+    if (!pace || pace.state !== "behind") continue;
+    const unit = habit.quantity_unit ?? "";
+    const fmt = (n: number) => (unit === "litros" && n < 1 ? `${Math.round(n * 1000)} ml` : `${String(Math.round(n * 100) / 100).replace(".", ",")}${unit ? ` ${unit}` : ""}`);
+    const next = pace.per_hour_plan * 2;
+    return {
+      kind: "hb_cue_reminder", dedup_key: key, severity: "info", title: habit.title,
+      body: `${habit.title}: você está em ${fmt(total)} de ${fmt(habit.quantity_target)}. A esta hora o ideal seria cerca de ${fmt(pace.expected)}. Que tal ${fmt(next)} agora? Quando fizer, registre no app ou me responda com a quantidade.`,
+      evidence: { local_date: snap.today, habit_ids: [habit.id], pace: true, total, expected: Math.round(pace.expected * 100) / 100 },
+      expires_in_min: 90,
+    };
+  }
+  return null;
+}
+
 /** Devolve no máximo UM lembrete por rodada (a rodada roda de hora em hora). */
 export function habitReminders(input: ReminderInput): HabitReminder[] {
   const { snap, now } = input;
@@ -146,8 +186,6 @@ export function habitReminders(input: ReminderInput): HabitReminder[] {
   if (mile) return [mile];
   const review = reviewReminder(input);
   if (review) return [review];
-
-  if (input.alreadySentToday >= limit) return [];
 
   const nowMin = localMinutes(now, snap.timezone);
   const measured = new Set((snap.auto_rules ?? []).map((r) => r.habit_id));
@@ -173,12 +211,21 @@ export function habitReminders(input: ReminderInput): HabitReminder[] {
   const due = wanted.filter((r) => r.summary.model === "daily" && r.summary.today.outcome !== "not_expected" && r.summary.today.outcome !== "rest");
   const pending = due.filter((r) => r.summary.today.outcome === "unlogged");
 
-  // 1) Lembrete do gatilho.
+  // 0b) Ritmo da meta de quantidade (água): orçamento próprio, à parte do gatilho; para junto com os lembretes ignorados.
   const stopped = input.ignoredCueStreak >= IGNORED_STOP && !engagedRecently(snap, now);
+  if (!stopped) {
+    const pace = paceReminder(input, mergedLogs);
+    if (pace) return [pace];
+  }
+
+  // Daqui em diante vale o máximo diário de mensagens de hábito (gatilho, check-in e resumo).
+  if (input.alreadySentToday >= limit) return [];
+
+  // 1) Lembrete do gatilho.
   if (!stopped && pending.length > 0) {
     const ready = pending
       .filter((r) => !measured.has(r.habit.id))
-      .map((r) => ({ r, c: cueMin(r.habit.cue_time) }))
+      .map((r) => ({ r, c: cueMin(r.habit.cue_time) ?? periodCueMin(r.habit.cue_text) }))
       .filter((x): x is { r: (typeof pending)[number]; c: number } => x.c != null && x.c + CUE_GRACE_MIN <= nowMin && nowMin <= CUE_LAST_MIN);
     if (ready.length > 0) {
       const earliest = Math.min(...ready.map((x) => x.c));

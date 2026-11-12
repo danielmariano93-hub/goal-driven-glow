@@ -233,11 +233,22 @@ describe("tela Novo hábito", () => {
   });
   it("Cuidados ficam numa aba própria, fora dos hábitos do dia a dia", () => {
     render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
-    expect(screen.queryByRole("button", { name: "Revisão do carro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Consulta médica" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Dentista" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cuidados" }));
-    expect(screen.getByRole("button", { name: "Revisão do carro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Consulta médica" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Meditar" })).toBeNull();
+  });
+  it("sugestões só trazem hábitos que mudam a vida: resultados (peso, sono, humor) e tarefas triviais ficam de fora, mas dá para criar escrevendo o nome", () => {
+    render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /></Routes></MemoryRouter>);
+    for (const name of ["Acompanhar o peso", "Horas de sono", "Como me sinto", "Tomar vitamina", "Arrumar a cama", "Alongar"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    for (const name of ["Treinar", "Beber água", "Dormir cedo", "Meditar", "Ler"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    expect(screen.getByPlaceholderText("Escreva o seu próprio hábito")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cuidados" }));
+    expect(screen.queryByRole("button", { name: "Revisão do carro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Trocar o filtro da água" })).toBeNull();
   });
   it("cuidado pula o período do dia e a versão mínima, e cria como recorrente", async () => {
     render(<MemoryRouter initialEntries={["/h/novo"]}><Routes><Route path="/h/novo" element={<Novo />} /><Route path="/h/hoje" element={<p>hoje</p>} /></Routes></MemoryRouter>);

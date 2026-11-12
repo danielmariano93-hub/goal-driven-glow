@@ -222,3 +222,23 @@ describe("ritmo da semana (hábito semanal)", () => {
     expect(paceNote({ state: "out_of_reach", needed: 7, days_left: 6, expected: 2 })).toBe("Fora de alcance: faltam 7 em 6 dias");
   });
 });
+
+describe("ritmo do dia (fonte única)", () => {
+  it("meta 1.500 às 20h: esperado 1.312,5; sugestão fixa de 93,75 por hora; faltam 500 em 2 h", async () => {
+    const { dayPace } = await import("@/lib/habits/engine");
+    const p = dayPace(1500, 1000, 20)!;
+    expect(p.expected).toBeCloseTo(1312.5, 1);
+    expect(p.gap).toBeCloseTo(312.5, 1);
+    expect(p.per_hour_plan).toBeCloseTo(93.75, 2);
+    expect(p.per_hour_needed).toBe(250);
+    expect(p.state).toBe("behind");
+  });
+  it("estados: antes de acordar, no ritmo, meta batida e dia encerrado", async () => {
+    const { dayPace } = await import("@/lib/habits/engine");
+    expect(dayPace(1500, 0, 5)!.state).toBe("ahead");
+    expect(dayPace(1500, 650, 14)!.state).toBe("on_pace");
+    expect(dayPace(1500, 1500, 9)!.state).toBe("done");
+    expect(dayPace(1500, 1000, 22.5)!.state).toBe("closed");
+    expect(dayPace(0, 0, 12)).toBeNull();
+  });
+});

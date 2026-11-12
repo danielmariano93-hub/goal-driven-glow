@@ -57,6 +57,46 @@ export function projectStats(total: number, current: number, recent: number[], t
   };
 }
 
+// ---------------------------------------------------------------- ritmo do dia (meta de quantidade "no mínimo")
+
+/** Janela em que se espera que a pessoa esteja acordada: a meta do dia se distribui entre estas horas. */
+export const PACE_WAKE = 6;
+export const PACE_SLEEP = 22;
+/** Até esta fração da meta abaixo do esperado ainda conta como "no ritmo". */
+export const PACE_TOLERANCE = 0.1;
+
+export type DayPaceState = "done" | "ahead" | "on_pace" | "behind" | "closed";
+
+export interface DayPace {
+  /** Quanto já deveria ter sido feito agora (linha reta entre acordar e dormir). */
+  expected: number;
+  /** expected - total: positivo = abaixo do ritmo. */
+  gap: number;
+  remaining: number;
+  hours_left: number;
+  /** Quanto por hora falta para fechar a meta no que resta do dia (nulo se bateu a meta ou não há mais horas). */
+  per_hour_needed: number | null;
+  /** Meta dividida igualmente entre as horas acordado: a "sugestão" fixa do dia. */
+  per_hour_plan: number;
+  state: DayPaceState;
+}
+
+/** `nowHour` em horas locais (14,5 = 14h30). Fonte única do ritmo: o app e os lembretes do servidor usam esta função. */
+export function dayPace(target: number, total: number, nowHour: number, wake = PACE_WAKE, sleep = PACE_SLEEP): DayPace | null {
+  if (!(target > 0) || !(sleep > wake)) return null;
+  const t = Math.max(0, total);
+  const frac = Math.min(1, Math.max(0, (nowHour - wake) / (sleep - wake)));
+  const expected = target * frac;
+  const gap = expected - t;
+  const remaining = Math.max(0, target - t);
+  const hours_left = Math.max(0, sleep - Math.max(nowHour, wake));
+  const state: DayPaceState = t >= target ? "done" : nowHour >= sleep ? "closed" : gap <= 0 ? "ahead" : gap <= target * PACE_TOLERANCE ? "on_pace" : "behind";
+  return {
+    expected, gap, remaining, hours_left, per_hour_needed: remaining > 0 && hours_left > 0 ? remaining / hours_left : null,
+    per_hour_plan: target / (sleep - wake), state,
+  };
+}
+
 // ---------------------------------------------------------------- horário e teto
 
 /** Minutos desde 00:00 de "HH:MM". */

@@ -50,7 +50,7 @@ export async function habitSuggestions(client: unknown, userId: string, now: Dat
 
     // Lembretes de gatilho mais recentes seguidos sem resposta (só os já entregues há mais de 2 h contam como "ignorados").
     let ignored = 0;
-    for (const r of history.filter((x) => x.kind === "hb_cue_reminder" && (x.status === "sent" || x.status === "delivered" || x.status === "acted"))) {
+    for (const r of history.filter((x) => x.kind === "hb_cue_reminder" && (x.dedup_key ?? "").startsWith("hb-cue:") && (x.status === "sent" || x.status === "delivered" || x.status === "acted"))) {
       const old = now.getTime() - Date.parse(r.created_at) >= 2 * 3_600_000;
       if (r.interacted_at) break;
       if (!old) continue;
