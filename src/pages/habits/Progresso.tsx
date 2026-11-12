@@ -6,10 +6,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/hb/ui";
 import { WeekSummary } from "@/components/hb/WeekSummary";
-import { RegularityOverview } from "@/components/hb/RegularityCard";
+import { RegularityOverview, useRegularity } from "@/components/hb/RegularityCard";
+import { LockedIndicators, type IndicatorProgress } from "@/components/hb/LockedIndicators";
+import { REGULARITY_FORMS, MIN_REGULARITY_DAYS } from "@/lib/habits/engine/regularity";
 import { aggregateAdherence, resilience, rowsFor, weekdayAdherence, weakestWeekday, weeklyConsistency, windowDelta } from "@/lib/habits/aggregate";
 import { useHabitViews, useNarrateWeek } from "@/lib/habits/api";
 import { addDays, weeklyReview } from "@/lib/habits/engine";
+import { diffDays } from "@/lib/habits/engine/dates";
 
 const WINDOWS = [7, 30, 90] as const;
 const WEEKDAY = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
@@ -23,6 +26,8 @@ export default function Progresso() {
   const [win, setWin] = useState<(typeof WINDOWS)[number]>(30);
   const narrate = useNarrateWeek();
   const [aiText, setAiText] = useState<string | null>(null);
+  const regIds = useMemo(() => views.filter((v) => REGULARITY_FORMS.has(v.form) && v.habit.kind !== "quit").map((v) => v.habit.id), [views]);
+  const reg = useRegularity(regIds);
 
   const m = useMemo(() => {
     if (!today) return null;
@@ -49,6 +54,18 @@ export default function Progresso() {
       toast.message("Não consegui reescrever agora. O resumo acima continua valendo.");
     }
   };
+  const dailyViews = views.filter((v) => v.summary.model === "daily");
+  const closedDays = dailyViews.reduce((a, v) => Math.max(a, v.summary.closed_count), 0);
+  const weeksWithData = m.weeks.filter((w) => w.value != null && w.n >= 3).length;
+  const firstStart = views.reduce<string | null>((a, v) => (a == null || v.habit.started_on < a ? v.habit.started_on : a), null);
+  const weeksOfUse = firstStart ? Math.floor(diffDays(firstStart, today) / 7) : 0;
+  const bestRegDays = regIds.reduce((a, id) => Math.max(a, reg.days.get(id) ?? 0), 0);
+  const locked: IndicatorProgress[] = [];
+  if (m.adh == null) locked.push({ key: "const", title: "Constância", what: "Quanto dos seus hábitos diários você fez, com a comparação com o período anterior.", have: closedDays, need: 7, unit: "dias fechados" });
+  if (weeksWithData < 3) locked.push({ key: "traj", title: "Constância por semana", what: "A direção das últimas 12 semanas, em vez de um número só.", have: weeksWithData, need: 3, unit: "semanas com dados" });
+  if (reg.map.size === 0 && regIds.length > 0) locked.push({ key: "reg", title: "Horário dos hábitos", what: "A hora em que você costuma fazer cada hábito e o quanto ela se repete.", have: bestRegDays, need: MIN_REGULARITY_DAYS, unit: "dias marcados no próprio dia" });
+  if (!m.hasWeekdays) locked.push({ key: "wd", title: "Quando você mais consegue", what: "O dia da semana em que você vai melhor e o mais fraco.", have: weeksOfUse, need: 4, unit: "semanas de uso" });
+  if (m.res.lapses < 3 && m.res.minimum_days === 0) locked.push({ key: "res", title: "Recomeços", what: "Depois de um dia não feito, você voltou no dia seguinte?", condition: "Aparece quando houver dias não feitos para analisar. Sem falhas, não tem o que mostrar, e isso é bom." });
   const firm = views.filter((v) => v.summary.phase === "firm" || v.summary.phase === "maintenance").length;
 
   return (
@@ -97,6 +114,7 @@ export default function Progresso() {
             />
           ) : null}
 
+          <LockedIndicators items={locked} />
           <TrajectoryCard weeks={m.weeks} />
           <RegularityOverview views={views} />
           <ResilienceCard res={m.res} />
@@ -118,6 +136,7 @@ export default function Progresso() {
             {views.some((v) => v.summary.model === "weekly") ? <p className="mt-2 text-xs text-muted-foreground">Hábitos de meta semanal mostram a média das semanas fechadas.</p> : null}
           </section>
 
+          {m.hasWeekdays ? (
           <section className="mt-3 rounded-2xl border border-border/60 bg-card p-4 shadow-card" aria-label="Por dia da semana">
             <h2 className="mb-2 text-[12px] font-medium text-muted-foreground">Quando você mais consegue</h2>
             {m.hasWeekdays ? (
@@ -133,10 +152,9 @@ export default function Progresso() {
                 <p className="mt-2 text-[11px] leading-4 text-muted-foreground">Baseado nas últimas 12 semanas. Dias em cinza ainda têm poucos dados.</p>
                 {m.weakest ? <p className="mt-2 rounded-xl bg-primary/5 px-3 py-2 text-[12px] leading-[18px] text-muted-foreground">Seu dia mais fraco é <b className="font-medium text-foreground">{WEEKDAY_FULL[m.weakest.dow]}</b> ({pct(m.weakest.adherence)}, contra {pct(m.weakest.best)} no melhor). Vale combinar uma versão mínima para esse dia.</p> : null}
               </>
-            ) : (
-              <p className="text-sm leading-5 text-muted-foreground">Aparece depois de umas 4 semanas de uso. Antes disso, qualquer padrão seria acaso.</p>
-            )}
+            ) : null}
           </section>
+          ) : null}
           <Link to="/h/dinheiro" className="mt-3 block rounded-2xl border border-border/60 bg-card p-4 text-sm font-semibold text-primary shadow-card">Ver hábitos e dinheiro</Link>
           <p className="mt-4 px-1 text-xs leading-5 text-muted-foreground">Os números descrevem o que aconteceu com você. Não provam por que aconteceu.</p>
         </>
@@ -148,9 +166,7 @@ export default function Progresso() {
 
 function TrajectoryCard({ weeks }: { weeks: ReturnType<typeof weeklyConsistency> }) {
   const withData = weeks.filter((w) => w.value != null && w.n >= 3);
-  if (withData.length < 3) {
-    return <p className="mt-3 px-1 text-[12px] leading-[18px] text-muted-foreground">A trajetória por semana aparece depois de 3 semanas de uso. O que importa é a direção, não uma semana isolada.</p>;
-  }
+  if (withData.length < 3) return null; // o card "Aparecem quando houver dados" explica o que falta
   const closed = weeks.filter((w) => !w.current && w.value != null && w.n >= 3);
   const avg = (list: typeof closed) => (list.length ? list.reduce((a, w) => a + (w.value ?? 0), 0) / list.length : null);
   const recent = avg(closed.slice(-4));
