@@ -100,3 +100,58 @@ export function sanitizePlan(raw: unknown, title: string): PlanSuggestion {
   };
   return { cue_text: clean(o.cue_text, /^depois d[eoa]s?\b/i), minimum_text: clean(o.minimum_text) };
 }
+
+// ---------------------------------------------------------------- resumo do livro (a partir das anotações da pessoa)
+
+export const MAX_BOOK_BULLETS = 8;
+export const MAX_BULLET_CHARS = 160;
+export type BookNote = { body: string; page?: number | null };
+
+export const BOOK_SYSTEM =
+  "Você organiza as anotações de leitura de uma pessoa em tópicos curtos, em português do Brasil. Use SOMENTE o que está nas anotações: " +
+  "não acrescente nada do livro, de outras fontes, nem a sua opinião; não invente nomes, datas, números ou citações. Agrupe ideias parecidas, " +
+  "reescreva com clareza e mantenha o sentido de quem escreveu. Devolva de 2 a 8 tópicos, cada um com uma frase curta (até 160 caracteres), sem emojis.";
+
+export function bookUser(title: string, notes: BookNote[]): string {
+  return JSON.stringify({ livro: title, anotacoes: notes.map((n) => (n.page != null ? { pagina: n.page, texto: n.body } : { texto: n.body })) });
+}
+
+export const BOOK_TOOL = {
+  name: "emit_book_summary",
+  description: "Tópicos do resumo do livro, feitos só das anotações da pessoa.",
+  parameters: {
+    type: "object", additionalProperties: false, required: ["bullets"],
+    properties: { bullets: { type: "array", minItems: 1, maxItems: MAX_BOOK_BULLETS, items: { type: "string", maxLength: MAX_BULLET_CHARS } } },
+  },
+  strict: true,
+};
+
+const words = (s: string): string[] => norm(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+
+/** Aprova os tópicos só se parecem vir das anotações: sem link, sem número novo e cada tópico usa palavras que a pessoa escreveu. */
+export function guardBook(bullets: unknown, notes: BookNote[]): { ok: boolean; bullets: string[]; reason?: string } {
+  if (!Array.isArray(bullets)) return { ok: false, bullets: [], reason: "not_a_list" };
+  const clean = bullets.filter((b): b is string => typeof b === "string").map((b) => b.replace(/\s+/g, " ").trim()).filter((b) => b.length >= 3);
+  if (clean.length < 1 || clean.length > MAX_BOOK_BULLETS) return { ok: false, bullets: [], reason: "count" };
+  const corpus = notes.map((n) => n.body).join(" \n ");
+  const seen = new Set(words(corpus));
+  const allowed = numbersIn(corpus);
+  for (const b of clean) {
+    if (b.length > MAX_BULLET_CHARS) return { ok: false, bullets: [], reason: "too_long" };
+    if (/https?:\/\/|www\./i.test(b)) return { ok: false, bullets: [], reason: "link" };
+    if (numbersIn(b).some((n) => !allowed.some((a) => Math.abs(a - n) < 0.011))) return { ok: false, bullets: [], reason: "number_not_in_notes" };
+    if (!words(b).some((w) => seen.has(w))) return { ok: false, bullets: [], reason: "not_from_notes" };
+  }
+  return { ok: true, bullets: clean };
+}
+
+/** Reserva sem IA: a primeira frase de cada anotação, no máximo MAX_BOOK_BULLETS espalhadas ao longo do livro. */
+export function fallbackBook(notes: BookNote[]): string[] {
+  const firsts = notes.map((n) => {
+    const t = n.body.replace(/\s+/g, " ").trim();
+    const first = (t.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? t).trim();
+    return first.length > MAX_BULLET_CHARS ? `${first.slice(0, MAX_BULLET_CHARS - 1).trimEnd()}…` : first;
+  }).filter((t) => t.length > 0);
+  if (firsts.length <= MAX_BOOK_BULLETS) return firsts;
+  return Array.from({ length: MAX_BOOK_BULLETS }, (_, i) => firsts[Math.floor((i * firsts.length) / MAX_BOOK_BULLETS)]);
+}

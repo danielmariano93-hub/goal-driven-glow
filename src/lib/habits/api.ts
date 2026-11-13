@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
+import type { ReadingNote } from "@/lib/habits/engine/reading";
 import {
   formOf, type HabitForm,
   automaticityDue, automaticitySummary, isMaintenance, mergeAutoLogs, quitStats, summarizeHabit, FIRM_FROM,
@@ -155,6 +156,7 @@ const keys = {
   rhythm: (uid?: string, habitId?: string) => ["hb", "rhythm", uid, habitId] as const,
   goals: (uid?: string) => ["hb", "goals", uid] as const,
   logTimes: (uid?: string) => ["hb", "logTimes", uid] as const,
+  notes: (uid?: string, habitId?: string) => ["hb", "notes", uid, habitId] as const,
 };
 
 /** Liberação por usuário (`hb_access`). Falha fechada: qualquer erro = sem Hábitos. */
@@ -613,6 +615,45 @@ export function useProjectUpdate() {
     onSuccess: inv,
   });
 }
+export interface ProjectNotesPayload { notes: ReadingNote[]; summaries: Array<{ project_id: string; summary: string }> }
+
+/** Anotações de leitura e resumos dos livros de um hábito. Falha sem ruído: o cartão só não aparece. */
+export function useProjectNotes(habitId: string | undefined, enabledFlag = true) {
+  const { user } = useAuth();
+  const enabled = useHabitsEnabled();
+  return useQuery({
+    queryKey: keys.notes(user?.id, habitId),
+    enabled: !!user && !!habitId && enabledFlag && enabled.data === true,
+    staleTime: 30_000,
+    retry: 1,
+    queryFn: () => rpc<ProjectNotesPayload>("hb_project_notes_data", { p_habit: habitId }),
+  });
+}
+function useNotesInvalidate() {
+  const qc = useQueryClient();
+  return () => void qc.invalidateQueries({ queryKey: ["hb", "notes"] });
+}
+export function useProjectNoteAdd() {
+  const inv = useNotesInvalidate();
+  return useMutation({
+    mutationFn: (i: { project_id: string; body: string; page?: number | null; date?: string | null }) =>
+      rpc<string>("hb_project_note_add", { p_project: i.project_id, p_body: i.body, p_page: i.page ?? null, p_date: i.date ?? null }),
+    onSuccess: inv,
+  });
+}
+export function useProjectNoteDelete() {
+  const inv = useNotesInvalidate();
+  return useMutation({ mutationFn: (id: string) => rpc<null>("hb_project_note_delete", { p_note: id }), onSuccess: inv });
+}
+export function useProjectSummarySet() {
+  const inv = useNotesInvalidate();
+  return useMutation({ mutationFn: (i: { project_id: string; summary: string }) => rpc<null>("hb_project_summary_set", { p_project: i.project_id, p_summary: i.summary }), onSuccess: inv });
+}
+/** Pede à IA para organizar as anotações em tópicos. Não grava: a pessoa revisa e guarda. */
+export function useSummarizeBook() {
+  return useMutation({ mutationFn: (project_id: string) => callHabitsAi<{ ok: boolean; source: "ai" | "template" | "none"; bullets: string[] }>({ action: "summarize_book", project_id }) });
+}
+
 export function useStepToggle() {
   const inv = useInvalidate();
   return useMutation({

@@ -2,6 +2,7 @@
 // Edge Function: habits-ai (Hábitos F6). Duas ações, ambas com a pessoa autenticada:
 //  - suggest_plan { title }  -> { cue_text, minimum_text } (nunca para hábito de saúde/substância)
 //  - narrate_week {}         -> { text, source: "ai" | "template" } (números vêm do banco; a IA só escreve o texto)
+//  - summarize_book { project_id } -> { bullets, source: "ai" | "template" } (organiza SÓ as anotações da pessoa; não grava nada)
 // Limites: precisa de Hábitos liberado; teto mensal de custo por pessoa; guarda de números; sem linguagem clínica; reserva em texto fixo.
 // Nenhuma ação escreve em tabelas de Hábitos.
 // deno-lint-ignore-file no-explicit-any
@@ -12,8 +13,8 @@ import { callStructuredFunction } from "../_shared/ai-structured.ts";
 import { estimateAiCostUsd, recordAiUsage } from "../_shared/aiUsageLedger.ts";
 import { weeklyReview, mergeAutoLogs, type HabitDef, type LogRow, type PauseRange } from "../_shared/habits-core/index.ts";
 import {
-  AI_MONTHLY_CAP_USD, NARRATIVE_SYSTEM, NARRATIVE_TOOL, PLAN_SYSTEM, PLAN_TOOL, factNumbers, fallbackNarrative, guardNarrative,
-  narrativeUser, planRefused, sanitizePlan, type ReviewFacts,
+  AI_MONTHLY_CAP_USD, BOOK_SYSTEM, BOOK_TOOL, NARRATIVE_SYSTEM, NARRATIVE_TOOL, PLAN_SYSTEM, PLAN_TOOL, bookUser, factNumbers, fallbackBook, fallbackNarrative,
+  guardBook, guardNarrative, narrativeUser, planRefused, sanitizePlan, type BookNote, type ReviewFacts,
 } from "../_shared/habits/ai.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -54,7 +55,7 @@ Deno.serve(async (req) => {
   const userId = u?.user?.id;
   if (!userId) return json({ ok: false, error: "unauthorized" }, 401);
 
-  let body: { action?: unknown; title?: unknown } = {};
+  let body: { action?: unknown; title?: unknown; project_id?: unknown } = {};
   try { body = await req.json(); } catch { /* validação abaixo */ }
 
   // Só quem tem Hábitos liberado (mesmo portão do restante).
@@ -91,6 +92,25 @@ Deno.serve(async (req) => {
       return json({ ok: true, source: "template", reason: out ? `guard:${verdict.reason}` : "ai_unavailable", text: template });
     }
     return json({ ok: true, source: "ai", text });
+  }
+
+  if (body.action === "summarize_book") {
+    const pid = typeof body.project_id === "string" ? body.project_id : "";
+    if (!/^[0-9a-f-]{36}$/i.test(pid)) return json({ ok: false, error: "invalid_project" }, 400);
+    const { data: pr } = await sb.from("hb_projects").select("id,title").eq("id", pid).eq("user_id", userId).maybeSingle();
+    if (!pr) return json({ ok: false, error: "not_found" }, 404);
+    const { data: rows } = await sb.from("hb_project_notes").select("body,page").eq("project_id", pid).eq("user_id", userId).order("created_at", { ascending: true }).limit(300);
+    const notes = ((rows as BookNote[] | null) ?? []).filter((n) => typeof n.body === "string" && n.body.trim().length > 0);
+    if (notes.length === 0) return json({ ok: true, source: "none", reason: "no_notes", bullets: [] });
+    const template = fallbackBook(notes);
+    if (await monthSpentUsd(sb, userId) >= AI_MONTHLY_CAP_USD) return json({ ok: true, source: "template", reason: "monthly_cap", bullets: template });
+    const out = await callModel(sb, userId, "summarize_book", BOOK_SYSTEM, bookUser(String((pr as any).title ?? ""), notes), BOOK_TOOL);
+    const verdict = guardBook(out?.bullets, notes);
+    if (!verdict.ok) {
+      if (out) console.warn("[habits-ai] book_guard_rejected", verdict.reason);
+      return json({ ok: true, source: "template", reason: out ? `guard:${verdict.reason}` : "ai_unavailable", bullets: template });
+    }
+    return json({ ok: true, source: "ai", bullets: verdict.bullets });
   }
   return json({ ok: false, error: "unknown_action" }, 400);
 });
