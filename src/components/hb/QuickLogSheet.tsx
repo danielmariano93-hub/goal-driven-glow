@@ -4,8 +4,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
-import { hbErrorMessage, useLogHabit, useProjectAdd, useProjectStart, useStepToggle, type HabitView } from "@/lib/habits/api";
+import { hbErrorMessage, useLogHabit, useProjectAdd, useProjectNoteAdd, useProjectStart, useStepToggle, type HabitView } from "@/lib/habits/api";
 import { hhmm, minutesOf, projectStats } from "@/lib/habits/engine";
+import { checkStop } from "@/lib/habits/engine/reading";
 import { targetText } from "@/lib/habits/present";
 
 const STEP_BY_UNIT = (v: HabitView): { step: number; quick: number[] } => {
@@ -31,6 +32,7 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
   const log = useLogHabit();
   const projectAdd = useProjectAdd();
   const projectStart = useProjectStart();
+  const noteAdd = useProjectNoteAdd();
   const stepToggle = useStepToggle();
   const { habit, summary } = view;
   const current = summary.today.quantity ?? 0;
@@ -41,6 +43,8 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
   const [text, setText] = useState(view.form === "value" && current > 0 ? num(current) : "");
   const [time, setTime] = useState(view.form === "time" && current > 0 ? hhmm(current % 1440) : "");
   const [pages, setPages] = useState("");
+  const [stop, setStop] = useState("");
+  const [note, setNote] = useState("");
   const [pTitle, setPTitle] = useState("");
   const [pTotal, setPTotal] = useState("");
   const close = () => onOpenChange(false);
@@ -71,6 +75,9 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
 
   const proj = view.project;
   const pStats = proj ? projectStats(proj.total, proj.current, [], date) : null;
+  const money = (proj?.unit ?? "") === "R$";
+  const isPages = (proj?.unit ?? "").toLowerCase().startsWith("pág");
+  const stopCheck = proj ? checkStop(proj.current, proj.total, stop) : null;
   const addPages = async (n: number) => {
     if (!(n > 0)) return;
     try {
@@ -78,6 +85,26 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
       toast.success(r.finished ? "Projeto concluído. Parabéns." : `Registrado: +${num(r.added)}. Faltam ${num(r.total - r.current)}.`);
       setPages("");
       if (r.finished) close();
+    } catch (e) { fail(e); }
+  };
+  /** "Parei na página X": o Nino calcula quanto foi lido desde a última marcação. */
+  const saveStop = async () => {
+    if (!proj || !stopCheck) return;
+    if (stopCheck.kind === "empty") return toast.error(isPages ? "Informe a página em que você parou." : "Informe até onde você chegou.");
+    if (stopCheck.kind === "same") return toast.error(`Você já estava em ${num(proj.current)}. Informe um número maior.`);
+    if (stopCheck.kind === "back") return toast.error(`Você já tinha chegado em ${num(stopCheck.current)}. Para corrigir um valor, use Editar.`);
+    if (stopCheck.kind === "over") return toast.error(`O total é ${num(stopCheck.total)}. Informe um número até ${num(stopCheck.total)}.`);
+    try {
+      const r = await projectAdd.mutateAsync({ habit_id: habit.id, amount: stopCheck.added, date });
+      const text = note.trim();
+      let noteFailed = false;
+      if (text) {
+        try { await noteAdd.mutateAsync({ project_id: proj.id, body: text, page: stopCheck.stop, date }); } catch { noteFailed = true; }
+      }
+      if (noteFailed) toast.error("O avanço foi registrado, mas a anotação não foi salva. Tente anotar de novo pelo livro.");
+      else toast.success(r.finished ? "Projeto concluído. Parabéns." : `Registrado: +${num(r.added)}. Faltam ${num(r.total - r.current)}.`);
+      setStop(""); setNote("");
+      close();
     } catch (e) { fail(e); }
   };
   const startProject = async () => {
@@ -88,9 +115,9 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
 
   const unit = habit.quantity_unit ?? "";
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mx-auto max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="px-5 pb-1 text-left">
             <DrawerTitle className="font-display text-[18px] font-semibold leading-[26px] tracking-[-0.02em]">{habit.title}</DrawerTitle>
             <p className="text-[12px] text-muted-foreground">
@@ -144,17 +171,42 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
 
             {view.form === "project" ? (
               proj && pStats ? (
-                <>
-                  <div className="rounded-2xl border border-border/60 bg-card p-3.5">
-                    <div className="flex items-baseline justify-between"><p className="font-display text-[18px] font-semibold tabular-nums tracking-[-0.02em]">{num(proj.current)}<span className="text-[14px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p><p className="text-[12px] text-muted-foreground">{pStats.percent}%</p></div>
-                    <div className="mt-2 h-1.5 rounded-full bg-muted"><i className="block h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${pStats.percent}%` }} /></div>
-                  </div>
-                  <div className="flex gap-1.5">{(proj.unit === "R$" ? [50, 100, 200, 500] : [5, 10, 20, 30]).map((n) => <button key={n} type="button" onClick={() => void addPages(n)} disabled={projectAdd.isPending} className="h-10 flex-1 rounded-full border border-border bg-card text-[14px] font-medium active:scale-95">+{n}</button>)}</div>
-                  <div className="flex gap-2">
-                    <input value={pages} onChange={(e) => setPages(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Outro valor (${proj.unit ?? ""})`} aria-label="Avanço" className="h-11 min-w-0 flex-1 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />
-                    <Button className="h-11 rounded-full px-5" disabled={projectAdd.isPending} onClick={() => void addPages(Number(pages.replace(",", ".")))}>Registrar</Button>
-                  </div>
-                </>
+                money ? (
+                  <>
+                    <div className="rounded-2xl border border-border/60 bg-card p-3.5">
+                      <div className="flex items-baseline justify-between"><p className="font-display text-[18px] font-semibold tabular-nums tracking-[-0.02em]">{num(proj.current)}<span className="text-[14px] font-normal text-muted-foreground"> de {num(proj.total)} {proj.unit ?? ""}</span></p><p className="text-[12px] text-muted-foreground">{pStats.percent}%</p></div>
+                      <div className="mt-2 h-1.5 rounded-full bg-muted"><i className="block h-full rounded-full bg-primary transition-[width] duration-500" style={{ width: `${pStats.percent}%` }} /></div>
+                    </div>
+                    <div className="flex gap-1.5">{[50, 100, 200, 500].map((n) => <button key={n} type="button" onClick={() => void addPages(n)} disabled={projectAdd.isPending} className="h-10 flex-1 rounded-full border border-border bg-card text-[14px] font-medium active:scale-95">+{n}</button>)}</div>
+                    <div className="flex gap-2">
+                      <input value={pages} onChange={(e) => setPages(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" placeholder={`Outro valor (${proj.unit ?? ""})`} aria-label="Avanço" className="h-11 min-w-0 flex-1 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />
+                      <Button className="h-11 rounded-full px-5" disabled={projectAdd.isPending} onClick={() => void addPages(Number(pages.replace(",", ".")))}>Registrar</Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/50 px-3.5 py-2.5">
+                      <p className="text-[14px]">{isPages ? "Você parou na página" : "Você está em"} <b className="font-display font-semibold tabular-nums">{num(proj.current)}</b><span className="text-muted-foreground"> de {num(proj.total)}</span></p>
+                      <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">{pStats.percent}%</span>
+                    </div>
+                    <label className="block">
+                      <span className="text-[12px] text-muted-foreground">{isPages ? "Parei na página" : `Parei em (${proj.unit ?? ""})`}</span>
+                      <input value={stop} onChange={(e) => setStop(e.target.value.replace(/[^0-9.,]/g, ""))} inputMode="decimal" enterKeyHint="next" placeholder={String(Math.min(proj.total, Math.round(proj.current) + 1))} aria-label={isPages ? "Parei na página" : "Parei em"} className="mt-1 h-12 w-full rounded-2xl border border-border/70 bg-card px-4 text-center font-display text-[24px] font-semibold tabular-nums outline-none focus:border-primary" />
+                    </label>
+                    <p className="min-h-5 text-center text-[13px] leading-5" aria-live="polite">
+                      {stopCheck?.kind === "added" ? <span className="font-medium text-primary">{stopCheck.finishes ? `+${num(stopCheck.added)} ${proj.unit ?? ""}. É o fim: parabéns!` : `+${num(stopCheck.added)} ${proj.unit ?? ""} desde a última marcação`}</span>
+                        : stopCheck?.kind === "back" ? <span className="text-muted-foreground">Você já tinha chegado em {num(stopCheck.current)}.</span>
+                        : stopCheck?.kind === "same" ? <span className="text-muted-foreground">Você já estava em {num(proj.current)}.</span>
+                        : stopCheck?.kind === "over" ? <span className="text-muted-foreground">O total é {num(stopCheck.total)}.</span>
+                        : <span className="text-muted-foreground">O Nino calcula quanto você leu.</span>}
+                    </p>
+                    <label className="block">
+                      <span className="text-[12px] text-muted-foreground">O que ficou desta leitura? <span className="opacity-70">(opcional)</span></span>
+                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 500))} rows={2} maxLength={500} placeholder="Uma ou duas frases, do seu jeito." aria-label="O que ficou desta leitura" className="mt-1 w-full resize-none rounded-xl border border-border/70 bg-card px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary" />
+                    </label>
+                    <Button className="h-11 rounded-full text-[14px] font-medium" disabled={projectAdd.isPending || noteAdd.isPending || stopCheck?.kind !== "added"} onClick={() => void saveStop()}>{projectAdd.isPending || noteAdd.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Registrar"}</Button>
+                  </>
+                )
               ) : (
                 <>
                   <input value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="Nome do novo projeto" aria-label="Nome do projeto" maxLength={120} className="h-11 rounded-xl border border-border/70 bg-card px-3.5 text-[14px] outline-none focus:border-primary" />

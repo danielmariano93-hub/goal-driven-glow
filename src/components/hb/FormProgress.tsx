@@ -5,6 +5,7 @@ import {
   achievementsFor, addDays, ceilingStats, dayRows, hhmm, projectStats, recurringStatus, timeStats, valueTrend, weekRows, type LogRow,
 } from "@/lib/habits/engine";
 import { DayRhythmCard } from "@/components/hb/Rhythm";
+import { ReadingNotes } from "@/components/hb/ReadingNotes";
 import { weekHistory } from "@/lib/habits/engine/rhythm";
 import { OUT_OF_REACH_HINT, paceNote, paceOf, paceTone, targetText, weekTargetNote } from "@/lib/habits/present";
 
@@ -165,6 +166,7 @@ export function FormProgress({ view, today, logs }: { view: HabitView; today: st
               </>
             ) : <p className="mt-2 text-[14px] text-muted-foreground">Nenhum projeto em andamento. Toque no hábito em Hoje para começar o próximo.</p>}
           </Card>
+          <ReadingNotes view={view} today={today} />
           {view.projects_done.length > 0 ? (
             <Card title="Concluídos" tag={String(view.projects_done.length)}>
               <ul className="mt-2 divide-y divide-border/60">{view.projects_done.map((x) => <li key={x.id} className="flex items-center justify-between gap-3 py-2 text-[14px]"><span className="truncate font-medium">{x.title}</span><span className="shrink-0 text-[12px] text-muted-foreground">{x.finished_on ? dm(x.finished_on) : ""}</span></li>)}</ul>
