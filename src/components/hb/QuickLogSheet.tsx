@@ -6,7 +6,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { hbErrorMessage, useLogHabit, useProjectAdd, useProjectNoteAdd, useProjectStart, useStepToggle, type HabitView } from "@/lib/habits/api";
 import { hhmm, minutesOf, projectStats } from "@/lib/habits/engine";
-import { checkStop } from "@/lib/habits/engine/reading";
+import { checkStop, NOTE_MAX } from "@/lib/habits/engine/reading";
 import { targetText } from "@/lib/habits/present";
 
 const STEP_BY_UNIT = (v: HabitView): { step: number; quick: number[] } => {
@@ -202,7 +202,8 @@ export function QuickLogSheet({ view, date, open, onOpenChange }: { view: HabitV
                     </p>
                     <label className="block">
                       <span className="text-[12px] text-muted-foreground">O que ficou desta leitura? <span className="opacity-70">(opcional)</span></span>
-                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 500))} rows={2} maxLength={500} placeholder="Uma ou duas frases, do seu jeito." aria-label="O que ficou desta leitura" className="mt-1 w-full resize-none rounded-xl border border-border/70 bg-card px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary" />
+                      <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))} rows={2} maxLength={NOTE_MAX} placeholder="Do seu jeito: uma frase ou um trecho." aria-label="O que ficou desta leitura" className="mt-1 max-h-40 w-full resize-y overflow-y-auto rounded-xl border border-border/70 bg-card px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary" />
+                      {note.length > NOTE_MAX * 0.8 ? <span className="mt-1 block text-right text-[11px] text-muted-foreground tabular-nums" aria-live="polite">{note.length} de {NOTE_MAX}</span> : null}
                     </label>
                     <Button className="h-11 rounded-full text-[14px] font-medium" disabled={projectAdd.isPending || noteAdd.isPending || stopCheck?.kind !== "added"} onClick={() => void saveStop()}>{projectAdd.isPending || noteAdd.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Registrar"}</Button>
                   </>

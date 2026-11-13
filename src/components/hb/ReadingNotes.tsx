@@ -3,7 +3,7 @@ import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { hbErrorMessage, useProjectNoteAdd, useProjectNoteDelete, useProjectNotes, useProjectSummarySet, useSummarizeBook, type HabitView } from "@/lib/habits/api";
-import { bulletsToText, notesOf, textToBullets, type ReadingNote } from "@/lib/habits/engine/reading";
+import { bulletsToText, notesOf, NOTE_MAX, textToBullets, type ReadingNote } from "@/lib/habits/engine/reading";
 import type { HbProject } from "@/lib/habits/api";
 
 const MONTH = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -50,7 +50,8 @@ function OpenBookNotes({ project, notes, today }: { project: HbProject; notes: R
       ) : null}
       {writing ? (
         <div className="mt-3 flex flex-col gap-2">
-          <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 500))} rows={3} maxLength={500} autoFocus placeholder="O que você absorveu até aqui?" aria-label="Nova anotação" className="w-full resize-none rounded-xl border border-border/70 bg-background px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary" />
+          <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, NOTE_MAX))} rows={4} maxLength={NOTE_MAX} autoFocus placeholder="O que você absorveu até aqui?" aria-label="Nova anotação" className="max-h-60 w-full resize-y overflow-y-auto rounded-xl border border-border/70 bg-background px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary" />
+          {text.length > NOTE_MAX * 0.8 ? <span className="text-right text-[11px] text-muted-foreground tabular-nums" aria-live="polite">{text.length} de {NOTE_MAX}</span> : null}
           <div className="flex gap-2">
             <Button className="h-10 flex-1 rounded-full" disabled={add.isPending || text.trim().length === 0} onClick={() => void save()}>{add.isPending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : "Guardar"}</Button>
             <Button variant="outline" className="h-10 rounded-full" onClick={() => { setWriting(false); setText(""); }}>Cancelar</Button>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { HabitView } from "@/lib/habits/api";
-import { bulletsToText, checkStop, notesOf, parseStop, textToBullets } from "@/lib/habits/engine/reading";
+import { bulletsToText, checkStop, notesOf, NOTE_MAX, parseStop, textToBullets } from "@/lib/habits/engine/reading";
 import { fallbackBook, guardBook } from "../../supabase/functions/_shared/habits/ai";
 
 const h = vi.hoisted(() => ({ add: vi.fn(), noteAdd: vi.fn(), toastError: vi.fn(), toastSuccess: vi.fn() }));
@@ -97,6 +97,22 @@ describe("folha de leitura", () => {
     fireEvent.change(screen.getByLabelText("O que ficou desta leitura"), { target: { value: "Algo" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(h.toastError).toHaveBeenCalledWith(expect.stringMatching(/avanço foi registrado, mas a anotação não foi salva/)));
+  });
+  it("aceita colar um texto longo (12 itens, ~1.900 caracteres) sem cortar", async () => {
+    const longo = Array.from({ length: 12 }, (_, i) => `${i + 1}. ITEM ${i + 1}\nUm parágrafo explicando o hábito número ${i + 1} com bastante detalhe para ocupar espaço.`).join("\n\n").repeat(2);
+    expect(longo.length).toBeGreaterThan(1900);
+    expect(longo.length).toBeLessThan(NOTE_MAX);
+    open();
+    fireEvent.change(screen.getByLabelText("Parei na página"), { target: { value: "20" } });
+    fireEvent.change(screen.getByLabelText("O que ficou desta leitura"), { target: { value: longo } });
+    expect((screen.getByLabelText("O que ficou desta leitura") as HTMLTextAreaElement).value).toBe(longo);
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(h.noteAdd).toHaveBeenCalledWith(expect.objectContaining({ body: longo.trim() })));
+  });
+  it("passou do limite: corta em NOTE_MAX", () => {
+    open();
+    fireEvent.change(screen.getByLabelText("O que ficou desta leitura"), { target: { value: "a".repeat(NOTE_MAX + 50) } });
+    expect((screen.getByLabelText("O que ficou desta leitura") as HTMLTextAreaElement).value.length).toBe(NOTE_MAX);
   });
   it("reserva em dinheiro continua com os botões de valor, sem anotação", () => {
     open(book({ unit: "R$", total: 1000, current: 100 }));
