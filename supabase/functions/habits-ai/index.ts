@@ -100,7 +100,8 @@ Deno.serve(async (req) => {
     const { data: pr } = await sb.from("hb_projects").select("id,title").eq("id", pid).eq("user_id", userId).maybeSingle();
     if (!pr) return json({ ok: false, error: "not_found" }, 404);
     const { data: rows } = await sb.from("hb_project_notes").select("body,page").eq("project_id", pid).eq("user_id", userId).order("created_at", { ascending: true }).limit(300);
-    const notes = ((rows as BookNote[] | null) ?? []).filter((n) => typeof n.body === "string" && n.body.trim().length > 0);
+    let budget = 30000; // teto de texto enviado ao modelo: livros com muitas anotações longas não estouram o custo
+    const notes = ((rows as BookNote[] | null) ?? []).filter((n) => typeof n.body === "string" && n.body.trim().length > 0).filter((n) => (budget -= n.body.length) >= 0);
     if (notes.length === 0) return json({ ok: true, source: "none", reason: "no_notes", bullets: [] });
     const template = fallbackBook(notes);
     if (await monthSpentUsd(sb, userId) >= AI_MONTHLY_CAP_USD) return json({ ok: true, source: "template", reason: "monthly_cap", bullets: template });

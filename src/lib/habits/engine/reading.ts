@@ -1,5 +1,8 @@
 // Leitura: "parei na página X" vira o avanço do dia (puro, só para a interface; não é espelhado no servidor).
 
+/** Tamanho máximo de uma anotação (cabe um resumo de capítulo colado). Mesmo limite no banco. */
+export const NOTE_MAX = 3000;
+
 export type StopCheck =
   | { kind: "empty" }
   | { kind: "added"; stop: number; added: number; finishes: boolean }
