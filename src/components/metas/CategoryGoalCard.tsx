@@ -2,11 +2,12 @@ import { useState, type ReactNode } from "react";
 import { Pencil, Trash2, Pause, Play, ChevronRight, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { CategoryGoalEvaluation, CategoryGoalStatus } from "@/lib/engine/metrics";
-import { formatBRL } from "@/lib/engine/facts";
+import { formatBRL, type TransactionRow } from "@/lib/engine/facts";
 import type { AdjustmentReview } from "@/lib/engine/goalAdjustment";
 import { AdjustedBadge } from "./GoalAdjustmentViews";
 import { resolveRequiredLabel } from "@/lib/observability/dataContract";
 import { PILL_TONE, StatusPill, type PillTone } from "./StatusPill";
+import { GoalPaceChart } from "./GoalPaceChart";
 
 type Props = {
   evaluation: CategoryGoalEvaluation;
@@ -23,6 +24,8 @@ type Props = {
   clickable?: boolean;
   /** Lista compacta: título, barra e uma linha de números; o resto (mensagem, plano e ações) abre sob demanda. */
   compact?: boolean;
+  /** Lançamentos da janela: com eles, o card aberto mostra o gráfico "Como a meta fecha". */
+  txs?: TransactionRow[];
 };
 
 // Mesmo visual de estado do Ticket Alimentação (etiqueta tingida com ponto).
@@ -77,7 +80,7 @@ export function goalOutlook(ev: CategoryGoalEvaluation): { headline: string; del
   return { headline: "Deve fechar dentro do teto", delta: `folga ${formatBRL(Math.max(0, ev.projectedDifference))}` };
 }
 
-export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true, compact = false }: Props) {
+export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus, onAdjust, adjustment, children, clickable = true, compact = false, txs }: Props) {
   const navigate = useNavigate();
   const [more, setMore] = useState(false);
   const s = STATUS_STYLES[evaluation.status];
@@ -142,6 +145,7 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
               </p>
             ) : null}
             {adjustment ? <AdjustedBadge review={adjustment} /> : null}
+            {txs ? <GoalPaceChart evaluation={evaluation} txs={txs} /> : null}
             {children ? <div>{children}</div> : null}
             <div className="flex flex-wrap gap-2">
               <button onClick={open} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-[13px] font-medium text-primary">Abrir meta <ChevronRight size={12} /></button>
@@ -250,6 +254,8 @@ export function CategoryGoalCard({ evaluation, onEdit, onDelete, onToggleStatus,
       )}
 
       {adjustment ? <AdjustedBadge review={adjustment} /> : null}
+
+      {txs ? <div className="mt-3" onClick={(e) => e.stopPropagation()}><GoalPaceChart evaluation={evaluation} txs={txs} /></div> : null}
 
       {children ? <div onClick={(e) => e.stopPropagation()}>{children}</div> : null}
 

@@ -148,6 +148,7 @@ export default function MetaCategoriaDetalhe() {
       <ul className="space-y-3">
         <CategoryGoalCard
           evaluation={evaluation}
+          txs={numericTxs as never}
           clickable={false}
           onEdit={() => setOpenForm(true)}
           onAdjust={() => setOpenAdjust(true)}
