@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 import { formatBRL, type TransactionRow } from "@/lib/engine/facts";
-import { goalPaceIsStepped, goalPaceModel, type GoalPaceModel, type PaceScenario } from "@/lib/engine/goalPaceChart";
+import { goalPaceModel, type GoalPaceModel, type PaceScenario } from "@/lib/engine/goalPaceChart";
 
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const W = 330;
@@ -15,14 +15,15 @@ function Chart({ m }: { m: GoalPaceModel }) {
   const p = (d: number, v: number) => `${X(d).toFixed(1)},${Y(v).toFixed(1)}`;
   const actual = m.cumulative.map((c) => p(c.day, c.value)).join(" ");
   const e = m.elapsedDays;
-  const canProject = m.remainingDays > 0;
+  const canProject = m.projectable && m.remainingDays > 0;
   const over = m.projected > m.target;
   const projColor = over ? "hsl(var(--destructive))" : "hsl(var(--warning))";
   const ideal0 = { x: X(0), y: Y(0) };
   const ideal1 = { x: X(m.totalDays), y: Y(m.target) };
   const angle = (Math.atan2(ideal1.y - ideal0.y, ideal1.x - ideal0.x) * 180) / Math.PI;
-  const lx = X(m.totalDays * 0.16);
-  const ly = Y(m.idealAt(m.totalDays * 0.16)) - 6;
+  // O rótulo da linha cinza fica à direita de "hoje", acima da linha: ali só passa a projeção, que costuma ficar abaixo dela.
+  const lx = X(m.totalDays * 0.52);
+  const ly = Y(m.idealAt(m.totalDays * 0.52)) - 7;
   // "fecha em …" fica logo abaixo da área da projeção, sem cair em cima dela: usa o ponto mais baixo da borda inferior sob o texto.
   const endLowY = Y(m.range?.low ?? m.projected);
   const labelW = 112;
@@ -31,7 +32,7 @@ function Chart({ m }: { m: GoalPaceModel }) {
   const edgeLeftY = Y(m.actual) + (endLowY - Y(m.actual)) * t;
   const endLabelY = Math.min(Y(0) - 4, Math.max(endLowY, edgeLeftY) + 15);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gasto acumulado da meta ao longo do período: como você está, como deveria estar e projeção até ${dm(m.periodEnd)}`} className="mt-2 block h-auto w-full">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Gasto acumulado da meta ao longo do período: como você está, o ritmo do teto${m.projectable ? ` e a projeção até ${dm(m.periodEnd)}` : ""}`} className="mt-2 block h-auto w-full">
       <line x1={PAD.l} y1={Y(0)} x2={W - PAD.r} y2={Y(0)} stroke="hsl(var(--border))" />
       <line x1={PAD.l} y1={Y(m.target)} x2={W - PAD.r} y2={Y(m.target)} stroke="hsl(var(--destructive))" strokeWidth={1} strokeDasharray="2 3" opacity={0.7} />
       <text x={PAD.l + 2} y={Y(m.target) - 4} fontSize={10.5} fill="hsl(var(--destructive))">teto {formatBRL(m.target)}</text>
@@ -39,7 +40,7 @@ function Chart({ m }: { m: GoalPaceModel }) {
         <polygon points={`${p(e, m.actual)} ${p(m.totalDays, m.range.high)} ${p(m.totalDays, m.range.low)}`} fill="hsl(var(--warning))" opacity={0.14} />
       ) : null}
       <line x1={ideal0.x} y1={ideal0.y} x2={ideal1.x} y2={ideal1.y} stroke="hsl(var(--muted-foreground))" strokeWidth={1.5} strokeDasharray="4 4" />
-      <text x={lx} y={ly} fontSize={10} fill="hsl(var(--muted-foreground))" transform={`rotate(${angle.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>como deveria estar</text>
+      <text x={lx} y={ly} fontSize={10} fill="hsl(var(--muted-foreground))" transform={`rotate(${angle.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})`}>ritmo do teto</text>
       {canProject ? <polyline points={`${p(e, m.actual)} ${p(m.totalDays, m.projected)}`} fill="none" stroke={projColor} strokeWidth={2.2} strokeDasharray="5 4" strokeLinecap="round" /> : null}
       <polyline points={actual} fill="none" stroke="hsl(var(--primary))" strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />
       <line x1={X(e)} y1={PAD.t} x2={X(e)} y2={Y(0)} stroke="hsl(var(--foreground))" strokeWidth={1} strokeDasharray="2 3" />
@@ -68,22 +69,20 @@ function resultText(s: PaceScenario, remainingDays: number): string {
 export function GoalPaceChart({ evaluation, txs, today }: { evaluation: CategoryGoalEvaluation; txs: TransactionRow[]; today?: Date }) {
   const model = useMemo(() => goalPaceModel(evaluation, txs, today ?? new Date()), [evaluation, txs, today]);
   const [picked, setPicked] = useState<number | null>(null);
-  if (!model) {
-    return goalPaceIsStepped(evaluation) ? (
-      <section aria-label="Como a meta fecha" className="border-t border-border pt-3">
-        <h3 className="text-[14px] font-bold leading-5">Como a meta fecha</h3>
-        <p className="mt-1 text-[12px] leading-5 text-muted-foreground">Nesta categoria o gasto cai em datas fixas, então não mostro a linha reta de “como deveria estar”. Valem os pagamentos já feitos e os que ainda vencem.</p>
-      </section>
-    ) : null;
-  }
+  if (!model) return null;
   const idx = picked != null && picked < model.scenarios.length ? picked : model.defaultScenario;
   const chosen = model.scenarios[idx];
-  const slack = model.tiles.slack;
-  const tiles = [
-    { label: "Ritmo", value: formatBRL(model.tiles.pace), unit: "por dia" },
-    ...(model.tiles.allowance != null ? [{ label: "Limite", value: formatBRL(model.tiles.allowance), unit: "por dia" }] : []),
-    slack >= 0 ? { label: "Folga", value: formatBRL(slack), unit: "no fim" } : { label: "Acima do teto", value: formatBRL(-slack), unit: "no fim" },
-  ];
+  const { pace, allowance, remaining, slack } = model.tiles;
+  const tiles: Array<{ label: string; value: string; unit: string }> = [];
+  if (pace != null) tiles.push({ label: "Seu ritmo", value: formatBRL(pace), unit: "por dia" });
+  if (allowance != null) tiles.push({ label: "Limite", value: formatBRL(allowance), unit: "por dia" });
+  if (pace == null && remaining > 0) tiles.push({ label: "Resta", value: formatBRL(remaining), unit: "até o fim" });
+  if (model.projectable) {
+    if (!model.daily) tiles.push({ label: "Projeção", value: formatBRL(model.projected), unit: "no fim" });
+    tiles.push(slack >= 0 ? { label: "Folga", value: formatBRL(slack), unit: "no fim" } : { label: "Acima do teto", value: formatBRL(-slack), unit: "no fim" });
+  }
+  const cols = tiles.length >= 3 ? "grid-cols-3" : tiles.length === 2 ? "grid-cols-2" : "grid-cols-1";
+  const gap = model.belowPace;
   return (
     <section aria-label="Como a meta fecha" className="border-t border-border pt-3">
       <div className="flex items-baseline justify-between gap-3">
@@ -93,10 +92,13 @@ export function GoalPaceChart({ evaluation, txs, today }: { evaluation: Category
       <Chart m={model} />
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground" aria-hidden="true">
         <span className="inline-flex items-center gap-1.5"><i className="block h-0.5 w-3.5 rounded bg-primary" />como você está</span>
-        <span className="inline-flex items-center gap-1.5"><i className="block w-3.5 border-t-2 border-dashed border-muted-foreground" />como deveria estar</span>
-        {model.remainingDays > 0 ? <span className="inline-flex items-center gap-1.5"><i className="block w-3.5 border-t-2 border-dashed border-warning" />projeção</span> : null}
+        <span className="inline-flex items-center gap-1.5"><i className="block w-3.5 border-t-2 border-dashed border-muted-foreground" />ritmo do teto</span>
+        {model.projectable && model.remainingDays > 0 ? <span className="inline-flex items-center gap-1.5"><i className="block w-3.5 border-t-2 border-dashed border-warning" />projeção</span> : null}
       </div>
-      <div className={`mt-3 grid gap-2 ${tiles.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+      <p data-testid="goal-pace-position" className={`mt-2 text-[13px] font-medium leading-5 ${gap > 0.005 ? "text-success" : "text-foreground"}`}>
+        {Math.abs(gap) <= 0.005 ? "Você está exatamente no ritmo do teto." : gap > 0 ? `Você está ${formatBRL(gap)} abaixo do ritmo do teto.` : `Você está ${formatBRL(-gap)} acima do ritmo do teto.`}
+      </p>
+      <div className={`mt-3 grid gap-2 ${cols}`}>
         {tiles.map((t) => (
           <div key={t.label} className="rounded-[14px] border border-border px-2.5 py-2">
             <p className="text-[11px] text-muted-foreground">{t.label}</p>
@@ -105,6 +107,7 @@ export function GoalPaceChart({ evaluation, txs, today }: { evaluation: Category
           </div>
         ))}
       </div>
+      {!model.projectable ? <p className="mt-2 text-[12px] leading-5 text-muted-foreground">Ainda não há histórico desta categoria para projetar o fechamento. O gráfico mostra o seu acumulado e o ritmo do teto.</p> : null}
       {model.scenarios.length > 0 && chosen ? (
         <div className="mt-3">
           <p className="text-[14px] font-bold leading-5">E se eu gastar por dia…</p>
