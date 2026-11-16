@@ -67,23 +67,24 @@ export interface GoalPaceModel {
   range: { low: number; high: number } | null;
   /** Acumulado ao fim de cada dia já decorrido (começa em 0, no dia 0). */
   cumulative: Array<{ day: number; value: number }>;
-  /** Teto do período distribuído por igual: o "como deveria estar" vai de 0 ao teto no último dia. */
+  /** Ritmo do teto: o teto distribuído por igual pelos dias, de 0 até o teto no último dia. Ficar abaixo dele é bom. */
   idealAt: (day: number) => number;
-  tiles: { pace: number; allowance: number | null; slack: number };
+  /** Quanto o gasto está abaixo (positivo) ou acima (negativo) do ritmo do teto hoje. */
+  belowPace: number;
+  /** Dá para projetar o fechamento? Sem histórico nem cobranças conhecidas, só o acumulado é mostrado. */
+  projectable: boolean;
+  /** Esta categoria tem gasto diário (R$/dia faz sentido)? Se não, não há "e se eu gastar por dia". */
+  daily: boolean;
+  tiles: { pace: number | null; allowance: number | null; remaining: number; slack: number };
   scenarios: PaceScenario[];
   defaultScenario: number;
 }
 
 const INACTIVE = new Set(["scheduled", "paused", "cancelled", "completed_ok", "completed_over"]);
 
-/** Pode mostrar o gráfico? Só em meta ativa, de consumo contínuo (R$/dia faz sentido) e já iniciada. */
+/** Pode mostrar o gráfico? Em toda meta ativa e já iniciada: o acumulado existe mesmo com gastos em dias espaçados. */
 export function goalPaceApplies(ev: CategoryGoalEvaluation): boolean {
-  return !INACTIVE.has(ev.status) && ev.supportsDailyBudget && ev.elapsedDays >= 1 && ev.targetAmount > 0;
-}
-
-/** Meta ativa de categoria "em degraus" (aluguel, assinatura): sem linha reta de "como deveria estar". */
-export function goalPaceIsStepped(ev: CategoryGoalEvaluation): boolean {
-  return !INACTIVE.has(ev.status) && !ev.supportsDailyBudget && ev.targetAmount > 0;
+  return !INACTIVE.has(ev.status) && ev.elapsedDays >= 1 && ev.targetAmount > 0;
 }
 
 export function goalPaceModel(ev: CategoryGoalEvaluation, txs: TransactionRow[], today: Date): GoalPaceModel | null {
@@ -102,11 +103,13 @@ export function goalPaceModel(ev: CategoryGoalEvaluation, txs: TransactionRow[],
   const target = ev.targetAmount;
   const projected = Math.max(ev.actualSpend, ev.projectedFinalSpend);
   const remaining = ev.remainingDays;
+  const daily = ev.supportsDailyBudget;
   const pace = remaining > 0 ? Math.max(0, round2((projected - ev.actualSpend) / remaining)) : 0;
-  const allowance = ev.dailyAllowance > 0 ? ev.dailyAllowance : null;
+  const allowance = daily && ev.dailyAllowance > 0 ? ev.dailyAllowance : null;
+  const projectable = ev.projection.method !== "insufficient_data";
 
   const scenarios: PaceScenario[] = [];
-  if (remaining > 0 && allowance != null) {
+  if (daily && projectable && remaining > 0 && allowance != null) {
     const raw: Array<{ kind: PaceScenarioKind; rate: number }> = [
       { kind: "calmer", rate: round2(pace * 0.75) }, { kind: "pace", rate: pace }, { kind: "limit", rate: allowance },
     ];
@@ -131,6 +134,7 @@ export function goalPaceModel(ev: CategoryGoalEvaluation, txs: TransactionRow[],
     ? paceIdx
     : scenarios.reduce((best, s, i, arr) => (Math.abs(s.rate - pace) < Math.abs(arr[best].rate - pace) ? i : best), 0);
 
+  const idealAt = (day: number) => round2((Math.min(Math.max(day, 0), ev.totalDays) / ev.totalDays) * target);
   return {
     periodStart: ev.period.start,
     periodEnd: ev.period.end,
@@ -143,8 +147,11 @@ export function goalPaceModel(ev: CategoryGoalEvaluation, txs: TransactionRow[],
     projected,
     range: ev.projection.range ?? null,
     cumulative,
-    idealAt: (day) => round2((Math.min(Math.max(day, 0), ev.totalDays) / ev.totalDays) * target),
-    tiles: { pace, allowance, slack: round2(target - projected) },
+    idealAt,
+    belowPace: round2(idealAt(elapsed) - ev.actualSpend),
+    projectable,
+    daily,
+    tiles: { pace: daily && projectable ? pace : null, allowance, remaining: round2(target - ev.actualSpend), slack: round2(target - projected) },
     scenarios,
     defaultScenario,
   };

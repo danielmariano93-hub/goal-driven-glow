@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { evaluateCategoryGoal, type CategorySpendingGoalRow } from "@/lib/engine/metrics";
 import { type TransactionRow } from "@/lib/engine/facts";
-import { categoryGoalDailySpend, goalPaceApplies, goalPaceIsStepped, goalPaceModel } from "@/lib/engine/goalPaceChart";
+import { categoryGoalDailySpend, goalPaceApplies, goalPaceModel } from "@/lib/engine/goalPaceChart";
 import { GoalPaceChart } from "@/components/metas/GoalPaceChart";
 import { CategoryGoalCard } from "@/components/metas/CategoryGoalCard";
 
@@ -78,14 +78,35 @@ describe("modelo do gráfico", () => {
     expect(m.tiles.slack).toBe(Math.round((ev.targetAmount - Math.max(ev.actualSpend, ev.projectedFinalSpend)) * 100) / 100);
     expect(m.tiles.allowance).toBe(ev.dailyAllowance);
   });
-  it("não aplica a meta pausada, agendada ou concluída; nem a categoria sem R$/dia", () => {
+  it("não aplica a meta pausada, agendada ou concluída", () => {
     expect(goalPaceApplies({ ...ev, status: "paused" })).toBe(false);
     expect(goalPaceApplies({ ...ev, status: "scheduled" })).toBe(false);
     expect(goalPaceApplies({ ...ev, status: "completed_ok" })).toBe(false);
-    expect(goalPaceApplies({ ...ev, supportsDailyBudget: false })).toBe(false);
-    expect(goalPaceIsStepped({ ...ev, supportsDailyBudget: false })).toBe(true);
-    expect(goalPaceIsStepped({ ...ev, status: "paused", supportsDailyBudget: false })).toBe(false);
-    expect(goalPaceModel({ ...ev, supportsDailyBudget: false }, txs, today)).toBeNull();
+    expect(goalPaceModel({ ...ev, status: "paused" }, txs, today)).toBeNull();
+  });
+  it("categoria sem gasto diário também tem gráfico: acumulado e projeção do card, sem R$/dia e sem 'e se'", () => {
+    const sparse = { ...ev, supportsDailyBudget: false, dailyAllowance: 0 };
+    expect(goalPaceApplies(sparse)).toBe(true);
+    const ms = goalPaceModel(sparse, txs, today)!;
+    expect(ms).not.toBeNull();
+    expect(ms.daily).toBe(false);
+    expect(ms.scenarios).toEqual([]);
+    expect(ms.tiles.pace).toBeNull();
+    expect(ms.tiles.allowance).toBeNull();
+    expect(ms.tiles.remaining).toBe(Math.round((ev.targetAmount - ev.actualSpend) * 100) / 100);
+    expect(ms.projected).toBe(ev.projectedFinalSpend);
+    expect(ms.cumulative.at(-1)).toEqual({ day: 15, value: ev.actualSpend });
+  });
+  it("sem histórico para projetar: só o acumulado e o ritmo do teto", () => {
+    const none = { ...ev, projection: { ...ev.projection, method: "insufficient_data" as const } };
+    const mn = goalPaceModel(none, txs, today)!;
+    expect(mn.projectable).toBe(false);
+    expect(mn.scenarios).toEqual([]);
+    expect(mn.tiles.pace).toBeNull();
+  });
+  it("abaixo do ritmo do teto é positivo: a diferença é ritmo do teto de hoje − gasto", () => {
+    expect(m.belowPace).toBeGreaterThan(0);
+    expect(m.belowPace).toBe(Math.round((m.idealAt(15) - ev.actualSpend) * 100) / 100);
   });
   it("já acima do teto: sem 'e se' (não há folga para simular), mas o gráfico continua", () => {
     const over = { ...ev, actualSpend: 1000, dailyAllowance: 0, status: "exceeded" as const, projectedFinalSpend: 1100 };
@@ -104,7 +125,7 @@ describe("tela do gráfico", () => {
     const sec = screen.getByRole("region", { name: "Como a meta fecha" });
     expect(within(sec).getByText("Como a meta fecha")).toBeTruthy();
     expect(within(sec).getByRole("img", { name: /Gasto acumulado da meta/ })).toBeTruthy();
-    for (const label of ["Ritmo", "Limite"]) expect(within(sec).getByText(label)).toBeTruthy();
+    for (const label of ["Seu ritmo", "Limite", "Folga"]) expect(within(sec).getByText(label)).toBeTruthy();
     expect(within(sec).getByText("E se eu gastar por dia…")).toBeTruthy();
   });
   it("tocar noutro valor troca a frase do resultado", () => {
@@ -119,10 +140,37 @@ describe("tela do gráfico", () => {
     expect(other.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByTestId("goal-pace-result").textContent).not.toBe(before);
   });
-  it("categoria em degraus: só a explicação, sem gráfico", () => {
-    render(<GoalPaceChart evaluation={{ ...ev, supportsDailyBudget: false }} txs={txs} today={today} />);
-    expect(screen.getByText(/o gasto cai em datas fixas/)).toBeTruthy();
-    expect(screen.queryByRole("img")).toBeNull();
+  it("gastando abaixo do ritmo do teto: diz isso de forma positiva, sem 'como deveria estar'", () => {
+    render(<GoalPaceChart evaluation={ev} txs={txs} today={today} />);
+    const pos = screen.getByTestId("goal-pace-position");
+    expect(pos.textContent).toMatch(/Você está R\$\s[\d.,]+ abaixo do ritmo do teto\./);
+    expect(pos.className).toMatch(/text-success/);
+    expect(screen.queryByText(/como deveria estar/i)).toBeNull();
+    expect(document.querySelector("svg")?.textContent).toMatch(/ritmo do teto/);
+  });
+  it("gastando acima do ritmo do teto: informa sem alarme", () => {
+    const heavy = Array.from({ length: 15 }, (_, i) => tx({ id: `h${i}`, amount: 45, occurred_at: `2026-11-${String(i + 1).padStart(2, "0")}` }));
+    const evh = evaluateCategoryGoal(goal, heavy, today, "Transporte");
+    render(<GoalPaceChart evaluation={evh} txs={heavy} today={today} />);
+    const pos = screen.getByTestId("goal-pace-position");
+    expect(pos.textContent).toMatch(/acima do ritmo do teto\./);
+    expect(pos.className).not.toMatch(/text-success|text-destructive/);
+  });
+  it("categoria sem gasto diário: mostra o gráfico com Resta, Projeção e Folga, sem 'e se' nem Limite", () => {
+    render(<GoalPaceChart evaluation={{ ...ev, supportsDailyBudget: false, dailyAllowance: 0 }} txs={txs} today={today} />);
+    const sec = screen.getByRole("region", { name: "Como a meta fecha" });
+    expect(within(sec).getByRole("img", { name: /Gasto acumulado da meta/ })).toBeTruthy();
+    for (const label of ["Resta", "Projeção", "Folga"]) expect(within(sec).getByText(label)).toBeTruthy();
+    expect(within(sec).queryByText("Limite")).toBeNull();
+    expect(within(sec).queryByText("Seu ritmo")).toBeNull();
+    expect(within(sec).queryByText("E se eu gastar por dia…")).toBeNull();
+  });
+  it("categoria sem histórico: só o acumulado, com aviso, sem 'fecha em' nem projeção", () => {
+    const none = { ...ev, supportsDailyBudget: false, dailyAllowance: 0, projection: { ...ev.projection, method: "insufficient_data" as const } };
+    render(<GoalPaceChart evaluation={none} txs={txs} today={today} />);
+    expect(screen.getByText(/Ainda não há histórico desta categoria/)).toBeTruthy();
+    expect(document.querySelector("svg")?.textContent).not.toMatch(/fecha em/);
+    expect(screen.queryByText("Projeção")).toBeNull();
   });
   it("meta pausada: não mostra nada", () => {
     const { container } = render(<GoalPaceChart evaluation={{ ...ev, status: "paused" }} txs={txs} today={today} />);
