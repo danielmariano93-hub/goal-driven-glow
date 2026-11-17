@@ -100,3 +100,22 @@ export function changeText(delta: number, unit: string): string {
   const abs = String(Math.abs(delta)).replace(".", ",");
   return `${delta < 0 ? "−" : "+"}${abs} ${unit}`;
 }
+
+// ---------------------------------------------------------------- lado da medida (braço e coxa)
+
+export type MeasureSide = "left" | "right";
+/** Só braço e coxa têm lado. */
+export const SIDED_KINDS = ["arm", "thigh"] as const;
+export const isSidedKind = (kind: string): boolean => (SIDED_KINDS as readonly string[]).includes(kind);
+export const otherSide = (s: MeasureSide): MeasureSide => (s === "left" ? "right" : "left");
+
+/** "esquerdo"/"direito" (braço) ou "esquerda"/"direita" (coxa). */
+export function sideWord(kind: string, side: MeasureSide): string {
+  const fem = kind === "thigh";
+  return side === "left" ? (fem ? "esquerda" : "esquerdo") : fem ? "direita" : "direito";
+}
+
+/** Nome da medida com o lado: "Braço esquerdo", "Coxa direita". Sem lado, só o nome. */
+export function measureName(m: { kind: string; label: string; side?: MeasureSide | null }): string {
+  return m.side && isSidedKind(m.kind) ? `${m.label} ${sideWord(m.kind, m.side)}` : m.label;
+}

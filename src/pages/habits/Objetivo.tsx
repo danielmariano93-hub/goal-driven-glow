@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { PageHeader } from "@/components/hb/ui";
 import { BodyMeasureCard, MeasureSheet, TrainingVsBodyCard, WeightCard } from "@/components/hb/GoalCards";
-import { hbErrorMessage, useAddMeasure, useArchiveGoal, useArchiveMeasure, useGoals, useHabitViews, useUpdateGoal, type GoalData, type GoalMeasure } from "@/lib/habits/api";
+import { hbErrorMessage, useAddMeasure, useArchiveGoal, useArchiveMeasure, useGoals, useHabitViews, useUpdateGoal, useUpdateMeasure, type GoalData, type GoalMeasure } from "@/lib/habits/api";
+import { Segmented } from "@/components/hb/Segmented";
+import { isSidedKind, measureName, otherSide, sideWord, type MeasureSide } from "@/lib/habits/engine/goals";
 import { diffDays } from "@/lib/habits/engine/dates";
 
 const MONTH = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
@@ -14,19 +16,29 @@ const dm = (iso: string) => `${Number(iso.slice(8, 10))} ${MONTH[Number(iso.slic
 
 export const MEASURE_PRESETS: Array<{ kind: GoalMeasure["kind"]; label: string; unit: string; cadence: GoalMeasure["cadence"] }> = [
   { kind: "weight", label: "Peso", unit: "kg", cadence: "weekly" },
-  { kind: "waist", label: "Cintura", unit: "cm", cadence: "monthly" },
-  { kind: "arm", label: "Braço", unit: "cm", cadence: "monthly" },
-  { kind: "thigh", label: "Coxa", unit: "cm", cadence: "monthly" },
+  { kind: "waist", label: "Cintura", unit: "cm", cadence: "weekly" },
+  { kind: "arm", label: "Braço", unit: "cm", cadence: "weekly" },
+  { kind: "thigh", label: "Coxa", unit: "cm", cadence: "weekly" },
 ];
 
 function EditSheet({ goal, open, onOpenChange, onArchived }: { goal: GoalData; open: boolean; onOpenChange: (o: boolean) => void; onArchived: () => void }) {
   const update = useUpdateGoal();
   const addMeasure = useAddMeasure();
   const archiveMeasure = useArchiveMeasure();
+  const updateMeasure = useUpdateMeasure();
   const archiveGoal = useArchiveGoal();
   const [title, setTitle] = useState(goal.title);
   const [confirm, setConfirm] = useState(false);
-  const missing = MEASURE_PRESETS.filter((p) => !goal.measures.some((m) => m.kind === p.kind));
+  // Para adicionar: o que ainda não existe; e, em braço e coxa, o outro lado de quem já tem lado escolhido.
+  const addable = MEASURE_PRESETS.flatMap((p) => {
+    const same = goal.measures.filter((m) => m.kind === p.kind);
+    if (same.length === 0) return [{ ...p, side: null as MeasureSide | null, text: p.label }];
+    if (isSidedKind(p.kind) && same.length === 1 && same[0].side) {
+      const side = otherSide(same[0].side);
+      return [{ ...p, side, text: measureName({ kind: p.kind, label: p.label, side }) }];
+    }
+    return [];
+  });
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     try { await fn(); if (ok) toast.success(ok); } catch (e) { toast.error(hbErrorMessage(e)); }
   };
@@ -46,18 +58,27 @@ function EditSheet({ goal, open, onOpenChange, onArchived }: { goal: GoalData; o
             <Button className="h-11 rounded-full text-[14px] font-medium" disabled={title.trim().length < 2 || title.trim() === goal.title || update.isPending} onClick={() => void run(() => update.mutateAsync({ id: goal.id, title: title.trim() }), "Nome atualizado")}>Salvar nome</Button>
             <div>
               <p className="text-[12px] text-muted-foreground">Medidas</p>
-              <ul className="mt-1.5 flex flex-col gap-1.5">
+              <ul className="mt-1.5 flex flex-col gap-2">
                 {goal.measures.map((m) => (
-                  <li key={m.id} className="flex items-center justify-between rounded-xl border border-border/60 bg-card px-3.5 py-2 text-[14px]">
-                    <span>{m.label} <span className="text-[12px] text-muted-foreground">· {m.cadence === "weekly" ? "semanal" : "mensal"}, {m.unit}</span></span>
-                    <button type="button" aria-label={`Remover ${m.label}`} className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => void run(() => archiveMeasure.mutateAsync(m.id), "Medida removida")}><X className="h-4 w-4" aria-hidden="true" /></button>
+                  <li key={m.id} className="rounded-xl border border-border/60 bg-card px-3.5 py-2.5">
+                    <div className="flex items-center justify-between gap-2 text-[14px]">
+                      <span className="font-medium">{measureName(m)} <span className="text-[12px] font-normal text-muted-foreground">· {m.unit}</span></span>
+                      <button type="button" aria-label={`Remover ${measureName(m)}`} className="-mr-1.5 grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted" onClick={() => void run(() => archiveMeasure.mutateAsync(m.id), "Medida removida")}><X className="h-4 w-4" aria-hidden="true" /></button>
+                    </div>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <Segmented<GoalMeasure["cadence"]> label={`Frequência de ${measureName(m)}`} value={m.cadence} options={[["weekly", "Toda semana"], ["monthly", "Todo mês"]]} disabled={updateMeasure.isPending} onChange={(c) => { if (c !== m.cadence) void run(() => updateMeasure.mutateAsync({ id: m.id, cadence: c }), c === "weekly" ? "Agora é toda semana" : "Agora é todo mês"); }} />
+                      {isSidedKind(m.kind) ? (
+                        <Segmented<MeasureSide> label={`Lado de ${m.label}`} value={m.side ?? null} options={[["left", `Lado ${sideWord(m.kind, "left")}`], ["right", `Lado ${sideWord(m.kind, "right")}`]]} disabled={updateMeasure.isPending} onChange={(sd) => { if (sd !== m.side) void run(() => updateMeasure.mutateAsync({ id: m.id, side: sd }), "Lado atualizado"); }} />
+                      ) : null}
+                    </div>
+                    {isSidedKind(m.kind) && !m.side ? <p className="mt-1.5 text-[12px] leading-[18px] text-muted-foreground">Escolha o lado que você mede: a comparação só vale para um lado.</p> : null}
                   </li>
                 ))}
               </ul>
-              {missing.length > 0 ? (
+              {addable.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {missing.map((p) => (
-                    <button key={p.kind} type="button" aria-label={`Adicionar ${p.label}`} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-medium text-primary" onClick={() => void run(() => addMeasure.mutateAsync({ goal: goal.id, ...p }), `${p.label} adicionada`)}><Plus className="h-3.5 w-3.5" aria-hidden="true" />{p.label}</button>
+                  {addable.map((p) => (
+                    <button key={`${p.kind}-${p.side ?? "x"}`} type="button" aria-label={`Adicionar ${p.text}`} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-medium text-primary" onClick={() => void run(() => addMeasure.mutateAsync({ goal: goal.id, kind: p.kind, label: p.label, unit: p.unit, cadence: p.cadence, side: p.side }), `${p.text} adicionada`)}><Plus className="h-3.5 w-3.5" aria-hidden="true" />{p.text}</button>
                   ))}
                 </div>
               ) : null}
@@ -106,7 +127,7 @@ export default function Objetivo() {
   const weight = goal.measures.find((m) => m.kind === "weight");
   const others = goal.measures.filter((m) => m.kind !== "weight");
   const training = views.find((v) => goal.habit_ids.includes(v.habit.id) && v.summary.model === "weekly");
-  const measureNames = goal.measures.map((m) => `${m.label.toLowerCase()} (${m.cadence === "weekly" ? "semanal" : "mensal"})`).join(" e ");
+  const measureNames = goal.measures.map((m) => `${measureName(m).toLowerCase()} (${m.cadence === "weekly" ? "semanal" : "mensal"})`).join(" e ");
 
   return (
     <div className="px-4 pb-8">

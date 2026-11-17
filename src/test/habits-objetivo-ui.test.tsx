@@ -16,7 +16,7 @@ vi.mock("@/lib/habits/api", async (orig) => ({
   useHabitViews: () => ({ views: h.views, logs: [], today: "2026-11-11", isLoading: false }),
   useCreateGoal: () => ({ mutateAsync: h.createGoal, isPending: false }),
   useSetMeasurement: () => ({ mutateAsync: h.setMeasurement, isPending: false }),
-  useUpdateGoal: h.noop, useArchiveGoal: h.noop, useAddMeasure: h.noop, useArchiveMeasure: h.noop,
+  useUpdateGoal: h.noop, useArchiveGoal: h.noop, useAddMeasure: h.noop, useArchiveMeasure: h.noop, useUpdateMeasure: h.noop,
 }));
 
 import Objetivo from "@/pages/habits/Objetivo";
@@ -76,8 +76,8 @@ describe("novo objetivo", () => {
       title: "Hipertrofia e menos gordura abdominal", habits: ["tre"],
       measures: [
         { kind: "weight", label: "Peso", unit: "kg", cadence: "weekly" },
-        { kind: "waist", label: "Cintura", unit: "cm", cadence: "monthly" },
-        { kind: "arm", label: "Braço", unit: "cm", cadence: "monthly" },
+        { kind: "waist", label: "Cintura", unit: "cm", cadence: "weekly" },
+        { kind: "arm", label: "Braço", unit: "cm", cadence: "weekly" },
       ],
     });
     await screen.findByText("tela do objetivo");
