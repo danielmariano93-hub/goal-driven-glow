@@ -70,91 +70,106 @@ function useReducedMotion(): boolean {
   );
 }
 
-const BODY = "hsl(var(--primary) / 0.2)";
-const LIMB = "hsl(var(--primary) / 0.32)";
 const INK = "hsl(var(--primary))";
 const MUTED = "hsl(var(--muted-foreground))";
 
 /** Fita dando a volta numa região: elipse que se desenha, com as marcas de centímetro aparecendo por cima. */
-function Tape({ cx, cy, rx, ry }: { cx: number; cy: number; rx: number; ry: number }) {
+function Tape({ cx, cy, rx, ry, w = 4 }: { cx: number; cy: number; rx: number; ry: number; w?: number }) {
   return (
     <g>
-      <ellipse className="mg-tape" cx={cx} cy={cy} rx={rx} ry={ry} pathLength={100} fill="none" stroke={INK} strokeWidth={4.5} strokeLinecap="round" />
-      <ellipse className="mg-ticks" cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="hsl(var(--card))" strokeWidth={1.3} strokeDasharray="1.2 2.6" />
+      <ellipse className="mg-tape" cx={cx} cy={cy} rx={rx} ry={ry} pathLength={100} fill="none" stroke={INK} strokeWidth={w} strokeLinecap="round" />
+      <ellipse className="mg-ticks" cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="hsl(var(--card))" strokeWidth={w * 0.28} strokeDasharray="1 2.2" />
     </g>
   );
 }
 
 /** Marca de referência: dois pontos de apoio, o meio do caminho e o rótulo de cada ponto. */
-function Marks({ x, top, bottom, topLabel, bottomLabel, side }: { x: number; top: number; bottom: number; topLabel: string; bottomLabel: string; side: "left" | "right" }) {
+function Marks({ x, top, bottom, topLabel, bottomLabel, fs = 9 }: { x: number; top: number; bottom: number; topLabel: string; bottomLabel: string; fs?: number }) {
   const mid = (top + bottom) / 2;
-  const anchor = side === "left" ? "end" : "start";
-  const tx = side === "left" ? x - 6 : x + 6;
+  const t = fs * 0.45;
   return (
-    <g className="mg-marks" fontSize={8.5} fill={MUTED}>
-      <line x1={x} y1={top} x2={x} y2={bottom} stroke={INK} strokeWidth={1.2} strokeDasharray="2 2.5" opacity={0.7} />
+    <g className="mg-marks" fontSize={fs} fill={MUTED}>
+      <line x1={x} y1={top} x2={x} y2={bottom} stroke={INK} strokeWidth={1.1} strokeDasharray="2 2.5" opacity={0.7} />
       <line x1={x - 4} y1={top} x2={x + 4} y2={top} stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
       <line x1={x - 4} y1={bottom} x2={x + 4} y2={bottom} stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
-      <text x={tx} y={top + 3} textAnchor={anchor}>{topLabel}</text>
-      <text x={tx} y={bottom + 3} textAnchor={anchor}>{bottomLabel}</text>
-      <circle className="mg-dot" cx={x} cy={mid} r={3.6} fill={INK} />
+      <text x={x - 7} y={top + t} textAnchor="end">{topLabel}</text>
+      <text x={x - 7} y={bottom + t} textAnchor="end">{bottomLabel}</text>
+      <circle className="mg-dot" cx={x} cy={mid} r={3.4} fill={INK} />
     </g>
   );
 }
 
+// Silhueta humana de frente, neutra, de 8 cabeças de altura (0 a 300). Metade esquerda desenhada à mão; a direita é o espelho.
+const TORSO_LEG =
+  "M100.7 42 L94 42 L93.5 54 C86 57 75 59 66 63 C62 70 66 82 71 92 C75 102 80 110 80 120 C80 130 70 140 69 152 " +
+  "C68 162 70 168 71 178 C72 192 74 206 76 220 C77 236 79 258 82 276 L82 281 C78 284 72 289 74 294 C76 298 90 298 96 294 " +
+  "C97 290 96 286 95 281 L95 276 C94 258 93 236 93 222 C94 206 97 190 99 172 L100.7 168 Z";
+const ARM =
+  "M66 63 C58 64 54 72 54 82 C53 96 51 108 49 118 C47 130 45 142 44 154 C43 160 40 166 41 172 C42 179 47 181 50 176 " +
+  "C52 170 52 160 53 152 C55 140 58 128 60 118 C62 106 64 96 68 88 C70 80 70 70 66 63 Z";
+const MIRROR = "translate(200 0) scale(-1 1)";
+
+/** Corpo humano em roxo claro. A opacidade fica no grupo para as partes que se tocam não escurecerem onde se sobrepõem. */
+function Body({ arms = true }: { arms?: boolean }) {
+  return (
+    <g fill={INK} opacity={0.2} stroke="none">
+      <ellipse cx={100} cy={26} rx={15} ry={19} />
+      <path d={TORSO_LEG} />
+      <path d={TORSO_LEG} transform={MIRROR} />
+      {arms ? <path d={ARM} /> : null}
+      {arms ? <path d={ARM} transform={MIRROR} /> : null}
+    </g>
+  );
+}
+
+/** Região ampliada do corpo para cada medida (viewBox) e o que se desenha por cima. */
+const VIEW: Record<MeasureGuideKind, string> = {
+  waist: "-24 0 230 182",
+  arm: "-36 46 156 124",
+  thigh: "-14 140 180 152",
+  weight: "-6 146 212 178",
+  custom: "-6 0 212 182",
+};
+
 function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
   switch (kind) {
     case "waist":
+      // Última costela (y 102) e topo do osso do quadril (y 140): a fita vai no meio, em y 121.
       return (
         <>
-          <g fill={BODY} stroke="none">
-            <circle cx={120} cy={20} r={12} />
-            <path d="M84 44 Q120 36 156 44 L151 74 Q147 90 150 104 Q155 122 157 142 L83 142 Q85 122 90 104 Q93 90 89 74 Z" />
-          </g>
-          <path d="M78 50 L69 112 M162 50 L171 112" stroke={BODY} strokeWidth={11} strokeLinecap="round" fill="none" />
-          <Marks x={46} top={70} bottom={114} topLabel="costela" bottomLabel="quadril" side="left" />
-          <Tape cx={120} cy={92} rx={34} ry={7} />
+          <Body />
+          <Marks x={22} top={102} bottom={140} topLabel="costela" bottomLabel="quadril" />
+          <Tape cx={100} cy={121} rx={24} ry={5.5} />
         </>
       );
     case "arm":
+      // Ponta do ombro (y 64) e cotovelo (y 118): a fita vai no meio do braço, em y 91.
       return (
         <>
-          <path d="M70 42 Q112 30 152 42 L148 150 L72 150 Z" fill={BODY} />
-          <circle cx={112} cy={18} r={12} fill={BODY} />
-          <path d="M158 46 L168 96 L170 140" stroke={LIMB} strokeWidth={22} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          <Marks x={196} top={40} bottom={100} topLabel="ombro" bottomLabel="cotovelo" side="right" />
-          <Tape cx={163} cy={70} rx={14} ry={4.8} />
+          <Body />
+          <Marks x={14} top={64} bottom={118} topLabel="ombro" bottomLabel="cotovelo" fs={8} />
+          <Tape cx={59.5} cy={91} rx={9} ry={2.6} w={3.2} />
         </>
       );
     case "thigh":
+      // Dobra da virilha (y 168) e topo da patela (y 214): a fita vai no meio da coxa, em y 191.
       return (
         <>
-          <rect x={82} y={8} width={76} height={30} rx={14} fill={BODY} />
-          <path d="M100 26 L97 134 M140 26 L143 134" stroke={LIMB} strokeWidth={34} strokeLinecap="round" fill="none" />
-          <circle cx={97} cy={112} r={6} fill={BODY} />
-          <Marks x={66} top={40} bottom={112} topLabel="virilha" bottomLabel="joelho" side="left" />
-          <Tape cx={99} cy={76} rx={19} ry={5.5} />
+          <Body arms={false} />
+          <Marks x={44} top={168} bottom={214} topLabel="virilha" bottomLabel="joelho" fs={8} />
+          <Tape cx={84.5} cy={191} rx={13.5} ry={3.4} w={3.4} />
         </>
       );
     case "weight":
+      // Pés na balança: a plataforma fica logo abaixo dos pés (y 298).
       return (
         <>
-          <defs>
-            <linearGradient id="mg-fade" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="hsl(var(--primary))" stopOpacity="0" />
-              <stop offset="0.55" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
-            </linearGradient>
-          </defs>
-          <g>
-            {still ? null : <animate attributeName="opacity" values=".35;1;1;.35" keyTimes="0;.22;.9;1" dur="4.2s" repeatCount="indefinite" />}
-            <rect x={96} y={14} width={24} height={98} rx={11} fill="url(#mg-fade)" />
-            <rect x={124} y={14} width={24} height={98} rx={11} fill="url(#mg-fade)" />
-          </g>
-          <rect x={64} y={112} width={112} height={26} rx={12} fill="hsl(var(--primary) / 0.14)" stroke={INK} strokeWidth={1.4} />
-          <rect x={104} y={118} width={32} height={14} rx={4} fill="hsl(var(--card))" />
+          <Body arms={false} />
+          <rect x={52} y={297} width={96} height={22} rx={11} fill="hsl(var(--primary) / 0.14)" stroke={INK} strokeWidth={1.4} />
+          <rect x={86} y={302} width={28} height={12} rx={3.5} fill="hsl(var(--card))" />
           <g fill={INK}>
-            {[113, 120, 127].map((cx, i) => (
-              <circle key={cx} cx={cx} cy={125} r={2}>
+            {[94, 100, 106].map((cx, i) => (
+              <circle key={cx} cx={cx} cy={308} r={1.8}>
                 {still ? null : <animate attributeName="opacity" values=".25;.25;1;1;.25" keyTimes="0;.3;.45;.92;1" calcMode="discrete" dur="4.2s" begin={`${i * 0.15}s`} repeatCount="indefinite" />}
               </circle>
             ))}
@@ -162,10 +177,11 @@ function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
         </>
       );
     default:
+      // Medida livre: o mesmo corpo, com a fita no meio do tronco.
       return (
         <>
-          <rect x={90} y={14} width={60} height={124} rx={26} fill={BODY} />
-          <Tape cx={120} cy={76} rx={32} ry={7} />
+          <Body />
+          <Tape cx={100} cy={100} rx={28} ry={6} />
         </>
       );
   }
@@ -179,7 +195,7 @@ export function MeasureGuide({ kind: rawKind }: { kind: string | null | undefine
   const still = useReducedMotion();
   return (
     <section aria-label={`Como medir ${LABEL[kind]}`} className="rounded-2xl bg-primary/5 px-3 pb-2 pt-2.5">
-      <svg viewBox="0 0 240 150" role="img" aria-label={`Animação: como medir ${LABEL[kind]}. ${g.key}`} className="mx-auto block h-auto max-h-[148px] w-full">
+      <svg viewBox={VIEW[kind]} role="img" aria-label={`Animação: como medir ${LABEL[kind]}. ${g.key}`} className="mx-auto block h-auto max-h-[200px] w-full">
         <style>{CSS}</style>
         <Figure kind={kind} still={still} />
       </svg>
