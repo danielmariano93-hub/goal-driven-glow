@@ -20,9 +20,9 @@ describe("dias sem gastar para fechar sem estourar", () => {
   it("não cobre nem um dia: todos sem gastar", () => {
     expect(restDaysToFit(10, 5, 40)).toEqual({ spendDays: 0, restDays: 5, daysLeft: 5 });
   });
-  it("frase neutra, com singular e plural", () => {
-    const brl = (v: number) => `R$ ${v}`;
-    expect(restDaysText({ spendDays: 12, restDays: 13, daysLeft: 25 }, 42, brl)).toBe("Mantendo R$ 42 nos dias em que gastar, daria para fechar sem estourar com cerca de 13 dias sem gastar nada nos próximos 25 dias.");
-    expect(restDaysText({ spendDays: 1, restDays: 1, daysLeft: 2 }, 40, brl)).toContain("1 dia sem gastar");
+  it("frase curta e neutra, com singular e plural", () => {
+    expect(restDaysText({ spendDays: 12, restDays: 13, daysLeft: 25 })).toBe("No ritmo atual, fechar sem estourar pede cerca de 13 dias sem gastar nada, entre os 25 que faltam.");
+    expect(restDaysText({ spendDays: 1, restDays: 1, daysLeft: 2 })).toContain("1 dia sem gastar");
+    expect(restDaysText({ spendDays: 0, restDays: 1, daysLeft: 1 })).toBe("No ritmo atual, fechar sem estourar pede cerca de 1 dia sem gastar nada, entre o 1 que falta.");
   });
 });

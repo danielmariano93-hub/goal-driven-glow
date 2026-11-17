@@ -100,7 +100,7 @@ export function GoalPaceChart({ evaluation, txs, today }: { evaluation: Category
       <p data-testid="goal-pace-position" className={`mt-2 text-[13px] font-medium leading-5 ${gap > 0.005 ? "text-success" : "text-foreground"}`}>
         {Math.abs(gap) <= 0.005 ? "Você está exatamente no ritmo do teto." : gap > 0 ? `Você está ${formatBRL(gap)} abaixo do ritmo do teto.` : `Você está ${formatBRL(-gap)} acima do ritmo do teto.`}
       </p>
-      {rest ? <p data-testid="goal-rest-days" className="mt-1 text-[12px] leading-5 text-muted-foreground">{restDaysText(rest, pace as number, formatBRL)}</p> : null}
+      {rest ? <p data-testid="goal-rest-days" className="mt-1 text-[12px] leading-5 text-muted-foreground">{restDaysText(rest)}</p> : null}
       <div className={`mt-3 grid gap-2 ${cols}`}>
         {tiles.map((t) => (
           <div key={t.label} className="rounded-[14px] border border-border px-2.5 py-2">

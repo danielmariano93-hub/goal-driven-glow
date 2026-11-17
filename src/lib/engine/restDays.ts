@@ -22,7 +22,7 @@ export function restDaysToFit(budgetLeft: number, daysLeft: number, perDay: numb
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** Frase curta e neutra. `brl` formata o valor em reais. */
-export function restDaysText(r: RestDays, perDay: number, brl: (v: number) => string): string {
-  return `Mantendo ${brl(perDay)} nos dias em que gastar, daria para fechar sem estourar com cerca de ${plural(r.restDays, "dia", "dias")} sem gastar nada nos próximos ${plural(r.daysLeft, "dia", "dias")}.`;
+/** Frase curta e neutra: "No ritmo atual, fechar sem estourar pede cerca de 13 dias sem gastar nada, entre os 25 que faltam." */
+export function restDaysText(r: RestDays): string {
+  return `No ritmo atual, fechar sem estourar pede cerca de ${plural(r.restDays, "dia", "dias")} sem gastar nada, entre ${r.daysLeft === 1 ? "o" : "os"} ${r.daysLeft} que ${r.daysLeft === 1 ? "falta" : "faltam"}.`;
 }

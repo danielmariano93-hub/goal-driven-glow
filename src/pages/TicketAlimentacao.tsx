@@ -175,7 +175,7 @@ export default function TicketAlimentacao() {
                 <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-today-remaining">{todayLine(state, brl2, dm)}</p>
               ) : null}
 
-              {rest ? <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-rest-days">{restDaysText(rest, state.rate.per_day, brl2)}</p> : null}
+              {rest ? <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-rest-days">{restDaysText(rest)}</p> : null}
 
               <section className="surface-card flex flex-col gap-3 p-5">
                 <div className="flex items-baseline justify-between"><h2 className="font-bold">Como o mês fecha</h2><span className="text-xs text-muted-foreground">{dm(state.cycle.start)} a {dm(state.cycle.next)}</span></div>
