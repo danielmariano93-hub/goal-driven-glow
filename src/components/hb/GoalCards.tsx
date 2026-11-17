@@ -2,11 +2,12 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { guideKind, MEASURE_GUIDES, MeasureGuide } from "./MeasureGuide";
+import { Segmented } from "./Segmented";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
-import { hbErrorMessage, useSetMeasurement, type GoalData, type GoalMeasure, type HabitView } from "@/lib/habits/api";
+import { hbErrorMessage, useSetMeasurement, useUpdateMeasure, type GoalData, type GoalMeasure, type HabitView } from "@/lib/habits/api";
 import { addDays, weekRows, weekStart, type LogRow } from "@/lib/habits/engine";
-import { averageChange, changeText, measureStats, movingAverage, nextDue, type MeasurePoint } from "@/lib/habits/engine/goals";
+import { averageChange, changeText, isSidedKind, measureName, measureStats, movingAverage, nextDue, sideWord, type MeasurePoint, type MeasureSide } from "@/lib/habits/engine/goals";
 import { weekHistory } from "@/lib/habits/engine/rhythm";
 
 /** Cartões do Objetivo. Um matiz só (roxo) e neutros; o que importa vem em texto. */
@@ -31,13 +32,21 @@ const ERROR_NOTE = "A fita métrica erra cerca de 1 cm. Meça sempre no mesmo po
 /** Registra (ou corrige) a medida de um dia. */
 export function MeasureSheet({ measure, today, open, onOpenChange }: { measure: GoalMeasure | null; today: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const set = useSetMeasurement();
+  const updateMeasure = useUpdateMeasure();
   const [text, setText] = useState("");
   const [date, setDate] = useState(today);
+  const [picked, setPicked] = useState<MeasureSide | null>(null);
+  const sided = !!measure && isSidedKind(measure.kind);
+  const needSide = sided && measure?.side == null;
+  const side: MeasureSide | null = measure?.side ?? picked;
   const value = Number(text.replace(",", "."));
-  const ok = !!measure && Number.isFinite(value) && value > 0 && value < 1000 && date <= today && date >= addDays(today, -400);
+  const ok = !!measure && Number.isFinite(value) && value > 0 && value < 1000 && date <= today && date >= addDays(today, -400) && (!needSide || picked != null);
+  const title = measure ? measureName({ ...measure, side }).toLowerCase() : "medida";
   const save = async () => {
     if (!measure || !ok) return;
     try {
+      // Primeira vez de braço ou coxa: o lado escolhido fica na medida, para a série comparar sempre o mesmo lado.
+      if (needSide && picked) await updateMeasure.mutateAsync({ id: measure.id, side: picked });
       await set.mutateAsync({ measure: measure.id, date, value });
       toast.success("Medida registrada");
       setText("");
@@ -51,11 +60,19 @@ export function MeasureSheet({ measure, today, open, onOpenChange }: { measure: 
       <DrawerContent>
         <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="px-4 pb-2 text-left">
-            <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Registrar {measure?.label.toLowerCase() ?? "medida"}</DrawerTitle>
+            <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Registrar {title}</DrawerTitle>
             <DrawerDescription className="sr-only">{MEASURE_GUIDES[guideKind(measure?.kind)].key}</DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-3 px-4">
-            <MeasureGuide kind={measure?.kind} />
+            {needSide ? (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[12px] text-muted-foreground">Qual lado você mede?</p>
+                <Segmented<MeasureSide> label="Lado medido" value={picked} options={[["left", "Esquerdo"], ["right", "Direito"]]} onChange={setPicked} />
+                <p className="text-[12px] leading-[18px] text-muted-foreground">Meça sempre o mesmo lado: os dois costumam ser diferentes e isso embaralharia a comparação.</p>
+              </div>
+            ) : null}
+            <MeasureGuide kind={measure?.kind} side={side} />
+            {sided && !needSide && measure?.side ? <p className="text-center text-[12px] text-muted-foreground">Sempre o lado {sideWord(measure.kind, measure.side)}, para a comparação ser justa.</p> : null}
             <label className="flex flex-col gap-1.5 text-[12px] text-muted-foreground">
               Valor ({measure?.unit})
               <span className="relative block">
@@ -67,7 +84,7 @@ export function MeasureSheet({ measure, today, open, onOpenChange }: { measure: 
               Dia
               <input type="date" value={date} max={today} min={addDays(today, -400)} onChange={(e) => setDate(e.target.value)} aria-label="Dia da medida" className="h-11 w-full rounded-2xl border border-border/70 bg-card px-4 text-[14px] text-foreground outline-none focus:border-primary" />
             </label>
-            <Button className="h-11 rounded-full text-[14px] font-medium" disabled={!ok || set.isPending} onClick={() => void save()}>Salvar</Button>
+            <Button className="h-11 rounded-full text-[14px] font-medium" disabled={!ok || set.isPending || updateMeasure.isPending} onClick={() => void save()}>Salvar</Button>
           </div>
         </div>
       </DrawerContent>
@@ -125,7 +142,7 @@ export function WeightCard({ goal, measure, today, onRecord }: { goal: GoalData;
   }, [points]);
   const weeks = change && points.length ? Math.max(1, Math.round((new Date(`${points[points.length - 1].date}T12:00:00Z`).getTime() - new Date(`${points[0].date}T12:00:00Z`).getTime()) / (7 * 86_400_000))) : 0;
   return (
-    <Card title={`${measure.label} · média da semana`} tag={measure.cadence === "weekly" ? "semanal" : "mensal"}>
+    <Card title={`${measureName(measure)} · média da semana`} tag={measure.cadence === "weekly" ? "semanal" : "mensal"}>
       {recent == null ? (
         <p className="mt-2 text-[12px] leading-[18px] text-muted-foreground">Nenhuma pesagem ainda. Registre algumas e o gráfico mostra a média da semana, que é o que vale.</p>
       ) : (
@@ -143,12 +160,12 @@ export function WeightCard({ goal, measure, today, onRecord }: { goal: GoalData;
   );
 }
 
-/** Cintura, braço, coxa: poucas medidas (mensais); mostra primeira → última e só desenha tendência a partir de 4. */
+/** Cintura, braço, coxa: poucas medidas (semanais por padrão); mostra primeira → última e só desenha tendência a partir de 4. */
 export function BodyMeasureCard({ goal, measure, today, onRecord }: { goal: GoalData; measure: GoalMeasure; today: string; onRecord: () => void }) {
   const points = useMemo(() => measure.points.map((p) => ({ date: p.date, value: p.value })), [measure.points]);
   const st = measureStats(points);
   return (
-    <Card title={measure.kind === "waist" ? `${measure.label} · na altura do umbigo` : measure.label} tag={measure.cadence === "monthly" ? "mensal" : "semanal"}>
+    <Card title={measureName(measure)} tag={measure.cadence === "monthly" ? "mensal" : "semanal"}>
       {st.n === 0 ? (
         <p className="mt-2 text-[12px] leading-[18px] text-muted-foreground">Nenhuma medida ainda. {ERROR_NOTE}</p>
       ) : (
@@ -165,7 +182,7 @@ export function BodyMeasureCard({ goal, measure, today, onRecord }: { goal: Goal
           </div>
           {st.trend_ready ? <Chart points={points} unit={measure.unit} /> : null}
           <p className="mt-3 rounded-xl bg-primary/5 px-3.5 py-2.5 text-[12px] leading-[18px] text-muted-foreground">
-            {ERROR_NOTE}{!st.trend_ready ? ` Com ${st.n} ${st.n === 1 ? "medida" : "medidas"} ainda é cedo para falar em tendência; ela aparece a partir da 4ª.` : ""}
+            {ERROR_NOTE}{measure.cadence === "weekly" ? " Uma semana sozinha oscila: o que vale é a linha das últimas 3 ou 4 semanas." : ""}{!st.trend_ready ? ` Com ${st.n} ${st.n === 1 ? "medida" : "medidas"} ainda é cedo para falar em tendência; ela aparece a partir da 4ª.` : ""}
           </p>
         </>
       )}

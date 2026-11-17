@@ -688,6 +688,8 @@ export interface GoalMeasure {
   label: string;
   unit: string;
   cadence: "weekly" | "monthly";
+  /** Braço e coxa: o lado medido (a comparação vale para um lado só). Nulo = ainda não escolhido. */
+  side?: "left" | "right" | null;
   points: Array<{ id: string; date: string; value: number }>;
 }
 export interface GoalData {
@@ -741,8 +743,17 @@ export function useArchiveGoal() {
 export function useAddMeasure() {
   const inv = useGoalInvalidate();
   return useMutation({
-    mutationFn: (i: { goal: string; kind: GoalMeasure["kind"]; label: string; unit: string; cadence: GoalMeasure["cadence"] }) =>
-      rpc<string>("hb_measure_add", { p_goal: i.goal, p_kind: i.kind, p_label: i.label, p_unit: i.unit, p_cadence: i.cadence }),
+    mutationFn: (i: { goal: string; kind: GoalMeasure["kind"]; label: string; unit: string; cadence: GoalMeasure["cadence"]; side?: "left" | "right" | null }) =>
+      rpc<string>("hb_measure_add", { p_goal: i.goal, p_kind: i.kind, p_label: i.label, p_unit: i.unit, p_cadence: i.cadence, p_side: i.side ?? null }),
+    onSuccess: inv,
+  });
+}
+/** Muda a frequência e/ou o lado de uma medida (campo ausente = não muda). */
+export function useUpdateMeasure() {
+  const inv = useGoalInvalidate();
+  return useMutation({
+    mutationFn: (i: { id: string; cadence?: GoalMeasure["cadence"]; side?: "left" | "right" }) =>
+      rpc<null>("hb_measure_update", { p_measure: i.id, p_cadence: i.cadence ?? null, p_side: i.side ?? null }),
     onSuccess: inv,
   });
 }

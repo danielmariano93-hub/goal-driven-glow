@@ -4,11 +4,12 @@ import { readFileSync } from "node:fs";
 import type { GoalMeasure } from "@/lib/habits/api";
 import { guideKind, MEASURE_GUIDES, MeasureGuide } from "@/components/hb/MeasureGuide";
 
-const h = vi.hoisted(() => ({ set: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn() }));
+const h = vi.hoisted(() => ({ set: vi.fn(), update: vi.fn(), toastSuccess: vi.fn(), toastError: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: h.toastError, success: h.toastSuccess, message: vi.fn() } }));
 vi.mock("@/lib/habits/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/habits/api")>()),
   useSetMeasurement: () => ({ mutateAsync: h.set, isPending: false }),
+  useUpdateMeasure: () => ({ mutateAsync: h.update, isPending: false }),
 }));
 
 import { MeasureSheet } from "@/components/hb/GoalCards";
@@ -63,7 +64,7 @@ describe("como medir (desenho animado)", () => {
 });
 
 describe("folha de registrar medida", () => {
-  beforeEach(() => { vi.clearAllMocks(); h.set.mockResolvedValue(undefined); });
+  beforeEach(() => { vi.clearAllMocks(); h.set.mockResolvedValue(undefined); h.update.mockResolvedValue(undefined); });
   const open = (m = measure("waist", "Cintura", "cm")) => render(<MeasureSheet measure={m} today="2026-11-17" open onOpenChange={vi.fn()} />);
 
   it("mostra o desenho de como medir e não abre o teclado sozinha", () => {
@@ -81,6 +82,29 @@ describe("folha de registrar medida", () => {
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(h.set).toHaveBeenCalledWith({ measure: "m1", date: "2026-11-17", value: 82.5 }));
+  });
+  it("braço sem lado: pede o lado, salva o lado antes da medida e usa o nome com o lado", async () => {
+    open(measure("arm", "Braço", "cm"));
+    expect(screen.getByRole("button", { name: "Esquerdo" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Valor em cm"), { target: { value: "34" } });
+    const save = screen.getByRole("button", { name: "Salvar" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Esquerdo" }));
+    expect(screen.getByText("Registrar braço esquerdo")).toBeTruthy();
+    fireEvent.click(save);
+    await waitFor(() => expect(h.set).toHaveBeenCalledWith({ measure: "m1", date: "2026-11-17", value: 34 }));
+    expect(h.update).toHaveBeenCalledWith({ id: "m1", side: "left" });
+    expect(h.update.mock.invocationCallOrder[0]).toBeLessThan(h.set.mock.invocationCallOrder[0]);
+  });
+  it("coxa com lado já definido: não pergunta de novo e lembra o lado", () => {
+    open({ ...measure("thigh", "Coxa", "cm"), side: "right" } as GoalMeasure);
+    expect(screen.queryByRole("button", { name: "Esquerdo" })).toBeNull();
+    expect(screen.getByText("Registrar coxa direita")).toBeTruthy();
+    expect(screen.getByText(/Sempre o lado direita/)).toBeTruthy();
+  });
+  it("cintura e peso não têm lado", () => {
+    open();
+    expect(screen.queryByRole("button", { name: "Esquerdo" })).toBeNull();
   });
   it("peso: usa o desenho da balança", () => {
     open(measure("weight", "Peso", "kg"));
@@ -102,5 +126,30 @@ describe("folhas de Hábitos com campo de texto não deixam o teclado desmontar 
   ];
   it.each(files)("%s usa repositionInputs={false}", (f) => {
     expect(readFileSync(f, "utf8")).toMatch(/repositionInputs=\{false\}/);
+  });
+});
+
+describe("lado medido e frequência semanal (regras)", () => {
+  it("só braço e coxa têm lado; nomes concordam em gênero", async () => {
+    const g = await import("@/lib/habits/engine/goals");
+    expect(g.isSidedKind("arm")).toBe(true);
+    expect(g.isSidedKind("thigh")).toBe(true);
+    expect(g.isSidedKind("waist")).toBe(false);
+    expect(g.otherSide("left")).toBe("right");
+    expect(g.sideWord("arm", "left")).toBe("esquerdo");
+    expect(g.sideWord("thigh", "left")).toBe("esquerda");
+    expect(g.measureName({ kind: "arm", label: "Braço", side: "left" })).toBe("Braço esquerdo");
+    expect(g.measureName({ kind: "waist", label: "Cintura", side: null })).toBe("Cintura");
+  });
+  it("medida semanal: próxima data é 7 dias depois", async () => {
+    const g = await import("@/lib/habits/engine/goals");
+    const r = g.nextDue("weekly", "2026-11-10", "2026-10-01", "2026-11-12");
+    expect(r.due_on).toBe("2026-11-17");
+    expect(r.state).toBe("ok");
+    expect(g.nextDue("monthly", "2026-11-10", "2026-10-01", "2026-11-12").due_on).toBe("2026-12-10");
+  });
+  it("o desenho do lado esquerdo é espelhado", () => {
+    const { container } = render(<MeasureGuide kind="arm" side="left" />);
+    expect(container.querySelector('[data-side="left"]')).toBeTruthy();
   });
 });

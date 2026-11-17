@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sideWord } from "@/lib/habits/engine/goals";
 
 /** Como medir, para cada tipo de medida: desenho animado (corpo em roxo claro e a fita) e o passo a passo. */
 
@@ -84,16 +85,17 @@ function Tape({ cx, cy, rx, ry, w = 4 }: { cx: number; cy: number; rx: number; r
 }
 
 /** Marca de referência: dois pontos de apoio, o meio do caminho e o rótulo de cada ponto. */
-function Marks({ x, top, bottom, topLabel, bottomLabel, fs = 9 }: { x: number; top: number; bottom: number; topLabel: string; bottomLabel: string; fs?: number }) {
+function Marks({ x, top, bottom, topLabel, bottomLabel, fs = 9, flip = false }: { x: number; top: number; bottom: number; topLabel: string; bottomLabel: string; fs?: number; flip?: boolean }) {
   const mid = (top + bottom) / 2;
   const t = fs * 0.45;
+  const tx = flip ? x + 7 : x - 7;
   return (
     <g className="mg-marks" fontSize={fs} fill={MUTED}>
       <line x1={x} y1={top} x2={x} y2={bottom} stroke={INK} strokeWidth={1.1} strokeDasharray="2 2.5" opacity={0.7} />
       <line x1={x - 4} y1={top} x2={x + 4} y2={top} stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
       <line x1={x - 4} y1={bottom} x2={x + 4} y2={bottom} stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
-      <text x={x - 7} y={top + t} textAnchor="end">{topLabel}</text>
-      <text x={x - 7} y={bottom + t} textAnchor="end">{bottomLabel}</text>
+      <text x={tx} y={top + t} textAnchor={flip ? "start" : "end"}>{topLabel}</text>
+      <text x={tx} y={bottom + t} textAnchor={flip ? "start" : "end"}>{bottomLabel}</text>
       <circle className="mg-dot" cx={x} cy={mid} r={3.4} fill={INK} />
     </g>
   );
@@ -130,8 +132,11 @@ const VIEW: Record<MeasureGuideKind, string> = {
   weight: "-6 146 212 178",
   custom: "-6 0 212 182",
 };
+// Corpo de frente: o lado ESQUERDO da pessoa fica à DIREITA da figura. Para braço e coxa, o recorte e as marcas espelham em x = 200 − x.
+const VIEW_LEFT: Partial<Record<MeasureGuideKind, string>> = { arm: "80 46 156 124", thigh: "34 140 180 152" };
+const mx = (x: number, flip: boolean) => (flip ? 200 - x : x);
 
-function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
+function Figure({ kind, still, flip }: { kind: MeasureGuideKind; still: boolean; flip: boolean }) {
   switch (kind) {
     case "waist":
       // Última costela (y 102) e topo do osso do quadril (y 140): a fita vai no meio, em y 121.
@@ -147,8 +152,8 @@ function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
       return (
         <>
           <Body />
-          <Marks x={14} top={64} bottom={118} topLabel="ombro" bottomLabel="cotovelo" fs={8} />
-          <Tape cx={59.5} cy={91} rx={9} ry={2.6} w={3.2} />
+          <Marks x={mx(14, flip)} top={64} bottom={118} topLabel="ombro" bottomLabel="cotovelo" fs={8} flip={flip} />
+          <Tape cx={mx(59.5, flip)} cy={91} rx={9} ry={2.6} w={3.2} />
         </>
       );
     case "thigh":
@@ -156,8 +161,8 @@ function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
       return (
         <>
           <Body arms={false} />
-          <Marks x={44} top={168} bottom={214} topLabel="virilha" bottomLabel="joelho" fs={8} />
-          <Tape cx={84.5} cy={191} rx={13.5} ry={3.4} w={3.4} />
+          <Marks x={mx(44, flip)} top={168} bottom={214} topLabel="virilha" bottomLabel="joelho" fs={8} flip={flip} />
+          <Tape cx={mx(84.5, flip)} cy={191} rx={13.5} ry={3.4} w={3.4} />
         </>
       );
     case "weight":
@@ -188,16 +193,19 @@ function Figure({ kind, still }: { kind: MeasureGuideKind; still: boolean }) {
 }
 
 /** Desenho animado + frase-chave + passo a passo (recolhido). Cabe no alto da folha de registro sem empurrar os campos. */
-export function MeasureGuide({ kind: rawKind }: { kind: string | null | undefined }) {
+export function MeasureGuide({ kind: rawKind, side }: { kind: string | null | undefined; side?: "left" | "right" | null }) {
   const kind = guideKind(rawKind);
+  const sided = kind === "arm" || kind === "thigh";
+  const flip = side === "left" && sided;
+  const what = `${LABEL[kind]}${side && sided ? ` ${sideWord(kind, side)}` : ""}`;
   const g = MEASURE_GUIDES[kind];
   const [open, setOpen] = useState(false);
   const still = useReducedMotion();
   return (
-    <section aria-label={`Como medir ${LABEL[kind]}`} className="rounded-2xl bg-primary/5 px-3 pb-2 pt-2.5">
-      <svg viewBox={VIEW[kind]} role="img" aria-label={`Animação: como medir ${LABEL[kind]}. ${g.key}`} className="mx-auto block h-auto max-h-[200px] w-full">
+    <section aria-label={`Como medir ${what}`} className="rounded-2xl bg-primary/5 px-3 pb-2 pt-2.5">
+      <svg viewBox={flip ? (VIEW_LEFT[kind] ?? VIEW[kind]) : VIEW[kind]} data-side={flip ? "left" : undefined} role="img" aria-label={`Animação: como medir ${what}. ${g.key}`} className="mx-auto block h-auto max-h-[200px] w-full">
         <style>{CSS}</style>
-        <Figure kind={kind} still={still} />
+        <Figure kind={kind} still={still} flip={flip} />
       </svg>
       <p className="mt-1 text-center text-[13px] font-medium leading-[19px]">{g.key}</p>
       <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="mx-auto mt-0.5 flex h-8 items-center gap-1 text-[13px] font-medium text-primary">
