@@ -8,9 +8,9 @@ export function BackfillSheet({ today, weekly = false, open, onOpenChange, onPic
   const [date, setDate] = useState(addDays(today, -1));
   const ok = date >= addDays(today, -90) && date <= today;
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Registrar um dia anterior</DrawerTitle>
             <DrawerDescription>Já fazia isso antes de usar o app? Escolha o dia (até 90 dias atrás). O hábito passa a contar desde o primeiro dia que você registrar.</DrawerDescription>
