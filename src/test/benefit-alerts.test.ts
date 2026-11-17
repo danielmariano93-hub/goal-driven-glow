@@ -10,7 +10,7 @@ const ctx = { as_of: "2026-11-18", snapshot_ref: { reconciliation_id: "r1" } } a
 const NOON = new Date("2026-11-18T15:00:00Z");
 const NIGHT = new Date("2026-11-19T02:00:00Z");
 
-// Cenário dourado: saldo 412,40; ritmo 35,69; acaba 30/11; faltam 194,33 (status "short").
+// Cenário dourado: saldo 412,40; ritmo 35,69; acaba 29/11; faltam 194,33 (status "short").
 const cycle: BenefitEntry[] = [
   e("balance_reading", 12, "2026-11-04"),
   e("spend", 80, "2026-11-05", "Mercado"), e("spend", 45, "2026-11-06"), e("spend", 52.8, "2026-11-07"), e("spend", 70.3, "2026-11-09"),
@@ -23,7 +23,7 @@ describe("avisos do Ticket por mudança", () => {
     const [s] = benefitSituations(state(cycle), ctx, NOON);
     expect(s.type).toBe("benefit_projection");
     expect(s.severity).toBe("attention");
-    expect(s.title).toContain("30/11");
+    expect(s.title).toContain("29/11");
     expect(s.body).toContain("sai do seu bolso");
     expect(s.body).toMatch(/R\$\s*194,33/);
     expect(s.body).toMatch(/R\$\s*24,26/);

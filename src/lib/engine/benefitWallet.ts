@@ -191,7 +191,8 @@ export function project(balance: number, daysLeft: number, perDay: number, today
   const need = perDay * daysLeft;
   return {
     covers_days: round2(covers),
-    depletion_date: covers < daysLeft ? benefitAddDays(today, Math.ceil(covers)) : null,
+    // Último dia em que ainda há saldo: nunca o dia do crédito (nele entra dinheiro novo). Ex.: cobre 9,3 de 10 dias → acaba no 10º dia, o dia anterior ao crédito.
+    depletion_date: covers < daysLeft ? benefitAddDays(today, Math.max(0, Math.ceil(covers) - 1)) : null,
     uncovered_days: round2(uncovered),
     shortfall: round2(Math.max(0, need - balance)),
     leftover: round2(Math.max(0, balance - need)),

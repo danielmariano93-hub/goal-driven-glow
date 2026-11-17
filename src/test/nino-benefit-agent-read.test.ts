@@ -20,7 +20,7 @@ const ir = () => ({
   period: PERIOD, comparison_period: null, assumptions: [], needs_clarification: [], completeness_targets: [], source: "llm", unsupported_reason: null,
 });
 
-// Mesmo cenário dourado de benefit-wallet.test.ts: saldo 412,40; ritmo 35,69; acaba em 30/11.
+// Mesmo cenário dourado de benefit-wallet.test.ts: saldo 412,40; ritmo 35,69; acaba em 29/11.
 const spends: Array<[string, number, string | null]> = [
   ["2026-11-05", 80, "Mercado Extra"], ["2026-11-06", 45, "Restaurante Sabor & Cia"], ["2026-11-07", 52.8, "iFood"],
   ["2026-11-09", 70.3, "Mercado Extra"], ["2026-11-10", 39, "Padaria"], ["2026-11-12", 21, null],
@@ -62,7 +62,7 @@ describe("Ticket Alimentação — leitura pelo agente", () => {
     const r = (out as any).result;
     expect(r.balance).toBe(412.4);
     expect(r.rate_per_day).toBe(35.69);
-    expect(r.projection.depletion_date).toBe("2026-11-30");
+    expect(r.projection.depletion_date).toBe("2026-11-29");
     expect(r.cycle.days_left).toBe(17);
   });
 
@@ -94,7 +94,7 @@ describe("Ticket Alimentação — leitura pelo agente", () => {
     expect(out.preservation?.compatible).toBe(true);
     expect(out.grounding?.ok).toBe(true);
     expect(out.turn?.reply).toContain("412,40");
-    expect(out.turn?.reply).toContain("30/11");
+    expect(out.turn?.reply).toContain("29/11");
   });
 });
 

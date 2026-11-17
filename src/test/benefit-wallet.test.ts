@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   benefitAddDays, balanceSeries, computeBalance, computeBenefitState, computeRate, creditDateInMonth, cycleBounds,
-  merchantBreakdown, suggestions, weekdayPattern, whatIf, type BenefitEntry, type BenefitWalletConfig,
+  merchantBreakdown, project, suggestions, weekdayPattern, whatIf, type BenefitEntry, type BenefitWalletConfig,
 } from "@/lib/engine/benefitWallet";
 
 const wallet: BenefitWalletConfig = { monthly_credit: 900, credit_day: 5, carries_over: true };
@@ -86,14 +86,14 @@ describe("Ticket Alimentação — ritmo, projeção e simulação", () => {
     expect(s.spent_in_cycle).toBe(499.6);
     expect(s.ideal_per_day).toBe(24.26);
     expect(s.projection).toEqual({
-      covers_days: 11.56, depletion_date: "2026-11-30", uncovered_days: 5.44, shortfall: 194.33, leftover: 0, status: "short",
+      covers_days: 11.56, depletion_date: "2026-11-29", uncovered_days: 5.44, shortfall: 194.33, leftover: 0, status: "short",
     });
   });
 
   it("E se eu gastar menos: R$ 24 por dia fecha o ciclo e sobra para o próximo", () => {
     const s = computeBenefitState(wallet, cycle, TODAY);
     expect(whatIf(s, 24)).toMatchObject({ depletion_date: null, uncovered_days: 0, shortfall: 0, leftover: 4.4, status: "ok" });
-    expect(whatIf(s, 30)).toMatchObject({ depletion_date: "2026-12-02", status: "short", shortfall: 97.6 });
+    expect(whatIf(s, 30)).toMatchObject({ depletion_date: "2026-12-01", status: "short", shortfall: 97.6 });
     expect(whatIf(s, 80)?.status).toBe("short");
   });
 
@@ -247,5 +247,21 @@ describe("Ticket Alimentação — gastar durante o dia não bagunça ritmo e id
   it("o ritmo ignora o gasto parcial de hoje (só dias fechados)", () => {
     const withToday = computeRate(w, [...base, e("spend", 300, T)], T);
     expect(withToday).toEqual(computeRate(w, base, T));
+  });
+});
+
+describe("data em que o saldo acaba nunca é o dia do crédito", () => {
+  it("cobre 9,3 de 10 dias: acaba no dia anterior ao crédito, não no dia dele", () => {
+    // hoje 17, crédito dia 27: dias a cobrir = 17..26 (10 dias)
+    const p = project(93, 10, 10, "2026-11-17");
+    expect(p.covers_days).toBe(9.3);
+    expect(p.depletion_date).toBe("2026-11-26");
+  });
+  it("cobre exatos 9 dias: o último dia com saldo é o 25", () => {
+    expect(project(90, 10, 10, "2026-11-17").depletion_date).toBe("2026-11-25");
+  });
+  it("cobre menos de 1 dia: acaba hoje; e cobre o ciclo todo: sem data", () => {
+    expect(project(4, 10, 10, "2026-11-17").depletion_date).toBe("2026-11-17");
+    expect(project(100, 10, 10, "2026-11-17").depletion_date).toBeNull();
   });
 });
