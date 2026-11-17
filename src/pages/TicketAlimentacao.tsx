@@ -1,4 +1,5 @@
 import { todayLine } from "@/lib/ticket/todayLine";
+import { restDaysText, restDaysToFit } from "@/lib/engine/restDays";
 import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { ArrowLeft, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
@@ -106,6 +107,7 @@ export default function TicketAlimentacao() {
     : [];
   const chosen = rate ?? state.rate.per_day;
   const sim = chipValues.length ? whatIf(state, chosen) : null;
+  const rest = state.balance !== null && state.rate.per_day > 0 ? restDaysToFit(state.balance, state.cycle.days_left, state.rate.per_day) : null;
   const recent = [...entries].reverse().slice(0, 12);
 
   return (
@@ -172,6 +174,8 @@ export default function TicketAlimentacao() {
               {todayLine(state, brl2, dm) ? (
                 <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-today-remaining">{todayLine(state, brl2, dm)}</p>
               ) : null}
+
+              {rest ? <p className="px-1 text-sm text-muted-foreground" data-testid="ticket-rest-days">{restDaysText(rest)}</p> : null}
 
               <section className="surface-card flex flex-col gap-3 p-5">
                 <div className="flex items-baseline justify-between"><h2 className="font-bold">Como o mês fecha</h2><span className="text-xs text-muted-foreground">{dm(state.cycle.start)} a {dm(state.cycle.next)}</span></div>
