@@ -65,9 +65,9 @@ export function DayActionsSheet({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">{habit.title}</DrawerTitle>
             <DrawerDescription>

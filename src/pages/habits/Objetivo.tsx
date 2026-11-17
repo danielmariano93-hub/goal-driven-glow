@@ -31,9 +31,9 @@ function EditSheet({ goal, open, onOpenChange, onArchived }: { goal: GoalData; o
     try { await fn(); if (ok) toast.success(ok); } catch (e) { toast.error(hbErrorMessage(e)); }
   };
   return (
-    <Drawer open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setConfirm(false); }}>
+    <Drawer open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setConfirm(false); }} repositionInputs={false}>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <DrawerHeader className="text-left">
             <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Editar objetivo</DrawerTitle>
             <DrawerDescription>Nome e medidas acompanhadas. Remover uma medida não apaga o que você já registrou.</DrawerDescription>

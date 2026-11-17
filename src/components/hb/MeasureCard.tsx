@@ -71,9 +71,9 @@ export function MeasureCard({ view, rule }: { view: HabitView; rule: Rule | null
         </>
       )}
 
-      <Drawer open={open} onOpenChange={setOpen}>
+      <Drawer open={open} onOpenChange={setOpen} repositionInputs={false}>
         <DrawerContent>
-          <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
             <DrawerHeader className="text-left"><DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Como medir</DrawerTitle></DrawerHeader>
             <div className="flex flex-col gap-4 px-4">
               <div className="flex gap-2" role="group" aria-label="Regra">

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { guideKind, MEASURE_GUIDES, MeasureGuide } from "./MeasureGuide";
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
 import { hbErrorMessage, useSetMeasurement, type GoalData, type GoalMeasure, type HabitView } from "@/lib/habits/api";
@@ -46,21 +47,25 @@ export function MeasureSheet({ measure, today, open, onOpenChange }: { measure: 
     }
   };
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} repositionInputs={false}>
       <DrawerContent>
-        <div className="mx-auto w-full max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-          <DrawerHeader className="text-left">
+        <div className="mx-auto max-h-[88dvh] w-full max-w-md overflow-y-auto overscroll-contain pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <DrawerHeader className="px-4 pb-2 text-left">
             <DrawerTitle className="font-display text-[18px] font-semibold tracking-[-0.02em]">Registrar {measure?.label.toLowerCase() ?? "medida"}</DrawerTitle>
-            <DrawerDescription>{measure?.kind === "weight" ? "Pese-se sempre nas mesmas condições (de manhã, depois de ir ao banheiro). O gráfico mostra a média da semana." : ERROR_NOTE}</DrawerDescription>
+            <DrawerDescription className="sr-only">{MEASURE_GUIDES[guideKind(measure?.kind)].key}</DrawerDescription>
           </DrawerHeader>
           <div className="flex flex-col gap-3 px-4">
+            <MeasureGuide kind={measure?.kind} />
             <label className="flex flex-col gap-1.5 text-[12px] text-muted-foreground">
               Valor ({measure?.unit})
-              <input inputMode="decimal" autoFocus value={text} onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} aria-label={`Valor em ${measure?.unit}`} className="h-11 rounded-2xl border border-border/70 bg-card px-4 font-display text-[18px] font-semibold tabular-nums text-foreground" />
+              <span className="relative block">
+                <input inputMode="decimal" enterKeyHint="done" value={text} onChange={(e) => setText(e.target.value.replace(/[^0-9.,]/g, ""))} aria-label={`Valor em ${measure?.unit}`} className="h-12 w-full rounded-2xl border border-border/70 bg-card pl-4 pr-14 font-display text-[20px] font-semibold tabular-nums text-foreground outline-none focus:border-primary" />
+                <span className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-[14px] font-medium text-muted-foreground" aria-hidden="true">{measure?.unit}</span>
+              </span>
             </label>
             <label className="flex flex-col gap-1.5 text-[12px] text-muted-foreground">
               Dia
-              <input type="date" value={date} max={today} min={addDays(today, -400)} onChange={(e) => setDate(e.target.value)} aria-label="Dia da medida" className="h-11 rounded-2xl border border-border/70 bg-card px-4 text-[14px] text-foreground" />
+              <input type="date" value={date} max={today} min={addDays(today, -400)} onChange={(e) => setDate(e.target.value)} aria-label="Dia da medida" className="h-11 w-full rounded-2xl border border-border/70 bg-card px-4 text-[14px] text-foreground outline-none focus:border-primary" />
             </label>
             <Button className="h-11 rounded-full text-[14px] font-medium" disabled={!ok || set.isPending} onClick={() => void save()}>Salvar</Button>
           </div>
