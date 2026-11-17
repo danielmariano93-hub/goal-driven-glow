@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { restDaysText, restDaysToFit } from "@/lib/engine/restDays";
 import type { CategoryGoalEvaluation } from "@/lib/engine/metrics";
 import { formatBRL, type TransactionRow } from "@/lib/engine/facts";
 import { goalPaceModel, type GoalPaceModel, type PaceScenario } from "@/lib/engine/goalPaceChart";
@@ -83,6 +84,7 @@ export function GoalPaceChart({ evaluation, txs, today }: { evaluation: Category
   }
   const cols = tiles.length >= 3 ? "grid-cols-3" : tiles.length === 2 ? "grid-cols-2" : "grid-cols-1";
   const gap = model.belowPace;
+  const rest = pace != null && pace > 0 ? restDaysToFit(remaining, model.remainingDays, pace) : null;
   return (
     <section aria-label="Como a meta fecha" className="border-t border-border pt-3">
       <div className="flex items-baseline justify-between gap-3">
@@ -98,6 +100,7 @@ export function GoalPaceChart({ evaluation, txs, today }: { evaluation: Category
       <p data-testid="goal-pace-position" className={`mt-2 text-[13px] font-medium leading-5 ${gap > 0.005 ? "text-success" : "text-foreground"}`}>
         {Math.abs(gap) <= 0.005 ? "Você está exatamente no ritmo do teto." : gap > 0 ? `Você está ${formatBRL(gap)} abaixo do ritmo do teto.` : `Você está ${formatBRL(-gap)} acima do ritmo do teto.`}
       </p>
+      {rest ? <p data-testid="goal-rest-days" className="mt-1 text-[12px] leading-5 text-muted-foreground">{restDaysText(rest, pace as number, formatBRL)}</p> : null}
       <div className={`mt-3 grid gap-2 ${cols}`}>
         {tiles.map((t) => (
           <div key={t.label} className="rounded-[14px] border border-border px-2.5 py-2">
