@@ -62,7 +62,7 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate.ts";
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
-import { sameWindowComparison } from "./SameWindowGuard.ts";
+import { alignTurnPeriods, sameWindowComparison } from "./SameWindowGuard.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
@@ -1499,7 +1499,7 @@ async function executeContract(
 
   const financialReadContract = semantic.ir_v3
     ? buildFinancialReadContract({
-      turn: contract,
+      turn: alignTurnPeriods(contract, rawComparisonPeriod, sameWindow),
       requested: semantic.ir_v3,
       grounded_reference: ctx.groundedReference,
     })

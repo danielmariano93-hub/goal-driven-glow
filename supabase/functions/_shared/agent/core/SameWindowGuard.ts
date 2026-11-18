@@ -43,3 +43,25 @@ export function isSameDaysPair(a: Win | null | undefined, b: Win | null | undefi
   if (!sameMonth(a) || !sameMonth(b) || isFullMonth(b)) return false;
   return a.from.slice(0, 7) === previousMonthKey(b.from) && a.from.slice(8, 10) === b.from.slice(8, 10) && a.to.slice(8, 10) === b.to.slice(8, 10);
 }
+
+/**
+ * O contrato guarda as janelas que o modelo escreveu (`focus.period_expressions`, "AAAA-MM-DD..AAAA-MM-DD") e a trava
+ * exige que cada uma exista na conta. Se a conta usa a janela alinhada, o contrato tem de dizer a mesma coisa: troca
+ * a janela de antes pela alinhada ANTES de montar o contrato (corrigir só a conta fazia a trava recusar a resposta).
+ */
+export function alignTurnPeriods<T extends { focus: { period_expression: string | null; period_expressions?: string[] } }>(
+  turn: T, from: Win, to: Win | null,
+): T {
+  if (!to) return turn;
+  const was = `${from.from}..${from.to}`;
+  const now = `${to.from}..${to.to}`;
+  const swap = (e: string) => (String(e ?? "").trim() === was ? now : e);
+  return {
+    ...turn,
+    focus: {
+      ...turn.focus,
+      period_expression: turn.focus.period_expression == null ? null : swap(turn.focus.period_expression),
+      period_expressions: (turn.focus.period_expressions ?? []).map(swap),
+    },
+  };
+}
