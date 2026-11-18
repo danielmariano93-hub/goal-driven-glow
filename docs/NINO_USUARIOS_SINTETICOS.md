@@ -31,6 +31,16 @@ Em `/admin/qualidade`: **Rodar agora** enfileira a bateria; a rodada continua me
 - "Variar a escrita com IA" pede à IA outra forma de escrever a primeira pergunta; só vale se mantiver números e meses (senão o gabarito deixaria de valer e usa a versão mecânica).
 - A rodada automática usa a mesma cota de IA dos clientes reais. Por isso é lenta de propósito (orçamento de tokens/min + concorrência adaptativa).
 
+## Rodada semanal sorteada + relatório no WhatsApp
+A rodada automática agora é **semanal**: por padrão, **todo domingo às 3h (Brasília)**, de madrugada, quando o uso real é mínimo (nos últimos 60 dias, domingo foi o dia mais fraco e de 1h às 6h quase não há mensagens).
+- **Sorteio:** a cada semana a rodada sorteia 120 conversas (ajustável, 20 a 600) entre todas as combinações de perfil × cenário × jeito de escrever (≈ 4 mil). A semente nova muda a combinação a cada rodada; ela fica na configuração do job, então cada fatia recalcula o mesmo plano (`samplePlan` em `plan.mjs`).
+- **Teto de custo:** `token_cap` (padrão 800 mil tokens). Ao atingir, a rodada fecha com o que já testou e o relatório avisa.
+- **Relatório:** ao terminar, `report.mjs` monta um texto curto (total, % certas, respostas erradas agrupadas por cenário com exemplo, comparação com a rodada anterior do mesmo tipo, "me peça: corrigir Q17, H03") e o worker o envia ao WhatsApp do telefone configurado nos alertas do painel (`ops_alert_settings.whatsapp_to`), pela fila `outbound_messages` (`kind = 'system'`). O texto também fica salvo em `synthetic_runs.summary.report`. Rodada que falha manda um aviso curto.
+- **Ao ligar:** salvar com "Rodar sozinho" ligado marca a próxima janela (domingo), não roda na hora. Para rodar já, use "Rodar agora" (que também pode mandar o relatório).
+- **Painel:** `/admin/qualidade` → "Rodada automática": dia, hora, conversas sorteadas, limite de custo e o relatório. O modo "a cada tantas horas" (bateria completa) continua disponível.
+- **Como pedir a correção:** o relatório lista os cenários (ex.: Q17). Peça "corrigir Q17" e a conversa completa de cada falha está em `synthetic_results` da rodada citada.
+- **Limite honesto:** o sorteio varia perfil, assunto e escrita, mas o usuário ainda é roteirizado (as falas vêm de `scenarios.mjs`). Conversas livres com um cliente simulado por IA e juiz de IA são a fase seguinte.
+
 ## Como rodar (linha de comando)
 1. Aplicar a migração e publicar a função `nino-synthetic` (o workflow de deploy publica as funções).
 2. `NINO_SYN_URL=https://<projeto>.supabase.co/functions/v1/nino-synthetic NINO_SYN_TOKEN=<segredo> node scripts/synthetic/run.mjs --label="depois do ajuste X" --record`
