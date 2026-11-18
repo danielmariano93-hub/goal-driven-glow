@@ -150,6 +150,15 @@ const ymd = (iso: unknown) => String(iso ?? "").slice(0, 10);
 const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 /** "outubro de 2026" para mês fechado ou aberto; "01/10 a 15/10" para o resto. */
+/** Quantos dias tem o período (inclusive), ou null se as datas não forem válidas. */
+function periodDays(period: { from?: unknown; to?: unknown } | null | undefined): number | null {
+  const from = ymd(period?.from);
+  const to = ymd(period?.to);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const days = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1;
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
+
 export function comparisonPeriodLabel(period: { from?: unknown; to?: unknown } | null | undefined): string | null {
   const from = ymd(period?.from);
   const to = ymd(period?.to);
@@ -182,6 +191,12 @@ export function comparisonHeader(result: any): string | null {
   }
   const open = [result?.period_b?.partial ? labelB : null, result?.period_a?.partial ? labelA : null].filter(Boolean);
   if (open.length) lines.push(`⚠️ ${open.join(" e ")} ainda não terminou: o total cobre só os dias até hoje.`);
+  // Janelas de tamanhos muito diferentes (18 dias contra 31) fazem a diferença parecer maior do que é: avisa.
+  const daysA = periodDays(result?.period_a);
+  const daysB = periodDays(result?.period_b);
+  if (daysA && daysB && Math.max(daysA, daysB) / Math.min(daysA, daysB) >= 1.25) {
+    lines.push(`⚠️ Os períodos não têm o mesmo tamanho: *${labelB}* tem ${daysB} ${daysB === 1 ? "dia" : "dias"} e *${labelA}* tem ${daysA}. A diferença pode estar exagerada.`);
+  }
   return lines.join("\n");
 }
 
