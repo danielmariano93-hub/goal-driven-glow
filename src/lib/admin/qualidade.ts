@@ -137,7 +137,12 @@ export interface SyntheticJob {
   id: string; status: JobStatus; source: "manual" | "schedule"; label: string | null; total: number; done: number;
   error: string | null; created_at: string; started_at: string | null; finished_at: string | null; run_id: string | null;
 }
-export interface SyntheticSettings { enabled: boolean; every_hours: number; tpm: number; lanes: number; last_enqueued_at: string | null }
+export type ScheduleKind = "weekly" | "interval";
+export interface SyntheticSettings {
+  enabled: boolean; every_hours: number; tpm: number; lanes: number; last_enqueued_at: string | null;
+  // Rodada semanal sorteada (colunas novas; podem faltar até a migração ser aplicada).
+  schedule_kind?: ScheduleKind; schedule_dow?: number; schedule_hour?: number; sample_size?: number; token_cap?: number; report_whatsapp?: boolean;
+}
 export interface SyntheticState { settings: SyntheticSettings; active: SyntheticJob | null; recent: SyntheticJob[] }
 
 export const JOB_LABEL: Record<JobStatus, string> = { queued: "Na fila", running: "Rodando", done: "Concluída", failed: "Falhou", cancelled: "Cancelada" };
@@ -159,7 +164,7 @@ function useAfterChange() {
 export function useEnqueueRun() {
   const done = useAfterChange();
   return useMutation({
-    mutationFn: (config: { reps: number; llm: boolean; label?: string }) => callAdminRpc<{ ok: boolean; reason?: string; job_id?: string }>("admin_synthetic_enqueue", { p_config: { styles: "rotate", ...config } }),
+    mutationFn: (config: { reps: number; llm: boolean; label?: string; report?: boolean }) => callAdminRpc<{ ok: boolean; reason?: string; job_id?: string }>("admin_synthetic_enqueue", { p_config: { styles: "rotate", ...config } }),
     onSuccess: done,
   });
 }
@@ -170,7 +175,11 @@ export function useCancelRun() {
 export function useSaveSyntheticSettings() {
   const done = useAfterChange();
   return useMutation({
-    mutationFn: (v: { enabled: boolean; every_hours: number }) => callAdminRpc("admin_synthetic_settings_save", { _enabled: v.enabled, _every_hours: v.every_hours }),
+    mutationFn: (v: { enabled: boolean; every_hours?: number; sample_size?: number; token_cap?: number; report_whatsapp?: boolean; schedule_kind?: ScheduleKind; schedule_dow?: number; schedule_hour?: number }) =>
+      callAdminRpc("admin_synthetic_settings_save", {
+        _enabled: v.enabled, _every_hours: v.every_hours ?? null, _sample_size: v.sample_size ?? null, _token_cap: v.token_cap ?? null,
+        _report_whatsapp: v.report_whatsapp ?? null, _schedule_kind: v.schedule_kind ?? null, _schedule_dow: v.schedule_dow ?? null, _schedule_hour: v.schedule_hour ?? null,
+      }),
     onSuccess: done,
   });
 }
@@ -181,9 +190,18 @@ export function jobProgress(job: Pick<SyntheticJob, "done" | "total"> | null | u
   return Math.max(0, Math.min(100, Math.round((job.done / job.total) * 100)));
 }
 
+const DOW = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+const stamp = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
 /** Frase curta sobre a rodada automática. */
-export function scheduleSentence(s: Pick<SyntheticSettings, "enabled" | "every_hours" | "last_enqueued_at"> | undefined): string {
+export function scheduleSentence(s: Pick<SyntheticSettings, "enabled" | "every_hours" | "last_enqueued_at"> & Partial<SyntheticSettings> | undefined): string {
   if (!s?.enabled) return "Rodada automática desligada.";
+  const last = s.last_enqueued_at ? `Última vez: ${stamp(s.last_enqueued_at)}.` : "Ainda não rodou.";
+  if ((s.schedule_kind ?? "interval") === "weekly") {
+    const dow = DOW[Math.max(0, Math.min(6, s.schedule_dow ?? 0))];
+    const hour = s.schedule_hour ?? 3;
+    return `Toda ${dow === "domingo" || dow === "sábado" ? `${dow}` : `${dow}-feira`} às ${hour}h (horário de Brasília), sorteando ${s.sample_size ?? 120} conversas. ${last}`;
+  }
   const base = s.every_hours === 1 ? "A cada hora" : s.every_hours % 24 === 0 ? `A cada ${s.every_hours / 24} ${s.every_hours === 24 ? "dia" : "dias"}` : `A cada ${s.every_hours} horas`;
-  return s.last_enqueued_at ? `${base}. Última vez: ${new Date(s.last_enqueued_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : `${base}. Ainda não rodou.`;
+  return `${base}. ${last}`;
 }

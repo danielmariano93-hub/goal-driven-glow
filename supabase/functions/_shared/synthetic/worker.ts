@@ -2,7 +2,8 @@
 // vários minutos, mais do que uma Edge Function aguenta; então cada chamada (a cada minuto, pelo pg_cron) toca algumas
 // conversas, grava o resultado e devolve a vez. Duas travas: orçamento de tokens/min e concorrência adaptativa.
 // deno-lint-ignore-file no-explicit-any
-import { buildPlan, executeConversation, interleave, refDate } from "./plan.mjs";
+import { buildPlan, executeConversation, interleave, refDate, samplePlan } from "./plan.mjs";
+import { buildFailureReport, buildWeeklyReport } from "./report.mjs";
 import { consistency, summarizeRun } from "./score.mjs";
 import { createGovernor } from "./governor.mjs";
 import { contextFor } from "./plan.mjs";
@@ -15,6 +16,20 @@ export type WorkerDeps = {
   personaUser: (sb: any, persona: string) => Promise<string | null>;
   paraphrase: (body: any) => Promise<{ variants?: string[] }>;
 };
+
+/** "18/11" em horário de Brasília. */
+const dateLabel = () => new Date(Date.now() - 3 * 3600e3).toISOString().slice(8, 10) + "/" + new Date(Date.now() - 3 * 3600e3).toISOString().slice(5, 7);
+
+/** Manda o relatório ao WhatsApp do dono da plataforma (o mesmo telefone dos alertas do painel). Nunca derruba a rodada. */
+async function sendToOwner(sb: any, body: string): Promise<boolean> {
+  try {
+    const { data: rows } = await sb.from("ops_alert_settings").select("whatsapp_to").limit(1);
+    const to = (Array.isArray(rows) ? rows[0] : rows)?.whatsapp_to;
+    if (!to) return false;
+    const { error } = await sb.from("outbound_messages").insert({ to_phone: to, body, kind: "system" });
+    return !error;
+  } catch { return false; }
+}
 
 const LEASE_MS = 150_000;
 const MIN_REMAINING_MS = 45_000; // não começa uma conversa nova com menos tempo que isso
@@ -35,10 +50,13 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
   const { data: settings } = await sb.from("synthetic_settings").select("tpm,lanes").eq("id", 1).maybeSingle();
   const cfg = job.config ?? {};
   const ref = refDate(cfg.ref);
-  const plan = interleave(buildPlan({ personas: cfg.personas ?? [], only: cfg.only ?? [], styles: cfg.styles ?? "rotate", reps: cfg.reps ?? 1 }, ref));
+  const full = buildPlan({ personas: cfg.personas ?? [], only: cfg.only ?? [], styles: cfg.styles ?? "rotate", reps: cfg.reps ?? 1 }, ref);
+  // Rodada sorteada (a semanal): a semente fica na configuração, então cada fatia recalcula o mesmo plano.
+  const plan = interleave(cfg.random ? samplePlan(full, { sample: cfg.sample, seed: cfg.seed }) : full);
   let cursor = { ...(job.cursor ?? {}) } as any;
   const fail = async (why: string) => {
     await sb.from("synthetic_jobs").update({ status: "failed", error: why.slice(0, 300), lease_until: null, finished_at: new Date().toISOString() }).eq("id", job.id);
+    if (cfg.report) await sendToOwner(sb, buildFailureReport({ dateLabel: dateLabel(), why }));
     return { failed: why };
   };
 
@@ -77,6 +95,9 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
     const lanes = Math.max(1, Math.min(4, Number(settings?.lanes ?? 2)));
     const gov = createGovernor({ tokensPerMin: Number(settings?.tpm ?? 120_000), startLimit: lanes, maxLimit: lanes });
     let index = Number(cursor.index ?? 0);
+    let tokens = Number(cursor.tokens ?? 0);
+    const tokenCap = Number(cfg.token_cap ?? 0);
+    let capped = false;
     let cancelled = false;
 
     while (index < plan.length && Date.now() - started < budgetMs - MIN_REMAINING_MS) {
@@ -101,13 +122,16 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
       const { error } = await sb.from("synthetic_results").insert(rows);
       if (error) throw new Error(`gravar resultados: ${error.message}`);
       index += batch.length;
-      cursor = { ...cursor, index, errors: 0 };
+      tokens += results.reduce((a: number, r: any) => a + Number(r.tokens ?? 0), 0);
+      cursor = { ...cursor, index, tokens, errors: 0 };
       await sb.from("synthetic_jobs").update({ done: index, cursor, lease_until: new Date(Date.now() + LEASE_MS).toISOString() }).eq("id", job.id);
+      // Limite de custo da rodada: ao atingir, fecha com o que já foi testado (e o relatório avisa).
+      if (tokenCap > 0 && tokens >= tokenCap && index < plan.length) { capped = true; break; }
       if (results.some((r: any) => r.degraded)) await new Promise((r) => setTimeout(r, 15_000)); // provedor degradado: respira
     }
 
     // 3) Fecha a rodada.
-    if (index >= plan.length) {
+    if (index >= plan.length || capped) {
       const all: any[] = [];
       for (let from = 0; ; from += 1000) {
         const { data } = await sb.from("synthetic_results").select("scenario_id,persona_id,style,rep,area,verdict,layers").eq("run_id", job.run_id).range(from, from + 999);
@@ -116,9 +140,24 @@ export async function runJobTick(sb: any, deps: WorkerDeps, opts: { budgetMs?: n
       }
       const summary: any = summarizeRun(all);
       summary.consistency = consistency(all);
+      summary.tokens = tokens;
+      if (capped) { summary.capped = true; summary.planned = plan.length; }
+      if (cfg.report) {
+        // Rodada anterior do mesmo tipo (semanal x manual), para dizer se melhorou ou piorou.
+        const { data: prevRuns } = await sb.from("synthetic_runs").select("id,config,summary,finished_at").order("started_at", { ascending: false }).limit(12);
+        const previous = (prevRuns ?? []).find((r: any) => r.id !== job.run_id && r.finished_at && r.config?.source === job.source && r.summary?.total > 0)?.summary ?? null;
+        const full = [] as any[];
+        for (let from = 0; ; from += 1000) {
+          const { data } = await sb.from("synthetic_results").select("scenario_id,area,style,verdict,why,turns").eq("run_id", job.run_id).range(from, from + 999);
+          full.push(...(data ?? []));
+          if (!data || data.length < 1000) break;
+        }
+        summary.report = buildWeeklyReport({ summary, results: full, previous, capped, plannedTotal: plan.length, dateLabel: dateLabel(), runId: job.run_id });
+        summary.report_sent = await sendToOwner(sb, summary.report);
+      }
       await sb.from("synthetic_runs").update({ summary, finished_at: new Date().toISOString() }).eq("id", job.run_id);
-      await sb.from("synthetic_jobs").update({ status: "done", done: plan.length, lease_until: null, finished_at: new Date().toISOString() }).eq("id", job.id);
-      return { finished: true, run_id: job.run_id, ok_rate: summary.ok_rate, wrong: summary.wrong };
+      await sb.from("synthetic_jobs").update({ status: "done", done: index, total: index, lease_until: null, finished_at: new Date().toISOString() }).eq("id", job.id);
+      return { finished: true, run_id: job.run_id, ok_rate: summary.ok_rate, wrong: summary.wrong, capped };
     }
     await sb.from("synthetic_jobs").update({ lease_until: null }).eq("id", job.id);
     return { progressed: true, done: index, total: plan.length, cancelled };

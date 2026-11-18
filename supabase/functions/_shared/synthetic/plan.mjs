@@ -46,6 +46,32 @@ export function buildPlan({ personas = [], only = [], styles = "rotate", reps = 
   return out;
 }
 
+/** Gerador pseudoaleatório determinístico (mulberry32): a mesma semente dá o mesmo sorteio, então o plano pode ser recalculado a cada fatia. */
+export function seededRandom(seed) {
+  let a = Number(seed) | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Sorteia `sample` conversas do plano completo (persona × cenário × estilo), embaralhando com a semente.
+ * Cada rodada automática usa uma semente nova, então cada semana testa uma combinação diferente.
+ */
+export function samplePlan(plan, { sample, seed } = {}) {
+  const rnd = seededRandom(seed ?? 1);
+  const items = [...plan];
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  const n = Number(sample);
+  return Number.isFinite(n) && n > 0 ? items.slice(0, n) : items;
+}
+
 /** Intercala as personas (uma de cada vez): conversas vizinhas são de contas diferentes e podem rodar em paralelo. */
 export function interleave(plan) {
   const by = new Map();
