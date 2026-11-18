@@ -82,6 +82,8 @@ describe("propriedades da álgebra de períodos (todos os meses de 2024 a 2027)"
       const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
       const full = { from: `${py}-${pad(pm)}-01`, to: `${py}-${pad(pm)}-${pad(last(py, pm))}` };
       const w = sameWindowComparison("compare com o mês anterior", base, full);
+      // Mês anterior mais curto que o recorte: o mês inteiro já são "os mesmos dias", nada a corrigir.
+      if (d >= last(py, pm)) { expect(w, `${base.to}`).toBeNull(); continue; }
       expect(w, `${base.to}`).not.toBeNull();
       expect(w!.from).toBe(full.from);
       expect(w!.to <= full.to).toBe(true);
