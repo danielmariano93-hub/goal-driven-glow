@@ -91,11 +91,29 @@ function rolling(days: number, today: string, label: string, matched: string): R
  * Resolve o período citado na mensagem. Retorna `null` quando o texto não
  * menciona período algum — nesse caso o chamador decide o default (nunca aqui).
  */
+/** "até hoje / até agora / até o momento": FECHA a janela hoje. Não é o período "hoje". */
+export const TO_DATE_QUALIFIER = /\bate\s+(?:o\s+dia\s+de\s+)?(?:hoje|agora|o\s+momento|aqui)\b/g;
+/** "desde o dia 5", "a partir do dia 5": abre a janela no dia N do mês corrente e vai até hoje. */
+export const SINCE_DAY = /\b(?:desde|a\s+partir\s+d[oe])\s+(?:o\s+)?dia\s+(\d{1,2})\b/;
+
 export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedPeriod | null {
-  const t = norm(text);
-  if (!t) return null;
+  const normalized = norm(text);
+  if (!normalized) return null;
+  // O qualificador de fim ("até hoje") sai do texto antes da busca de períodos: antes, o "hoje" dele
+  // vencia "esse mês" e "quanto gastei esse mês até hoje" virava só o dia de hoje.
+  const toDate = new RegExp(TO_DATE_QUALIFIER.source).test(normalized);
+  const t = normalized.replace(TO_DATE_QUALIFIER, " ").replace(/\s+/g, " ").trim();
   const today = todaySP(now);
   const [year, month] = today.split("-").map(Number);
+
+  const since = t.match(SINCE_DAY) ?? (toDate ? t.match(/\bdo\s+dia\s+(\d{1,2})\b/) : null);
+  if (since) {
+    const day = Number(since[1]);
+    if (day >= 1 && day <= Number(today.slice(8, 10))) {
+      const from = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      return { from, to: today, label: `dia ${day} até hoje`, matched: since[0], complete: false, kind: "range" };
+    }
+  }
 
   if (/\bhoje\b/.test(t)) return { from: today, to: today, label: "hoje", matched: "hoje", complete: true, kind: "day" };
   if (/\bontem\b/.test(t)) {
@@ -215,7 +233,7 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const p = monthPeriod(year, month, today, /\b(mes inteiro|todo o mes)\b/.test(t));
     return { ...p, label: "este mês", matched: "este mês" };
   }
-  if (/\bate hoje\b/.test(t)) {
+  if (toDate) {
     const p = monthPeriod(year, month, today, false);
     return { ...p, label: "este mês até hoje", matched: "até hoje" };
   }

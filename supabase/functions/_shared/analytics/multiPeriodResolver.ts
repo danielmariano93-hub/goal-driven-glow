@@ -5,7 +5,7 @@
 // resolved directly and is never discarded in favour of reparsing the raw user
 // sentence. This closes the class of bugs where V3 understood 21–27 but V2
 // later fell back to "este mês".
-import { resolvePeriodPt, type ResolvedPeriod } from "./periodResolver.ts";
+import { resolvePeriodPt, SINCE_DAY, TO_DATE_QUALIFIER, type ResolvedPeriod } from "./periodResolver.ts";
 import { resolveExplicitPeriodPt } from "./explicitPeriodResolver.ts";
 
 export type MultiPeriodResolution = {
@@ -79,8 +79,11 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
     };
   }
 
+  // "até hoje" fecha a janela, não é o período "hoje": sai da busca por tokens.
+  const toDate = new RegExp(TO_DATE_QUALIFIER.source).test(t);
+  const tokenText = t.replace(TO_DATE_QUALIFIER, " ").replace(/\s+/g, " ").trim();
   const hits: Array<{ matched: string; start: number; end: number; period: ResolvedPeriod }> = [];
-  for (const match of t.matchAll(TOKEN_RX)) {
+  for (const match of tokenText.matchAll(TOKEN_RX)) {
     const matched = match[0];
     if (matched.startsWith("mesmo periodo")) continue;
     const period = resolvePeriodPt(matched, now);
@@ -88,7 +91,13 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
     hits.push({ matched, start: match.index ?? 0, end: (match.index ?? 0) + matched.length, period });
   }
 
-  if (!hits.length) return empty;
+  if (!hits.length) {
+    // Só "até hoje/agora" ou "desde o dia N": uma janela única do mês corrente.
+    const open = toDate || SINCE_DAY.test(t) ? resolvePeriodPt(text, now) : null;
+    return open
+      ? { version: "period_truth.v2", periods: [open], comparison_intent: false, matched: [open.matched], source: "single" }
+      : empty;
+  }
   const comparison = COMPARISON_RX.test(t);
 
   if (hits.length === 1) {
@@ -103,7 +112,7 @@ export function resolveMultiPeriodsPt(text: string, now: Date = new Date()): Mul
 
   const chain: typeof hits = [hits[0]];
   for (let i = 1; i < hits.length; i += 1) {
-    const between = t.slice(hits[i - 1].end, hits[i].start);
+    const between = tokenText.slice(hits[i - 1].end, hits[i].start);
     if (!CONNECTOR_RX.test(between)) break;
     chain.push(hits[i]);
   }
