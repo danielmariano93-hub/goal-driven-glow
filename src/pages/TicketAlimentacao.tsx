@@ -2,7 +2,7 @@ import { todayLine } from "@/lib/ticket/todayLine";
 import { restDaysText, restDaysToFit } from "@/lib/engine/restDays";
 import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
@@ -11,8 +11,9 @@ import {
 } from "@/lib/engine/benefitWallet";
 import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
+import { EntryList } from "@/components/ticket/EntryList";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
-import { EntrySheet, isEditableBenefitEntry, type Mode as EntryMode } from "@/components/ticket/EntrySheet";
+import { EntrySheet, type Mode as EntryMode } from "@/components/ticket/EntrySheet";
 import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
 
@@ -25,7 +26,6 @@ const PILL: Record<BenefitStatus, { text: string; cls: string; dot: string }> = 
   short: { text: "Vai faltar", cls: "bg-destructive/15 text-destructive", dot: "bg-destructive" },
   unknown: { text: "Sem ritmo ainda", cls: "bg-muted text-muted-foreground", dot: "bg-muted-foreground" },
 };
-const KIND_LABEL = { credit: "Crédito", spend: "Gasto", balance_reading: "Saldo informado", adjustment: "Ajuste" } as const;
 
 export default function TicketAlimentacao() {
   const enabled = useBenefitEnabled();
@@ -108,7 +108,6 @@ export default function TicketAlimentacao() {
   const chosen = rate ?? state.rate.per_day;
   const sim = chipValues.length ? whatIf(state, chosen) : null;
   const rest = state.balance !== null && state.rate.per_day > 0 ? restDaysToFit(state.balance, state.cycle.days_left, state.rate.per_day) : null;
-  const recent = [...entries].reverse().slice(0, 12);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4 pb-8">
@@ -270,29 +269,14 @@ export default function TicketAlimentacao() {
         </>
       )}
 
-      {recent.length > 0 && (
-        <section className="surface-card flex flex-col gap-1 p-5">
-          <h2 className="mb-1 font-bold">Lançamentos</h2>
-          {recent.map((e) => (
-            <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border py-2 text-sm last:border-0">
-              <div className="min-w-0">
-                <div className="truncate font-medium">{KIND_LABEL[e.kind]}{e.merchant ? ` · ${e.merchant}` : ""}</div>
-                <div className="text-xs text-muted-foreground">{dm(e.occurred_on)}</div>
-              </div>
-              <div className="flex items-center gap-1">
-                <strong className={`font-semibold ${e.kind === "credit" ? "text-success" : ""}`}>{e.kind === "spend" ? "− " : e.kind === "credit" ? "+ " : ""}{brl2(e.amount)}</strong>
-                {isEditableBenefitEntry(e) && (
-                  <button aria-label="Editar lançamento" onClick={() => setEditing(e)}
-                    className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:bg-secondary"><Pencil size={16} /></button>
-                )}
-                <button aria-label="Excluir lançamento" disabled={remove.isPending}
-                  onClick={() => remove.mutate(e.id, { onSuccess: () => toast.success("Lançamento excluído"), onError: () => toast.error("Não consegui excluir agora.") })}
-                  className="grid h-10 w-10 place-items-center rounded-full text-muted-foreground hover:bg-secondary"><Trash2 size={16} /></button>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      <EntryList
+        entries={entries}
+        onEdit={setEditing}
+        removing={remove.isPending}
+        money={brl2}
+        day={dm}
+        onRemove={(id) => remove.mutate(id, { onSuccess: () => toast.success("Lançamento excluído"), onError: () => toast.error("Não consegui excluir agora.") })}
+      />
 
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">Este saldo fica separado do seu caixa livre, da renda e do patrimônio. Só alimenta esta tela.</p>
       <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} initialMode={sheetMode} />
