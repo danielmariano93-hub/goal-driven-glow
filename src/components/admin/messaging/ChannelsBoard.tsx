@@ -109,6 +109,10 @@ export function ChannelsBoard() {
 
   return (
     <div className="space-y-6">
+      <Section title="Conexão do WhatsApp" description="Se o Nino não responde no WhatsApp, reconecte o aparelho aqui (QR Code).">
+        <WhatsAppSessionPanel />
+      </Section>
+
       <Section
         title="WhatsApp"
         icon={MessageCircle}
@@ -242,9 +246,6 @@ export function ChannelsBoard() {
         </div>
       </Section>
 
-      <Section title="Conexão e pareamento" description="Vincular ou restabelecer o número usado pelo Nino.">
-        <WhatsAppSessionPanel />
-      </Section>
     </div>
   );
 }

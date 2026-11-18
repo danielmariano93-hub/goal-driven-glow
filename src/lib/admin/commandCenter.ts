@@ -241,7 +241,7 @@ export function buildAttention(data: CommandCenterData, extra: AttentionItem[] =
       key: "stuck_queue",
       severity: "critical",
       title: `${m.stuck_queue} mensagen${m.stuck_queue === 1 ? "" : "s"} esperando para sair há mais de 15 min`,
-      detail: "O envio pode estar travado: as mensagens estão na fila, mas o WhatsApp não está recebendo. Abra Mensageria e confira se a conexão do WhatsApp está ativa.",
+      detail: "O envio pode estar travado: as mensagens estão na fila, mas o WhatsApp não está recebendo. Abra Mensageria (aba WhatsApp e entrega) e confira se a conexão do WhatsApp está ativa.",
       to: "/admin/comunicacoes?aba=mensagens",
     });
   }

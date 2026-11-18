@@ -31,7 +31,7 @@ const FAILURE: Record<string, Explained> = {
   session_not_connected: {
     what: "A conexão do Nino com o WhatsApp estava fora do ar.",
     means: "Nenhuma mensagem sai enquanto a conexão estiver caída.",
-    todo: "Abra Mensageria e reconecte o WhatsApp (leitura do QR code).",
+    todo: "Abra Mensageria, aba WhatsApp e entrega, e reconecte o WhatsApp (leitura do QR code).",
   },
 };
 
