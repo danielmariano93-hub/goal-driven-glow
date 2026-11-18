@@ -70,7 +70,7 @@ export default function ComunicacaoProativa() {
       <AdminTabs
         tabs={[
           { id: "visao-geral", label: "Visão geral", render: () => <Overview /> },
-          { id: "mensagens", label: "Entrega", render: () => (
+          { id: "mensagens", label: "WhatsApp e entrega", render: () => (
             <div className="space-y-6">
               <ChannelsBoard />
               <MessageMonitor />
