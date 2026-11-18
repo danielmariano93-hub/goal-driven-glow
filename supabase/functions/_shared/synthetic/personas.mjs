@@ -147,6 +147,22 @@ export function buildTruth(spec, ref = new Date()) {
       if (m && typeof t[`cat:M2:${m[1]}`] === "number") t[`catsum12:${m[1]}`] = round2(t[key] + t[`cat:M2:${m[1]}`]);
     }
   }
+  // Janelas por dia (perguntas de período): mês até hoje, os mesmos dias do mês anterior, 7 dias contra os 7 anteriores,
+  // dia 1 a 15 do mês anterior. Só despesas confirmadas; as datas vêm da própria lista semeada.
+  {
+    const refDay = ymd(ref);
+    const addDays = (d, n) => ymd(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10) + n)));
+    const expSum = (from, to) => round2(spec.transactions.filter((x) => x.status === "confirmed" && x.type === "expense" && x.date >= from && x.date <= to).reduce((a, x) => a + x.amount, 0));
+    const m0 = monthKey(monthAt(ref, 0)), m1 = monthKey(monthAt(ref, 1));
+    const dom = Number(refDay.slice(8, 10));
+    const m1Last = new Date(Date.UTC(+m1.slice(0, 4), +m1.slice(5, 7), 0)).getUTCDate();
+    t["mtd:exp"] = expSum(`${m0}-01`, refDay);
+    t["same:exp"] = expSum(`${m1}-01`, `${m1}-${String(Math.min(dom, m1Last)).padStart(2, "0")}`);
+    t["l7:exp"] = expSum(addDays(refDay, -6), refDay);
+    t["p7:exp"] = expSum(addDays(refDay, -13), addDays(refDay, -7));
+    t["d15:exp:M1"] = expSum(`${m1}-01`, `${m1}-15`);
+    t["days:mtd"] = dom;
+  }
   t["debt:total"] = round2((spec.debts ?? []).reduce((s, d) => s + d.outstanding_balance, 0));
   t["debt:installments"] = round2((spec.debts ?? []).reduce((s, d) => s + d.installment_amount, 0));
   return t;
