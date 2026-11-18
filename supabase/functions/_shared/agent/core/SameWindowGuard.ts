@@ -1,39 +1,45 @@
-// Trava determinística de "mesmo período": quando a pessoa pede para comparar o recorte atual com "o mesmo período do
-// mês anterior" (ou diz "nesse período"), o período de comparação TEM de ter os mesmos dias. O modelo entende "mês
-// anterior" como outubro inteiro e o resolvedor devolvia 01/10 a 31/10 contra 01/11 a 18/11: 31 dias contra 18, e uma
-// "queda de 86,7%" que não existia. Aqui o recorte de comparação é alinhado ao do período atual.
+// Padrão seguro de janelas na comparação (opção A, provisória).
+//
+// Problema: "esse mês contra o mês anterior" com o mês atual ainda aberto virava 01/11–18/11 contra 01/10–31/10
+// (18 dias contra 31 e uma "queda de 86,7%" que não existia).
+// Regra estrutural, sem lista de frases: se o período atual é um recorte parcial de UM mês e a comparação caiu no mês
+// anterior INTEIRO, compara os mesmos dias, a não ser que a pessoa peça o mês fechado ("inteiro", "completo", "todo").
+// A suposição é sempre dita na resposta (ver comparisonHeader), então erro de leitura fica visível e corrigível.
+//
+// REMOVER quando a álgebra de tempo única (janela escolhida por vocabulário fechado no contrato do turno) estiver
+// em produção: esta trava passa a ser redundante. Prazo: fim da Fase 1 do plano de tempo.
 import { samePeriodPreviousMonth } from "../../analytics/periodResolver.ts";
 
 type Win = { from: string; to: string };
 
 const norm = (s: string) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 
-/** "mesmo período", "nesse período", "esse recorte", "mesmos dias". */
-const SAME_WINDOW = /\b(?:mesmo|nesse|neste|esse|este)\s+(?:mesmo\s+)?(?:periodo|recorte|intervalo)\b|\bmesmos\s+dias\b/;
-/** Referência explícita ao mês de antes. */
-const PREV_MONTH_REF = /\bmes\s+(?:anterior|passado|atras)\b|\bmes\s+que\s+passou\b/;
+/** Único vocabulário: pedido explícito do mês fechado. Qualquer outra coisa usa o padrão seguro. */
+const WHOLE_MONTH = /\b(?:inteiro|inteira|completo|completa|fechado|fechada|todo|toda)\b|\bmes\s+todo\b/;
 
 const lastDayOf = (ymd: string): number => new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)), 0)).getUTCDate();
-const sameMonth = (w: Win) => w.from.slice(0, 7) === w.to.slice(0, 7);
-const isFullMonth = (w: Win) => sameMonth(w) && w.from.endsWith("-01") && Number(w.to.slice(8, 10)) === lastDayOf(w.to);
+export const sameMonth = (w: Win) => w.from.slice(0, 7) === w.to.slice(0, 7);
+export const isFullMonth = (w: Win) => sameMonth(w) && w.from.endsWith("-01") && Number(w.to.slice(8, 10)) === lastDayOf(w.to);
 const previousMonthKey = (ymd: string): string => {
   const y = Number(ymd.slice(0, 4)), m = Number(ymd.slice(5, 7));
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
 };
 
-/**
- * Devolve o recorte de comparação alinhado (mesmos dias do mês anterior) quando o texto pede "o mesmo período" e o
- * período atual é um recorte parcial de um mês; `null` quando não há o que corrigir.
- */
+/** Recorte de comparação alinhado (mesmos dias do mês anterior), ou `null` quando não há o que corrigir. */
 export function sameWindowComparison(text: string, base: Win | null | undefined, comparison: Win | null | undefined): Win | null {
-  if (!base?.from || !base?.to) return null;
-  const t = norm(text);
-  if (!SAME_WINDOW.test(t)) return null;
-  // Só faz sentido quando o período atual é parcial e cabe num mês (mês corrente até hoje, "dia 1 a 18"…).
+  if (!base?.from || !base?.to || !comparison?.from || !comparison?.to) return null;
   if (!sameMonth(base) || isFullMonth(base)) return null;
-  const comparisonIsFullPreviousMonth = !!comparison && isFullMonth(comparison) && comparison.from.slice(0, 7) === previousMonthKey(base.from);
-  if (!PREV_MONTH_REF.test(t) && !comparisonIsFullPreviousMonth) return null;
+  const prevFull = isFullMonth(comparison) && comparison.from.slice(0, 7) === previousMonthKey(base.from);
+  if (!prevFull) return null;
+  if (WHOLE_MONTH.test(norm(text))) return null;
   const aligned = samePeriodPreviousMonth(base);
-  if (comparison && comparison.from === aligned.from && comparison.to === aligned.to) return null;
+  if (comparison.from === aligned.from && comparison.to === aligned.to) return null;
   return aligned;
+}
+
+/** O par comparado é "mês atual até hoje" contra "os mesmos dias do mês anterior" (mesmo tamanho, meses vizinhos)? */
+export function isSameDaysPair(a: Win | null | undefined, b: Win | null | undefined): boolean {
+  if (!a?.from || !a?.to || !b?.from || !b?.to) return false;
+  if (!sameMonth(a) || !sameMonth(b) || isFullMonth(b)) return false;
+  return a.from.slice(0, 7) === previousMonthKey(b.from) && a.from.slice(8, 10) === b.from.slice(8, 10) && a.to.slice(8, 10) === b.to.slice(8, 10);
 }

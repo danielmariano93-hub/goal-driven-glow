@@ -5,6 +5,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import type { ComparisonEvidenceRow } from "./ConversationReferenceStore.ts";
+import { isSameDaysPair } from "./SameWindowGuard.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const PCT = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -196,6 +197,10 @@ export function comparisonHeader(result: any): string | null {
   const daysB = periodDays(result?.period_b);
   if (daysA && daysB && Math.max(daysA, daysB) / Math.min(daysA, daysB) >= 1.25) {
     lines.push(`⚠️ Os períodos não têm o mesmo tamanho: *${labelB}* tem ${daysB} ${daysB === 1 ? "dia" : "dias"} e *${labelA}* tem ${daysA}. A diferença pode estar exagerada.`);
+  }
+  if (isSameDaysPair(result?.period_a, result?.period_b)) {
+    const n = periodDays(result?.period_a);
+    lines.push(`Comparei os mesmos ${n} ${n === 1 ? "dia" : "dias"} dos dois meses. Para o mês anterior inteiro, é só pedir "mês anterior inteiro".`);
   }
   return lines.join("\n");
 }

@@ -1327,10 +1327,10 @@ async function executeContract(
   // não o mês anterior inteiro (01/11–18/11 contra 01/10–31/10 dava uma queda inventada de 86,7%).
   const sameWindow = comparisonIntent ? sameWindowComparison(canonical, basePeriod, rawComparisonPeriod) : null;
   const resolvedComparisonPeriod = sameWindow
-    ? { ...rawComparisonPeriod, from: sameWindow.from, to: sameWindow.to, label: "mesmo período do mês anterior" }
+    ? { ...rawComparisonPeriod, from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }
     : rawComparisonPeriod;
   const resolvedPeriodList = sameWindow && hasExplicitComparisonRoles
-    ? [{ ...multiPeriod.periods[0], from: sameWindow.from, to: sameWindow.to, label: "mesmo período do mês anterior" }, ...multiPeriod.periods.slice(1)]
+    ? [{ ...multiPeriod.periods[0], from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }, ...multiPeriod.periods.slice(1)]
     : multiPeriod.periods;
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
