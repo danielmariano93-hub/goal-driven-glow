@@ -59,8 +59,41 @@ export type IndependentMonthComparison = {
 const MONTHS = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho",
   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
-const normalize = (text: string) => String(text ?? "").toLowerCase().normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "").replace(/([aeiou])\1+/g, "$1").replace(/\s+/g, " ").trim();
+// A narrow spelling normalizer for the CLOSED temporal vocabulary. The
+// normalization is shared by grounding and the final independent oracle, so
+// ordinary human typos cannot bypass the proof and release incorrect numbers.
+// No general-purpose natural-language intent decisions occur here.
+function adjacentTranspose(actual: string, canonical: string): boolean {
+  if (actual.length !== canonical.length || actual === canonical) return false;
+  const mismatches: number[] = [];
+  for (let i = 0; i < actual.length; i++) if (actual[i] !== canonical[i]) mismatches.push(i);
+  return mismatches.length === 2 && mismatches[1] === mismatches[0] + 1
+    && actual[mismatches[0]] === canonical[mismatches[1]]
+    && actual[mismatches[1]] === canonical[mismatches[0]];
+}
+
+function missingOneLetter(actual: string, canonical: string): boolean {
+  if (canonical.length - actual.length !== 1) return false;
+  for (let i = 0; i < canonical.length; i++) {
+    if (canonical.slice(0, i) + canonical.slice(i + 1) === actual) return true;
+  }
+  return false;
+}
+
+const normalize = (text: string) => {
+  const simple = String(text ?? "").toLowerCase().normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/([aeiou])\1+/g, "$1")
+    .replace(/\s+/g, " ").trim();
+  const tokens = simple.split(" ");
+  return tokens.map((token, index) => {
+    if (token.startsWith("com") && adjacentTranspose(token, "comparado")) return "comparado";
+    if (index > 0 && tokens[index - 1] === "mes"
+      && (adjacentTranspose(token, "anterior") || missingOneLetter(token, "anterior"))) return "anterior";
+    if (index > 0 && tokens[index - 1] === "mes"
+      && (adjacentTranspose(token, "passado") || missingOneLetter(token, "passado"))) return "passado";
+    return token;
+  }).join(" ");
+};
 
 const comp = /\b(compar(?:a|ando|ar|acao|ado|e|o)?|versus|vs|diferenc|relacao|mais ou menos|aument|dimin|subiu|caiu)\b/;
 const current = /\b(?:esse|este|neste|nesse) mes\b|\b(?:ate|até) (?:agora|hoje|o momento)\b/;
