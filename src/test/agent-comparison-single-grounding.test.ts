@@ -68,6 +68,18 @@ describe("one-pass temporal grounding instead of post-hoc rejection", () => {
       expect(independentMonthComparison(question, today)).toBeNull();
     }
   });
+  it("grounds a real misspelled P01 user turn before compiling financial IR", () => {
+    const question = "como estou esse mês comaprado com o mesmo período do mês antrior?";
+    const modelTurnWithWrongFullMonth = modelTurn(full, current);
+    const requested = scopeForSingleComparison(modelTurnWithWrongFullMonth, question, today);
+    expect(requested?.baseline).toEqual(same);
+    const grounded = groundComparisonTurn(modelTurnWithWrongFullMonth, requested!);
+    const contract = buildFinancialReadContract({turn: grounded, requested: ir(current, same)});
+    expect(validateFinancialReadContract(contract)).toEqual([]);
+    expect(verifyExecutedFinancialScopes(contract, [
+      {tool_name: "compare_periods", ok: true, args: {period_a: current, period_b: same}},
+    ], {requested_text: question, reference_date: today})).toEqual([]);
+  });
   it("rejects non-comparison and compound scopes without changing user intent", () => {
     const turn = modelTurn(full, current);
     const text = "como estou esse mês comparado com o mesmo período do mês anterior?";
