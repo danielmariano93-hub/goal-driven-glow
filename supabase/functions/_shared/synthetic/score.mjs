@@ -92,6 +92,15 @@ export function scoreScenario({ expect, replies, state, truth, level, today, kno
       res = { verdict: "UNVERIFIED", why: period.why };
     }
   }
+  // Pergunta de resumo/balanço não é comparação: a regra de comparação do mês aberto não pode sequestrá-la.
+  // O valor sozinho não distingue (a comparação também mostra o gasto do mês), então o que vale é a ferramenta executada.
+  if (Array.isArray(expect.forbid_tools) && expect.forbid_tools.length && res.verdict === "CORRECT") {
+    const used = (Array.isArray(tool_calls) ? tool_calls : []).find((c) => expect.forbid_tools.includes(c?.tool_name));
+    if (used) {
+      layers.ferramenta = "WRONG";
+      res = { verdict: "WRONG", why: `executou ${used.tool_name} sem a pessoa pedir comparação` };
+    }
+  }
   layers.fato = res.verdict;
 
   // Estado: perguntar nunca pode criar lançamento.

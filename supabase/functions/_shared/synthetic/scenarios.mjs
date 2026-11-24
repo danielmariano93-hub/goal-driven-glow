@@ -108,6 +108,14 @@ export const SCENARIOS = [
   { id: "P06", area: "periodo", level: 2, applies: (c) => c.t["d15:exp:M1"] > 0, turns: (c) => [`quanto gastei do dia 1 ao dia 15 de ${monthName(c.ref, 1)}?`], expect: (c) => num(c.t, "d15:exp:M1") },
   // Pedido explícito do mês fechado: o padrão dos "mesmos dias" não pode atropelar.
   { id: "P07", area: "periodo", level: 3, applies: (c) => c.t["mtd:exp"] > 0 && c.t["exp:M1"] > 0 && c.t["days:mtd"] >= 5, turns: (c) => [`compara o que gastei esse mês até agora com ${monthName(c.ref, 1)} inteiro`], expect: (c) => ({ numbers: ["mtd:exp", "exp:M1"], comparison_window: "previous_full_month" }) },
+  // Resumo e balanço (a regra de comparação do mês aberto, #472, não pode sequestrar estas perguntas): conferem o valor
+  // E que nenhuma comparação foi executada.
+  { id: "S01", area: "resumo", level: 1, applies: (c) => c.t["mtd:exp"] > 0, turns: () => ["como foi meu mês?"], expect: () => ({ numbers: ["mtd:exp"], forbid_tools: ["compare_periods"] }) },
+  { id: "S02", area: "resumo", level: 1, applies: (c) => c.t["mtd:exp"] > 0, turns: () => ["como estou esse mês?"], expect: () => ({ numbers: ["mtd:exp"], forbid_tools: ["compare_periods"] }) },
+  { id: "S03", area: "resumo", level: 2, applies: (c) => c.t["mtd:exp"] > 0, turns: () => ["faz um resumo do meu mês atual"], expect: () => ({ numbers: ["mtd:exp"], forbid_tools: ["compare_periods"] }) },
+  { id: "S04", area: "resumo", level: 2, applies: (c) => c.t["exp:M1"] > 0, turns: (c) => [`balanço de ${monthName(c.ref, 1)}`], expect: () => ({ numbers: ["exp:M1"], forbid_tools: ["compare_periods"] }) },
+  { id: "S05", area: "resumo", level: 2, applies: (c) => c.t["exp:M1"] > 0, turns: () => ["como foi o mês passado?"], expect: () => ({ numbers: ["exp:M1"], forbid_tools: ["compare_periods"] }) },
+  { id: "S06", area: "resumo", level: 3, applies: (c) => c.t["mtd:exp"] > 0, turns: () => ["como estou esse mês, tô gastando mais do que ganho?"], expect: () => ({ numbers: ["mtd:exp"], forbid_tools: ["compare_periods"] }) },
   { id: "Q17", area: "incidental", level: 2, applies: (c) => hasKey(c.t, "cat:M1:Mercado"), turns: (c) => [`quanto gastei com mercado em ${monthName(c.ref, 1)}? tô gastando mais que ganho todo mês`], expect: (c) => num(c.t, "cat:M1:Mercado") },
   { id: "R15", area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "poupador", "conta_vazia"], turns: () => ["só gastei 35 no mercado hoje, ainda é menos da metade do que ganho", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 35, day: 0, categories: ["Mercado", "Alimentação"] } }) },
   { id: "R16", area: "registro", level: 2, applies: ALL, only: ["clt_estavel", "estudante", "conta_vazia"], turns: () => ["vinte reais de uber hoje", YES], expect: () => ({ kind: "registration", tx: { type: "expense", amount: 20, day: 0, categories: ["Transporte"] } }) },
