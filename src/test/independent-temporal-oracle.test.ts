@@ -69,9 +69,10 @@ describe("source-text temporal oracle independently verifies financial execution
     const verdict = verifyFinancialFulfillment({
       contract: contract(whole), preservation: null, grounding: null,
       requested_text: "como estou esse mês comparado com o mesmo período do mês anterior?",
+      reference_date: day,
       tool_calls: [call(whole)],
     });
-    // Uses today's clock; this test is about the explicit, pure oracle above.
-    expect(Array.isArray(verdict.violations)).toBe(true);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.violations.map(v => v.code)).toContain("original_request_vs_executed_window_mismatch");
   });
 });
