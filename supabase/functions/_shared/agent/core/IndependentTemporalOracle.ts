@@ -52,6 +52,9 @@ export function independentMonthComparison(
   const explicitFull = new RegExp(`\\b(?:mes (?:passado|anterior)|${previousName}) (?:inteiro|inteira|completo|completa|todo|toda|fechado|fechada)\\b`).test(message);
   // A 'whole month' adjective not attached to the baseline is ambiguous.
   if (full.test(message) && !explicitFull) return null;
+  // On the last day the current month is complete; the implicit comparison
+  // convention is not unambiguous, so do not force a partial-month rule.
+  if (!explicitFull && Number(referenceDay.slice(8, 10)) === daysInMonth(month)) return null;
   const mode = explicitFull ? "previous_full_month" : "same_elapsed_days";
   const prevEnd = daysInMonth(prev);
   const day = Math.min(Number(referenceDay.slice(8, 10)), prevEnd);
