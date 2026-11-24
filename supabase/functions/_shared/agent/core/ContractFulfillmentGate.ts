@@ -4,6 +4,7 @@
 // canonical request. Validators reject; they never reinterpret.
 
 import type { GroundingResult } from "./GroundingGateV3.ts";
+import { verifyExecutedFinancialScopes } from "./ExecutionScopeGate.ts";
 import type { PreservationResult } from "./SemanticPreservation.ts";
 import {
   validateFinancialReadContract,
@@ -41,6 +42,7 @@ export function verifyFinancialFulfillment(args: {
   contract: FinancialReadContractV4 | null;
   preservation: PreservationResult | null;
   grounding: GroundingResult | null;
+  tool_calls?: readonly { tool_name?: string; args?: Record<string, unknown> | null; result?: unknown; ok?: boolean }[];
   applied_reference_scope?: {
     target: string;
     entity_labels: string[];
@@ -51,6 +53,7 @@ export function verifyFinancialFulfillment(args: {
   for (const error of validateFinancialReadContract(args.contract)) {
     violations.push({ code: contractViolationCode(error), detail: error });
   }
+  violations.push(...verifyExecutedFinancialScopes(args.contract, args.tool_calls ?? []));
 
   if (args.preservation && !args.preservation.compatible) {
     for (const mismatch of args.preservation.mismatches) {
