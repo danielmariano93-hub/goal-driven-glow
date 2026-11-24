@@ -1512,6 +1512,12 @@ async function executeContract(
       contract: financialReadContract,
       preservation: semantic.preservation,
       grounding: semantic.grounding ?? null,
+      tool_calls: (semantic.turn?.toolCalls ?? []).map((call: any) => ({
+        tool_name: String(call.tool_name ?? ""),
+        args: call.args,
+        result: call.result,
+        ok: call.ok === true,
+      })),
       applied_reference_scope: appliedReferenceScope,
     })
     : null;
