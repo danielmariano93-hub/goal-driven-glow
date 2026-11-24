@@ -1510,6 +1510,7 @@ async function executeContract(
   const fulfillment = financialReadContract
     ? verifyFinancialFulfillment({
       contract: financialReadContract,
+      requested_text: input.text,
       preservation: semantic.preservation,
       grounding: semantic.grounding ?? null,
       tool_calls: (semantic.turn?.toolCalls ?? []).map((call: any) => ({

@@ -3,6 +3,7 @@
 // the concrete parameters sent to the financial execution tool. Do not repair
 // or silently substitute the user's requested time window here.
 import type { FinancialReadContractV4 } from "./FinancialReadContract.ts";
+import { independentMonthComparison } from "./IndependentTemporalOracle.ts";
 
 type Window = { from: string; to: string };
 type Call = {
@@ -38,6 +39,7 @@ function sameWindows(a: Window[], b: Window[]) {
 export function verifyExecutedFinancialScopes(
   contract: FinancialReadContractV4 | null,
   toolCalls: readonly Call[],
+  options: { requested_text?: string | null; reference_date?: string } = {},
 ): ExecutionScopeViolation[] {
   if (!contract) return [];
   const requestedCompare = contract.requested.queries.some(q => q.legacy_operation === "compare");
@@ -49,10 +51,20 @@ export function verifyExecutedFinancialScopes(
   if (!base || !previous) return [{ code: "comparison_scope_unverifiable", detail: "authoritative IR missing comparison windows" }];
   const expected = [base, previous];
   const violations: ExecutionScopeViolation[] = [];
+  const sourceScope = options.requested_text
+    ? independentMonthComparison(options.requested_text, options.reference_date)
+    : null;
   for (const call of calls) {
     if (call.ok !== true) continue; // Failed call already handled by execution status.
     const actualA = windowOf(call.args?.period_a);
     const actualB = windowOf(call.args?.period_b);
+    if (sourceScope && (!actualA || !actualB
+      || !sameWindows([sourceScope.target, sourceScope.baseline], [actualA, actualB]))) {
+      violations.push({
+        code: "original_request_vs_executed_window_mismatch",
+        detail: "executed comparison contradicts independently recognized user-requested calendar relation",
+      });
+    }
     if (!actualA || !actualB || !sameWindows(expected, [actualA, actualB])) {
       violations.push({
         code: "comparison_execution_window_mismatch",
