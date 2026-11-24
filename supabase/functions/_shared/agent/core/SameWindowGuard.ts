@@ -16,6 +16,25 @@ const norm = (s: string) => String(s ?? "").toLowerCase().normalize("NFD").repla
 
 /** Único vocabulário: pedido explícito do mês fechado. Qualquer outra coisa usa o padrão seguro. */
 const WHOLE_MONTH = /\b(?:inteiro|inteira|completo|completa|fechado|fechada|todo|toda)\b|\bmes\s+todo\b/;
+const WHOLE_WORDS = ["inteiro", "inteira", "completo", "completa", "fechado", "fechada"];
+
+/** Distância de edição limitada (digitação: "ineiro", "copleto"). Só roda contra um conjunto fechado de 6 palavras. */
+function within(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length] <= max;
+}
+
+/** Pedido explícito do mês fechado, tolerante a erro de digitação. */
+export function asksWholeMonth(normalizedText: string): boolean {
+  if (WHOLE_MONTH.test(normalizedText)) return true;
+  return normalizedText.split(/\s+/).some((w) => w.length >= 6 && WHOLE_WORDS.some((k) => within(w, k, 1)));
+}
 
 const lastDayOf = (ymd: string): number => new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)), 0)).getUTCDate();
 export const sameMonth = (w: Win) => w.from.slice(0, 7) === w.to.slice(0, 7);
@@ -31,7 +50,7 @@ export function sameWindowComparison(text: string, base: Win | null | undefined,
   if (!sameMonth(base) || isFullMonth(base)) return null;
   const prevFull = isFullMonth(comparison) && comparison.from.slice(0, 7) === previousMonthKey(base.from);
   if (!prevFull) return null;
-  if (WHOLE_MONTH.test(norm(text))) return null;
+  if (asksWholeMonth(norm(text))) return null;
   const aligned = samePeriodPreviousMonth(base);
   if (comparison.from === aligned.from && comparison.to === aligned.to) return null;
   return aligned;
