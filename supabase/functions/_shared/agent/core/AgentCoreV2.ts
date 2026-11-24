@@ -1327,7 +1327,6 @@ async function executeContract(
   // month roles, correcting only the comparison endpoint cannot recover the
   // meaning. Preserve the original windows for contract/evidence auditing.
   const originalBasePeriod = basePeriod;
-  const originalComparisonPeriod = rawComparisonPeriod;
   const monthPolicy = comparisonIntent ? canonicalMonthComparison(canonical, basePeriod, rawComparisonPeriod) : null;
   if (monthPolicy?.reordered) {
     basePeriod = { ...rawComparisonPeriod, ...monthPolicy.base };
