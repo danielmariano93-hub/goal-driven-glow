@@ -7,6 +7,31 @@
 // It uses NinoClock's local civil date, not UTC slices or hardcoded offsets.
 import { daysInMonth, previousMonth, today as localToday } from "../../finance-core/ninoClock.ts";
 
+import type { CanonicalConversationTurnContract } from "./ConversationTurnContract.ts";
+
+/**
+ * Deterministic temporal grounding of a V3 comparison contract. This is the
+ * ONLY write to the comparison's resolved windows: the compiler and the
+ * fulfillment proof consume the exact same pair. Source semantics (metric,
+ * entities, operations, filter, comparison type) are left untouched.
+ */
+export function groundComparisonTurn(
+  turn: CanonicalConversationTurnContract,
+  resolved: IndependentMonthComparison,
+): CanonicalConversationTurnContract {
+  const target = `${resolved.target.from}..${resolved.target.to}`;
+  const baseline = `${resolved.baseline.from}..${resolved.baseline.to}`;
+  return {
+    ...turn,
+    focus: {
+      ...turn.focus,
+      period_expression: target,
+      period_expressions: [baseline, target],
+    },
+    resolution: { ...turn.resolution, time: "resolved" },
+  };
+}
+
 export type TemporalWindow = { from: string; to: string };
 export type IndependentMonthComparison = {
   target: TemporalWindow;
