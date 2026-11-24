@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { groundComparisonTurn, independentMonthComparison, scopeForSingleComparison } from "../../supabase/functions/_shared/agent/core/IndependentTemporalOracle";
 import { buildFinancialReadContract, validateFinancialReadContract } from "../../supabase/functions/_shared/agent/core/FinancialReadContract";
 import { verifyExecutedFinancialScopes } from "../../supabase/functions/_shared/agent/core/ExecutionScopeGate";
@@ -78,6 +79,20 @@ describe("one-pass temporal grounding instead of post-hoc rejection", () => {
     const sum = { ...turn, financial_read: { ...turn.financial_read!, queries: [
       { ...turn.financial_read!.queries[0], operation: "sum" as const }] } };
     expect(scopeForSingleComparison(sum, text, today)).toBeNull();
+  });
+  it("does not trust a semantic model's paraphrase as the user's period choice", () => {
+    const original = "como to esse mês comparado com o mesmo período do mês anterior";
+    const modelParaphrase = "Compare outubro inteiro com o mês de novembro";
+    const turn = modelTurn(full, current);
+    expect(scopeForSingleComparison(turn, original, today)?.baseline).toEqual(same);
+    expect(scopeForSingleComparison(turn, modelParaphrase, today)).toBeNull();
+    // End-to-end boundary: previously this call used `canonical`, a model
+    // paraphrase which sometimes discarded "mesmo período".
+    const source = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
+    expect(source).toContain("scopeForSingleComparison(contract, input.text)");
+    expect(source).not.toContain("scopeForSingleComparison(contract, canonical)");
+    expect(source).toContain("sameWindowComparison(input.text, basePeriod, rawComparisonPeriod)");
+    expect(source).not.toContain("sameWindowComparison(canonical, basePeriod, rawComparisonPeriod)");
   });
   it("only performs structural grounding, not financial calculations or writes", () => {
     const input = modelTurn(full, current);
