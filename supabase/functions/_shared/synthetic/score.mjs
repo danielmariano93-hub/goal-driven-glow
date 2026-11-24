@@ -5,6 +5,7 @@
 //   naturalidade: sinais mecânicos de resposta robótica (não muda o veredito; vira indicador e fila de revisão)
 // Veredito final: o pior entre fato e estado (WRONG > INFRA > MISS > CORRECT). Resposta errada é a pior.
 import { score as goldenScore, classify } from "./goldenScore.mjs";
+import { gradeExecutedComparison } from "./periodTruth.mjs";
 
 const ROBOTIC = /período solicitado|consulta executada|resultado:|dados disponíveis indicam|como (uma )?ia\b|modelo de linguagem|não tenho acesso a essa informação|\bjson\b/i;
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu;
@@ -46,7 +47,7 @@ export function scoreRegistration(expect, state, today) {
   return { verdict: "CORRECT", why: "lançamento certo no banco", categoria: "ok" };
 }
 
-export function scoreScenario({ expect, replies, state, truth, level, today, known, asked = [] }) {
+export function scoreScenario({ expect, replies, state, truth, level, today, known, asked = [], tool_calls = [] }) {
   const reply = String(replies.at(-1) ?? "");
   // Valor que a própria pessoa digitou ("me empresta 500 reais?") não é valor inventado quando o Nino o repete.
   const typed = new Set((asked.map((t) => (typeof t === "string" ? t : t?.text ?? "")).join(" ").match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => Math.abs(Number(n.replace(/\.(?=\d{3}\b)/g, "").replace(",", ".")))));
@@ -80,6 +81,16 @@ export function scoreScenario({ expect, replies, state, truth, level, today, kno
     const knownVals = known ?? Object.values(numericTruth).map((v) => Math.abs(Number(v)));
     const parts = c.money.length > 0 && c.money.every((t) => knownVals.some((k) => Math.abs(Math.abs(t.value) - k) <= 0.011));
     if (parts) res = { verdict: "MISS", why: "deu os valores de cada mês, mas não a conta pedida" };
+  }
+  // Financial comparisons need correct *execution scope*, not merely a few
+  // matching currency tokens. This grader is independent of the LLM answer.
+  if (expect.comparison_window && res.verdict !== "INFRA") {
+    const period = gradeExecutedComparison({ tool_calls, today, mode: expect.comparison_window });
+    layers.periodo = period.verdict;
+    if (period.verdict === "WRONG") res = worst(res, period);
+    else if (period.verdict === "UNVERIFIED" && res.verdict === "CORRECT") {
+      res = { verdict: "UNVERIFIED", why: period.why };
+    }
   }
   layers.fato = res.verdict;
 

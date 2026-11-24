@@ -124,7 +124,7 @@ export async function executeConversation({ desc, ref, io, gov }) {
   if (!c || !sc) return { ...base, verdict: "INFRA", why: "cenário ou persona desconhecido", layers: {}, turns: [], replies: [] };
   const conv = await io.newConversation(desc.persona_id);
   if (!conv?.conversation_id) return { ...base, verdict: "INFRA", why: `não abriu conversa: ${conv?.error ?? "sem detalhe"}`, layers: {}, turns: [], replies: [] };
-  const sent = [], replies = [];
+  const sent = [], replies = [], toolCalls = [];
   let prev = "", degradedTurns = 0, tokens = 0, varied = false;
   for (const turn of sc.turns(c.ctx)) {
     const item = typeof turn === "string" ? { text: turn, style: true } : { ...turn, style: false };
@@ -143,9 +143,10 @@ export async function executeConversation({ desc, ref, io, gov }) {
     sent.push(text);
     prev = String(r.reply ?? r.error ?? r.raw ?? "");
     replies.push(prev);
+    toolCalls.push(...(Array.isArray(r.tool_calls) ? r.tool_calls : []));
   }
   const txs = await io.txs(desc.persona_id, conv.since);
   await io.cleanup(desc.persona_id, conv.since);
-  const res = scoreScenario({ expect: sc.expect(c.ctx), replies, state: { txs }, truth: c.truth, level: sc.level, today: ymd(ref), known: c.known, asked: sent });
+  const res = scoreScenario({ expect: sc.expect(c.ctx), replies, state: { txs }, truth: c.truth, level: sc.level, today: ymd(ref), known: c.known, asked: sent, tool_calls: toolCalls });
   return { ...base, ...res, layers: { ...res.layers, ...(degradedTurns ? { provedor: "degradado" } : {}), ...(varied ? { variacao: "ia" } : {}) }, state: txs, turns: sent, replies, latency_ms: Date.now() - t0, tokens, degraded: degradedTurns };
 }
