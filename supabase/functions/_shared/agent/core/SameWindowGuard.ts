@@ -37,44 +37,6 @@ export function sameWindowComparison(text: string, base: Win | null | undefined,
   return aligned;
 }
 
-/**
- * Canonical comparison-window policy. A model may reverse target/baseline when
- * reading a natural-language comparison. The requested operation remains the
- * same: the newer *partial* month is the active window, the immediately
- * preceding *full* month is the baseline. Normalize the pair together, not
- * with isolated regex repairs throughout the runtime.
- *
- * Only structurally comparable adjacent months qualify. An explicitly requested
- * full month is never changed. This function is pure and side-effect free.
- */
-export function canonicalMonthComparison(
-  text: string,
-  base: Win | null | undefined,
-  comparison: Win | null | undefined,
-): { base: Win; comparison: Win; reordered: boolean; aligned: boolean } | null {
-  if (!base?.from || !base?.to || !comparison?.from || !comparison?.to) return null;
-  if (WHOLE_MONTH.test(norm(text))) return null;
-  const alignedForward = sameWindowComparison(text, base, comparison);
-  if (alignedForward) {
-    return { base, comparison: alignedForward, reordered: false, aligned: true };
-  }
-  // Model reversed the comparison roles: previous full month became the
-  // target, while the current partial month became the baseline.
-  if (
-    isFullMonth(base) && sameMonth(comparison) && !isFullMonth(comparison)
-    && base.from.slice(0, 7) === previousMonthKey(comparison.from)
-  ) {
-    const aligned = samePeriodPreviousMonth(comparison);
-    return {
-      base: comparison,
-      comparison: aligned,
-      reordered: true,
-      aligned: aligned.from !== base.from || aligned.to !== base.to,
-    };
-  }
-  return null;
-}
-
 /** O par comparado é "mês atual até hoje" contra "os mesmos dias do mês anterior" (mesmo tamanho, meses vizinhos)? */
 export function isSameDaysPair(a: Win | null | undefined, b: Win | null | undefined): boolean {
   if (!a?.from || !a?.to || !b?.from || !b?.to) return false;
