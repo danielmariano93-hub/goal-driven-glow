@@ -18,7 +18,7 @@ const MONTHS = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho",
   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 
 const normalize = (text: string) => String(text ?? "").toLowerCase().normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+  .replace(/[\u0300-\u036f]/g, "").replace(/([aeiou])\1+/g, "$1").replace(/\s+/g, " ").trim();
 
 const comp = /\b(compar(?:a|ando|ar|acao|ado|e|o)?|versus|vs|diferenc|relacao|mais ou menos|aument|dimin|subiu|caiu)\b/;
 const current = /\b(?:esse|este|neste|nesse) mes\b|\b(?:ate|até) (?:agora|hoje|o momento)\b/;
