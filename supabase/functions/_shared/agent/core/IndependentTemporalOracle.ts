@@ -10,6 +10,23 @@ import { daysInMonth, previousMonth, today as localToday } from "../../finance-c
 import type { CanonicalConversationTurnContract } from "./ConversationTurnContract.ts";
 
 /**
+ * Grounding eligibility is part of the canonical boundary: do not convert
+ * ordinary language, writes, advisory turns or compound financial operations
+ * into a different query. Only the already-approved single compare query may
+ * receive a deterministic calendar relation.
+ */
+export function scopeForSingleComparison(
+  turn: CanonicalConversationTurnContract,
+  text: string,
+  referenceDay?: string,
+): IndependentMonthComparison | null {
+  if (turn.mode !== "read" || turn.domain !== "financial_read") return null;
+  if (turn.financial_read?.queries.length !== 1) return null;
+  if (turn.financial_read.queries[0].operation !== "compare") return null;
+  return independentMonthComparison(text, referenceDay);
+}
+
+/**
  * Deterministic temporal grounding of a V3 comparison contract. This is the
  * ONLY write to the comparison's resolved windows: the compiler and the
  * fulfillment proof consume the exact same pair. Source semantics (metric,
