@@ -63,7 +63,7 @@ import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
 import { alignTurnPeriods, sameWindowComparison } from "./SameWindowGuard.ts";
-import { independentMonthComparison } from "./IndependentTemporalOracle.ts";
+import { groundComparisonTurn, independentMonthComparison } from "./IndependentTemporalOracle.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
@@ -1347,17 +1347,7 @@ async function executeContract(
   // interpretation. Keep the legacy contract temporal proof in sync with the
   // exact pair the deterministic engine will use. Never change entity/metric.
   const groundedTurn = requestedMonthComparison
-    ? {
-      ...contract,
-      focus: {
-        ...contract.focus,
-        period_expression: `${basePeriod.from}..${basePeriod.to}`,
-        period_expressions: [
-          `${resolvedComparisonPeriod.from}..${resolvedComparisonPeriod.to}`,
-          `${basePeriod.from}..${basePeriod.to}`,
-        ],
-      },
-    }
+    ? groundComparisonTurn(contract, requestedMonthComparison)
     : contract;
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
