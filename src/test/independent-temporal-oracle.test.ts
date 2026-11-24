@@ -45,6 +45,25 @@ describe("source-text temporal oracle independently verifies financial execution
     const jan = independentMonthComparison("compare esse mês ao mês passado", "2026-01-15");
     expect(jan?.baseline).toEqual({ from: "2025-12-01", to: "2025-12-15" });
   });
+  it("handles PT-BR typing noise without changing the time semantics", () => {
+    for (const question of [
+      "como estou esse mês comaprado com o mesmo período do mês antrior?",
+      "como to esse mes comaprado ao mes anterior",
+      "como estou esse mês comparado com o mês antrior?",
+    ]) {
+      expect(independentMonthComparison(question, day))
+        .toEqual({ target: current, baseline: same, mode: "same_elapsed_days" });
+    }
+    expect(independentMonthComparison("o que foi comprado esse mês e no mês anterior?", day)).toBeNull();
+    expect(independentMonthComparison("comaprado a outro período?", day)).toBeNull();
+  });
+  it("fails closed on misspelled user text even if an LLM agrees with the wrong full month", () => {
+    const wrong = verifyExecutedFinancialScopes(contract(whole), [call(whole)], {
+      requested_text: "como estou esse mês comaprado com o mesmo período do mês antrior?",
+      reference_date: day,
+    });
+    expect(wrong.map(x => x.code)).toContain("original_request_vs_executed_window_mismatch");
+  });
   it("does not override dates, other months, or unrelated questions", () => {
     for (const question of [
       "quanto gastei no mês passado?",
