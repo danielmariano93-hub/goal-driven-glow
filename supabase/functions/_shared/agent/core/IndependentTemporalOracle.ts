@@ -84,15 +84,17 @@ const normalize = (text: string) => {
   const simple = String(text ?? "").toLowerCase().normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "").replace(/([aeiou])\1+/g, "$1")
     .replace(/\s+/g, " ").trim();
-  const tokens = simple.split(" ");
-  return tokens.map((token, index) => {
+  let previousWord = "";
+  return simple.replace(/\b[a-z]+\b/g, (token) => {
+    const previous = previousWord;
+    previousWord = token;
     if (token.startsWith("com") && adjacentTranspose(token, "comparado")) return "comparado";
-    if (index > 0 && tokens[index - 1] === "mes"
+    if (previous === "mes"
       && (adjacentTranspose(token, "anterior") || missingOneLetter(token, "anterior"))) return "anterior";
-    if (index > 0 && tokens[index - 1] === "mes"
+    if (previous === "mes"
       && (adjacentTranspose(token, "passado") || missingOneLetter(token, "passado"))) return "passado";
     return token;
-  }).join(" ");
+  });
 };
 
 const comp = /\b(compar(?:a|ando|ar|acao|ado|e|o)?|versus|vs|diferenc|relacao|mais ou menos|aument|dimin|subiu|caiu)\b/;
