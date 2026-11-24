@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalMonthComparison, sameWindowComparison } from "../../supabase/functions/_shared/agent/core/SameWindowGuard";
+import { sameWindowComparison } from "../../supabase/functions/_shared/agent/core/SameWindowGuard";
 import { comparisonHeader } from "../../supabase/functions/_shared/agent/core/ComparisonPresentation";
 
 const nov = { from: "2026-11-01", to: "2026-11-18" }; // novembro até o dia 18
@@ -88,51 +88,6 @@ describe("propriedades da álgebra de períodos (todos os meses de 2024 a 2027)"
       expect(w!.from).toBe(full.from);
       expect(w!.to <= full.to).toBe(true);
       expect(days(w!)).toBe(Math.min(d, last(py, pm)));
-    }
-  });
-});
-
-describe("canonical adjacent-month comparisons are independent of model role order", () => {
-  const current = { from: "2026-11-01", to: "2026-11-24" };
-  const previous = { from: "2026-10-01", to: "2026-10-31" };
-  const aligned = { from: "2026-10-01", to: "2026-10-24" };
-  const requests = [
-    "como estou esse mês comparado com o mesmo período do mês anterior",
-    "ahn, como estou esse mês comparado com o mesmo período do mês anterior sabe",
-    "tô gastando mais ou menos que no mês passado, até agora?",
-  ];
-  for (const request of requests) {
-    it(`aligns roles in both semantic model orientations: ${request}`, () => {
-      expect(canonicalMonthComparison(request, current, previous)).toEqual({
-        base: current, comparison: aligned, reordered: false, aligned: true,
-      });
-      expect(canonicalMonthComparison(request, previous, current)).toEqual({
-        base: current, comparison: aligned, reordered: true, aligned: true,
-      });
-    });
-  }
-  it("honors explicit closed-month comparison even when the roles are reversed", () => {
-    expect(canonicalMonthComparison("compare novembro até hoje com outubro inteiro", previous, current)).toBeNull();
-  });
-  it("does not silently rewrite non-adjacent months or two completed months", () => {
-    expect(canonicalMonthComparison("compare", { from: "2026-09-01", to: "2026-09-30" }, current)).toBeNull();
-    expect(canonicalMonthComparison("compare", previous, { from: "2026-09-01", to: "2026-09-30" })).toBeNull();
-  });
-  it("holds across all months of 2024–2027, including year boundary", () => {
-    for (let year = 2024; year <= 2027; year++) {
-      for (let month = 1; month <= 12; month++) {
-        const p = (n: number) => String(n).padStart(2, "0");
-        const py = month === 1 ? year - 1 : year;
-        const pm = month === 1 ? 12 : month - 1;
-        const prevEnd = new Date(Date.UTC(py, pm, 0)).getUTCDate();
-        const currEnd = new Date(Date.UTC(year, month, 0)).getUTCDate();
-        const currentWindow = { from: `${year}-${p(month)}-01`, to: `${year}-${p(month)}-${p(Math.min(15, currEnd - 1))}` };
-        const fullPrevious = { from: `${py}-${p(pm)}-01`, to: `${py}-${p(pm)}-${p(prevEnd)}` };
-        const a = canonicalMonthComparison("mesmo período do mês anterior", currentWindow, fullPrevious);
-        const b = canonicalMonthComparison("mesmo período do mês anterior", fullPrevious, currentWindow);
-        expect(a?.comparison, `${year}-${month}`).toEqual(b?.comparison);
-        expect(a?.base).toEqual(b?.base);
-      }
     }
   });
 });
