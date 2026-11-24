@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groundComparisonTurn, independentMonthComparison } from "../../supabase/functions/_shared/agent/core/IndependentTemporalOracle";
+import { groundComparisonTurn, independentMonthComparison, scopeForSingleComparison } from "../../supabase/functions/_shared/agent/core/IndependentTemporalOracle";
 import { buildFinancialReadContract, validateFinancialReadContract } from "../../supabase/functions/_shared/agent/core/FinancialReadContract";
 import { verifyExecutedFinancialScopes } from "../../supabase/functions/_shared/agent/core/ExecutionScopeGate";
 import type { CanonicalConversationTurnContract } from "../../supabase/functions/_shared/agent/core/ConversationTurnContract";
@@ -66,6 +66,18 @@ describe("one-pass temporal grounding instead of post-hoc rejection", () => {
       "quanto gastei mês passado", "compara novembro inteiro com outubro"]) {
       expect(independentMonthComparison(question, today)).toBeNull();
     }
+  });
+  it("rejects non-comparison and compound scopes without changing user intent", () => {
+    const turn = modelTurn(full, current);
+    const text = "como estou esse mês comparado com o mesmo período do mês anterior?";
+    expect(scopeForSingleComparison(turn, text, today)?.baseline).toEqual(same);
+    const compound = { ...turn, financial_read: { ...turn.financial_read!,
+      queries: [...turn.financial_read!.queries, { ...turn.financial_read!.queries[0], operation: "sum" as const }] } };
+    expect(scopeForSingleComparison(compound, text, today)).toBeNull();
+    expect(scopeForSingleComparison({ ...turn, mode: "write" }, text, today)).toBeNull();
+    const sum = { ...turn, financial_read: { ...turn.financial_read!, queries: [
+      { ...turn.financial_read!.queries[0], operation: "sum" as const }] } };
+    expect(scopeForSingleComparison(sum, text, today)).toBeNull();
   });
   it("only performs structural grounding, not financial calculations or writes", () => {
     const input = modelTurn(full, current);
