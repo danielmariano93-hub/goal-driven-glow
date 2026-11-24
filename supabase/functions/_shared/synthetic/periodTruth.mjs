@@ -29,11 +29,12 @@ export function gradeExecutedComparison({ tool_calls = [], today, mode = "same_d
     .filter((call) => call?.tool_name === "compare_periods" && call?.ok === true);
   if (!comparisons.length) return { verdict: "UNVERIFIED", why: "não há execução compare_periods comprovada" };
   const expectedSet = [windowKey(expected.current), windowKey(expected.baseline)].sort();
-  for (const call of comparisons) {
+  const allMatch = comparisons.every((call) => {
     const observed = [windowKey(call.args?.period_a), windowKey(call.args?.period_b)];
-    if (observed.every(Boolean) && observed.sort().every((key, index) => key === expectedSet[index])) {
-      return { verdict: "CORRECT", why: "janelas executadas conferem com o gabarito independente" };
-    }
+    return observed.every(Boolean) && observed.sort().every((key, index) => key === expectedSet[index]);
+  });
+  if (allMatch) {
+    return { verdict: "CORRECT", why: "todas as janelas executadas conferem com o gabarito independente" };
   }
   const observed = comparisons.map((call) => [
     windowKey(call.args?.period_a) ?? "ausente",
