@@ -1315,7 +1315,10 @@ async function executeContract(
   // One temporal grounding authority for unambiguous current/previous month reads.
   // Resolve the original request BEFORE compiling the IR, rather than only
   // vetoing a self-consistent but wrong model interpretation after execution.
-  const requestedMonthComparison = comparisonIntent ? independentMonthComparison(canonical) : null;
+  // Do not overwrite unrelated temporal scopes in compound financial reads.
+  // Those remain owned by the V3 multi-task planner.
+  const requestedMonthComparison = comparisonIntent && contract.financial_read?.queries.length === 1
+    ? independentMonthComparison(canonical) : null;
   const explicitBasePeriod = requestedMonthComparison
     ? { ...requestedMonthComparison.target, label: "mês atual até hoje" }
     : hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
