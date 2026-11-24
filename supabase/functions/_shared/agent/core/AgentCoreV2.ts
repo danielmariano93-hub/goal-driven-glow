@@ -63,7 +63,7 @@ import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
 import { alignTurnPeriods, sameWindowComparison } from "./SameWindowGuard.ts";
-import { groundComparisonTurn, independentMonthComparison } from "./IndependentTemporalOracle.ts";
+import { groundComparisonTurn, scopeForSingleComparison } from "./IndependentTemporalOracle.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
@@ -1315,10 +1315,9 @@ async function executeContract(
   // One temporal grounding authority for unambiguous current/previous month reads.
   // Resolve the original request BEFORE compiling the IR, rather than only
   // vetoing a self-consistent but wrong model interpretation after execution.
-  // Do not overwrite unrelated temporal scopes in compound financial reads.
-  // Those remain owned by the V3 multi-task planner.
-  const requestedMonthComparison = comparisonIntent && contract.financial_read?.queries.length === 1
-    ? independentMonthComparison(canonical) : null;
+  // A single V3-approved compare query can be grounded by one deterministic
+  // temporal relation, without overwriting compound query time scopes.
+  const requestedMonthComparison = scopeForSingleComparison(contract, canonical);
   const explicitBasePeriod = requestedMonthComparison
     ? { ...requestedMonthComparison.target, label: "mês atual até hoje" }
     : hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
