@@ -63,6 +63,7 @@ import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
 import { alignTurnPeriods, sameWindowComparison } from "./SameWindowGuard.ts";
+import { groundComparisonTurn, scopeForSingleComparison } from "./IndependentTemporalOracle.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
@@ -1311,7 +1312,15 @@ async function executeContract(
   const hasExplicitComparisonRoles = comparisonIntent
     && !!comparisonExpressions
     && multiPeriod.periods.length >= 2;
-  const explicitBasePeriod = hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
+  // One temporal grounding authority for unambiguous current/previous month reads.
+  // Resolve the original request BEFORE compiling the IR, rather than only
+  // vetoing a self-consistent but wrong model interpretation after execution.
+  // A single V3-approved compare query can be grounded by one deterministic
+  // temporal relation, without overwriting compound query time scopes.
+  const requestedMonthComparison = scopeForSingleComparison(contract, canonical);
+  const explicitBasePeriod = requestedMonthComparison
+    ? { ...requestedMonthComparison.target, label: "mês atual até hoje" }
+    : hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
   const lastRelatedPeriod = memory?.last_analysis?.period ?? memory?.last_tool_context?.period ?? null;
   const periodPolicy = resolveImplicitPeriod({
     explicit: explicitBasePeriod,
@@ -1320,18 +1329,28 @@ async function executeContract(
     current_month: plan.effective_period,
   });
   const basePeriod = periodPolicy.period;
-  const rawComparisonPeriod = hasExplicitComparisonRoles
-    ? multiPeriod.periods[0]
-    : comparablePrevious(basePeriod);
+  const rawComparisonPeriod = requestedMonthComparison
+    ? { ...requestedMonthComparison.baseline, label: requestedMonthComparison.mode === "previous_full_month"
+      ? "mês anterior inteiro" : "mesmos dias do mês anterior" }
+    : hasExplicitComparisonRoles ? multiPeriod.periods[0] : comparablePrevious(basePeriod);
   // "Mesmo período do mês anterior" / "nesse período": o recorte de comparação tem os mesmos dias do período atual,
   // não o mês anterior inteiro (01/11–18/11 contra 01/10–31/10 dava uma queda inventada de 86,7%).
-  const sameWindow = comparisonIntent ? sameWindowComparison(canonical, basePeriod, rawComparisonPeriod) : null;
+  const sameWindow = comparisonIntent && !requestedMonthComparison
+    ? sameWindowComparison(canonical, basePeriod, rawComparisonPeriod) : null;
   const resolvedComparisonPeriod = sameWindow
     ? { ...rawComparisonPeriod, from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }
     : rawComparisonPeriod;
-  const resolvedPeriodList = sameWindow && hasExplicitComparisonRoles
-    ? [{ ...multiPeriod.periods[0], from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }, ...multiPeriod.periods.slice(1)]
-    : multiPeriod.periods;
+  const resolvedPeriodList = requestedMonthComparison
+    ? [rawComparisonPeriod, basePeriod]
+    : sameWindow && hasExplicitComparisonRoles
+      ? [{ ...multiPeriod.periods[0], from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }, ...multiPeriod.periods.slice(1)]
+      : multiPeriod.periods;
+  // A resolved temporal relation is a grounding fact, not a second LLM
+  // interpretation. Keep the legacy contract temporal proof in sync with the
+  // exact pair the deterministic engine will use. Never change entity/metric.
+  const groundedTurn = requestedMonthComparison
+    ? groundComparisonTurn(contract, requestedMonthComparison)
+    : contract;
   const acts = dialogueActsFromContract(contract) as DialogueActLabel[];
   const constraints = constraintsFromContract(contract, canonical);
   const state = ctx.session_id ? await getState(sb, ctx.session_id).catch(() => null) : null;
@@ -1367,7 +1386,7 @@ async function executeContract(
     compile: async (args) => {
       if (args.replan) return null;
       const compiled = compileFinancialReadFromTurn({
-        turn: contract,
+        turn: groundedTurn,
         period: {
           from: basePeriod.from,
           to: basePeriod.to,
@@ -1499,7 +1518,7 @@ async function executeContract(
 
   const financialReadContract = semantic.ir_v3
     ? buildFinancialReadContract({
-      turn: alignTurnPeriods(contract, rawComparisonPeriod, sameWindow),
+      turn: alignTurnPeriods(groundedTurn, rawComparisonPeriod, sameWindow),
       requested: semantic.ir_v3,
       grounded_reference: ctx.groundedReference,
     })
