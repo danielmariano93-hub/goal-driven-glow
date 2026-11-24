@@ -62,7 +62,7 @@ import { executeDeterministicCapability } from "./DeterministicAnswers.ts";
 import { resolveV2DeterministicReadCapability } from "./V2DeterministicHumanGate.ts";
 import { resolveBrainAdvisory } from "./BrainAdvisoryBridge.ts";
 import { resolvePeriodExpressions } from "../../analytics/multiPeriodResolver.ts";
-import { alignTurnPeriods, canonicalMonthComparison, sameWindowComparison } from "./SameWindowGuard.ts";
+import { alignTurnPeriods, canonicalMonthComparison } from "./SameWindowGuard.ts";
 import { createTopicRepository, keywordsOf, type TopicRepository } from "./TopicRepository.ts";
 import { resolveConversation, type ResolverOutput } from "./ConversationResolver.ts";
 import { detectContinuationOffer, resolveContinuation } from "./ContinuationContract.ts";
@@ -1333,8 +1333,7 @@ async function executeContract(
     basePeriod = { ...rawComparisonPeriod, ...monthPolicy.base };
     rawComparisonPeriod = { ...originalBasePeriod, ...monthPolicy.comparison, label: "mesmos dias do mês anterior" };
   }
-  const sameWindow = monthPolicy?.reordered ? null
-    : comparisonIntent ? sameWindowComparison(canonical, basePeriod, rawComparisonPeriod) : null;
+  const sameWindow = monthPolicy?.reordered ? null : monthPolicy?.aligned ? monthPolicy.comparison : null;
   const resolvedComparisonPeriod = sameWindow
     ? { ...rawComparisonPeriod, from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }
     : rawComparisonPeriod;
