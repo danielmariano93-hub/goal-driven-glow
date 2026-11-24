@@ -31,6 +31,9 @@ describe("independent execution-window evaluation", () => {
   it("does not mark unobserved execution correct", () => {
     expect(gradeExecutedComparison({ today: ref, tool_calls: [] }).verdict).toBe("UNVERIFIED");
   });
+  it("fails when one of several executed comparisons uses the wrong windows", () => {
+    expect(gradeExecutedComparison({ today: ref, tool_calls: [call(current, same), call(current, full)] }).verdict).toBe("WRONG");
+  });
   it("accounts for February and year transitions deterministically", () => {
     expect(expectedComparisonWindows("2026-03-31")?.baseline).toEqual({ from: "2026-02-01", to: "2026-02-28" });
     expect(expectedComparisonWindows("2026-01-15")?.baseline).toEqual({ from: "2025-12-01", to: "2025-12-15" });
