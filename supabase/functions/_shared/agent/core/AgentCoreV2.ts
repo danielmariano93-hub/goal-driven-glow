@@ -1340,7 +1340,7 @@ async function executeContract(
   // "Mesmo período do mês anterior" / "nesse período": o recorte de comparação tem os mesmos dias do período atual,
   // não o mês anterior inteiro (01/11–18/11 contra 01/10–31/10 dava uma queda inventada de 86,7%).
   const sameWindow = comparisonIntent && !requestedMonthComparison
-    ? sameWindowComparison(canonical, basePeriod, rawComparisonPeriod) : null;
+    ? sameWindowComparison(input.text, basePeriod, rawComparisonPeriod) : null;
   const resolvedComparisonPeriod = sameWindow
     ? { ...rawComparisonPeriod, from: sameWindow.from, to: sameWindow.to, label: "mesmos dias do mês anterior" }
     : rawComparisonPeriod;
