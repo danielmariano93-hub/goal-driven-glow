@@ -88,11 +88,16 @@ export async function runTurn(sb: any, userId: string, conversationId: string, p
   try {
     const result = await runOrchestrator({ user_id: userId, conversation_id: conversationId, inbound_message_id: inboundId, text, source: "simulator", to_phone: phone });
     let run: any = null;
+    let tool_calls: any[] = [];
     if (result.run_id) {
-      const { data } = await sb.from("agent_runs").select("model,provider,path,status,llm_calls,tokens_in,tokens_out,error_sanitized").eq("id", result.run_id).maybeSingle();
+      const [{ data }, { data: calls }] = await Promise.all([
+        sb.from("agent_runs").select("model,provider,path,status,llm_calls,tokens_in,tokens_out,error_sanitized").eq("id", result.run_id).maybeSingle(),
+        sb.from("agent_tool_calls").select("tool_name,args,ok").eq("run_id", result.run_id).order("step_index", { ascending: true }),
+      ]);
       run = data;
+      tool_calls = calls ?? [];
     }
-    return { reply: result.reply, reply_kind: result.reply_kind, path: result.path, run_id: result.run_id, latency_ms: Date.now() - started, run };
+    return { reply: result.reply, reply_kind: result.reply_kind, path: result.path, run_id: result.run_id, latency_ms: Date.now() - started, run, tool_calls };
   } catch (error) {
     return { error: String((error as Error)?.message ?? error).slice(0, 300), status: 500 };
   }
