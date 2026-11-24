@@ -1317,7 +1317,11 @@ async function executeContract(
   // vetoing a self-consistent but wrong model interpretation after execution.
   // A single V3-approved compare query can be grounded by one deterministic
   // temporal relation, without overwriting compound query time scopes.
-  const requestedMonthComparison = scopeForSingleComparison(contract, canonical);
+  // Never use the model-rewritten canonical_request as the source of truth
+  // for temporal grounding. A valid semantic paraphrase may drop the phrase
+  // "mesmo período" or add an inferred full-month boundary. The original user
+  // message is immutable; the deterministic calendar relation derives from it.
+  const requestedMonthComparison = scopeForSingleComparison(contract, input.text);
   const explicitBasePeriod = requestedMonthComparison
     ? { ...requestedMonthComparison.target, label: "mês atual até hoje" }
     : hasExplicitComparisonRoles ? multiPeriod.periods[1] : multiPeriod.periods[0];
