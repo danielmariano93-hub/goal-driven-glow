@@ -41,6 +41,7 @@ describe("source-text temporal oracle independently verifies financial execution
   it("resolves leap years, short months and year boundaries", () => {
     const feb = independentMonthComparison("compare esse mês ao mesmo período do mês anterior", "2026-03-31");
     expect(feb?.baseline).toEqual({ from: "2026-02-01", to: "2026-02-28" });
+    expect(independentMonthComparison("compare esse mês ao mês passado", "2026-11-30")).toBeNull();
     const jan = independentMonthComparison("compare esse mês ao mês passado", "2026-01-15");
     expect(jan?.baseline).toEqual({ from: "2025-12-01", to: "2025-12-15" });
   });
