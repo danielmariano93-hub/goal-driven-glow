@@ -91,6 +91,8 @@ describe("one-pass temporal grounding instead of post-hoc rejection", () => {
     const source = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
     expect(source).toContain("scopeForSingleComparison(contract, input.text)");
     expect(source).not.toContain("scopeForSingleComparison(contract, canonical)");
+    expect(source).toContain("sameWindowComparison(input.text, basePeriod, rawComparisonPeriod)");
+    expect(source).not.toContain("sameWindowComparison(canonical, basePeriod, rawComparisonPeriod)");
   });
   it("only performs structural grounding, not financial calculations or writes", () => {
     const input = modelTurn(full, current);
