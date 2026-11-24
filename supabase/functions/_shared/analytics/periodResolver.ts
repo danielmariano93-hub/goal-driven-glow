@@ -129,7 +129,7 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
     return { from: shift(today, -((dow + 6) % 7)), to: today, label: "esta semana", matched: "esta semana", complete: false, kind: "week" };
   }
-  if (/\bmesmo periodo do mes passado\b/.test(t)) {
+  if (/\b(?:mesmo periodo|mesmos dias) do mes (?:passado|anterior)\b/.test(t)) {
     const prevMonth = month === 1 ? 12 : month - 1;
     const prevYear = month === 1 ? year - 1 : year;
     const dayOfMonth = Number(today.slice(8, 10));
@@ -137,7 +137,7 @@ export function resolvePeriodPt(text: string, now: Date = new Date()): ResolvedP
     const cap = Math.min(dayOfMonth, lastDayOfMonth(prevYear, prevMonth));
     return {
       from: `${prevYear}-${mm}-01`, to: `${prevYear}-${mm}-${String(cap).padStart(2, "0")}`,
-      label: "mesmo período do mês passado", matched: "mesmo periodo do mes passado",
+      label: "mesmos dias do mês anterior", matched: "mesmos dias do mes anterior",
       complete: false, kind: "range",
     };
   }
