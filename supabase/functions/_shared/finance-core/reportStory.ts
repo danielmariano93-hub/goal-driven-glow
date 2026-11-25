@@ -69,6 +69,8 @@ export interface WeekdayRow {
 }
 
 export interface WeekdayView {
+  /** `adjustable`: sem categorias essenciais (aluguel, dívida), que caem num dia só e não são padrão de comportamento. */
+  scope: "adjustable" | "all";
   rows: WeekdayRow[];
   peakDow: number;
   /** Só quando fim de semana pesa pelo menos 20% mais por dia que a semana. */
@@ -104,12 +106,20 @@ export interface RecommendedAction {
   reductionPct: number;
 }
 
+/** Renda do mês contra a renda típica: salário que ainda não caiu não pode virar "resultado negativo". */
+export interface IncomeView {
+  current: number;
+  typical: number;
+  incomplete: boolean;
+}
+
 export interface ReportStory {
   version: typeof REPORT_STORY_VERSION;
   /** Mês contado (YYYY-MM) e até que dia (janela de comparação). */
   month: string;
   windowDays: number;
   habitual: HabitualView | null;
+  income: IncomeView | null;
   cumulative: CumulativePoint[] | null;
   categories: CategoryHabitualRow[];
   variations: VariationRow[];
@@ -154,6 +164,25 @@ function weekdayIndex(iso: string): number {
 }
 
 const WEEKDAY_LABEL = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+/** Mediana: um mês atípico (13º, venda, fatura gigante) não puxa o "habitual" para longe do que é normal. */
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Só estabelecimentos reconhecíveis entram em "variações" e na ação. PIX/transferência para
+ * pessoa e descrição longa de intermediário ("Pagamento de pix qr code ... sociedade de crédito")
+ * não são lugar onde se corta gasto, e expor o nome de uma pessoa no relatório não ajuda ninguém.
+ */
+export function isDisplayableMerchant(label: string | null | undefined): boolean {
+  const text = String(label ?? "").trim();
+  if (text.length < 2 || text.length > 28) return false;
+  return !/\b(pix|ted|doc|transfer\w*|enviado|recebido|pagamento|sociedade|financiamento)\b/i.test(text);
+}
 
 const isSpend = (e: DashEntry) => e.kind === "expense" && e.amount > 0;
 const chartDayOf = (e: DashEntry): string | null => (e.chart_carried ? null : (e.chart_date ?? e.date));
@@ -202,7 +231,7 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
 
   let habitual: HabitualView | null = null;
   if (hasHabitual) {
-    const avg = refMonths.reduce((a, m) => a + inWindow(m).reduce((s, e) => s + e.amount, 0), 0) / refMonths.length;
+    const avg = median(refMonths.map((m) => inWindow(m).reduce((sum, e) => sum + e.amount, 0)));
     if (avg > 0) {
       habitual = {
         expense: round2(avg),
@@ -229,27 +258,26 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
     for (let d = 1; d <= windowDays; d += 1) {
       runCur += cur[d];
       refs.forEach((r, i) => { runRef[i] += r[d]; });
-      cumulative.push({
-        day: d,
-        current: round2(runCur),
-        habitual: round2(runRef.reduce((a, b) => a + b, 0) / refs.length),
-      });
+      cumulative.push({ day: d, current: round2(runCur), habitual: round2(median(runRef)) });
     }
   }
 
   // ---- Categorias x habitual -----------------------------------------------
   const habitualBy = <K extends string>(keyOf: (e: DashEntry) => K | null): Map<K, number> => {
-    const acc = new Map<K, number>();
-    if (!habitual) return acc;
-    for (const m of refMonths) {
+    const out = new Map<K, number>();
+    if (!habitual) return out;
+    const perMonth = refMonths.map((m) => {
+      const acc = new Map<K, number>();
       for (const e of inWindow(m)) {
         const k = keyOf(e);
         if (k == null) continue;
         acc.set(k, (acc.get(k) ?? 0) + e.amount);
       }
-    }
-    for (const [k, v] of acc) acc.set(k, v / refMonths.length);
-    return acc;
+      return acc;
+    });
+    const keys = new Set<K>(perMonth.flatMap((m) => [...m.keys()]));
+    for (const k of keys) out.set(k, median(perMonth.map((m) => m.get(k) ?? 0)));
+    return out;
   };
 
   const catKey = (e: DashEntry) => e.category_id ?? "__none__";
@@ -283,7 +311,7 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
     const merchHabitual = habitualBy((e) => e.merchant_key);
     const merchCurrent = new Map<string, { label: string; total: number; byCat: Map<string, number> }>();
     for (const e of monthEntries) {
-      if (!e.merchant_key) continue;
+      if (!e.merchant_key || !isDisplayableMerchant(e.merchant)) continue;
       const c = merchCurrent.get(e.merchant_key) ?? { label: e.merchant || e.merchant_key, total: 0, byCat: new Map() };
       c.total += e.amount;
       const ck = catKey(e);
@@ -313,6 +341,7 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
     for (let d = 1; d <= windowDays; d += 1) counts[weekdayIndex(`${month}-${String(d).padStart(2, "0")}`)] += 1;
     for (const e of entries) {
       if (!isSpend(e)) continue;
+      if (haveFlags && e.category_id != null && essential.has(e.category_id)) continue;
       const day = chartDayOf(e);
       if (day == null || day < start || day > end) continue;
       sums[weekdayIndex(day)] += e.amount;
@@ -326,6 +355,7 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
       const weekendAvg = (rows[5].avg + rows[6].avg) / 2;
       const pct = weekdayAvg > 0 ? weekendAvg / weekdayAvg - 1 : 0;
       weekday = {
+        scope: haveFlags ? "adjustable" : "all",
         rows, peakDow,
         weekend: weekdayAvg > 0 && pct >= 0.2 ? { weekendAvg: round2(weekendAvg), weekdayAvg: round2(weekdayAvg), pct: Math.round(pct * 100) / 100 } : null,
       };
@@ -356,11 +386,25 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
       return { m, inc, exp };
     }).filter((x) => x.inc > 0 && x.exp > 0);
     if (closed.length >= HABITUAL_MIN_MONTHS) {
-      const avgIncome = closed.reduce((a, x) => a + x.inc, 0) / closed.length;
-      const avgExpense = closed.reduce((a, x) => a + x.exp, 0) / closed.length;
+      const avgIncome = median(closed.map((x) => x.inc));
+      const avgExpense = median(closed.map((x) => x.exp));
       sustainableSavings = {
         monthly: round2(Math.max(0, avgIncome - avgExpense)),
         avgIncome: round2(avgIncome), avgExpense: round2(avgExpense), months: closed.length,
+      };
+    }
+  }
+
+  // ---- Renda do mês x renda típica -----------------------------------------
+  let incomeView: IncomeView | null = null;
+  {
+    const incomeOf = (m: string) => entries.filter((e) => e.kind === "income" && monthOf(e.date) === m && e.date >= `${m}-01`).reduce((a, e) => a + e.amount, 0);
+    const typical = median(candidateMonths.map(incomeOf).filter((v) => v > 0));
+    const current = entries.filter((e) => e.kind === "income" && monthOf(e.date) === month && e.date >= start && e.date <= end).reduce((a, e) => a + e.amount, 0);
+    if (typical > 0 || current > 0) {
+      incomeView = {
+        current: round2(current), typical: round2(typical),
+        incomplete: typical > 0 && end >= input.today && current < typical * 0.5,
       };
     }
   }
@@ -385,7 +429,7 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
 
   return {
     version: REPORT_STORY_VERSION,
-    month, windowDays, habitual, cumulative,
+    month, windowDays, habitual, income: incomeView, cumulative,
     categories, variations: variations.slice(0, 5), weekday, split, sustainableSavings, recoverable, action,
   };
 }
@@ -425,7 +469,7 @@ const GROUPS: Array<{ key: FutureGroup["key"]; label: string; sources: string[] 
  * Lê o snapshot da Home (`financial_current_snapshots.payload.snapshot`). Devolve `null`
  * quando o snapshot não é de hoje: agenda de 30 dias de ontem descreveria outra janela.
  */
-export function buildFutureView(snapshot: any, today: string, receivableFromPeople: number): FutureView | null {
+export function buildFutureView(snapshot: any, today: string, receivableFromPeople: number, savingsGoalIds: string[]): FutureView | null {
   if (!snapshot || typeof snapshot !== "object") return null;
   const agenda = snapshot.commitmentAgenda;
   const horizonStart = typeof agenda?.horizonStart === "string" ? agenda.horizonStart : today;
@@ -445,7 +489,9 @@ export function buildFutureView(snapshot: any, today: string, receivableFromPeop
   const people = round2(Math.max(0, receivableFromPeople));
   const receivable = scheduled + people > 0 ? { total: round2(scheduled + people), fromPeople: people, scheduled } : null;
 
-  const goals: any[] = Array.isArray(snapshot.goalProgress) ? snapshot.goalProgress : [];
+  // Só metas de poupança: meta de doação (dízimo) tem "alvo" simbólico e não é reserva.
+  const savings = new Set(savingsGoalIds);
+  const goals: any[] = (Array.isArray(snapshot.goalProgress) ? snapshot.goalProgress : []).filter((g: any) => savings.has(String(g?.id)));
   const pick = goals.find((g) => /reserva|emerg/i.test(String(g?.name ?? ""))) ?? goals.find((g) => (num(g?.target) ?? 0) > 0) ?? null;
   const target = num(pick?.target) ?? 0;
   const contributed = num(pick?.contributed) ?? num(pick?.total) ?? 0;

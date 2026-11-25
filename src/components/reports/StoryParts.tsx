@@ -60,17 +60,21 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
       </div>
       <p className="mt-3 text-[12.5px] text-muted-foreground">{sentence}</p>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        Habitual = média dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.
+        Habitual = o valor típico dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.
       </p>
     </section>
   );
 }
 
 /** Receitas, resultado e saldo disponível. O saldo é o da Home; sem snapshot de hoje, o terceiro cartão some. */
-export function SummaryTrio({ d, future }: { d: ReportDashboard; future: FutureView | null | undefined }) {
-  const cells: Array<{ label: string; value: number; tone?: "good" | "bad" }> = [
-    { label: "Receitas", value: d.totals.income },
-    { label: "Resultado", value: d.totals.net, tone: d.totals.net >= 0 ? "good" : "bad" },
+export function SummaryTrio({ d, story, future }: { d: ReportDashboard; story: ReportStory | null | undefined; future: FutureView | null | undefined }) {
+  // Salário que ainda não caiu: "Resultado" seria só o gasto com sinal negativo, o que engana. Mostra o que falta.
+  const waiting = story?.income?.incomplete === true;
+  const cells: Array<{ label: string; value: number | null; tone?: "good" | "bad"; note?: string }> = [
+    { label: "Receitas", value: d.totals.income, note: waiting ? `costuma ser ${brl0(story?.income?.typical ?? 0)}` : undefined },
+    waiting
+      ? { label: "Resultado", value: null, note: "aguardando a renda do mês" }
+      : { label: "Resultado", value: d.totals.net, tone: d.totals.net >= 0 ? "good" : "bad" },
   ];
   if (future?.balance != null) cells.push({ label: "Saldo disponível", value: future.balance });
   return (
@@ -80,8 +84,9 @@ export function SummaryTrio({ d, future }: { d: ReportDashboard; future: FutureV
           <p className="text-[11px] text-muted-foreground">{c.label}</p>
           <p className={cn("mt-1 font-display text-[16px] font-bold tabular-nums leading-tight",
             c.tone === "good" && "text-emerald-700", c.tone === "bad" && "text-red-700")}>
-            {c.value < 0 ? "−" : ""}{brl0(Math.abs(c.value))}
+            {c.value == null ? "—" : `${c.value < 0 ? "−" : ""}${brl0(Math.abs(c.value))}`}
           </p>
+          {c.note ? <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{c.note}</p> : null}
         </div>
       ))}
     </section>
@@ -110,7 +115,7 @@ export function CumulativeChart({ story }: { story: ReportStory }) {
       <p className="text-sm font-semibold">Evolução do consumo</p>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded bg-primary" aria-hidden />Este mês (acumulado)</span>
-        <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-muted-foreground" aria-hidden />Seu habitual (média)</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-muted-foreground" aria-hidden />Seu habitual</span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img"
         aria-label={`Consumo acumulado de ${brl0(last.current)} até o dia ${last.day}, contra ${brl0(last.habitual)} no seu habitual${diff != null ? ` (${pctText(diff)})` : ""}`}>
@@ -227,7 +232,9 @@ export function WeekdayCard({ story }: { story: ReportStory }) {
   return (
     <section aria-label="Gastos por dia da semana" className="rounded-2xl border border-border bg-card p-4 print:break-inside-avoid">
       <p className="text-sm font-semibold">Seu padrão de gastos por dia da semana</p>
-      <p className="mt-0.5 text-[12px] text-muted-foreground">Média diária por dia da semana ({monthName(story.month)}).</p>
+      <p className="mt-0.5 text-[12px] text-muted-foreground">
+        Média diária por dia da semana ({monthName(story.month)}){w.scope === "adjustable" ? ", sem os essenciais (aluguel, contas e dívidas, que caem num dia só)" : ""}.
+      </p>
       <ul className="mt-4 grid grid-cols-7 items-end gap-1.5">
         {w.rows.map((r) => (
           <li key={r.dow} className="flex flex-col items-center gap-1">
@@ -305,7 +312,7 @@ export function OpportunityTiles({ story }: { story: ReportStory }) {
         <div className="rounded-2xl border border-border bg-card p-3">
           <p className="text-[12px] font-semibold">Poupança sustentável</p>
           <p className="mt-1 font-display text-[20px] font-bold leading-tight tabular-nums">{brl0(savings.monthly)}<span className="text-[12px] font-semibold text-muted-foreground">/mês</span></p>
-          <p className="mt-1 text-[10.5px] leading-snug text-muted-foreground">Quanto sobra, em média, nos últimos {savings.months} meses fechados.</p>
+          <p className="mt-1 text-[10.5px] leading-snug text-muted-foreground">Quanto sobra, de forma típica, nos últimos {savings.months} meses fechados.</p>
         </div>
       ) : null}
       {rec ? (

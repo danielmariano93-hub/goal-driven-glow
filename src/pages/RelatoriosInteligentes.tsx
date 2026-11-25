@@ -202,7 +202,7 @@ export default function RelatoriosInteligentes() {
               {story?.habitual ? (
                 <>
                   <ConsumptionHero d={dash} story={story} />
-                  <SummaryTrio d={dash} future={dash.future} />
+                  <SummaryTrio d={dash} story={story} future={dash.future} />
                   <CumulativeChart story={story} />
                   <TopCategories story={story} windowEnd={dash.period.end} />
                 </>

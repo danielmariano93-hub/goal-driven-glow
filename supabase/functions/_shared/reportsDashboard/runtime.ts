@@ -142,6 +142,14 @@ export async function loadEssentialCategoryIds(sb: any, userId: string): Promise
   } catch { return []; }
 }
 
+/** Metas de poupança ativas (exclui doação/dízimo). */
+export async function loadSavingsGoalIds(sb: any, userId: string): Promise<string[]> {
+  try {
+    const { data } = await sb.from("goals").select("id").eq("user_id", userId).eq("kind", "savings").eq("status", "active");
+    return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  } catch { return []; }
+}
+
 /** O que outras pessoas ainda devem ao usuário (Divisão do Rolê), o mesmo número do menu Mais. */
 export async function loadReceivableFromPeople(sb: any, userId: string): Promise<number> {
   try {
@@ -160,8 +168,8 @@ export async function loadFutureView(sb: any, userId: string, today: string) {
   try {
     const { data } = await sb.from("financial_current_snapshots").select("payload,as_of_date").eq("user_id", userId).maybeSingle();
     if (!data || data.as_of_date !== today) return null;
-    const people = await loadReceivableFromPeople(sb, userId);
-    return buildFutureView((data.payload as any)?.snapshot, today, people);
+    const [people, savingsIds] = await Promise.all([loadReceivableFromPeople(sb, userId), loadSavingsGoalIds(sb, userId)]);
+    return buildFutureView((data.payload as any)?.snapshot, today, people, savingsIds);
   } catch { return null; }
 }
 
