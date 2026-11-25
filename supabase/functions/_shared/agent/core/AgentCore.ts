@@ -1252,52 +1252,6 @@ async function runTurn(input: HandleTurnInput): Promise<HandleTurnResult> {
       semanticStatus = "compiler_failed";
       semanticIRTelemetry = { version: "nino_semantic_ir.v3", semantic_status: "compiler_failed", executed_by: "legacy_router" };
     }
-  } else if (!semanticV3
-    // v1 é DEPRECADO: só entra quando o v3 não é a autoridade do turno.
-    // Nunca roda em paralelo/duplicado com o pipeline semântico v3.
-    && !rawDeterministic
-    && !capability.clarification
-    && await isEnabled("semantic_ir_v1", input.user_id)) {
-
-
-    const outcome = await guard(
-      () => compileFinancialQuery({
-        text: turnPlan.effective_text,
-        model: "openai/gpt-oss-120b",
-        period: { from: turnPlan.effective_period.from, to: turnPlan.effective_period.to },
-        comparison_period: turnPlan.previous_period,
-        previous_query: turnPlan.inherited_from ?? previousUserText ?? null,
-        sb, user_id: input.user_id, run_id: run_id ?? null,
-      }),
-      (m) => metrics.errors.push("semantic_ir:" + m),
-      null,
-    );
-    semanticIR = outcome?.ir ?? null;
-    const adapted = semanticIR ? capabilityFromFinancialIR(semanticIR) : null;
-    if (adapted?.capability) {
-      capability = { ...capability, ...adapted.capability } as typeof capability;
-    }
-    semanticIRTelemetry = {
-      version: "nino_semantic_ir.v2",
-      applied: !!adapted?.capability,
-      intent: semanticIR?.intent ?? null,
-      source: semanticIR?.source ?? null,
-      unsupported_reason: semanticIR?.unsupported_reason ?? null,
-      unsupported_queries: adapted?.unsupported_queries ?? [],
-      mapped_tools: adapted?.mapped_tools ?? [],
-      telemetry: outcome?.telemetry ?? null,
-    };
-    if (outcome?.telemetry) {
-      recordAiStage(metrics as any, {
-        stage: "semantic_compiler",
-        model: outcome.telemetry.model,
-        llm_calls: outcome.telemetry.llm_calls,
-        tokens_in: outcome.telemetry.tokens_in,
-        tokens_out: outcome.telemetry.tokens_out,
-        latency_ms: outcome.telemetry.latency_ms,
-        ok: outcome.telemetry.ok,
-      });
-    }
   }
 
   // Continuidade conversacional fora do caminho v3: um READ respondido por

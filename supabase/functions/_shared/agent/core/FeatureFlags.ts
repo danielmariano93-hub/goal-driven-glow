@@ -27,7 +27,6 @@ export type FlagName =
   | "model_routing_v2"
   | "document_efficiency_v1"
   | "composite_analysis_v1"
-  | "semantic_ir_v1"
   | "semantic_ir_v3"
   | "semantic_ir_multiquery_v1"
   | "semantic_completeness_v1"
@@ -44,9 +43,6 @@ export type FlagName =
   | "typical_monthly_v1"
   | "write_workflow_v1"
   | "conversation_brain_v1"
-  | "conversation_brain_shadow_v1"
-  | "ai_provider_shadow_v1"
-  | "runtime_v3_shadow"
   | "runtime_v3_authority_v1"
   | "conversational_composer_v1"
   | "relationship_memory_v1"
@@ -71,7 +67,6 @@ const DEFAULTS: Record<FlagName, boolean> = {
   model_routing_v2: true,
   document_efficiency_v1: true,
   composite_analysis_v1: true,
-  semantic_ir_v1: false,
   semantic_ir_v3: false,
   semantic_ir_multiquery_v1: false,
   semantic_completeness_v1: false,
@@ -88,9 +83,6 @@ const DEFAULTS: Record<FlagName, boolean> = {
   typical_monthly_v1: false,
   write_workflow_v1: false,
   conversation_brain_v1: false,
-  conversation_brain_shadow_v1: false,
-  ai_provider_shadow_v1: false,
-  runtime_v3_shadow: false,
   runtime_v3_authority_v1: false,
   conversational_composer_v1: false,
   relationship_memory_v1: false,
@@ -105,7 +97,6 @@ const DEFAULTS: Record<FlagName, boolean> = {
 };
 
 const ROLLOUT_FLAGS = new Set<FlagName>([
-  "semantic_ir_v1",
   "semantic_ir_v3",
   "semantic_ir_multiquery_v1",
   "semantic_completeness_v1",
@@ -118,9 +109,6 @@ const ROLLOUT_FLAGS = new Set<FlagName>([
   "conversation_threads_v1",
   "semantic_topic_retrieval_v1",
   "conversation_brain_v1",
-  "conversation_brain_shadow_v1",
-  "ai_provider_shadow_v1",
-  "runtime_v3_shadow",
   "runtime_v3_authority_v1",
   "conversational_composer_v1",
   "relationship_memory_v1",
