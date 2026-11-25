@@ -6,7 +6,7 @@ import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/c
 import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
 import { AnticipationCard, ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
-import { ActIntro, ActNav, ProjectionCard, parseAct, type ReportActId } from "@/components/reports/ReportActs";
+import { ActNav, ActSection, ProjectionCard, REPORT_ACTS, parseAct, type ReportActId } from "@/components/reports/ReportActs";
 import { ExecutiveInsightCard } from "@/components/nino/ExecutiveInsightCard";
 import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
 import { useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
@@ -39,14 +39,10 @@ export default function RelatoriosInteligentes() {
   const [exporting, setExporting] = useState(false);
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const act = parseAct(params.get("ato"));
-  const setAct = (id: ReportActId) => {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (id === "foi") next.delete("ato"); else next.set("ato", id);
-      return next;
-    }, { replace: true });
-    window.scrollTo({ top: 0 });
+  const [active, setActive] = useState<ReportActId>(parseAct(params.get("ato")));
+  const goTo = (id: ReportActId) => {
+    setActive(id);
+    document.getElementById(`ato-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // Leitura do Nino (motor canônico): alimenta os atos 2 e 3. O que não tiver dado some, sem bloco vazio.
@@ -70,6 +66,26 @@ export default function RelatoriosInteligentes() {
   // O painel já abre calculado: período, comparação e filtros vivem na URL.
   const { query, update, today } = useDashboardQuery();
   const { data: dash, isLoading, isFetching, isError, refetch } = useReportDashboard(query);
+  // Link com ?ato= (vindo da Home, WhatsApp ou da antiga aba Nino) rola até a seção quando o painel já está na tela.
+  const deepAct = params.get("ato");
+  const hasDash = Boolean(dash);
+  useEffect(() => {
+    if (!hasDash || !deepAct || deepAct === "foi") return;
+    document.getElementById(`ato-${parseAct(deepAct)}`)?.scrollIntoView({ block: "start" });
+  }, [hasDash, deepAct]);
+
+  // O atalho do topo acompanha a seção que está na tela.
+  useEffect(() => {
+    if (!hasDash || typeof IntersectionObserver === "undefined") return;
+    const els = REPORT_ACTS.map((a) => document.getElementById(`ato-${a.id}`)).filter((e): e is HTMLElement => Boolean(e));
+    const io = new IntersectionObserver((entries) => {
+      const top = entries.filter((e) => e.isIntersecting).sort((x, y) => x.boundingClientRect.top - y.boundingClientRect.top)[0];
+      if (top) setActive(top.target.id.replace("ato-", "") as ReportActId);
+    }, { rootMargin: "-20% 0px -60% 0px" });
+    els.forEach((e) => io.observe(e));
+    return () => io.disconnect();
+  }, [hasDash]);
+
   const from = query.start;
   const to = query.end;
   const rangeValid = Boolean(from && to && from <= to && to <= today);
@@ -178,21 +194,17 @@ export default function RelatoriosInteligentes() {
         </div>
       ) : dash ? (
         <>
-          <ActNav active={act} onChange={setAct} counts={{ mudou: mudancas.length, vai: agora.length + antecipacoes.length + pendencias.length }} />
-          <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
-            {act === "foi" ? (
-              <div role="tabpanel" id="painel-foi" aria-labelledby="ato-foi" className="space-y-4">
+          <ActNav active={active} onChange={goTo} counts={{ mudou: mudancas.length, vai: agora.length + antecipacoes.length + pendencias.length }} />
+          <div className={cn("space-y-8 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
+            <ActSection id="foi">
                 <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
                 <KpiStrip d={dash} />
                 <EvolutionChart d={dash} />
                 <AnticipationCard d={dash} />
                 <OtherInflowsCard d={dash} />
-              </div>
-            ) : null}
+            </ActSection>
 
-            {act === "mudou" ? (
-              <div role="tabpanel" id="painel-mudou" aria-labelledby="ato-mudou" className="space-y-4">
-                <ActIntro>O que pesou na diferença e o que o Nino aprendeu com o seu padrão.</ActIntro>
+            <ActSection id="mudou">
                 {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
                 <CategoryBreakdown d={dash} />
                 {mudancas.length > 0 ? (
@@ -218,11 +230,9 @@ export default function RelatoriosInteligentes() {
                     ))}
                   </section>
                 ) : null}
-              </div>
-            ) : null}
+            </ActSection>
 
-            {act === "vai" ? (
-              <div role="tabpanel" id="painel-vai" aria-labelledby="ato-vai" className="space-y-4">
+            <ActSection id="vai">
                 <ProjectionCard d={dash} />
                 {agora.length > 0 ? (
                   <section className="space-y-3" aria-label="O que fazer agora">
@@ -243,8 +253,7 @@ export default function RelatoriosInteligentes() {
                     {pendencias.map((item) => <NinoSituationCard key={item.id} situation={item} surface="relatorios:operacional" compact />)}
                   </section>
                 ) : null}
-              </div>
-            ) : null}
+            </ActSection>
           </div>
         </>
       ) : null}

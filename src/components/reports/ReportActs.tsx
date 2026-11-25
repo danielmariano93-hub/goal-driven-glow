@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Relatórios em três atos, na ordem em que a pessoa pensa:
- * como foi → o que mudou → para onde vai. Um ato por vez, escolhido pela URL (`?ato=`).
+ * como foi → o que mudou → para onde vai. Tudo na mesma página; `?ato=` só rola até a seção.
  */
 export const REPORT_ACTS = [
   { id: "foi", label: "Como foi", hint: "O resultado do período" },
@@ -19,14 +19,14 @@ export function parseAct(value: string | null | undefined): ReportActId {
   return REPORT_ACTS.some((a) => a.id === value) ? (value as ReportActId) : "foi";
 }
 
-/** Navegação fixa no topo da rolagem. Estado atual nunca é só cor: `aria-selected` + peso da fonte. */
+/** Atalhos fixos no topo: levam a cada ato da mesma página. Estado atual nunca é só cor: `aria-current` + peso da fonte. */
 export function ActNav({ active, onChange, counts }: { active: ReportActId; onChange: (id: ReportActId) => void; counts?: Partial<Record<ReportActId, number>> }) {
   return (
     <nav
-      aria-label="Atos do relatório"
+      aria-label="Seções do relatório"
       className="sticky top-0 z-10 -mx-4 border-b border-border bg-background/95 px-4 py-2 backdrop-blur print:hidden"
     >
-      <div role="tablist" className="grid grid-cols-3 gap-1 rounded-full bg-secondary p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-full bg-secondary p-1">
         {REPORT_ACTS.map((act) => {
           const selected = act.id === active;
           const count = counts?.[act.id] ?? 0;
@@ -34,10 +34,7 @@ export function ActNav({ active, onChange, counts }: { active: ReportActId; onCh
             <button
               key={act.id}
               type="button"
-              role="tab"
-              id={`ato-${act.id}`}
-              aria-selected={selected}
-              aria-controls={`painel-${act.id}`}
+              aria-current={selected ? "true" : undefined}
               onClick={() => onChange(act.id)}
               className={cn(
                 "min-h-[40px] rounded-full px-2 text-[12.5px] transition active:scale-[0.97]",
@@ -54,9 +51,22 @@ export function ActNav({ active, onChange, counts }: { active: ReportActId; onCh
   );
 }
 
-/** Subtítulo curto do ato: diz para que ele serve em uma linha. */
-export function ActIntro({ children }: { children: React.ReactNode }) {
-  return <p className="text-[12px] text-muted-foreground">{children}</p>;
+/** Cabeçalho de cada ato na página: número, título e uma linha dizendo para que serve. */
+export function ActSection({ id, children }: { id: ReportActId; children: React.ReactNode }) {
+  const index = REPORT_ACTS.findIndex((a) => a.id === id);
+  const act = REPORT_ACTS[index];
+  return (
+    <section id={`ato-${id}`} aria-labelledby={`ato-titulo-${id}`} className="scroll-mt-16 space-y-4">
+      <header className="flex items-baseline gap-2 pt-2">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground" aria-hidden>{index + 1}</span>
+        <div className="min-w-0">
+          <h2 id={`ato-titulo-${id}`} className="font-display text-lg font-bold leading-tight tracking-tight">{act.label}</h2>
+          <p className="text-[12px] text-muted-foreground">{act.hint}</p>
+        </div>
+      </header>
+      {children}
+    </section>
+  );
 }
 
 type Projection = NonNullable<ReportDashboard["projection"]>;
