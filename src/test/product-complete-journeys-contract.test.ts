@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("jornadas completas de produto", () => {
-  it("a aba Nino virou Relatórios em 3 atos; link antigo continua funcionando", () => {
+  it("a aba Nino foi retirada, Relatórios segue o protótipo; link antigo continua funcionando", () => {
     const app = read("src/App.tsx");
     const menu = read("src/pages/MaisMenu.tsx");
     const reports = read("src/pages/RelatoriosInteligentes.tsx");
@@ -14,9 +14,13 @@ describe("jornadas completas de produto", () => {
     expect(app).toContain('path="antecipacoes" element={<Navigate to="/app/relatorios?ato=vai" replace />}');
     expect(menu).toContain("useMoreMenuContext");
     expect(menu).not.toContain('label: "O que o Nino aprendeu"');
-    expect(reports).toContain("useNinoDiagnosisContext");
-    expect(reports).toContain("Prepare-se");
-    expect(reports).toContain("Leituras do Nino");
+    // Relatórios segue o protótipo: as leituras da antiga tela Nino não moram aqui (os insights ficam na Home).
+    expect(reports).not.toContain("useNinoDiagnosisContext");
+    expect(reports).not.toContain("useExecutiveInsights");
+    expect(reports).not.toContain("Leituras do Nino");
+    expect(reports).toContain("ReportTabs");
+    expect(reports).toContain("O que mudou no seu mês");
+    expect(reports).toContain("Para onde você vai");
   });
 
   it("oferece detalhe, edição, baixa e reversão na fatura", () => {
