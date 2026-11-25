@@ -92,8 +92,13 @@ export interface OverviewV2 {
   /** Estornos que abateram o consumo. */
   refunds: number;
   habitual: HabitualV2 | null;
-  income: { realized: number; recurring: number; extraordinary: number; typical: number; incomplete: boolean };
-  result: { value: number | null; reason: "income_pending" | null };
+  income: { realized: number; recurring: number; extraordinary: number; typical: number; incomplete: boolean; expected: { amount: number; date: string } | null };
+  /** Resultado = receitas realizadas − consumo. `partial` = a renda do mês ainda não entrou por inteiro. */
+  result: { value: number; partial: boolean; reason: "income_pending" | null };
+  /** Ponte do consumo: despesas do período − estornos = consumo (fecha em centavos). */
+  reconciliation: { gross: number; refunds: number; consumption: number };
+  /** Frase de diagnóstico do mês, montada só com fatos do próprio relatório. */
+  headline: string;
   balance: { available: number | null; asOf: string | null };
   /** Frases que ligam consumo, resultado, caixa e saldo. */
   bridge: string[];
@@ -128,7 +133,7 @@ export interface MerchantRowV2 {
   deltaPct: number | null;
 }
 
-export interface DriverRow { name: string; impact: number }
+export interface DriverRow { name: string; impact: number; klass: Klass }
 
 export interface WeekdayRowV2 { dow: number; label: string; avg: number; habitualAvg: number | null; days: number }
 
@@ -137,6 +142,10 @@ export interface BehaviorV2 {
   merchants: MerchantRowV2[];
   /** Quando a comparação não existe (sem base), vem nula. */
   previousLabel: string | null;
+  /** Dias comparados no período anterior (mesmos dias do mês). */
+  previousRange: { start: string; end: string } | null;
+  /** Base do habitual usada nos fatores. */
+  habitualBase: { months: number } | null;
   split: { classes: ClassTotals; total: number } ;
   drivers: { rows: DriverRow[]; totalDelta: number; residual: number } | null;
   weekday: { rows: WeekdayRowV2[]; peakDow: number; weekend: { weekendAvg: number; weekdayAvg: number; pct: number } | null } | null;
@@ -148,20 +157,23 @@ export interface BehaviorV2 {
 export interface ProjectionStep { key: string; label: string; value: number; sign: "start" | "plus" | "minus" | "result"; uncertain?: boolean }
 
 export interface ProjectionsV2 {
-  consumption: { realized: number; structuralPending: number; adjustableFuture: number; total: number; low: number; high: number } | null;
+  consumption: { realized: number; structuralPending: number; adjustableFuture: number; total: number; low: number; high: number; method: string } | null;
   cash: { steps: ProjectionStep[]; projectedEnd: number; conservativeEnd: number; reconciles: boolean; expectedIncome: { amount: number; date: string; label: string; configured: boolean } | null; uncertainReceivables: number } | null;
-  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number }>; months: CommitmentMonth[]; hasEstimates: boolean } | null;
+  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null } | null;
   committedIncome: { pct: number; income: number; obligations: number; basis: string } | null;
   receivables: { toDue: number; overdue: number; receivedInPeriod: number; count: number } | null;
   savings: { monthly: number | null; status: "ok" | "zero_real" | "insufficient_history" | "stale"; closedMonths: number; incomeBaseline: number | null; savingsRateMedian: number | null } | null;
   recoverable: { monthly: number; sources: Array<{ label: string; monthly: number }> } | null;
 }
 
-export interface EvolutionMonth { month: string; income: number; consumption: number; debtPaid: number; result: number | null; open: boolean; incomeIncomplete: boolean }
+export interface EvolutionMonth { month: string; income: number; consumption: number; debtPaid: number; result: number; open: boolean; partial: boolean }
 
 export interface EvolutionV2 {
   months: EvolutionMonth[];
-  netWorth: { series: Array<{ month: string; value: number }>; current: number | null; label: string } | null;
+  netWorth: {
+    series: Array<{ month: string; value: number }>; current: number | null; label: string;
+    composition: { asOf: string; cash: number; invested: number; assets: number; cardsOwed: number; otherDebts: number; liabilities: number; net: number } | null;
+  } | null;
   goals: {
     spending: Array<{ id: string; category: string; spent: number; limit: number; pct: number; status: string }>;
     savings: Array<{ id: string; name: string; target: number; contributed: number; pct: number; remaining: number }>;
@@ -172,8 +184,12 @@ export interface EvolutionV2 {
 export interface Recommendation {
   key: string;
   kind: "merchant" | "price" | "small_spend" | "weekend" | "recoverable" | "situation";
+  /** `saving` = reduz gasto (impacto estimado); `cash` = organiza o caixa, sem economia mensurável. */
+  nature: "saving" | "cash";
   title: string;
   body: string;
+  /** De onde vem o número (baseline e premissa). Sem premissa, não há impacto. */
+  basis: string;
   monthlyImpact: number;
   confidence: number;
   score: number;
@@ -192,7 +208,7 @@ export interface ReportV2 {
   behavior: BehaviorV2 | null;
   projections: ProjectionsV2;
   evolution: EvolutionV2;
-  recommendations: { items: Recommendation[]; monthlyTotal: number; yearlyTotal: number; independent: boolean };
+  recommendations: { items: Recommendation[] };
   quality: QualityNote[];
 }
 
@@ -341,6 +357,7 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
   const classes = monthClasses(rows, month, windowDays);
   const consumption = round2(sumClasses(classes));
   const refunds = round2(rows.filter((r) => r.month === month && r.day <= windowDays && r.amount < 0).reduce((a, r) => a - r.amount, 0));
+  const gross = round2(rows.filter((r) => r.month === month && r.day <= windowDays && r.amount > 0).reduce((a, r) => a + r.amount, 0));
   const debtPaid = round2(Array.from({ length: 1 }, () => cls.debtPaidByMonth.get(month) ?? 0)[0]);
 
   let habitual: HabitualV2 | null = null;
@@ -366,14 +383,17 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
   const incomplete = isCurrentMonth && typicalIncome > 0 && realizedIncome < typicalIncome * 0.5;
 
   // ---- Resultado operacional -----------------------------------------------------
-  const result = incomplete ? { value: null, reason: "income_pending" as const } : { value: round2(realizedIncome - consumption), reason: null };
+  const result = { value: round2(realizedIncome - consumption), partial: incomplete, reason: incomplete ? ("income_pending" as const) : null };
 
   // ---- Saldo e ponte ---------------------------------------------------------------
   const snapshot = input.snapshot;
   const available = snapshot ? num(snapshot.availableToday) : null;
+  const futureIncome = (Array.isArray(snapshot?.projection?.estimatedIncomeEvents) ? snapshot.projection.estimatedIncomeEvents : [])
+    .filter((e: any) => typeof e?.date === "string" && e.date >= today && (num(e.amount) ?? 0) > 0).sort((x: any, y: any) => (x.date < y.date ? -1 : 1))[0];
+  const expectedIncome = futureIncome ? { amount: round2(num(futureIncome.amount) ?? 0), date: String(futureIncome.date) } : null;
   const bridge: string[] = [];
   if (isCurrentMonth) {
-    if (incomplete) bridge.push(`A renda do mês ainda não entrou (costuma ser R$ ${Math.round(typicalIncome).toLocaleString("pt-BR")}), então o resultado fica em aberto.`);
+    if (incomplete) bridge.push(`A renda do mês ainda não entrou${expectedIncome ? ` (R$ ${Math.round(expectedIncome.amount).toLocaleString("pt-BR")} previstos para ${expectedIncome.date.slice(8, 10)}/${expectedIncome.date.slice(5, 7)})` : ` (costuma ser R$ ${Math.round(typicalIncome).toLocaleString("pt-BR")})`}, então o resultado é parcial: só consumo e receitas já realizadas.`);
     if (input.monthlyFact && input.monthlyFact.externalIn > 0) bridge.push(`Entraram R$ ${Math.round(input.monthlyFact.externalIn).toLocaleString("pt-BR")} em transferências de fora: movimentam o caixa, mas não são receita.`);
     if (debtPaid > 0) bridge.push(`Você pagou R$ ${Math.round(debtPaid).toLocaleString("pt-BR")} de principal de dívida: sai do caixa, mas não é consumo.`);
     if (available != null) bridge.push("O saldo disponível vem de meses anteriores e dos movimentos de caixa; ele não é o resultado do mês.");
@@ -402,8 +422,8 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
     ? null
     : {
         consumption, classes: roundClasses(classes), debtPaid, refunds, habitual,
-        income: { realized: realizedIncome, recurring: recurringIncome, extraordinary: round2(realizedIncome - recurringIncome), typical: typicalIncome, incomplete },
-        result, balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
+        income: { realized: realizedIncome, recurring: recurringIncome, extraordinary: round2(realizedIncome - recurringIncome), typical: typicalIncome, incomplete, expected: incomplete ? expectedIncome : null },
+        result, reconciliation: { gross, refunds, consumption }, headline: "", balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
       };
 
   // ---- Comportamento ---------------------------------------------------------------------
@@ -411,6 +431,7 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
   const prevUpTo = Math.min(windowDays, daysInMonth(previousMonth));
   const hasPrevious = input.compare !== "none" && rows.some((r) => r.month === previousMonth);
   const behavior = buildBehavior({ rows, month, windowDays, previousMonth: hasPrevious ? previousMonth : null, prevUpTo, refMonths, windowOf, habitual, input, classes, consumption });
+  if (behavior && hasPrevious) behavior.previousRange = { start: isoOf(previousMonth, 1), end: isoOf(previousMonth, prevUpTo) };
 
   // ---- Projeções ---------------------------------------------------------------------------
   const projections = buildProjections({ rows, month, today, windowDays, isCurrentMonth, refMonths, windowOf, consumption, classes, snapshot, input, cls, realizedIncome, typicalIncome, quality });
@@ -431,6 +452,7 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
 
   // ---- Recomendações -----------------------------------------------------------------------
   const recommendations = buildRecommendations({ behavior, projections, input, month });
+  if (overview) overview.headline = makeHeadline(overview, isCurrentMonth);
 
   // ---- Qualidade ---------------------------------------------------------------------------
   const cats = rows.filter((r) => r.month === month && r.day <= windowDays && r.amount > 0);
@@ -511,16 +533,16 @@ function buildBehavior(a: {
   // Fatores de mudança: impacto por categoria contra o habitual, com resíduo declarado (a referência é mediana)
   let drivers: BehaviorV2["drivers"] = null;
   if (a.habitual) {
-    const perCat = new Map<string, { name: string; cur: number; refs: number[] }>();
+    const perCat = new Map<string, { name: string; cur: number; refs: number[]; klass: Klass }>();
     const addRef = (m: string, r: Cls) => {
       const k = r.categoryId ?? `__${r.category}`;
-      const e = perCat.get(k) ?? { name: r.category, cur: 0, refs: new Array(a.refMonths.length).fill(0) };
+      const e = perCat.get(k) ?? { name: r.category, cur: 0, refs: new Array(a.refMonths.length).fill(0), klass: r.klass };
       e.refs[a.refMonths.indexOf(m)] += r.amount;
       perCat.set(k, e);
     };
     for (const r of rows) if (a.refMonths.includes(r.month) && r.day <= a.windowOf(r.month)) addRef(r.month, r);
-    for (const r of cur) { const k = r.categoryId ?? `__${r.category}`; const e = perCat.get(k) ?? { name: r.category, cur: 0, refs: new Array(a.refMonths.length).fill(0) }; e.cur += r.amount; perCat.set(k, e); }
-    const impacts: DriverRow[] = [...perCat.values()].map((e) => ({ name: e.name, impact: round2(e.cur - median(e.refs)) })).filter((d) => Math.abs(d.impact) >= 1);
+    for (const r of cur) { const k = r.categoryId ?? `__${r.category}`; const e = perCat.get(k) ?? { name: r.category, cur: 0, refs: new Array(a.refMonths.length).fill(0), klass: r.klass }; e.klass = r.klass; e.cur += r.amount; perCat.set(k, e); }
+    const impacts: DriverRow[] = [...perCat.values()].map((e) => ({ name: e.name, impact: round2(e.cur - median(e.refs)), klass: e.klass })).filter((d) => Math.abs(d.impact) >= 1);
     const sumImpacts = impacts.reduce((s, d) => s + d.impact, 0);
     const totalDelta = a.habitual.deltaAbs;
     impacts.sort((x, y) => Math.abs(y.impact) - Math.abs(x.impact));
@@ -607,6 +629,8 @@ function buildBehavior(a: {
   return {
     categories, merchants,
     previousLabel: previousMonth ? `${previousMonth}` : null,
+    previousRange: null,
+    habitualBase: a.habitual ? { months: a.habitual.months.length } : null,
     split: { classes: roundClasses(a.classes), total: round2(a.consumption) },
     drivers, weekday, smallSpend, patterns, priceChanges: priceChanges.slice(0, 3),
   };
@@ -645,7 +669,7 @@ function buildProjections(a: {
     const low = round2(Math.max(0, quantile(sortedRem, 0.25) * pace));
     const high = round2(Math.max(adjustableFuture, quantile(sortedRem, 0.75) * pace));
     const realized = round2(a.consumption);
-    out.consumption = { realized, structuralPending, adjustableFuture, total: round2(realized + structuralPending + adjustableFuture), low: round2(realized + structuralPending + low), high: round2(realized + structuralPending + high) };
+    out.consumption = { realized, structuralPending, adjustableFuture, total: round2(realized + structuralPending + adjustableFuture), low: round2(realized + structuralPending + low), high: round2(realized + structuralPending + high), method: `Faixa = percentis 25–75 do gasto ajustável que costuma restar do dia ${a.windowDays + 1} ao fim do mês, em ${a.refMonths.length} meses de histórico, ajustado ao seu ritmo deste mês.` };
   }
 
   // 14. Caixa: a conta aberta, passo a passo (mesma conta da Home)
@@ -688,16 +712,21 @@ function buildProjections(a: {
     const groupDef: Array<{ key: "cards" | "debts" | "recurring"; sources: string[] }> = [
       { key: "cards", sources: ["card_statement", "card_installment"] }, { key: "debts", sources: ["debt_installment"] }, { key: "recurring", sources: ["recurring", "planned", "donation_goal"] },
     ];
-    const groups = groupDef.map((g) => ({ key: g.key, amount: round2(items.filter((i) => g.sources.includes(String(i.source))).reduce((s, i) => s + (num(i.amount) ?? 0), 0)) })).filter((g) => g.amount > 0);
-    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) };
+    const groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }> = groupDef.map((g) => ({ key: g.key, amount: round2(items.filter((i) => g.sources.includes(String(i.source))).reduce((s, i) => s + (num(i.amount) ?? 0), 0)) })).filter((g) => g.amount > 0);
+    // Fatura do mês fora da agenda (a Home a estima à parte): entra como estimativa, senão o total esconde o cartão.
+    const cardDue = num(snapshot?.projection?.cardDueThisMonth) ?? 0;
+    if (!groups.some((g) => g.key === "cards") && cardDue > 0) groups.unshift({ key: "cards", amount: round2(cardDue), estimated: true });
+    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) || groups.some((g) => g.estimated), horizonEnd };
   } else if (input.commitmentMonths.length > 0) {
-    out.commitments = { next30: 0, groups: [], months: input.commitmentMonths.slice(0, 6), hasEstimates: true };
+    out.commitments = { next30: 0, groups: [], months: input.commitmentMonths.slice(0, 6), hasEstimates: true, horizonEnd: null };
   }
 
   // 16. Renda comprometida
-  const incomeBase = input.profile?.incomeBaseline ?? (a.typicalIncome > 0 ? a.typicalIncome : null);
+  // Denominador no mesmo horizonte das obrigações: a renda mensal informada no perfil; sem ela, a mediana dos meses anteriores.
+  const configuredIncome = num(snapshot?.projection?.estimatedFixedInflows) ?? 0;
+  const incomeBase = configuredIncome > 0 ? configuredIncome : a.typicalIncome > 0 ? a.typicalIncome : null;
   if (out.commitments && out.commitments.next30 > 0 && incomeBase && incomeBase > 0) {
-    out.committedIncome = { pct: Math.round((out.commitments.next30 / incomeBase) * 1000) / 1000, income: round2(incomeBase), obligations: out.commitments.next30, basis: input.profile?.incomeBaseline ? "renda típica dos meses fechados" : "mediana das receitas dos meses anteriores" };
+    out.committedIncome = { pct: Math.round((out.commitments.next30 / incomeBase) * 1000) / 1000, income: round2(incomeBase), obligations: out.commitments.next30, basis: configuredIncome > 0 ? "renda mensal informada no seu perfil" : "mediana das receitas dos meses anteriores" };
   }
 
   // 17. A receber (de terceiros): a vencer, vencido e recebido no período
@@ -743,13 +772,18 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
     if (!hasData) continue;
     const open = m === openMonth;
     const incomplete = open && a.typicalIncome > 0 && inc < a.typicalIncome * 0.5;
-    months.push({ month: m, income: inc, consumption: cons, debtPaid: round2(a.cls.debtPaidByMonth.get(m) ?? 0), result: open && incomplete ? null : round2(inc - cons), open, incomeIncomplete: incomplete });
+    months.push({ month: m, income: inc, consumption: cons, debtPaid: round2(a.cls.debtPaidByMonth.get(m) ?? 0), result: round2(inc - cons), open, partial: incomplete });
   }
 
   const nwSeries = a.input.netWorthSeries.slice(-6);
-  const nwCurrent = a.input.profile?.netWorth ?? null;
+  const nwSnap = a.snapshot?.netWorth;
+  const composition = nwSnap && num(nwSnap.net) != null ? {
+    asOf: a.today, cash: round2(num(nwSnap.cash) ?? 0), invested: round2(num(nwSnap.invested) ?? 0), assets: round2(num(nwSnap.assets) ?? 0),
+    cardsOwed: round2(num(nwSnap.cardsOwed) ?? 0), otherDebts: round2(num(nwSnap.otherDebts) ?? 0), liabilities: round2(num(nwSnap.owed) ?? 0), net: round2(num(nwSnap.net) ?? 0),
+  } : null;
+  const nwCurrent = composition?.net ?? a.input.profile?.netWorth ?? null;
   const netWorth: EvolutionV2["netWorth"] = nwSeries.length > 0 || nwCurrent != null
-    ? { series: nwSeries, current: nwCurrent, label: "Patrimônio registrado no Nino (saldos, investimentos e dívidas informados)" }
+    ? { series: nwSeries, current: nwCurrent, label: "Ativos (contas e investimentos) menos passivos (dívidas e cartões) informados no Nino", composition }
     : null;
 
   const LIVE = new Set(["on_track", "attention", "at_risk", "exceeded", "limit_reached"]);
@@ -771,46 +805,61 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
 // ---------------------------------------------------------------------------
 
 function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: ProjectionsV2; input: V2Inputs; month: string }): ReportV2["recommendations"] {
+  // Cada ação traz baseline, premissa e impacto estimado próprios. Não há total agregado: as ações se sobrepõem
+  // (a categoria contém o estabelecimento, que contém os pequenos gastos) e somar seria prometer o que não se mede.
   const items: Recommendation[] = [];
   const b = a.behavior;
   const fmt = (n: number) => `R$ ${Math.round(n).toLocaleString("pt-BR")}`;
   const catByName = new Map((b?.categories ?? []).map((c) => [c.name, c]));
   if (b) {
-    // Estabelecimento: impacto absoluto contra o mês de comparação, só em gasto ajustável e recorrente
     for (const m of b.merchants.slice(0, 20)) {
       const cat = catByName.get(m.category);
       if (!cat || cat.klass !== "ajustavel" || m.deltaAbs < 30 || m.previous <= 0) continue;
       const recurrence = Math.min(1, m.count / 4);
       items.push({
-        key: `merchant:${m.key}`, kind: "merchant", title: `Reduzir ${m.label} em ${fmt(m.deltaAbs)}`,
-        body: `Você gastou ${fmt(m.total)} em ${m.label} (${m.count} ${m.count === 1 ? "compra" : "compras"}); antes eram ${fmt(m.previous)}. Voltar ao nível anterior libera ${fmt(m.deltaAbs)}.`,
+        key: `merchant:${m.key}`, kind: "merchant", nature: "saving", title: `Voltar ${m.label} ao nível anterior`,
+        body: `Você gastou ${fmt(m.total)} em ${m.label} (${m.count} ${m.count === 1 ? "compra" : "compras"}) contra ${fmt(m.previous)} no período anterior.`,
+        basis: `Baseline: ${fmt(m.previous)} no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de ${fmt(m.deltaAbs)}).`,
         monthlyImpact: round2(m.deltaAbs), confidence: round2(0.5 + 0.4 * recurrence), score: 0, route: cat.id ? `/app/metas/categoria/${cat.id}` : "/app/metas", routeLabel: "Criar meta de gasto",
       });
     }
-    for (const p of b.priceChanges.slice(0, 2)) items.push({ key: `price:${p.key}`, kind: "price", title: `${p.label} ficou ${fmt(p.deltaAbs)} mais cara`, body: `De ${fmt(p.from)} para ${fmt(p.to)} por mês. Vale conferir se mudou de plano ou se foi reajuste.`, monthlyImpact: round2(p.deltaAbs), confidence: 0.8, score: 0, route: "/app/recorrencias", routeLabel: "Revisar assinaturas" });
+    for (const p of b.priceChanges.slice(0, 2)) items.push({ key: `price:${p.key}`, kind: "price", nature: "saving", title: `${p.label} ficou ${fmt(p.deltaAbs)} mais cara`, body: `De ${fmt(p.from)} para ${fmt(p.to)} por mês. Vale conferir se mudou de plano ou se foi reajuste.`, basis: `Baseline: mediana dos 3 meses anteriores (${fmt(p.from)}).`, monthlyImpact: round2(p.deltaAbs), confidence: 0.8, score: 0, route: "/app/recorrencias", routeLabel: "Revisar assinaturas" });
     if (b.smallSpend && b.smallSpend.total >= 80) {
       const top = b.smallSpend.topMerchants[0];
-      items.push({ key: "small_spend", kind: "small_spend", title: `Pequenos gastos somam ${fmt(b.smallSpend.total)}`, body: `${b.smallSpend.count} compras de até R$ ${b.smallSpend.ceiling}${top ? `, sobretudo em ${top.label}` : ""}. Cada uma parece pouca coisa, mas acumulam.`, monthlyImpact: round2(b.smallSpend.total * 0.3), confidence: 0.6, score: 0, route: "/app/lancamentos", routeLabel: "Ver os lançamentos" });
+      items.push({ key: "small_spend", kind: "small_spend", nature: "saving", title: `Pequenos gastos somam ${fmt(b.smallSpend.total)}`, body: `${b.smallSpend.count} compras de até R$ ${b.smallSpend.ceiling}${top ? `, sobretudo em ${top.label}` : ""}.`, basis: `Baseline: ${fmt(b.smallSpend.total)} no período. Premissa: cortar 30% (parte desses gastos não é evitável).`, monthlyImpact: round2(b.smallSpend.total * 0.3), confidence: 0.5, score: 0, route: "/app/lancamentos", routeLabel: "Ver os lançamentos" });
     }
     if (b.weekday?.weekend) {
       const w = b.weekday.weekend;
-      const extra = (w.weekendAvg - w.weekdayAvg) * 8; // ~8 dias de fim de semana por mês
-      if (extra >= 40) items.push({ key: "weekend", kind: "weekend", title: "Fins de semana pesam mais", body: `${Math.round(w.pct * 100)}% a mais por dia (${fmt(w.weekendAvg)} contra ${fmt(w.weekdayAvg)}). Levar o fim de semana para o ritmo dos outros dias libera cerca de ${fmt(extra)} por mês.`, monthlyImpact: round2(extra * 0.5), confidence: 0.55, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
+      const extra = (w.weekendAvg - w.weekdayAvg) * 8;
+      if (extra >= 40) items.push({ key: "weekend", kind: "weekend", nature: "saving", title: "Fins de semana pesam mais", body: `${fmt(w.weekendAvg)} por dia contra ${fmt(w.weekdayAvg)} nos dias úteis.`, basis: `Baseline: diferença diária × 8 dias de fim de semana por mês (${fmt(extra)}). Premissa: reduzir metade dessa diferença.`, monthlyImpact: round2(extra * 0.5), confidence: 0.45, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
     }
   }
   const rec = a.projections.recoverable;
-  if (rec && rec.sources[0]) items.push({ key: `recoverable:${rec.sources[0].label}`, kind: "recoverable", title: `${rec.sources[0].label}: maior potencial de economia`, body: `Seu perfil estima até ${fmt(rec.sources[0].monthly)} por mês recuperáveis aqui, dentro de ${fmt(rec.monthly)} no total.`, monthlyImpact: rec.sources[0].monthly, confidence: 0.7, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
+  if (rec && rec.sources[0]) items.push({ key: `recoverable:${rec.sources[0].label}`, kind: "recoverable", nature: "saving", title: `${rec.sources[0].label}: maior potencial de economia`, body: `Seu perfil estima até ${fmt(rec.sources[0].monthly)} por mês recuperáveis aqui, dentro de ${fmt(rec.monthly)} no total.`, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro).", monthlyImpact: rec.sources[0].monthly, confidence: 0.7, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
+  // Organizar o caixa não é economizar: entra como ação de caixa, sem impacto mensal.
   for (const s of a.input.situationActions.slice(0, 3)) {
-    if (!s.impact || s.impact <= 0) continue;
-    items.push({ key: `situation:${s.key}`, kind: "situation", title: s.title, body: s.explanation ?? "", monthlyImpact: round2(s.impact), confidence: s.confidence ?? 0.6, score: 0, route: s.route, routeLabel: s.route ? "Abrir" : null });
+    const saving = (s.impact ?? 0) > 0;
+    items.push({ key: `situation:${s.key}`, kind: "situation", nature: saving ? "saving" : "cash", title: s.title, body: s.explanation ?? "", basis: saving ? "Estimativa da análise de situação do Nino." : "Ação de organização: não gera economia mensurável por si só.", monthlyImpact: saving ? round2(s.impact as number) : 0, confidence: s.confidence ?? 0.6, score: 0, route: s.route, routeLabel: s.route ? "Abrir" : null });
   }
   for (const it of items) it.score = round2(it.monthlyImpact * it.confidence);
-  items.sort((x, y) => y.score - x.score);
-  // Sem repetir o mesmo alvo (estabelecimento e categoria falam da mesma economia)
+  // Ordem: ações de caixa com urgência primeiro (não têm valor), depois economia por impacto × confiança.
+  items.sort((x, y) => (x.nature === y.nature ? y.score - x.score : x.nature === "cash" ? -1 : 1));
   const seen = new Set<string>();
-  const top = items.filter((it) => { const k = it.kind === "merchant" ? it.key : `${it.kind}`; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
-  const kinds = new Set(top.map((t) => t.kind));
-  const independent = kinds.size === top.length;
-  const monthlyTotal = round2(top.reduce((s, t) => s + t.monthlyImpact, 0));
-  return { items: top, monthlyTotal, yearlyTotal: round2(monthlyTotal * 12), independent };
+  const top = items.filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
+  return { items: top };
+}
+
+/** Frase de diagnóstico: só fatos do próprio relatório, e a ressalva quando a leitura pode ser só calendário. */
+function makeHeadline(o: OverviewV2, isCurrent: boolean): string {
+  const fmt = (n: number) => `R$ ${Math.round(n).toLocaleString("pt-BR")}`;
+  const parts: string[] = [];
+  const h = o.habitual;
+  if (h && h.deltaPct != null) {
+    const pct = Math.round(Math.abs(h.deltaPct) * 100);
+    parts.push(`Você consumiu ${fmt(o.consumption)}${isCurrent ? ` até o dia ${o.windowDays}` : ""}, ${Math.abs(h.deltaPct) < 0.02 ? "no seu habitual" : `${pct}% ${h.deltaPct < 0 ? "abaixo" : "acima"} do habitual`} (${fmt(h.value)}).`);
+    if (isCurrent && h.deltaPct < -0.3) parts.push("Parte da diferença pode ser calendário: contas do mês ainda vão vencer.");
+  } else parts.push(`Você consumiu ${fmt(o.consumption)}${isCurrent ? ` até o dia ${o.windowDays}` : ""}.`);
+  if (o.income.incomplete) parts.push(o.income.expected ? `A renda de ${fmt(o.income.expected.amount)} está prevista para ${o.income.expected.date.slice(8, 10)}/${o.income.expected.date.slice(5, 7)}; o resultado é parcial.` : "A renda do mês ainda não entrou; o resultado é parcial.");
+  if (o.balance.available != null) parts.push(`Saldo hoje: ${fmt(o.balance.available)}.`);
+  return parts.join(" ");
 }
