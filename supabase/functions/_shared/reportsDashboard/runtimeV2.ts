@@ -25,6 +25,10 @@ const safe = async <T>(fallback: T, fn: () => Promise<T>): Promise<T> => { try {
 
 export async function loadReportV2(sb: any, userId: string, today: string, params: ReportV2Params): Promise<ReportV2> {
   const monthStart = `${params.month}-01`;
+  const [debtsRows, recurringRows] = await Promise.all([
+    safe<any[]>([], async () => (await sb.from("debts").select("installment_amount,installments_total,installments_paid,next_installment_due,next_installment_amount,status,kind").eq("user_id", userId).eq("status", "active")).data ?? []),
+    safe<any[]>([], async () => (await sb.from("recurring_rules").select("amount,frequency,start_date,end_date,kind,status").eq("user_id", userId).eq("status", "active").eq("kind", "expense")).data ?? []),
+  ]);
   const [ledger, snapshotRow, profileRow, monthlyRow, receivables, installments, patterns, situations, savingsGoalIds, nwRows, debtRows] = await Promise.all([
     loadExecutiveInput(sb, userId, `${params.month}-28`, 24, { includeDebtPayments: true }),
     safe<any>(null, async () => (await sb.from("financial_current_snapshots").select("payload,as_of_date").eq("user_id", userId).maybeSingle()).data),
@@ -55,7 +59,32 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
     const m = String(r.competence_month ?? "").slice(0, 7);
     if (/^\d{4}-\d{2}$/.test(m)) byMonth.set(m, (byMonth.get(m) ?? 0) + n(r.amount));
   }
-  const commitmentMonths = [...byMonth.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).slice(0, 6).map(([month, cards]) => ({ month, cards: Math.round(cards * 100) / 100, debts: 0, recurring: 0 }));
+  // Seis meses à frente do mês atual: cartões (parcelas já contratadas), dívidas (parcelas restantes) e recorrências mensais.
+  const monthIdx = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
+  const monthStr = (i: number) => `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, "0")}`;
+  const baseIdx = monthIdx(today.slice(0, 7));
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  const commitmentMonths = Array.from({ length: 6 }, (_, k) => {
+    const idx = baseIdx + 1 + k;
+    const month = monthStr(idx);
+    let debts = 0;
+    for (const d of debtsRows) {
+      const total = n(d.installments_total); const paid = n(d.installments_paid);
+      const remaining = total > 0 ? total - paid : 0;
+      const nd = typeof d.next_installment_due === "string" ? d.next_installment_due.slice(0, 7) : null;
+      if (!nd || remaining <= 0) continue;
+      const offset = idx - monthIdx(nd);
+      if (offset >= 0 && offset < remaining) debts += n(offset === 0 ? d.next_installment_amount ?? d.installment_amount : d.installment_amount);
+    }
+    let recurring = 0;
+    for (const r of recurringRows) {
+      if (r.frequency !== "monthly") continue;
+      const start = typeof r.start_date === "string" ? r.start_date.slice(0, 7) : "0000-00";
+      const end = typeof r.end_date === "string" ? r.end_date.slice(0, 7) : "9999-99";
+      if (month >= start && month <= end) recurring += n(r.amount);
+    }
+    return { month, cards: r2(byMonth.get(month) ?? 0), debts: r2(debts), recurring: r2(recurring) };
+  });
 
   const nwByMonth = new Map<string, number>();
   for (const r of nwRows) { const m = String(r.as_of).slice(0, 7); if (!nwByMonth.has(m)) nwByMonth.set(m, n(r.net_worth)); }
