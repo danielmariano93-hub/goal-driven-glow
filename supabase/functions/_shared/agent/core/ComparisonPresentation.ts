@@ -5,21 +5,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import type { ComparisonEvidenceRow } from "./ConversationReferenceStore.ts";
-
-type Win = { from: string; to: string };
-const sameMonthWin = (w: Win) => w.from.slice(0, 7) === w.to.slice(0, 7);
-const lastDayOfWin = (ymd: string): number => new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)), 0)).getUTCDate();
-const isFullMonthWin = (w: Win) => sameMonthWin(w) && w.from.endsWith("-01") && Number(w.to.slice(8, 10)) === lastDayOfWin(w.to);
-const previousMonthKey = (ymd: string): string => {
-  const y = Number(ymd.slice(0, 4)), m = Number(ymd.slice(5, 7));
-  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
-};
-/** O par comparado é "mês atual até hoje" contra "os mesmos dias do mês anterior" (mesmo tamanho, meses vizinhos)? */
-function isSameDaysPair(a: Win | null | undefined, b: Win | null | undefined): boolean {
-  if (!a?.from || !a?.to || !b?.from || !b?.to) return false;
-  if (!sameMonthWin(a) || !sameMonthWin(b) || isFullMonthWin(b)) return false;
-  return a.from.slice(0, 7) === previousMonthKey(b.from) && a.from.slice(8, 10) === b.from.slice(8, 10) && a.to.slice(8, 10) === b.to.slice(8, 10);
-}
+import { isSameDaysPair } from "./SameWindowGuard.ts";
 
 const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const PCT = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

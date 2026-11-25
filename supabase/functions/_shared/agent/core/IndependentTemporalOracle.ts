@@ -1,10 +1,53 @@
-// Independent high-confidence temporal ORACLE for financial comparisons: VETO only.
+// Independent high-confidence temporal oracle for financial comparisons.
 //
-// A closed grammar for two calendar relations over the user's ORIGINAL text. It never grounds or repairs the
-// windows (the model chooses a TimeSpec and code computes it); it only lets ExecutionScopeGate refuse an
-// executed scope that contradicts an unambiguous request.
+// This is a CLOSED grammar for two calendar relations, NOT a second general
+// intent model. It only recognizes unambiguous current-month vs immediately
+// preceding-month requests and refuses to infer on all other utterances.
+// The oracle never repairs the IR: it can only veto an executed scope.
 // It uses NinoClock's local civil date, not UTC slices or hardcoded offsets.
 import { daysInMonth, previousMonth, today as localToday } from "../../finance-core/ninoClock.ts";
+
+import type { CanonicalConversationTurnContract } from "./ConversationTurnContract.ts";
+
+/**
+ * Grounding eligibility is part of the canonical boundary: do not convert
+ * ordinary language, writes, advisory turns or compound financial operations
+ * into a different query. Only the already-approved single compare query may
+ * receive a deterministic calendar relation.
+ */
+export function scopeForSingleComparison(
+  turn: CanonicalConversationTurnContract,
+  text: string,
+  referenceDay?: string,
+): IndependentMonthComparison | null {
+  if (turn.mode !== "read" || turn.domain !== "financial_read") return null;
+  if (turn.financial_read?.queries.length !== 1) return null;
+  if (turn.financial_read.queries[0].operation !== "compare") return null;
+  return independentMonthComparison(text, referenceDay);
+}
+
+/**
+ * Deterministic temporal grounding of a V3 comparison contract. This is the
+ * ONLY write to the comparison's resolved windows: the compiler and the
+ * fulfillment proof consume the exact same pair. Source semantics (metric,
+ * entities, operations, filter, comparison type) are left untouched.
+ */
+export function groundComparisonTurn(
+  turn: CanonicalConversationTurnContract,
+  resolved: IndependentMonthComparison,
+): CanonicalConversationTurnContract {
+  const target = `${resolved.target.from}..${resolved.target.to}`;
+  const baseline = `${resolved.baseline.from}..${resolved.baseline.to}`;
+  return {
+    ...turn,
+    focus: {
+      ...turn.focus,
+      period_expression: target,
+      period_expressions: [baseline, target],
+    },
+    resolution: { ...turn.resolution, time: "resolved" },
+  };
+}
 
 export type TemporalWindow = { from: string; to: string };
 export type IndependentMonthComparison = {

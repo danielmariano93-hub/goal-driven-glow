@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolvePeriodPt } from "../../supabase/functions/_shared/analytics/periodResolver";
+import { asksWholeMonth, sameWindowComparison } from "../../supabase/functions/_shared/agent/core/SameWindowGuard";
 
 const now = new Date("2026-11-24T15:00:00Z");
 const win = (p: any) => (p ? `${p.from}..${p.to}` : null);
@@ -19,6 +20,21 @@ describe("vocabulário fechado de tempo na comparação: o código calcula as da
   });
   it("mês anterior mais curto limita ao último dia (31/03 → fevereiro)", () => {
     expect(win(resolvePeriodPt("mesmos dias do mês anterior", new Date("2026-03-31T15:00:00Z")))).toBe("2026-02-01..2026-02-28");
+  });
+});
+
+describe("pedido do mês fechado tolera erro de digitação", () => {
+  for (const t of ["outubro inteiro", "outubro ineiro", "mes anterior copleto", "mes anterior completo", "o mes todo", "fechado"]) {
+    it(`"${t}" pede o mês fechado`, () => expect(asksWholeMonth(t)).toBe(true));
+  }
+  for (const t of ["mesmo periodo do mes anterior", "tô gastando mais que no mês passado até aogra", "como estou esse mes comprado com o mes anterior"]) {
+    it(`"${t}" não pede`, () => expect(asksWholeMonth(t)).toBe(false));
+  }
+  it("a trava não alinha quando o 'inteiro' veio com erro de digitação", () => {
+    const base = { from: "2026-11-01", to: "2026-11-24" };
+    const full = { from: "2026-10-01", to: "2026-10-31" };
+    expect(sameWindowComparison("copmara o que gasei esse mês até agora com outubro ineiro", base, full)).toBeNull();
+    expect(sameWindowComparison("tô gastando mais ou menos que no mês psasado", base, full)).toEqual({ from: "2026-10-01", to: "2026-10-24" });
   });
 });
 
