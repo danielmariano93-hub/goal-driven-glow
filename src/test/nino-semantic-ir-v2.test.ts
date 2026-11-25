@@ -178,12 +178,12 @@ describe("nino_semantic_ir.v2", () => {
 
   it("rollout 0% só libera piloto", () => {
     const cfg = { enabled: true, rollout_percent: 0, pilot_user_ids: ["00000000-0000-0000-0000-000000000001"] };
-    expect(rolloutDecision("semantic_ir_v1", "00000000-0000-0000-0000-000000000001", cfg)).toBe(true);
-    expect(rolloutDecision("semantic_ir_v1", "00000000-0000-0000-0000-000000000002", cfg)).toBe(false);
+    expect(rolloutDecision("semantic_ir_v3", "00000000-0000-0000-0000-000000000001", cfg)).toBe(true);
+    expect(rolloutDecision("semantic_ir_v3", "00000000-0000-0000-0000-000000000002", cfg)).toBe(false);
   });
 
   it("flag disabled bloqueia até piloto", () => {
     const cfg = { enabled: false, rollout_percent: 100, pilot_user_ids: ["00000000-0000-0000-0000-000000000001"] };
-    expect(rolloutDecision("semantic_ir_v1", "00000000-0000-0000-0000-000000000001", cfg)).toBe(false);
+    expect(rolloutDecision("semantic_ir_v3", "00000000-0000-0000-0000-000000000001", cfg)).toBe(false);
   });
 });
