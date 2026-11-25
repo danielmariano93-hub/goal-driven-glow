@@ -18,6 +18,7 @@ import { computeExecutiveInsights, EXECUTIVE_INSIGHTS_VERSION } from "../_shared
 import { loadExecutiveInput } from "../_shared/insights/executive/load.ts";
 import { computePurchasePlan } from "../_shared/insights/executive/purchasePlan.ts";
 import { loadReportDashboard, parseDashboardParams } from "../_shared/reportsDashboard/runtime.ts";
+import { loadReportV2, parseReportV2Params } from "../_shared/reportsDashboard/runtimeV2.ts";
 import { adjustmentReviewsOf, adviseGoals, goalHistoryOf, loadSpendingGoalContext, merchantOptions, readGoals } from "../_shared/spendingGoals/runtime.ts";
 import { buildHabitPatterns } from "../_shared/proactive/habitPatterns.ts";
 import { goalsFromReadings } from "../_shared/proactive/weekendForecast.ts";
@@ -165,6 +166,11 @@ Deno.serve(async (req) => {
       const parsed = parseDashboardParams(body as Record<string, any>, todaySP());
       if (typeof parsed === "string") return h.fail(parsed, 400);
       return h.ok({ ok: true, dashboard: await loadReportDashboard(sb, userId, todaySP(), parsed) });
+    }
+    if (action === "report_v2") {
+      const parsed = parseReportV2Params(body as Record<string, any>, todaySP());
+      if (typeof parsed === "string") return h.fail(parsed, 400);
+      return h.ok({ ok: true, report: await loadReportV2(sb, userId, todaySP(), parsed) });
     }
     if (action === "habit_patterns") {
       // Padrões da tela de hábitos (nino_habit_patterns.v1): mesmos motores e mesmos números das mensagens.

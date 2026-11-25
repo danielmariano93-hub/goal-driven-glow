@@ -4,7 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 const invoke = vi.fn(async (_fn: string, o: { body: { action: string } }) => {
   const a = o.body.action;
   if (a === "goals") return { data: { ok: true, goals: [], history: null, adjustments: [] }, error: null };
-  if (a === "dashboard") return { data: { dashboard: { version: "report_dashboard.v1" } }, error: null };
+  if (a === "report_v2") return { data: { report: { version: "report_v2.1" } }, error: null };
   if (a === "map") return { data: { ok: true, mapa: { indicators: [], questions_due: [], as_of: "2026-11-06" }, evidence: null }, error: null };
   return { data: null, error: new Error("x") };
 });
@@ -15,7 +15,7 @@ vi.mock("@/lib/db/snapshotContract", async (orig) => ({ ...(await orig<object>()
 
 import { routeToWarm, warmIdle, warmOnIntent, warmRoute, warmupAllowed } from "@/lib/perf/screenWarmup";
 import { goalsOverviewOptions } from "@/lib/nino/spendingGoals";
-import { dashboardQueryOptions, defaultDashboardQuery } from "@/lib/reports/dashboard/client";
+import { reportV2QueryOptions } from "@/lib/reports/reportV2Client";
 import { todayISO } from "@/lib/engine/facts";
 
 const actions = () => invoke.mock.calls.map((c) => c[1].body.action);
@@ -40,7 +40,7 @@ describe("aquecimento das telas", () => {
     await warmIdle(qc, "u1");
     expect(actions()).toContain("goals");
     expect(actions()).toContain("map");
-    expect(actions()).not.toContain("dashboard");
+    expect(actions()).not.toContain("report_v2");
   });
   it("ociosa: com economia de dados não chama nada", async () => {
     await warmIdle(new QueryClient(), "u1", { saveData: true });
@@ -52,19 +52,14 @@ describe("aquecimento das telas", () => {
     await warmRoute(qc, "u1", "metas");
     expect(qc.getQueryData(goalsOverviewOptions("u1").queryKey)).toBeDefined();
     await warmRoute(qc, "u1", "relatorios");
-    expect(qc.getQueryData(dashboardQueryOptions("u1", defaultDashboardQuery(todayISO())).queryKey)).toBeDefined();
-  });
-  it("a consulta padrão de Relatórios é este mês contra o período anterior", () => {
-    const q = defaultDashboardQuery("2026-11-06");
-    expect(q).toMatchObject({ preset: "month", compare: "previous", categoryIds: [], merchant: "" });
-    expect(q.end <= "2026-11-06").toBe(true);
+    expect(qc.getQueryData(reportV2QueryOptions("u1", todayISO().slice(0, 7), "previous").queryKey)).toBeDefined();
   });
   it("não busca de novo o que acabou de ser aquecido (toques repetidos)", async () => {
     const qc = new QueryClient();
     await warmRoute(qc, "u1", "relatorios");
     invoke.mockClear();
     await warmRoute(qc, "u1", "relatorios");
-    expect(actions()).not.toContain("dashboard");
+    expect(actions()).not.toContain("report_v2");
   });
   it("por intenção: link de Relatórios aquece; link de outra tela, não; sem usuário, não", async () => {
     const qc = new QueryClient();
@@ -72,7 +67,7 @@ describe("aquecimento das telas", () => {
     warmOnIntent(qc, "u1", "/app/lancamentos");
     expect(invoke).not.toHaveBeenCalled();
     warmOnIntent(qc, "u1", "/app/relatorios");
-    await vi.waitFor(() => expect(actions()).toContain("dashboard"));
+    await vi.waitFor(() => expect(actions()).toContain("report_v2"));
   });
   it("erro de rede nunca estoura para a tela", async () => {
     invoke.mockRejectedValueOnce(new Error("rede"));

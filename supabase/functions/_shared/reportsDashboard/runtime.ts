@@ -5,7 +5,6 @@
 import { fetchAllPages } from "../derived/pagedSelect.ts";
 import { loadExecutiveInput } from "../insights/executive/load.ts";
 import { applyHomeProjection, buildReportDashboard, summarizeOtherInflows, type CompareMode, type ReportDashboard } from "../finance-core/reportDashboard.ts";
-import { buildFutureView, buildReportStory } from "../finance-core/reportStory.ts";
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 400;
@@ -123,23 +122,9 @@ export async function loadReportDashboard(sb: any, userId: string, today: string
       action: { label: "Ver cartões e parcelas", route: "/app/cartoes" },
     }, ...dash.highlights];
   }
-  // A história do período (contra o habitual) e o futuro (compromissos, a receber, meta). Sem filtro: filtro = só despesa.
-  if (!dash.filtered) {
-    const [essentialIds, future] = await Promise.all([loadEssentialCategoryIds(sb, userId), loadFutureView(sb, userId, today)]);
-    dash.story = buildReportStory({ entries: input.entries, today, start: params.start, end: params.end, essentialCategoryIds: essentialIds });
-    dash.future = future;
-  }
   // Só mostra o que entrou fora da renda quando não há filtro (filtro = só despesa).
   if (!dash.filtered) dash.otherInflows = await loadOtherInflows(sb, userId, params.start, params.end);
   return dash;
-}
-
-/** Categorias que a pessoa marcou como essenciais (a mesma marcação do Mapa Financeiro). */
-export async function loadEssentialCategoryIds(sb: any, userId: string): Promise<string[]> {
-  try {
-    const { data } = await sb.from("category_essential_flags").select("category_id").eq("user_id", userId).eq("essential", true);
-    return ((data ?? []) as Array<{ category_id: string }>).map((r) => r.category_id);
-  } catch { return []; }
 }
 
 /** Metas de poupança ativas (exclui doação/dízimo). */
@@ -148,29 +133,6 @@ export async function loadSavingsGoalIds(sb: any, userId: string): Promise<strin
     const { data } = await sb.from("goals").select("id").eq("user_id", userId).eq("kind", "savings").eq("status", "active");
     return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
   } catch { return []; }
-}
-
-/** O que outras pessoas ainda devem ao usuário (Divisão do Rolê), o mesmo número do menu Mais. */
-export async function loadReceivableFromPeople(sb: any, userId: string): Promise<number> {
-  try {
-    const { data: expenses } = await sb.from("shared_expenses").select("id").eq("owner_user_id", userId).is("deleted_at", null).in("status", ["active", "draft"]);
-    const ids = ((expenses ?? []) as Array<{ id: string }>).map((r) => r.id);
-    if (ids.length === 0) return 0;
-    const { data } = await sb.from("shared_expense_participants").select("amount_due,amount_paid,status").in("shared_expense_id", ids)
-      .not("status", "in", "(paid,waived,opted_out)");
-    return ((data ?? []) as Array<{ amount_due: number | null; amount_paid: number | null }>)
-      .reduce((a, r) => a + Math.max(0, Number(r.amount_due ?? 0) - Number(r.amount_paid ?? 0)), 0);
-  } catch { return 0; }
-}
-
-/** Compromissos de 30 dias, saldo e meta: lidos do snapshot da Home, só quando ele é de hoje. */
-export async function loadFutureView(sb: any, userId: string, today: string) {
-  try {
-    const { data } = await sb.from("financial_current_snapshots").select("payload,as_of_date").eq("user_id", userId).maybeSingle();
-    if (!data || data.as_of_date !== today) return null;
-    const [people, savingsIds] = await Promise.all([loadReceivableFromPeople(sb, userId), loadSavingsGoalIds(sb, userId)]);
-    return buildFutureView((data.payload as any)?.snapshot, today, people, savingsIds);
-  } catch { return null; }
 }
 
 /** Entradas confirmadas do período que não contam como renda, para o "Entrou" não parecer o total. */

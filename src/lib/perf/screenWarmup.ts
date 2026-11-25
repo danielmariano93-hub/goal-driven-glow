@@ -9,7 +9,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { todayISO } from "@/lib/engine/facts";
 import { goalsOverviewOptions } from "@/lib/nino/spendingGoals";
 import { snapshotQueryOptions } from "@/lib/hooks/useFinancialSnapshot";
-import { dashboardQueryOptions, defaultDashboardQuery } from "@/lib/reports/dashboard/client";
+import { reportV2QueryOptions } from "@/lib/reports/reportV2Client";
 import { prefetchMapa } from "@/lib/mapa/client";
 
 /** Dado mais novo que isso não é buscado de novo (evita chamada repetida a cada toque). */
@@ -44,7 +44,7 @@ export async function warmRoute(qc: QueryClient, userId: string | undefined, rou
     } else if (route === "mapa") {
       await prefetchMapa(qc, userId);
     } else if (route === "relatorios") {
-      await qc.prefetchQuery({ ...dashboardQueryOptions(userId, defaultDashboardQuery(todayISO())), staleTime: WARM_FRESH_MS });
+      await qc.prefetchQuery({ ...reportV2QueryOptions(userId, todayISO().slice(0, 7), "previous"), staleTime: WARM_FRESH_MS });
     }
   } catch { /* só aquecimento: erro nunca aparece */ }
 }

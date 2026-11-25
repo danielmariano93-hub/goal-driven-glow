@@ -96,6 +96,7 @@ export function toLedger(
       merchant: merchant?.label ?? null,
       chart_date: kind === "expense" ? purchaseDayOf(row) : null,
       chart_carried: kind === "expense" && carriedIds.has(String(row.id)),
+      ...(debtOut ? { debt_payment: true } : {}),
     });
   }
   return out;
