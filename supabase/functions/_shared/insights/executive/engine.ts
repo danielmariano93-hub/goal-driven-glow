@@ -37,6 +37,8 @@ export type LedgerEntry = {
   chart_date?: string | null;
   /** Parcela 2+ de compra de mês anterior: entra no total (fatura), mas não foi gasto de nenhum dia do período. */
   chart_carried?: boolean;
+  /** Pagamento de dívida/empréstimo: o valor inteiro entra, o relatório separa principal de juros. */
+  debt_payment?: boolean;
 };
 
 /** Parcela paga antes do vencimento do cronograma (`installment_anticipation.v1`). */

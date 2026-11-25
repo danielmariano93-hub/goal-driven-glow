@@ -40,7 +40,7 @@ export * from "./goalHistory.ts";
 export * from "./goalVerdict.ts";
 export * from "./goalAdjustment.ts";
 export * from "./reportDashboard.ts";
-export * from "./reportStory.ts";
+export * from "./reportV2.ts";
 export * from "./behaviorDimensions.ts";
 export * from "./behaviorObserved.ts";
 export * from "./behaviorObservedV3.ts";

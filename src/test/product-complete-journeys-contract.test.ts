@@ -18,9 +18,8 @@ describe("jornadas completas de produto", () => {
     expect(reports).not.toContain("useNinoDiagnosisContext");
     expect(reports).not.toContain("useExecutiveInsights");
     expect(reports).not.toContain("Leituras do Nino");
-    expect(reports).toContain("ReportTabs");
-    expect(reports).toContain("O que mudou no seu mês");
-    expect(reports).toContain("Para onde você vai");
+    expect(reports).toContain("TabsV2");
+    for (const tab of ["geral", "comportamento", "projecoes", "evolucao"]) expect(reports).toContain(`painel-${tab}`);
   });
 
   it("oferece detalhe, edição, baixa e reversão na fatura", () => {

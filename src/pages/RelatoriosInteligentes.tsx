@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
-import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
-import { CategoriesTabContent } from "@/components/reports/CategoriesTab";
-import { ActionCard, BalanceOutlookCard, CommitmentsCard, DataQualityNote, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MonthSelector, OpportunityTiles, PriceChangesCard, ReceivableCard, ReportTabs, SpendingGoalsCard, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
+import { useReportV2, useReportV2Query } from "@/lib/reports/reportV2Client";
+import { BridgeCard, CashProjectionCard, CategoriesAndMerchants, CommitmentsCardV2, CompareControlV2, ConsumptionHero, ConsumptionProjectionCard, CurveChart, DriversCard, GoalsCardV2, MonthPicker, MonthlyResultCard, NetWorthCard, PatternsCard, QualityNotes, ReceivablesCardV2, RecommendationsCard, RecoverableCardV2, SavingsCardV2, SmallSpendCard, SplitCard, SummaryTrioV2, TabsV2, TopCategoriesV2, WeekdayCardV2 } from "@/components/reports/v2/ReportV2Parts";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -27,34 +26,11 @@ function csvLoadFloor(from: string): string {
 
 export default function RelatoriosInteligentes() {
   const [exporting, setExporting] = useState(false);
-  const [params, setParams] = useSearchParams();
-  const tab = parseTab(params.get("aba"));
-  const setTab = (id: ReportTabId) => {
-    setParams((current) => {
-      const next = new URLSearchParams(current);
-      if (id === "geral") next.delete("aba"); else next.set("aba", id);
-      return next;
-    }, { replace: true });
-  };
-
-  // O painel já abre calculado: período, comparação e filtros vivem na URL.
-  const { query, update, today } = useDashboardQuery();
-  const { data: dash, isLoading, isFetching, isError, refetch } = useReportDashboard(query);
-  const from = query.start;
-  const to = query.end;
-  const rangeValid = Boolean(from && to && from <= to && to <= today);
-
-  // O relatório é mensal: um link antigo com 7 dias, 3 meses ou período livre cai no mês atual.
-  const monthAligned = from.slice(8, 10) === "01" && from.slice(0, 7) === to.slice(0, 7);
-  useEffect(() => { if (!monthAligned) update({ preset: "month" }); }, [monthAligned, update]);
-
-  // Link com ?ato= (Home, WhatsApp, antiga aba Nino) rola até a seção quando o painel já está na tela.
-  const deepAct = params.get("ato");
-  const hasDash = Boolean(dash);
-  useEffect(() => {
-    if (!hasDash || tab !== "geral" || !deepAct || deepAct === "foi") return;
-    document.getElementById(deepAct === "vai" ? "ato-vai" : "ato-mudou")?.scrollIntoView({ block: "start" });
-  }, [hasDash, deepAct, tab]);
+  const { month, compare, tab, today, thisMonth, update } = useReportV2Query();
+  const { data: rep, isLoading, isFetching, isError, refetch } = useReportV2(month, compare);
+  const from = `${month}-01`;
+  const to = month === thisMonth ? today : `${month}-${String(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0")}`;
+  const rangeValid = Boolean(from <= to && to <= today);
 
   /** CSV do período selecionado — os mesmos lançamentos que o relatório enxerga. */
   async function handleExportCsv() {
@@ -107,11 +83,6 @@ export default function RelatoriosInteligentes() {
     }
   }
 
-  const story = dash?.story ?? null;
-  const hasChanges = Boolean(story && (story.split || story.variations.length > 0 || (story.priceChanges?.length ?? 0) > 0 || story.weekday));
-  const future = dash?.future ?? null;
-  const hasFuture = Boolean(future && (future.outlook || future.commitments || future.receivable || future.goal || (future.spendingGoals?.length ?? 0) > 0)) || Boolean(story && (story.sustainableSavings || story.recoverable || story.action));
-
   return (
     <div className="space-y-4 pt-2 pb-8">
       <header className="flex items-start justify-between gap-3">
@@ -130,69 +101,74 @@ export default function RelatoriosInteligentes() {
         </div>
       </header>
 
-      <MonthSelector
-        start={from} end={to} today={today}
-        onPick={(r) => update(r.isCurrent ? { preset: "month" } : { preset: "custom", start: r.start, end: r.end })}
-      />
-      <ReportTabs active={tab} onChange={setTab} />
+      <MonthPicker month={month} thisMonth={thisMonth} today={today} onPick={(m) => update({ month: m })} />
+      <TabsV2 active={tab} onChange={(id) => update({ tab: id })} />
 
-      {isLoading && !dash ? (
+      {isLoading && !rep ? (
         <div className="grid place-items-center py-16" role="status" aria-live="polite">
           <Loader2 className="animate-spin text-muted-foreground" />
-          <span className="sr-only">Calculando seu painel</span>
+          <span className="sr-only">Calculando seu relatório</span>
         </div>
-      ) : isError && !dash ? (
+      ) : isError && !rep ? (
         <div className="rounded-2xl border border-dashed border-border bg-card p-6 text-center">
-          <p className="text-sm font-semibold">Não consegui montar o painel agora</p>
+          <p className="text-sm font-semibold">Não consegui montar o relatório agora</p>
           <p className="mt-1 text-xs text-muted-foreground">Seus dados estão seguros. Tente de novo em instantes.</p>
           <button type="button" onClick={() => void refetch()} className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium">
             <RefreshCw size={12} /> Tentar de novo
           </button>
         </div>
-      ) : dash ? (
-        <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
+      ) : rep ? (
+        <div className={cn("space-y-3 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
           {tab === "geral" ? (
-            <div role="tabpanel" id="painel-geral" aria-labelledby="aba-geral" className="space-y-6">
-              <div className="space-y-3">
-                {story ? (
-                  <>
-                    <ConsumptionHero d={dash} story={story} />
-                    <DataQualityNote story={story} />
-                    <SummaryTrio d={dash} story={story} future={dash.future} />
-                    <CumulativeChart story={story} />
-                    <TopCategories story={story} windowEnd={dash.period.end} />
-                  </>
-                ) : (
-                  <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há gastos registrados neste mês.</p>
-                )}
-              </div>
-
-              {hasChanges && story ? (
-                <StorySection id="ato-mudou" title="O que mudou no seu mês" subtitle="Comparado ao seu padrão, veja onde estão as principais mudanças no seu consumo.">
-                  <CostSplitCards story={story} />
-                  <VariationsCard story={story} />
-                  <PriceChangesCard story={story} />
-                  <WeekdayCard story={story} />
-                </StorySection>
-              ) : null}
-
-              {hasFuture ? (
-                <StorySection id="ato-vai" title="Para onde você vai" subtitle="Projeção dos próximos 30 dias e oportunidades para melhorar o seu resultado.">
-                  <BalanceOutlookCard future={future} />
-                  <CommitmentsCard future={future} />
-                  <ReceivableCard future={future} />
-                  {story ? <OpportunityTiles story={story} /> : null}
-                  {story ? <ActionCard story={story} future={future} /> : null}
-                  <SpendingGoalsCard future={future} />
-                  <GoalProgressCard future={future} />
-                </StorySection>
-              ) : null}
+            <div role="tabpanel" id="painel-geral" aria-labelledby="aba-geral" className="space-y-3">
+              {rep.overview ? (
+                <>
+                  <ConsumptionHero o={rep.overview} isCurrent={rep.isCurrentMonth} />
+                  <SummaryTrioV2 o={rep.overview} />
+                  <BridgeCard lines={rep.overview.bridge} />
+                  <CurveChart o={rep.overview} />
+                  {rep.behavior ? <TopCategoriesV2 categories={rep.behavior.categories} onSeeAll={() => update({ tab: "comportamento" })} /> : null}
+                  <RecommendationsCard r={rep.recommendations} />
+                </>
+              ) : <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há movimentações neste mês.</p>}
+              <QualityNotes notes={rep.quality} />
             </div>
           ) : null}
 
-          {tab === "categorias" ? (
-            <div role="tabpanel" id="painel-categorias" aria-labelledby="aba-categorias">
-              <CategoriesTabContent d={dash} compare={query.compare} onCompare={(compare) => update({ compare })} />
+          {tab === "comportamento" ? (
+            <div role="tabpanel" id="painel-comportamento" aria-labelledby="aba-comportamento" className="space-y-3">
+              {rep.behavior ? (
+                <>
+                  <CompareControlV2 compare={compare} onChange={(c) => update({ compare: c })} />
+                  <SplitCard b={rep.behavior} />
+                  <DriversCard b={rep.behavior} />
+                  <CategoriesAndMerchants b={rep.behavior} compared={compare !== "none" && rep.behavior.previousLabel != null} />
+                  <WeekdayCardV2 b={rep.behavior} />
+                  <SmallSpendCard b={rep.behavior} />
+                  <PatternsCard b={rep.behavior} />
+                </>
+              ) : <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há gastos neste mês para analisar.</p>}
+            </div>
+          ) : null}
+
+          {tab === "projecoes" ? (
+            <div role="tabpanel" id="painel-projecoes" aria-labelledby="aba-projecoes" className="space-y-3">
+              {!rep.isCurrentMonth ? <p className="rounded-2xl border border-dashed border-border bg-card p-3 text-[12.5px] text-muted-foreground">Projeções valem para o mês em andamento; abaixo, o que continua valendo hoje.</p> : null}
+              <ConsumptionProjectionCard p={rep.projections} />
+              <CashProjectionCard p={rep.projections} />
+              <CommitmentsCardV2 p={rep.projections} />
+              <ReceivablesCardV2 p={rep.projections} />
+              <SavingsCardV2 p={rep.projections} />
+              <RecoverableCardV2 p={rep.projections} />
+              <QualityNotes notes={rep.quality.filter((q) => ["snapshot_stale", "cash_mismatch", "profile_stale"].includes(q.code))} />
+            </div>
+          ) : null}
+
+          {tab === "evolucao" ? (
+            <div role="tabpanel" id="painel-evolucao" aria-labelledby="aba-evolucao" className="space-y-3">
+              <MonthlyResultCard e={rep.evolution} />
+              <NetWorthCard e={rep.evolution} />
+              <GoalsCardV2 e={rep.evolution} />
             </div>
           ) : null}
         </div>
