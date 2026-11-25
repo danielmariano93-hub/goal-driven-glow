@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { ProjectionCard } from "@/components/reports/ReportActs";
 import { CommitmentsCard, ConsumptionHero, CostSplitCards, MonthSelector, ReportTabs, StorySection, SummaryTrio, TopCategories, brl0, parseTab } from "@/components/reports/StoryParts";
 import { ninoRedirectTarget } from "@/lib/navigation/ninoRedirect";
 import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
@@ -9,8 +8,6 @@ import type { ReportDashboard } from "@/lib/engine/reportDashboard";
 import type { FutureView, ReportStory } from "@/lib/engine/reportStory";
 
 const dash = (over: Partial<ReportDashboard>) => ({ filtered: false, projection: null, totals: { expense: 6240, income: 8000, net: 1760 }, ...over }) as ReportDashboard;
-const projection = { expense: 4200, daysElapsed: 10, daysInMonth: 30, previousMonthExpense: 5000, early: false, fixedKnown: 0, source: "home" as const,
-  composition: { realized: 1500, variable: 1700, commitments: 600, cardDue: 400, confidence: "alta" } };
 const story = (over: Partial<ReportStory> = {}) => ({
   version: "report_story.v1", month: "2026-11", windowDays: 24,
   habitual: { expense: 5830, months: ["2026-08", "2026-09", "2026-10"], deltaAbs: 410, deltaPct: 0.07 }, income: null, cumulative: null,
@@ -92,15 +89,6 @@ describe("Relatórios no desenho do protótipo", () => {
     expect(screen.getByRole("heading", { name: "Para onde você vai" })).toBeTruthy();
     expect(document.getElementById("ato-vai")).not.toBeNull();
     expect(brl0(1234.6)).toBe("R$ 1.235");
-  });
-
-  it("projeção do fechamento (aba Mais) mostra número real e some sem dado ou com filtro", () => {
-    const { rerender, container } = render(<ProjectionCard d={dash({ projection })} />);
-    expect(screen.getByTestId("projection-card").textContent).toMatch(/4\.200/);
-    rerender(<ProjectionCard d={dash({ projection: null })} />);
-    expect(container.innerHTML).toBe("");
-    rerender(<ProjectionCard d={dash({ projection, filtered: true })} />);
-    expect(container.innerHTML).toBe("");
   });
 
   it("links antigos da aba Nino caem no lugar certo", () => {

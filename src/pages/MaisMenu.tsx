@@ -53,7 +53,6 @@ export default function MaisMenu() {
 
   const split = data?.split;
   const reports = data?.reports;
-  const nino = data?.nino;
   const uncategorized = data?.data_quality?.uncategorized_count ?? 0;
 
   // Em destaque: o que tem estado/novidade. Assuntos que não têm nada a dizer ficam só na grade abaixo.
@@ -74,18 +73,11 @@ export default function MaisMenu() {
       icon: Users,
     });
   }
-  if ((reports?.unread ?? 0) > 0 || (nino && (nino.new_since_last_visit > 0 || nino.attention_items > 0))) {
-    const unread = reports?.unread ?? 0;
-    const novidades = nino?.new_since_last_visit ?? 0;
-    const atencao = nino?.attention_items ?? 0;
+  if ((reports?.unread ?? 0) > 0) {
     highlights.push({
       path: "/app/relatorios",
       label: "Relatórios",
-      desc: unread > 0
-        ? `${unread} não lido${unread > 1 ? "s" : ""}${reports?.last_period_label ? ` · fechamento ${reports.last_period_label}` : ""}`
-        : novidades > 0
-          ? `${novidades} novidade${novidades > 1 ? "s" : ""} do Nino desde sua última visita`
-          : `${atencao} ponto${atencao > 1 ? "s" : ""} de atenção`,
+      desc: `${reports!.unread} não lido${reports!.unread > 1 ? "s" : ""}${reports?.last_period_label ? ` · fechamento ${reports.last_period_label}` : ""}`,
       icon: BarChart3,
     });
   }

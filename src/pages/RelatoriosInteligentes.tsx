@@ -1,20 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, ChevronDown, Download, Loader2, Printer, RefreshCw } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
 import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
-import { AnticipationCard, ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
-import { ProjectionCard } from "@/components/reports/ReportActs";
+import { KpiStrip, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
 import { ActionCard, CommitmentsCard, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MerchantsList, MonthSelector, OpportunityTiles, ReceivableCard, ReportTabs, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
-import { ActionCard, CommitmentsCard, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, OpportunityTiles, ReceivableCard, SummaryTrio, TopCategories, VariationsCard, WeekdayCard } from "@/components/reports/StoryParts";
-import { ExecutiveInsightCard } from "@/components/nino/ExecutiveInsightCard";
-import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
-import { useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
-import { consolidateSituations } from "@/lib/nino/consolidate";
-import { markNinoSeen } from "@/lib/nino/intelligence";
-import { executiveForSection, useExecutiveInsights } from "@/lib/nino/executive";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -37,9 +28,7 @@ function csvLoadFloor(from: string): string {
 
 
 export default function RelatoriosInteligentes() {
-  const navigate = useNavigate();
   const [exporting, setExporting] = useState(false);
-  const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const tab = parseTab(params.get("aba"));
   const setTab = (id: ReportTabId) => {
@@ -49,16 +38,6 @@ export default function RelatoriosInteligentes() {
       return next;
     }, { replace: true });
   };
-
-  // Leitura do Nino (motor canônico): fica na aba "Mais". O que não tiver dado some, sem bloco vazio.
-  const executive = useExecutiveInsights();
-  const diagnosis = useNinoDiagnosisContext();
-  const briefing = executive.data;
-  const mudancas = [...executiveForSection(briefing, "mudancas"), ...executiveForSection(briefing, "aprendizados")];
-  const agora = executiveForSection(briefing, "agora");
-  const antecipacoes = consolidateSituations(diagnosis.data?.anticipations ?? []);
-  const pendencias = diagnosis.data?.operational_tasks ?? [];
-  const historico = diagnosis.data?.closings ?? [];
 
   // O painel já abre calculado: período, comparação e filtros vivem na URL.
   const { query, update, today } = useDashboardQuery();
@@ -74,14 +53,6 @@ export default function RelatoriosInteligentes() {
     if (!hasDash || tab !== "geral" || !deepAct || deepAct === "foi") return;
     document.getElementById(deepAct === "vai" ? "ato-vai" : "ato-mudou")?.scrollIntoView({ block: "start" });
   }, [hasDash, deepAct, tab]);
-
-  // Abrir a tela zera o "novidades" da aba Mais: badge e tela contam a mesma coleção editorial.
-  useEffect(() => {
-    if (!diagnosis.data) return;
-    void markNinoSeen("nino", "all").then(() => {
-      void qc.invalidateQueries({ queryKey: ["more-menu-context"] });
-    });
-  }, [diagnosis.data, qc]);
 
   /** CSV do período selecionado — os mesmos lançamentos que o relatório enxerga. */
   async function handleExportCsv() {
@@ -230,53 +201,6 @@ export default function RelatoriosInteligentes() {
                   <Printer size={12} /> Imprimir
                 </button>
               </div>
-              <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
-              <KpiStrip d={dash} />
-              <EvolutionChart d={dash} />
-              <AnticipationCard d={dash} />
-              <OtherInflowsCard d={dash} />
-              {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
-              <ProjectionCard d={dash} />
-              <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
-              {agora.length > 0 ? (
-                <section className="space-y-3" aria-label="O que fazer agora">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">O que fazer agora</p>
-                  {agora.map((insight, index) => <ExecutiveInsightCard key={insight.key} insight={insight} emphasis={index === 0} />)}
-                </section>
-              ) : null}
-              {mudancas.length > 0 ? (
-                <section className="space-y-3" aria-label="Leituras do Nino">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Leituras do Nino</p>
-                  {mudancas.slice(0, 6).map((insight) => <ExecutiveInsightCard key={insight.key} insight={insight} />)}
-                </section>
-              ) : null}
-              <HabitScoreboard habits={dash.habits} trend={dash.trend} />
-              {antecipacoes.length > 0 ? (
-                <section className="space-y-3" aria-label="Prepare-se">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prepare-se</p>
-                  {antecipacoes.slice(0, 5).map((item) => <NinoSituationCard key={item.id} situation={item} surface="relatorios:prepare-se" />)}
-                </section>
-              ) : null}
-              {pendencias.length > 0 ? (
-                <section className="space-y-2" aria-label="Pendências para organizar">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Pendências para organizar</p>
-                  {pendencias.map((item) => <NinoSituationCard key={item.id} situation={item} surface="relatorios:operacional" compact />)}
-                </section>
-              ) : null}
-              {historico.length > 0 ? (
-                <section className="space-y-2" aria-label="Fechamentos anteriores">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fechamentos anteriores</p>
-                  {historico.slice(0, 6).map((closing) => (
-                    <details key={closing.id} className="rounded-2xl border border-border bg-card p-4">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
-                        <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-primary" />Fechamento até {new Date(`${closing.period_end}T12:00:00`).toLocaleDateString("pt-BR")}</span>
-                        <ChevronDown className="h-4 w-4" />
-                      </summary>
-                      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{closing.closing_text || "Resumo consolidado do período."}</p>
-                    </details>
-                  ))}
-                </section>
-              ) : null}
             </div>
           ) : null}
         </div>
