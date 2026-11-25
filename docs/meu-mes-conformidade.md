@@ -95,6 +95,13 @@ Rota preservada: `/app/relatorios` (links antigos `?aba=` e `?ato=` levam ao cap
 
 - **M3 Layout global** (`index.css`, `AppLayout.tsx`): `overflow-x: hidden` → `clip` no body e no layout (com `hidden` como reserva). Mesmo efeito visual, mas o índice fixo passa a funcionar; sem isso nenhum `position: sticky` do app ficava fixo.
 
+- **M4 Metas** (`reportV2.ts`): o status de cada meta de gasto vem do motor canônico (o mesmo da aba Metas); o cálculo local (projeção ≥ 85%) só entra se o status faltar. Antes, metas "no ritmo" na aba Metas apareciam como "atenção" aqui.
+- **M5 Ação de caixa** (`reportV2.ts`, `runtimeV2.ts`): a situação traz a causa concreta e a data ("A parcela de Tia é de R$ 1.566,00 e vence em 09/12"); o título vira "Reserve R$ 1.566 para 09/12" e só é urgente se o saldo previsto sem a próxima renda não cobrir o valor. Oportunidade de economia explica gasto médio × padrão mais baixo e abre os lançamentos da categoria.
+
+## 5b. Ajustes da revisão visual (25/11)
+
+Paleta do Nino nos dois destaques (o mesmo degradê do cartão da Home), destaques mais compactos, cada indicador em seu próprio cartão (consumo, para onde foi, o que mais mudou, pequenos gastos, dias da semana, compromissos, resultado, patrimônio, metas), rótulos do futuro em linguagem direta ("Se essa renda não entrar, você fecha o mês com…", "Gasto total previsto até 30/11 = já gasto + até o fim do mês"), barras de metas em degradê roxo. Divergência do handoff: o handoff pedia superfície #21164F e cards só quando agrupam informação; o dono do produto pediu a paleta da Home e separação visual entre indicadores.
+
 ## 6. Testes
 
 - `src/test/meu-mes.test.tsx`: estrutura, âncoras, heroes, capítulos 01/04/06, gaveta de categorias com comparação, troca de mês sem números antigos, casos de reconciliação da seção 14 (ponte 11.783,34; sem renda 2.352,90; antes do variável 12.070,70; recebíveis 5.437; classes assinadas = 100; oportunidades 723) e o motor editorial.

@@ -52,7 +52,7 @@ const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.
 
 /** Valor monetário: "R$" menor, número tabular. hero 36/40 · ch 32/36 · sec 22/28. */
 function Amount({ v, size = "sec", className }: { v: number; size?: "hero" | "ch" | "sec"; className?: string }) {
-  const cls = { hero: "text-[36px] leading-[40px]", ch: "text-[32px] leading-[36px]", sec: "text-[22px] leading-7" }[size];
+  const cls = { hero: "text-[32px] leading-9", ch: "text-[32px] leading-[36px]", sec: "text-[22px] leading-7" }[size];
   const cur = { hero: "text-lg", ch: "text-base", sec: "text-sm" }[size];
   return (
     <span className={cn("inline-flex items-baseline font-bold tabular-nums tracking-tight", cls, className)}>
@@ -78,7 +78,7 @@ function Chapter({ id, title, children, plain }: { id: Anchor; title?: ReactNode
 
 /** Bloco pontual (raio 16, padding 16, sem sombra pesada). Só quando agrupa informação. */
 function Block({ children, className, label }: { children: ReactNode; className?: string; label?: string }) {
-  return <div role={label ? "group" : undefined} aria-label={label} className={cn("rounded-2xl border border-[#EAE4F7] bg-card p-4 print:break-inside-avoid", className)}>{children}</div>;
+  return <div role={label ? "group" : undefined} aria-label={label} className={cn("rounded-2xl border border-[#EAE4F7] bg-card p-4 shadow-card print:break-inside-avoid", className)}>{children}</div>;
 }
 
 function Sub({ children, className }: { children: ReactNode; className?: string }) {
@@ -192,15 +192,15 @@ function MomentHero({ rep, ed }: { rep: ReportV2; ed: Editorial }) {
   const debtWarn = rep.quality.find((q) => q.code === "debt_unsplit");
   const d = ed.dominant;
   return (
-    <section id="momento" data-chapter="momento" aria-labelledby="momento-titulo" style={{ scrollMarginTop: ANCHOR_OFFSET }} className="rounded-[24px] bg-[#21164F] p-5 text-white print:break-inside-avoid">
+    <section id="momento" data-chapter="momento" aria-labelledby="momento-titulo" style={{ scrollMarginTop: ANCHOR_OFFSET }} className="rounded-[24px] bg-gradient-hero p-5 text-white shadow-hero print:break-inside-avoid" data-hero>
       <Eyebrow n="01" label="Seu momento" dark />
-      <h2 id="momento-titulo" tabIndex={-1} className="mt-2 text-base font-semibold leading-[22px] outline-none">{d.title} <span className="font-normal text-white/75">{d.detail}</span></h2>
+      <h2 id="momento-titulo" tabIndex={-1} className="mt-1.5 text-[15px] font-semibold leading-[21px] outline-none">{d.title} <span className="font-normal text-white/75">{d.detail}</span></h2>
       {o ? (
         <>
-          <p className="mt-5 text-xs leading-4 text-white/70">{cur ? "Disponível hoje" : "Você consumiu no mês"}</p>
+          <p className="mt-3 text-xs leading-4 text-white/70">{cur ? "Disponível hoje" : "Você consumiu no mês"}</p>
           {cur ? (o.balance.available != null ? <Amount v={o.balance.available} size="hero" /> : <p className="text-[22px] font-bold leading-7 text-white/70">Saldo indisponível</p>) : <Amount v={o.consumption} size="hero" />}
           {debtWarn && !cur ? <p className="mt-1 flex items-start gap-1.5 text-xs leading-4 text-[#F6C97A]"><AlertTriangle size={14} className="mt-px shrink-0" aria-hidden />Dívidas sem juros informados: consumo e resultado podem estar subestimados.</p> : null}
-          <dl className="mt-4 grid grid-cols-2 divide-x divide-white/15 border-t border-white/15 pt-3">
+          <dl className="mt-3 grid grid-cols-2 divide-x divide-white/15 border-t border-white/15 pt-2.5">
             {cur ? (
               <>
                 <div className="pr-3"><dt className="text-xs leading-4 text-white/70">Consumo até {ddmm(rep.today)}</dt><dd className="text-base font-semibold leading-[22px] tabular-nums">{brl0(o.consumption)}</dd>
@@ -214,7 +214,7 @@ function MomentHero({ rep, ed }: { rep: ReportV2; ed: Editorial }) {
               </>
             )}
           </dl>
-          {cur && o.income.expected ? <p className="mt-3 text-xs leading-4 text-white/70">Próxima entrada prevista: <b className="font-semibold text-white">{brl0(o.income.expected.amount)}</b> em {ddmm(o.income.expected.date)}</p> : null}
+          {cur && o.income.expected ? <p className="mt-2 text-xs leading-4 text-white/70">Próxima entrada prevista: <b className="font-semibold text-white">{brl0(o.income.expected.amount)}</b> em {ddmm(o.income.expected.date)}</p> : null}
           <Explore dark onClick={() => sheet.show("moment")}>Receitas, resultado e caixa</Explore>
         </>
       ) : null}
@@ -249,8 +249,8 @@ function Complementary({ ed }: { ed: Editorial }) {
     <ul className="mt-3 space-y-1" aria-label="Outros destaques">
       {ed.complementary.map((c) => (
         <li key={c.id}>
-          <button type="button" onClick={() => scrollToChapter(c.anchor)} className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-2xl border border-[#EAE4F7] bg-card px-4 py-2 text-left">
-            <span className="min-w-0 text-sm leading-5"><b className="font-semibold">{c.title.replace(/,$/, ".")}</b> <span className="text-[#666274]">{c.detail}</span></span>
+          <button type="button" onClick={() => scrollToChapter(c.anchor)} className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl bg-primary/[0.07] px-3.5 py-2 text-left">
+            <span className="min-w-0 truncate text-[13px] leading-5"><b className="font-semibold">{c.title.replace(/,$/, ".")}</b></span>
             <ChevronRight size={16} className="shrink-0 text-[#6D3BFF]" aria-hidden />
           </button>
         </li>
@@ -401,21 +401,23 @@ function GastosChapter({ rep, compare, onCompare, month }: { rep: ReportV2; comp
   const debtWarn = rep.quality.find((q) => q.code === "debt_unsplit");
   return (
     <Chapter id="gastos" title="Seu dinheiro neste mês">
+      <div className="lg:grid lg:grid-cols-12 lg:gap-4">
+      <Block label="Consumo do mês" className="lg:col-span-7">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <Amount v={o.consumption} size="ch" className="text-[#21164F] dark:text-foreground" />
         {h?.deltaPct != null ? <Chip ratio={h.deltaPct} base="habitual" /> : null}
       </div>
       <p className="mt-1 text-xs leading-4 text-[#666274]">Consumo {rep.isCurrentMonth ? `até ${ddmm(rep.today)}` : "do mês"}, líquido de estornos{h ? ` · habitual ${brl0(h.value)} (mediana de ${h.months.length} meses, mesmos dias)` : ""}</p>
       {debtWarn ? <p className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-[#B7791F]"><AlertTriangle size={13} className="mt-px shrink-0" aria-hidden />{brl0(o.debt.unsplit)} em pagamentos de dívida sem juros informados: o consumo pode estar subestimado.</p> : null}
-      <div className="mt-4 lg:grid lg:grid-cols-12 lg:gap-8">
-        <div className="lg:col-span-7">
-          <SpendTrend o={o} rep={rep} />
-          {calendar ? <p className="mt-2 text-sm leading-[21px] text-[#666274]">Parte da queda pode ser calendário: contas do mês ainda vão vencer.</p> : null}
-        </div>
-        <div className="mt-6 space-y-6 lg:col-span-5 lg:mt-0">
-          <CategoryMix rep={rep} />
-          <ChangeDrivers rep={rep} />
-        </div>
+      <div className="mt-4">
+        <SpendTrend o={o} rep={rep} />
+        {calendar ? <p className="mt-2 text-sm leading-[21px] text-[#666274]">Parte da queda pode ser calendário: contas do mês ainda vão vencer.</p> : null}
+      </div>
+      </Block>
+      <div className="mt-3 space-y-3 lg:col-span-5 lg:mt-0">
+        <Block label="Para onde foi seu dinheiro"><CategoryMix rep={rep} /></Block>
+        <Block label="O que mais mudou"><ChangeDrivers rep={rep} /></Block>
+      </div>
       </div>
       <Explore onClick={() => sheet.show("cats")}>Ver categorias, estabelecimentos e lançamentos</Explore>
       {rep.behavior ? (
@@ -449,18 +451,18 @@ function HabitosChapter({ rep, month }: { rep: ReportV2; month: string }) {
   const end = `${month}-${String(lastDayOf(month)).padStart(2, "0")}`;
   return (
     <Chapter id="habitos" title={title}>
-      <div className="lg:grid lg:grid-cols-12 lg:gap-8">
+      <div className="space-y-3 lg:grid lg:grid-cols-12 lg:gap-4 lg:space-y-0">
         {ss ? (
-          <div className="lg:col-span-5">
+          <Block label="Pequenos gastos" className="lg:col-span-5">
             <Sub>Pequenos gastos</Sub>
             <Amount v={ss.total} size="sec" className="mt-1 text-[#21164F] dark:text-foreground" />
             <p className="text-sm leading-[21px] text-[#666274]">{ss.count} compras de até R$ {ss.ceiling}, fora os fixos · {Math.round(ss.share * 100)}% do consumo</p>
             {ss.topMerchants.length ? <p className="mt-1 text-xs leading-4 text-[#666274]">Mais frequentes: {ss.topMerchants.map((m) => `${m.label} (${m.count})`).join(", ")}</p> : null}
             <Explore to={`/app/lancamentos?start=${month}-01&end=${end}&max=${ss.ceiling}`}>Ver lançamentos</Explore>
-          </div>
+          </Block>
         ) : null}
         {w ? (
-          <div className={cn("lg:col-span-7", ss && "mt-6 lg:mt-0")}>
+          <Block label="Quando você gasta mais" className="lg:col-span-7">
             <WeekdayChart rep={rep} />
             {w.weekend ? (
               <p className="mt-2 text-sm leading-[21px] text-[#666274]">
@@ -468,11 +470,11 @@ function HabitosChapter({ rep, month }: { rep: ReportV2; month: string }) {
                 {w.persistence ? (persistOk ? `O padrão se repetiu em ${w.persistence.withPattern} de ${w.persistence.months} meses.` : `Concentração observada neste mês; padrão histórico ainda não confirmado (${w.persistence.withPattern} de ${w.persistence.months} meses).`) : "Sem histórico para confirmar o padrão."}
               </p>
             ) : null}
-          </div>
+          </Block>
         ) : null}
       </div>
       {b.patterns.length > 0 ? (
-        <ul className="mt-5 space-y-1.5">
+        <ul className="mt-3 space-y-1.5 rounded-2xl border border-[#EAE4F7] bg-card p-4 shadow-card" aria-label="Padrões observados">
           {b.patterns.slice(0, 3).map((p) => (
             <li key={p.label} className="flex items-start justify-between gap-3 text-sm leading-5">
               <span>{p.label}</span>
@@ -481,7 +483,7 @@ function HabitosChapter({ rep, month }: { rep: ReportV2; month: string }) {
           ))}
         </ul>
       ) : null}
-      <details className="group mt-4 rounded-2xl border border-[#EAE4F7] bg-card px-4 print:break-inside-avoid">
+      <details className="group mt-3 rounded-2xl border border-[#EAE4F7] bg-card px-4 shadow-card print:break-inside-avoid">
         <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between text-sm font-semibold text-[#21164F] dark:text-foreground">Fixos, ajustáveis e hipóteses<ChevronDown size={16} className="transition-transform group-open:rotate-180" aria-hidden /></summary>
         <div className="pb-4">
           <LedgerLines
@@ -650,13 +652,13 @@ function FuturoChapter({ rep }: { rep: ReportV2 }) {
             : <p className="mt-2 text-xs leading-4 text-[#666274]">Não há previsão gravada para este mês; nada é reconstruído depois.</p>}
         </Block>
       ) : c ? (
-        <div className="rounded-[24px] bg-[#21164F] p-5 text-white print:break-inside-avoid">
-          <p className="text-xs leading-4 text-white/70">Saldo esperado em {ddmm(endIso)}</p>
+        <div className="rounded-[24px] bg-gradient-hero p-5 text-white shadow-hero print:break-inside-avoid" data-hero>
+          <p className="text-xs leading-4 text-white/75">Saldo esperado em {ddmm(endIso)}</p>
           <Amount v={c.projectedEnd} size="hero" />
-          {c.expectedIncome ? <p className="mt-1 text-xs leading-4 text-white/70">Se a renda prevista de {ddmm(c.expectedIncome.date)} ({brl0(c.expectedIncome.amount)}) entrar. Renda prevista não é renda garantida.</p> : null}
-          <dl className="mt-4 grid grid-cols-2 divide-x divide-white/15 border-t border-white/15 pt-3">
-            <div className="pr-3"><dt className="text-xs leading-4 text-white/70">Sem a próxima renda</dt><dd className={cn("text-base font-semibold leading-[22px] tabular-nums", c.withoutIncomeEnd < 0 && "text-[#FF9AAA]")}>{c.withoutIncomeEnd != null ? brl0(c.withoutIncomeEnd) : "—"}</dd></div>
-            <div className="pl-3"><dt className="text-xs leading-4 text-white/70">Consumo projetado</dt><dd className="text-base font-semibold leading-[22px] tabular-nums">{p.consumption ? brl0(p.consumption.total) : "—"}</dd></div>
+          {c.expectedIncome ? <p className="mt-0.5 text-xs leading-4 text-white/75">Contando a renda prevista de {brl0(c.expectedIncome.amount)} em {ddmm(c.expectedIncome.date)}.</p> : null}
+          <dl className="mt-3 space-y-2 border-t border-white/15 pt-2.5 text-sm leading-5">
+            {c.expectedIncome ? <div className="flex items-baseline justify-between gap-3"><dt className="text-white/80">Se essa renda não entrar, você fecha o mês com</dt><dd className={cn("shrink-0 font-semibold tabular-nums", c.withoutIncomeEnd < 0 && "text-[#FFB4C0]")}>{brl0(c.withoutIncomeEnd)}</dd></div> : null}
+            {p.consumption ? <div className="flex items-baseline justify-between gap-3"><dt className="text-white/80">Gasto total previsto até {ddmm(endIso)}<span className="block text-xs text-white/60">{brl0(p.consumption.realized)} já gastos + {brl0(p.consumption.total - p.consumption.realized)} até o fim do mês</span></dt><dd className="shrink-0 font-semibold tabular-nums">{brl0(p.consumption.total)}</dd></div> : null}
           </dl>
           <Explore dark onClick={() => sheet.show("bridge")}>Ver ponte e simular</Explore>
         </div>
@@ -665,9 +667,9 @@ function FuturoChapter({ rep }: { rep: ReportV2 }) {
       )}
 
       {rep.isCurrentMonth ? (
-        <div className="mt-8 lg:grid lg:grid-cols-12 lg:gap-8">
-          <div className="lg:col-span-7"><CommitmentTimeline rep={rep} /></div>
-          <div className="mt-8 grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:col-span-5 lg:mt-0 lg:grid-cols-1 lg:content-start">
+        <div className="mt-3 lg:grid lg:grid-cols-12 lg:gap-4">
+          <Block label="Compromissos" className="lg:col-span-7"><CommitmentTimeline rep={rep} /></Block>
+          <div className="mt-3 grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:col-span-5 lg:mt-0 lg:grid-cols-1 lg:content-start">
             {p.receivables && p.receivables.toDue + p.receivables.overdue > 0 ? (
               <Block label="A receber">
                 <p className="text-xs leading-4 text-[#666274]">A receber de outras pessoas</p>
@@ -795,14 +797,18 @@ const VERDICT = { no_ritmo: "no ritmo", atencao: "atenção", vai_estourar: "dev
 
 function GoalTrack({ g }: { g: ReportV2["evolution"]["goals"]["spending"][number] }) {
   const scale = Math.max(1, g.projectedPct ?? 0, g.pct) * 1.04;
-  const tone = g.verdict === "no_ritmo" ? C.success : g.verdict === "atencao" ? C.alert : C.risk;
+  const ok = g.verdict === "no_ritmo";
+  const warn = g.verdict === "atencao";
+  // Paleta do Nino: degradê roxo no ritmo; âmbar em atenção; vermelho só quando deve estourar ou estourou.
+  const fill = ok ? "bg-gradient-to-r from-[#6D4AFF] to-[#8B5CF6]" : warn ? "bg-gradient-to-r from-[#E9A23B] to-[#F2C46B]" : "bg-gradient-to-r from-[#DC4C64] to-[#F08A9B]";
   return (
     <li className="py-2.5">
-      <p className="flex items-baseline justify-between gap-2 text-sm leading-5"><span className="font-medium">{g.category}</span><span className="text-xs font-semibold" style={{ color: g.verdict === "atencao" ? "#9A6512" : tone }}>{VERDICT[g.verdict]}</span></p>
-      <span className="relative mt-1.5 block h-2 rounded-full bg-[#EAE4F7]" aria-hidden>
-        {g.projectedPct != null ? <span className="absolute inset-y-0 left-0 rounded-full bg-[#C4B5FD]" style={{ width: `${(g.projectedPct / scale) * 100}%` }} /> : null}
-        <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.max(2, (g.pct / scale) * 100)}%`, background: tone }} />
-        <span className="absolute inset-y-[-3px] w-0.5 rounded bg-[#21164F]" style={{ left: `${(1 / scale) * 100}%` }} />
+      <p className="flex items-baseline justify-between gap-2 text-sm leading-5"><span className="font-medium">{g.category}</span>
+        <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", ok ? "bg-primary/10 text-primary" : warn ? "bg-[#E9A23B]/15 text-[#8A5A0C]" : "bg-[#DC4C64]/10 text-[#B23A50]")}>{VERDICT[g.verdict]}</span></p>
+      <span className="relative mt-2 block h-2 rounded-full bg-[#EAE4F7]" aria-hidden>
+        {g.projectedPct != null ? <span className="absolute inset-y-0 left-0 rounded-full bg-[#C4B5FD]/70" style={{ width: `${(g.projectedPct / scale) * 100}%` }} /> : null}
+        <span className={cn("absolute inset-y-0 left-0 rounded-full", fill)} style={{ width: `${Math.max(2, (g.pct / scale) * 100)}%` }} />
+        <span className="absolute inset-y-[-3px] w-0.5 rounded bg-[#21164F]/70" style={{ left: `${(1 / scale) * 100}%` }} />
       </span>
       <p className="mt-1 text-xs leading-4 tabular-nums text-[#666274]">{brl0(g.spent)} de {brl0(g.limit)} ({Math.round(g.pct * 100)}%){g.projectedPct != null ? ` · projeção ${Math.round(g.projectedPct * 100)}%` : ""}{g.pct > 1 ? ` · excedente ${brl0(g.spent - g.limit)}` : ""}{g.daysRemaining != null ? ` · ${g.daysRemaining} dias restantes` : ""}</p>
     </li>
@@ -814,18 +820,20 @@ function GoalProgress({ rep }: { rep: ReportV2 }) {
   const sheet = useSheet();
   if (g.spending.length === 0 && g.savings.length === 0) return null;
   const onTrack = g.spending.filter((s) => s.verdict === "no_ritmo").length;
-  const attention = g.spending.filter((s) => s.verdict !== "no_ritmo").sort((a, b) => (b.projectedPct ?? b.pct) - (a.projectedPct ?? a.pct)).slice(0, 2);
+  const needs = g.spending.filter((s) => s.verdict !== "no_ritmo");
+  // Até duas: primeiro as que pedem atenção; se nenhuma pede, as duas mais perto do limite (com o status real).
+  const shown = (needs.length ? needs : g.spending).slice().sort((a, b) => (b.projectedPct ?? b.pct) - (a.projectedPct ?? a.pct)).slice(0, 2);
   return (
     <div>
       <Sub>{g.spending.length ? `${onTrack} de ${g.spending.length} metas de gasto no ritmo` : "Metas em andamento"}</Sub>
-      <p className="text-xs leading-4 text-[#666274]">Barra cheia = realizado · lilás = projeção no fim do período · traço = limite. Atenção quando a projeção passa de 85% do limite.</p>
-      {attention.length ? <ul className="mt-1 divide-y divide-[#EAE4F7]">{attention.map((s) => <GoalTrack key={s.id} g={s} />)}</ul> : g.spending.length ? <p className="mt-2 text-sm leading-[21px]">Nenhuma meta de gasto pede atenção agora.</p> : null}
+      <p className="text-xs leading-4 text-[#666274]">{needs.length ? "As que pedem atenção agora." : "Nenhuma pede atenção; abaixo, as mais perto do limite."} Barra = gasto até hoje · lilás = projeção · traço = limite. Status da aba Metas.</p>
+      {shown.length ? <ul className="mt-1 divide-y divide-[#EAE4F7]">{shown.map((s) => <GoalTrack key={s.id} g={s} />)}</ul> : null}
       <Explore onClick={() => sheet.show("goals")}>Ver todas as metas e o impacto</Explore>
       <DisclosureSheet {...sheet.props("goals")} title="Metas e impacto">
         {g.spending.length ? <><p className="font-semibold">Gasto</p><ul className="divide-y divide-[#EAE4F7]">{g.spending.map((s) => <GoalTrack key={s.id} g={s} />)}</ul></> : null}
         {g.savings.length ? (
           <div className="mt-4"><p className="font-semibold">Acumulação · progresso = acumulado ÷ objetivo</p>
-            <ul className="mt-1 space-y-3">{g.savings.map((s) => <li key={s.id}><p className="flex justify-between text-sm"><span>{s.name}</span><span className="tabular-nums">{Math.round(s.pct * 100)}%</span></p><span className="mt-1 block h-2 rounded-full bg-[#EAE4F7]" aria-hidden><span className="block h-full rounded-full bg-[#6D3BFF]" style={{ width: `${Math.max(2, Math.min(100, s.pct * 100))}%` }} /></span><p className="mt-1 text-xs text-[#666274]">{brl0(s.contributed)} de {brl0(s.target)} · faltam {brl0(s.remaining)}</p></li>)}</ul>
+            <ul className="mt-1 space-y-3">{g.savings.map((s) => <li key={s.id}><p className="flex justify-between text-sm"><span>{s.name}</span><span className="tabular-nums">{Math.round(s.pct * 100)}%</span></p><span className="mt-1 block h-2 rounded-full bg-[#EAE4F7]" aria-hidden><span className="block h-full rounded-full bg-gradient-to-r from-[#6D4AFF] to-[#8B5CF6]" style={{ width: `${Math.max(2, Math.min(100, s.pct * 100))}%` }} /></span><p className="mt-1 text-xs text-[#666274]">{brl0(s.contributed)} de {brl0(s.target)} · faltam {brl0(s.remaining)}</p></li>)}</ul>
           </div>
         ) : null}
         {rep.evolution.tracked.length ? (
@@ -846,11 +854,11 @@ function EvolucaoChapter({ rep }: { rep: ReportV2 }) {
   const title = closed.length >= 2 ? `${pos} de ${closed.length} meses fechados com sobra` : "Sua trajetória";
   return (
     <Chapter id="evolucao" title={title}>
-      <div className="lg:grid lg:grid-cols-12 lg:gap-8">
-        <div className="lg:col-span-6"><MonthlyResultChart rep={rep} /></div>
-        <div className="mt-8 lg:col-span-6 lg:mt-0"><NetWorthTrend rep={rep} /></div>
+      <div className="space-y-3 lg:grid lg:grid-cols-12 lg:gap-4 lg:space-y-0">
+        <Block label="Resultado mensal" className="lg:col-span-6"><MonthlyResultChart rep={rep} /></Block>
+        <Block label="Patrimônio registrado" className="lg:col-span-6"><NetWorthTrend rep={rep} /></Block>
       </div>
-      <div className="mt-8"><GoalProgress rep={rep} /></div>
+      <Block label="Metas" className="mt-3"><GoalProgress rep={rep} /></Block>
     </Chapter>
   );
 }
@@ -860,7 +868,7 @@ function EvolucaoChapter({ rep }: { rep: ReportV2 }) {
 // ---------------------------------------------------------------------------
 
 function impactText(r: Recommendation) {
-  if (r.nature === "cash") return r.cashImpact ? `${brl0(r.cashImpact)} a proteger no caixa · não é economia` : "Organização do caixa · sem economia mensal";
+  if (r.nature === "cash") return r.cashImpact ? `${brl0(r.cashImpact)} a reservar no caixa · não é economia` : "Organização do caixa · sem economia mensal";
   if (r.adjustable) return `Até ${brl0(r.adjustable.base * r.adjustable.pct)}/mês estimados (hipótese de ${Math.round(r.adjustable.pct * 100)}%)`;
   return r.monthlyImpact > 0 ? `Até ${brl0(r.monthlyImpact)}/mês estimados` : null;
 }
@@ -875,11 +883,12 @@ function AcaoChapter({ rep, month }: { rep: ReportV2; month: string }) {
   return (
     <Chapter id="acao" title={next ? next.title : "Nada urgente para fazer agora"}>
       {next ? (
-        <div className="rounded-2xl bg-[#EAE4F7] p-4 dark:bg-primary/15 print:break-inside-avoid">
-          <p className="text-sm leading-[21px]">{next.body}</p>
-          {impactText(next) ? <p className="mt-1 text-base font-semibold leading-[22px] text-[#21164F] dark:text-foreground">{impactText(next)}</p> : null}
-          <div className="mt-1 flex items-center justify-between gap-2">
-            {next.route && next.routeLabel ? <Link to={next.route} onClick={() => { if (next.nature === "saving") void act(next, "accepted"); }} className="inline-flex min-h-[44px] items-center gap-0.5 text-sm font-semibold text-[#6D3BFF]">{next.routeLabel}<ChevronRight size={16} aria-hidden /></Link> : <span />}
+        <div className="rounded-2xl border border-primary/15 bg-gradient-brand-soft p-4 shadow-card print:break-inside-avoid">
+          <p className="text-xs font-semibold uppercase leading-4 tracking-[0.04em] text-primary">{next.nature === "cash" ? "Para o seu caixa" : "Oportunidade"}</p>
+          <p className="mt-1 text-sm leading-[21px]">{next.body}</p>
+          {impactText(next) ? <p className="mt-2 text-base font-semibold leading-[22px] text-[#21164F] dark:text-foreground">{impactText(next)}</p> : null}
+          <div className="mt-3 flex items-center justify-between gap-2">
+            {next.route && next.routeLabel ? <Link to={next.route} onClick={() => { if (next.nature === "saving") void act(next, "accepted"); }} className="inline-flex min-h-[44px] items-center gap-1 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground">{next.routeLabel}<ChevronRight size={16} aria-hidden /></Link> : <span />}
             <DropdownMenu>
               <DropdownMenuTrigger aria-label={`Mais opções: ${next.title}`} className="grid h-11 w-11 place-items-center rounded-full text-[#666274] print:hidden"><MoreHorizontal size={18} aria-hidden /></DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -892,7 +901,7 @@ function AcaoChapter({ rep, month }: { rep: ReportV2; month: string }) {
       ) : <p className="text-sm leading-[21px] text-[#666274]">Quando houver uma ação com evidência suficiente, ela aparece aqui.</p>}
 
       {items.length > 1 || rec ? (
-        <details className="group mt-4 rounded-2xl border border-[#EAE4F7] bg-card px-4">
+        <details className="group mt-3 rounded-2xl border border-[#EAE4F7] bg-card px-4 shadow-card">
           <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between text-sm font-semibold text-[#21164F] dark:text-foreground">Outras oportunidades{items.length > 1 ? ` (${items.length - 1})` : ""}<ChevronDown size={16} className="transition-transform group-open:rotate-180" aria-hidden /></summary>
           <div className="space-y-3 pb-4">
             {items.slice(1).map((r) => <ActionCard key={r.key} icon={ChevronRight} title={r.title} body={r.body} impact={impactText(r)} cta={r.route && r.routeLabel ? { label: r.routeLabel, href: r.route } : null} onCta={r.nature === "saving" ? () => { void act(r, "accepted"); } : undefined} menu={[{ label: "Como calculamos", onSelect: () => sheet.show(`m:${r.key}`) }, { label: "Dispensar", onSelect: () => { setHidden((h) => [...h, r.key]); void act(r, "dismissed"); } }]} />)}

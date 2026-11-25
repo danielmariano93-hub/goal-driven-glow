@@ -47,7 +47,7 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
     safe<any[]>([], async () => fetchAllPages<any>((a, b) => sb.from("split_receivables_v1").select("balance_due,due_date,state,paid_amount,paid_at").eq("owner_user_id", userId).eq("split_status", "active").is("deleted_at", null).order("due_date", { ascending: true }).range(a, b), { source: "report_v2_receivables" })),
     safe<any[]>([], async () => (await sb.from("credit_card_installments").select("competence_month,amount,status,absorbed_by_statement_id").eq("user_id", userId).gte("competence_month", monthStart).limit(2000)).data ?? []),
     safe<any[]>([], async () => (await sb.from("behavioral_patterns").select("label,status,uplift_pct,absolute_delta,sample_size,confidence,data_coverage").eq("user_id", userId).in("status", ["validated", "candidate"]).order("confidence", { ascending: false }).limit(20)).data ?? []),
-    safe<any[]>([], async () => (await sb.from("financial_situations").select("situation_key,confidence,status,financial_situation_actions(action_key,title,explanation,estimated_impact,route,status)").eq("user_id", userId).in("status", ["active", "confirmed", "observed"]).limit(20)).data ?? []),
+    safe<any[]>([], async () => (await sb.from("financial_situations").select("situation_key,confidence,status,cause_summary,evaluation,period_end,financial_situation_actions(action_key,title,explanation,estimated_impact,route,status)").eq("user_id", userId).in("status", ["active", "confirmed", "observed"]).limit(20)).data ?? []),
     loadSavingsGoalIds(sb, userId),
     safe<any[]>([], async () => (await sb.from("financial_profile_snapshots").select("as_of,net_worth,closed_months_analyzed").eq("user_id", userId).gt("closed_months_analyzed", 0).order("as_of", { ascending: false }).limit(400)).data ?? []),
     safe<any[]>([], async () => (await sb.from("debt_payments").select("transaction_id,amount,amount_applied,interest_amount,fee_amount").eq("user_id", userId).not("transaction_id", "is", null).limit(5000)).data ?? []),
@@ -104,7 +104,8 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
   for (const s of situations) {
     for (const a of (s.financial_situation_actions ?? []) as any[]) {
       if (String(a.status) !== "proposed") continue;
-      situationActions.push({ key: String(a.action_key), title: String(a.title ?? ""), explanation: a.explanation ?? null, impact: a.estimated_impact == null ? null : n(a.estimated_impact), route: a.route ?? null, confidence: s.confidence == null ? null : n(s.confidence) });
+      situationActions.push({ key: String(a.action_key), title: String(a.title ?? ""), explanation: a.explanation ?? null, impact: a.estimated_impact == null ? null : n(a.estimated_impact), route: a.route ?? null, confidence: s.confidence == null ? null : n(s.confidence),
+        detail: typeof s.cause_summary === "string" ? s.cause_summary : null, dueDate: typeof s.evaluation?.opportunity_date === "string" ? s.evaluation.opportunity_date : typeof s.period_end === "string" ? s.period_end : null });
     }
   }
 

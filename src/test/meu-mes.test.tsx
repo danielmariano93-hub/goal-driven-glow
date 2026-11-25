@@ -32,7 +32,7 @@ describe("Meu mês — estrutura (handoff one page)", () => {
     const { container } = renderAt("/app/relatorios");
     await ready();
     expect([...container.querySelectorAll("[data-chapter]")].map((e) => e.id)).toEqual(["momento", "gastos", "habitos", "futuro", "evolucao", "acao"]);
-    expect(container.querySelectorAll(".bg-\\[\\#21164F\\].rounded-\\[24px\\]").length).toBe(2);
+    expect(container.querySelectorAll("[data-hero]").length).toBe(2);
   });
   it("01: diagnóstico editorial, disponível hoje, consumo, saldo projetado e próxima entrada", async () => {
     renderAt("/app/relatorios");
@@ -48,7 +48,7 @@ describe("Meu mês — estrutura (handoff one page)", () => {
     renderAt("/app/relatorios");
     await ready();
     const fut = document.getElementById("futuro")!;
-    expect(within(fut).getByText("Sem a próxima renda")).toBeTruthy();
+    expect(within(fut).getByText("Se essa renda não entrar, você fecha o mês com")).toBeTruthy();
     expect(within(fut).getByText("R$ 2.353")).toBeTruthy();
     fireEvent.click(within(fut).getByRole("button", { name: "Ver ponte e simular" }));
     const dialog = await screen.findByRole("dialog");
@@ -154,5 +154,18 @@ describe("Meu mês — motor editorial determinístico", () => {
   });
   it("é determinístico", () => {
     expect(JSON.stringify(buildEditorial(report))).toBe(JSON.stringify(buildEditorial(report)));
+  });
+});
+
+describe("Meu mês — ajustes da revisão (metas e próximo passo)", () => {
+  it("metas usam o status do motor canônico (o mesmo da aba Metas)", () => {
+    expect(report.evolution.goals.spending.every((g) => g.status !== "on_track" || g.verdict === "no_ritmo")).toBe(true);
+  });
+  it("ação de caixa coberta pelo saldo não vira protagonista e diz o que é, quanto e quando", () => {
+    const sit = report.recommendations.items.find((r) => r.kind === "situation")!;
+    expect(sit.title).toBe("Reserve R$ 1.566 para 09/12");
+    expect(sit.body).toMatch(/^A parcela de Tia é de R\$ 1\.566,00 e vence em 09\/12\. O saldo previsto .* já cobre esse valor\.$/);
+    expect(sit.urgent).toBe(false);
+    expect(report.recommendations.items[0].kind).not.toBe("situation");
   });
 });
