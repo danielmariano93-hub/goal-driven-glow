@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { ActNav, ProjectionCard, parseAct } from "@/components/reports/ReportActs";
+import { ActNav, ActSection, ProjectionCard, parseAct } from "@/components/reports/ReportActs";
 import { ninoRedirectTarget } from "@/lib/navigation/ninoRedirect";
 import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
 import type { ReportDashboard } from "@/lib/engine/reportDashboard";
@@ -15,10 +15,16 @@ describe("Relatórios em 3 atos", () => {
     expect(parseAct("xyz")).toBe("foi");
     expect(parseAct("vai")).toBe("vai");
   });
-  it("navegação marca o ato atual por aria, não só por cor", () => {
+  it("atalho marca a seção atual por aria, não só por cor", () => {
     render(<ActNav active="mudou" onChange={() => {}} counts={{ mudou: 2 }} />);
-    expect(screen.getByRole("tab", { name: /O que mudou/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: /Como foi/ }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("button", { name: /O que mudou/ }).getAttribute("aria-current")).toBe("true");
+    expect(screen.getByRole("button", { name: /Como foi/ }).getAttribute("aria-current")).toBeNull();
+  });
+  it("cada ato é uma seção da mesma página, com número e título", () => {
+    render(<ActSection id="vai"><p>conteúdo</p></ActSection>);
+    expect(screen.getByRole("heading", { name: "Para onde vai" })).toBeTruthy();
+    expect(document.getElementById("ato-vai")).not.toBeNull();
+    expect(screen.getByText("3")).toBeTruthy();
   });
   it("projeção mostra número, comparação e composição reais; some sem dado ou com filtro", () => {
     const { rerender, container } = render(<ProjectionCard d={dash({ projection })} />);
