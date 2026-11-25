@@ -1,11 +1,19 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { CalendarDays, ChevronDown, Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
 import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
 import { AnticipationCard, ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
-import { notifyError, notifySuccess } from "@/lib/ui/feedback";
+import { ActIntro, ActNav, ProjectionCard, parseAct, type ReportActId } from "@/components/reports/ReportActs";
+import { ExecutiveInsightCard } from "@/components/nino/ExecutiveInsightCard";
+import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
+import { useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
+import { consolidateSituations } from "@/lib/nino/consolidate";
+import { markNinoSeen } from "@/lib/nino/intelligence";
+import { executiveForSection, useExecutiveInsights } from "@/lib/nino/executive";
+import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
 import { cn } from "@/lib/utils";
@@ -29,6 +37,35 @@ function csvLoadFloor(from: string): string {
 export default function RelatoriosInteligentes() {
   const navigate = useNavigate();
   const [exporting, setExporting] = useState(false);
+  const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const act = parseAct(params.get("ato"));
+  const setAct = (id: ReportActId) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (id === "foi") next.delete("ato"); else next.set("ato", id);
+      return next;
+    }, { replace: true });
+    window.scrollTo({ top: 0 });
+  };
+
+  // Leitura do Nino (motor canônico): alimenta os atos 2 e 3. O que não tiver dado some, sem bloco vazio.
+  const executive = useExecutiveInsights();
+  const diagnosis = useNinoDiagnosisContext();
+  const briefing = executive.data;
+  const mudancas = [...executiveForSection(briefing, "mudancas"), ...executiveForSection(briefing, "aprendizados")];
+  const agora = executiveForSection(briefing, "agora");
+  const antecipacoes = consolidateSituations(diagnosis.data?.anticipations ?? []);
+  const pendencias = diagnosis.data?.operational_tasks ?? [];
+  const historico = diagnosis.data?.closings ?? [];
+
+  // Abrir a tela zera o "novidades" da aba Mais: badge e tela contam a mesma coleção editorial.
+  useEffect(() => {
+    if (!diagnosis.data) return;
+    void markNinoSeen("nino", "all").then(() => {
+      void qc.invalidateQueries({ queryKey: ["more-menu-context"] });
+    });
+  }, [diagnosis.data, qc]);
 
   // O painel já abre calculado: período, comparação e filtros vivem na URL.
   const { query, update, today } = useDashboardQuery();
@@ -96,7 +133,7 @@ export default function RelatoriosInteligentes() {
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Como você está, para onde vai o dinheiro e o que mudou. Escolha o período e compare.
+            Como foi, o que mudou e para onde vai. Escolha o período e compare.
           </p>
         </div>
         <div className="flex shrink-0 gap-2 print:hidden">
@@ -140,17 +177,76 @@ export default function RelatoriosInteligentes() {
           </button>
         </div>
       ) : dash ? (
-        <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
-          <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
-          <KpiStrip d={dash} />
-          <AnticipationCard d={dash} />
-          <OtherInflowsCard d={dash} />
-          <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
-          <EvolutionChart d={dash} />
-          <CategoryBreakdown d={dash} />
-          {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
-          <HabitScoreboard habits={dash.habits} trend={dash.trend} />
-        </div>
+        <>
+          <ActNav active={act} onChange={setAct} counts={{ mudou: mudancas.length, vai: agora.length + antecipacoes.length + pendencias.length }} />
+          <div className={cn("space-y-4 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
+            {act === "foi" ? (
+              <div role="tabpanel" id="painel-foi" aria-labelledby="ato-foi" className="space-y-4">
+                <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
+                <KpiStrip d={dash} />
+                <EvolutionChart d={dash} />
+                <AnticipationCard d={dash} />
+                <OtherInflowsCard d={dash} />
+              </div>
+            ) : null}
+
+            {act === "mudou" ? (
+              <div role="tabpanel" id="painel-mudou" aria-labelledby="ato-mudou" className="space-y-4">
+                <ActIntro>O que pesou na diferença e o que o Nino aprendeu com o seu padrão.</ActIntro>
+                {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
+                <CategoryBreakdown d={dash} />
+                {mudancas.length > 0 ? (
+                  <section className="space-y-3" aria-label="Leituras do Nino">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Leituras do Nino</p>
+                    {mudancas.slice(0, 6).map((insight) => <ExecutiveInsightCard key={insight.key} insight={insight} />)}
+                  </section>
+                ) : briefing?.coverage.learning ? (
+                  <p className="rounded-2xl border border-dashed border-border p-4 text-[12px] text-muted-foreground">O Nino precisa de pelo menos 3 meses de lançamentos para comparar você com o seu próprio padrão.</p>
+                ) : null}
+                <HabitScoreboard habits={dash.habits} trend={dash.trend} />
+                {historico.length > 0 ? (
+                  <section className="space-y-2" aria-label="Fechamentos anteriores">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Fechamentos anteriores</p>
+                    {historico.slice(0, 6).map((closing) => (
+                      <details key={closing.id} className="rounded-2xl border border-border bg-card p-4">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold">
+                          <span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4 text-primary" />Fechamento até {new Date(`${closing.period_end}T12:00:00`).toLocaleDateString("pt-BR")}</span>
+                          <ChevronDown className="h-4 w-4" />
+                        </summary>
+                        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{closing.closing_text || "Resumo consolidado do período."}</p>
+                      </details>
+                    ))}
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+
+            {act === "vai" ? (
+              <div role="tabpanel" id="painel-vai" aria-labelledby="ato-vai" className="space-y-4">
+                <ProjectionCard d={dash} />
+                {agora.length > 0 ? (
+                  <section className="space-y-3" aria-label="O que fazer agora">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">O que fazer agora</p>
+                    {agora.map((insight, index) => <ExecutiveInsightCard key={insight.key} insight={insight} emphasis={index === 0} />)}
+                  </section>
+                ) : null}
+                <DashboardHighlights highlights={dash.highlights} onAction={(route) => navigate(route)} />
+                {antecipacoes.length > 0 ? (
+                  <section className="space-y-3" aria-label="Prepare-se">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prepare-se</p>
+                    {antecipacoes.slice(0, 5).map((item) => <NinoSituationCard key={item.id} situation={item} surface="relatorios:prepare-se" />)}
+                  </section>
+                ) : null}
+                {pendencias.length > 0 ? (
+                  <section className="space-y-2" aria-label="Pendências para organizar">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Pendências para organizar</p>
+                    {pendencias.map((item) => <NinoSituationCard key={item.id} situation={item} surface="relatorios:operacional" compact />)}
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </>
       ) : null}
 
 

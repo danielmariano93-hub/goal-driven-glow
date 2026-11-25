@@ -58,7 +58,6 @@ export const APP_NAVIGATION: NavEntry[] = [
   e({ id: "home", path: "/app", label: "Início", desc: "Sua leitura de hoje", icon: House, group: "principal", navigationType: "primary", mobilePlacement: "tab", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "lancamentos", path: "/app/lancamentos", label: "Movimentos", desc: "Tudo que entrou e saiu", icon: List, group: "principal", navigationType: "primary", mobilePlacement: "tab", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "metas", path: "/app/metas", label: "Metas", desc: "Objetivos e tetos por categoria", icon: Target, group: "principal", navigationType: "primary", mobilePlacement: "tab", desktopPlacement: "sidebar", featureStatus: "active" }),
-  e({ id: "nino", path: "/app/nino", label: "Nino", desc: "Agora, mudanças e o que vem aí", icon: Sparkles, group: "principal", navigationType: "primary", mobilePlacement: "none", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "mais", path: "/app/mais", label: "Mais", desc: "Todas as funcionalidades", icon: LayoutDashboard, navigationType: "primary", mobilePlacement: "tab", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "planejamento", path: "/app/planejamento", label: "Antes de gastar", desc: "Simule a compra antes de pagar", icon: Calculator, group: "principal", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
 
@@ -74,7 +73,7 @@ export const APP_NAVIGATION: NavEntry[] = [
   // ---------- entender ----------
   e({ id: "relatorios", path: "/app/relatorios", label: "Relatórios", desc: "Período atual e fechamentos", icon: BarChart3, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", activePaths: ["/app/relatorios", "/app/relatorios-inteligentes"], featureStatus: "active" }),
   e({ id: "mapa", path: "/app/mapa", label: "Mapa Financeiro", desc: "Sua situação, seus hábitos e seu bem-estar com o dinheiro", icon: Heart, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
-  e({ id: "desafios", path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy, navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "desafios", path: "/app/desafios", label: "Desafios", desc: "Metas de hábito com conquistas", icon: Trophy, navigationType: "internal", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "divisao-do-role", path: "/app/divisao-do-role", label: "Divisão do Rolê", desc: "Divida contas com quem foi junto", icon: Users, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "cobrancas", path: "/app/cobrancas", label: "Cobranças recebidas", desc: "O que pediram para você pagar", icon: ListChecks, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
   e({ id: "metas-conjuntas", path: "/app/metas-conjuntas", label: "Metas conjuntas", desc: "Objetivos com outras pessoas", icon: Users, group: "entender", navigationType: "secondary", mobilePlacement: "more", desktopPlacement: "sidebar", featureStatus: "active" }),
@@ -99,18 +98,19 @@ export const APP_NAVIGATION: NavEntry[] = [
   // ---------- deep links e telas internas ----------
   // Piloto: liberado por usuário (benefit_wallet_enabled). Fora do menu até a abertura gradual.
   e({ id: "ticket-alimentacao", path: "/app/ticket", label: "Ticket Alimentação", navigationType: "deep_link", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "beta" }),
-  e({ id: "alerta-detalhe", path: "/app/alertas/:dedupKey", label: "Alerta do Nino", navigationType: "deep_link", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "antecipacoes-detalhe", path: "/app/antecipacoes/detalhe", label: "Prepare-se", navigationType: "deep_link", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "assessor", path: "/app/assessor", label: "Assessor", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "nino-hub", path: "/app/nino-hub", label: "Nino (hub)", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "nino-contexto", path: "/app/nino-contexto", label: "Contexto do Nino", navigationType: "internal", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "alerta-detalhe", path: "/app/alertas/:dedupKey", label: "Alerta do Nino", navigationType: "deep_link", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "antecipacoes-detalhe", path: "/app/antecipacoes/detalhe", label: "Prepare-se", navigationType: "deep_link", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "assessor", path: "/app/assessor", label: "Assessor", navigationType: "internal", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "nino-hub", path: "/app/nino-hub", label: "Nino (hub)", navigationType: "internal", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "nino-contexto", path: "/app/nino-contexto", label: "Contexto do Nino", navigationType: "internal", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "whatsapp", path: "/app/whatsapp", label: "WhatsApp", navigationType: "internal", parentId: "perfil", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
 
   // ---------- redirecionamentos legados ----------
   e({ id: "relatorios-legado", path: "/app/relatorios-inteligentes", label: "Relatórios (legado)", navigationType: "legacy_redirect", parentId: "relatorios", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
   e({ id: "relatorios-legado-detalhe", path: "/app/relatorios-inteligentes/:id", label: "Relatório (legado)", navigationType: "legacy_redirect", parentId: "relatorios", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "assessor-acompanhamento-legado", path: "/app/assessor/acompanhamento", label: "Acompanhamento (legado)", navigationType: "legacy_redirect", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
-  e({ id: "antecipacoes-legado", path: "/app/antecipacoes", label: "Antecipações (legado)", navigationType: "legacy_redirect", parentId: "nino", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "nino-legado", path: "/app/nino", label: "Nino (aposentada)", navigationType: "legacy_redirect", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "assessor-acompanhamento-legado", path: "/app/assessor/acompanhamento", label: "Acompanhamento (legado)", navigationType: "legacy_redirect", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
+  e({ id: "antecipacoes-legado", path: "/app/antecipacoes", label: "Antecipações (legado)", navigationType: "legacy_redirect", parentId: "home", mobilePlacement: "none", desktopPlacement: "none", featureStatus: "active" }),
 ];
 
 export const NAV_GROUP_LABELS: Record<NavGroup, string> = {

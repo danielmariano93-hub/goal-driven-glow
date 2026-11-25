@@ -5,7 +5,6 @@ import {
   Users,
   BarChart3,
   LogOut,
-  Sparkles,
   Loader2,
   Tags,
   UtensilsCrossed,
@@ -75,22 +74,19 @@ export default function MaisMenu() {
       icon: Users,
     });
   }
-  if ((reports?.unread ?? 0) > 0) {
+  if ((reports?.unread ?? 0) > 0 || (nino && (nino.new_since_last_visit > 0 || nino.attention_items > 0))) {
+    const unread = reports?.unread ?? 0;
+    const novidades = nino?.new_since_last_visit ?? 0;
+    const atencao = nino?.attention_items ?? 0;
     highlights.push({
       path: "/app/relatorios",
       label: "Relatórios",
-      desc: `${reports!.unread} não lido${reports!.unread > 1 ? "s" : ""}${reports?.last_period_label ? ` · fechamento ${reports.last_period_label}` : ""}`,
+      desc: unread > 0
+        ? `${unread} não lido${unread > 1 ? "s" : ""}${reports?.last_period_label ? ` · fechamento ${reports.last_period_label}` : ""}`
+        : novidades > 0
+          ? `${novidades} novidade${novidades > 1 ? "s" : ""} do Nino desde sua última visita`
+          : `${atencao} ponto${atencao > 1 ? "s" : ""} de atenção`,
       icon: BarChart3,
-    });
-  }
-  if (nino && (nino.new_since_last_visit > 0 || nino.attention_items > 0)) {
-    highlights.push({
-      path: "/app/nino",
-      label: "Nino",
-      desc: nino.new_since_last_visit > 0
-        ? `${nino.new_since_last_visit} novidade${nino.new_since_last_visit > 1 ? "s" : ""} desde sua última visita`
-        : `${nino.attention_items} ponto${nino.attention_items > 1 ? "s" : ""} de atenção`,
-      icon: Sparkles,
     });
   }
   if (ticketEnabled === true) {

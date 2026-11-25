@@ -401,7 +401,7 @@ export async function recordNinoExposure(itemId: string, surface: string, rank?:
 const SAFE_ROUTE = /^\/app\/[A-Za-z0-9\-/?=&_.~:@!$'()*+,;[\]]*$/;
 
 /** Aceita rotas internas, inclusive com percent-encoding válido; bloqueia esquemas externos. */
-export function safeRoute(action: NinoAction, fallback = "/app/nino"): string {
+export function safeRoute(action: NinoAction, fallback = "/app"): string {
   const route = (action?.route ?? "").trim();
   if (!route || route.startsWith("//")) return fallback;
   let decoded = route;

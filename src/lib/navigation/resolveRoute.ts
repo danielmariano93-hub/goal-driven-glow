@@ -2,13 +2,14 @@
 // Links gravados no passado podem apontar para telas renomeadas ou que nunca existiram; em vez de cair numa
 // página de erro, o app leva ao lugar certo (apelido conhecido) ou ao pai existente mais próximo.
 import { APP_NAVIGATION } from "./appNavigationRegistry";
+import { ninoRedirectTarget } from "./ninoRedirect";
 
 /** Caminhos antigos/errados → destino certo. Chave sem query. */
 export const ROUTE_ALIASES: Record<string, string> = {
   "/app/mais/dividas": "/app/dividas",
   "/app/mais/compromissos": "/app/compromissos",
   "/app/mais/metas": "/app/metas",
-  "/app/alertas": "/app/nino",
+  "/app/alertas": "/app",
   "/app/debts": "/app/dividas",
   "/app/goals": "/app/metas",
   "/app/reports": "/app/relatorios",
@@ -36,6 +37,8 @@ export function isKnownAppPath(path: string): boolean {
 export function resolveAppRoute(route: string): string | null {
   const { path, rest } = splitPath(String(route ?? "").trim());
   if (!path.startsWith("/app")) return null;
+  // Aba Nino aposentada: o destino depende da seção pedida.
+  if (path.replace(/\/$/, "") === "/app/nino") return ninoRedirectTarget(new URLSearchParams(rest.split("#")[0]).get("section"));
   if (isKnownAppPath(path)) return path + rest;
   const alias = ROUTE_ALIASES[path.replace(/\/$/, "")];
   if (alias) return alias + rest;
