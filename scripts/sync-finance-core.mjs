@@ -58,6 +58,7 @@ export const FINANCE_CORE_MODULES = [
   "goalVerdict",
   "goalAdjustment",
   "reportDashboard",
+  "reportStory",
   "behaviorDimensions",
   "behaviorObserved",
   "behaviorObservedV3",

@@ -7,6 +7,7 @@ import { periodTitle } from "@/lib/engine/reportDashboard";
 import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
 import { AnticipationCard, ChangeWaterfall, DashboardHighlights, HabitScoreboard, KpiStrip, OtherInflowsCard, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
 import { ActNav, ActSection, ProjectionCard, REPORT_ACTS, parseAct, type ReportActId } from "@/components/reports/ReportActs";
+import { ActionCard, CommitmentsCard, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, OpportunityTiles, ReceivableCard, SummaryTrio, TopCategories, VariationsCard, WeekdayCard } from "@/components/reports/StoryParts";
 import { ExecutiveInsightCard } from "@/components/nino/ExecutiveInsightCard";
 import { NinoSituationCard } from "@/components/nino/NinoSituationCard";
 import { useNinoDiagnosisContext } from "@/lib/nino/diagnosis";
@@ -141,6 +142,7 @@ export default function RelatoriosInteligentes() {
     }
   }
 
+  const story = dash?.story ?? null;
   const previousLabel = dash?.previous ? periodTitle(dash.previous) : null;
 
   return (
@@ -197,15 +199,32 @@ export default function RelatoriosInteligentes() {
           <ActNav active={active} onChange={goTo} counts={{ mudou: mudancas.length, vai: agora.length + antecipacoes.length + pendencias.length }} />
           <div className={cn("space-y-8 transition-opacity", isFetching && "opacity-60")} aria-busy={isFetching}>
             <ActSection id="foi">
-                <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
-                <KpiStrip d={dash} />
-                <EvolutionChart d={dash} />
-                <AnticipationCard d={dash} />
-                <OtherInflowsCard d={dash} />
+              {story?.habitual ? (
+                <>
+                  <ConsumptionHero d={dash} story={story} />
+                  <SummaryTrio d={dash} story={story} future={dash.future} />
+                  <CumulativeChart story={story} />
+                  <TopCategories story={story} windowEnd={dash.period.end} />
+                </>
+              ) : (
+                <>
+                  <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
+                  <KpiStrip d={dash} />
+                  <EvolutionChart d={dash} />
+                </>
+              )}
+              <AnticipationCard d={dash} />
+              <OtherInflowsCard d={dash} />
             </ActSection>
 
             <ActSection id="mudou">
-                {dash.change ? <ChangeWaterfall change={dash.change} /> : null}
+                {story ? (
+                  <>
+                    <CostSplitCards story={story} />
+                    <VariationsCard story={story} />
+                    <WeekdayCard story={story} />
+                  </>
+                ) : dash.change ? <ChangeWaterfall change={dash.change} /> : null}
                 <CategoryBreakdown d={dash} />
                 {mudancas.length > 0 ? (
                   <section className="space-y-3" aria-label="Leituras do Nino">
@@ -233,6 +252,11 @@ export default function RelatoriosInteligentes() {
             </ActSection>
 
             <ActSection id="vai">
+                <CommitmentsCard future={dash.future} />
+                <ReceivableCard future={dash.future} />
+                {story ? <OpportunityTiles story={story} /> : null}
+                {story ? <ActionCard story={story} /> : null}
+                <GoalProgressCard future={dash.future} />
                 <ProjectionCard d={dash} />
                 {agora.length > 0 ? (
                   <section className="space-y-3" aria-label="O que fazer agora">

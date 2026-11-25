@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
  * como foi → o que mudou → para onde vai. Tudo na mesma página; `?ato=` só rola até a seção.
  */
 export const REPORT_ACTS = [
-  { id: "foi", label: "Como foi", hint: "O resultado do período" },
-  { id: "mudou", label: "O que mudou", hint: "O que pesou e o que aprendemos" },
-  { id: "vai", label: "Para onde vai", hint: "Fechamento do mês e o que fazer" },
+  { id: "foi", label: "Como foi", title: "Visão geral", hint: "Seu resumo financeiro com insights práticos." },
+  { id: "mudou", label: "O que mudou", title: "O que mudou no seu mês", hint: "Comparado ao seu padrão, veja onde estão as principais mudanças no seu consumo." },
+  { id: "vai", label: "Para onde vai", title: "Para onde você vai", hint: "Projeção dos próximos 30 dias e oportunidades para melhorar o seu resultado." },
 ] as const;
 
 export type ReportActId = (typeof REPORT_ACTS)[number]["id"];
@@ -60,7 +60,7 @@ export function ActSection({ id, children }: { id: ReportActId; children: React.
       <header className="flex items-baseline gap-2 pt-2">
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground" aria-hidden>{index + 1}</span>
         <div className="min-w-0">
-          <h2 id={`ato-titulo-${id}`} className="font-display text-lg font-bold leading-tight tracking-tight">{act.label}</h2>
+          <h2 id={`ato-titulo-${id}`} className="font-display text-lg font-bold leading-tight tracking-tight">{act.title}</h2>
           <p className="text-[12px] text-muted-foreground">{act.hint}</p>
         </div>
       </header>
