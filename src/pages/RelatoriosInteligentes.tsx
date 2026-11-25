@@ -123,6 +123,7 @@ export default function RelatoriosInteligentes() {
             <div role="tabpanel" id="painel-geral" aria-labelledby="aba-geral" className="space-y-3">
               {rep.overview ? (
                 <>
+                  {rep.overview.headline ? <p className="rounded-2xl bg-primary/5 p-4 text-[14px] font-medium leading-snug">{rep.overview.headline}</p> : null}
                   <ConsumptionHero o={rep.overview} isCurrent={rep.isCurrentMonth} />
                   <SummaryTrioV2 o={rep.overview} />
                   <BridgeCard lines={rep.overview.bridge} />

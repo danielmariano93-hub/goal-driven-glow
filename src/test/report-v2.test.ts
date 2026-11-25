@@ -61,7 +61,7 @@ describe("report_v2 — consumo canônico", () => {
   it("sem renda do mês o resultado fica em aberto, não negativo", () => {
     const r = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")]));
     expect(r.overview!.income.incomplete).toBe(true);
-    expect(r.overview!.result).toEqual({ value: null, reason: "income_pending" });
+    expect(r.overview!.result).toEqual({ value: -1000, partial: true, reason: "income_pending" });
     const withIncome = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel"), inc("2026-11-05", 5000)]));
     expect(withIncome.overview!.result.value).toBe(4000);
   });
@@ -70,6 +70,29 @@ describe("report_v2 — consumo canônico", () => {
     const r = buildReportV2(base([exp("2026-10-02", 100, "Mercado"), exp("2026-11-02", 100, "Mercado")]));
     expect(r.overview!.habitual).toBeNull();
     expect(r.quality.some((q) => q.code === "habitual_thin")).toBe(true);
+  });
+});
+
+describe("report_v2 — contrato de composição (auditoria)", () => {
+  it("estorno sem categoria entra na soma: as partes fecham 100% do consumo", () => {
+    const e = [...history(), exp("2026-11-02", 1000, "Aluguel"), exp("2026-11-03", 600, "Lazer"), exp("2026-11-04", 80, null), { ...exp("2026-11-05", 0, null), kind: "expense" as const, amount: -300 }];
+    const o = buildReportV2(base(e)).overview!;
+    expect(o.classes.nao_classificado).toBe(-220);
+    const parts = o.classes.estrutural + o.classes.ajustavel + o.classes.extraordinario + o.classes.nao_classificado;
+    expect(Math.round(parts * 100)).toBe(Math.round(o.consumption * 100));
+  });
+  it("ponte do consumo fecha em centavos: despesas − estornos = consumo", () => {
+    const e = [...history(), exp("2026-11-02", 1000.37, "Aluguel"), exp("2026-11-03", 599.99, "Lazer"), exp("2026-11-04", -49.5, "Lazer")];
+    const o = buildReportV2(base(e)).overview!;
+    expect(Math.round((o.reconciliation.gross - o.reconciliation.refunds) * 100)).toBe(Math.round(o.consumption * 100));
+    expect(o.reconciliation.refunds).toBe(49.5);
+  });
+  it("resultado parcial mostra o valor e a renda prevista, sem esconder", () => {
+    const snap = { availableToday: 100, projection: { estimatedIncomeEvents: [{ date: "2026-11-27", amount: 9430.44, source: "configured" }] } };
+    const o = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot: snap })).overview!;
+    expect(o.result.partial).toBe(true);
+    expect(o.income.expected).toEqual({ amount: 9430.44, date: "2026-11-27" });
+    expect(o.headline).toMatch(/parcial/);
   });
 });
 
@@ -126,6 +149,24 @@ describe("report_v2 — projeções", () => {
     expect(c.reconciles).toBe(true);
     expect(c.steps.at(-1)!.value).toBe(11471);
   });
+  it("compromissos: fatura do mês sem item na agenda entra como estimativa; renda comprometida usa a renda informada", () => {
+    const s2 = { ...snapshot, projection: { ...snapshot.projection, estimatedFixedInflows: 9430.44, cardDueThisMonth: 259.8 },
+      commitmentAgenda: { horizonEnd: "2026-12-25", pendingItems: [{ type: "expense", amount: 3732.9, date: "2026-11-27", source: "debt_installment" }, { type: "expense", amount: 309.94, date: "2026-12-03", source: "recurring" }] } };
+    const r = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot: s2 }));
+    const c = r.projections.commitments!;
+    expect(c.groups.find((g) => g.key === "cards")).toEqual({ key: "cards", amount: 259.8, estimated: true });
+    expect(c.next30).toBeCloseTo(4302.64, 2);
+    expect(r.projections.committedIncome!.income).toBe(9430.44);
+    expect(r.projections.committedIncome!.basis).toMatch(/informada/);
+  });
+  it("projeção de caixa em centavos reconcilia com a soma dos passos exibidos", () => {
+    const s2 = { availableToday: 4791.12, projection: { currentAvailableBalance: 4791.12, estimatedIncomeEvents: [{ date: "2026-11-27", amount: 9430.44, source: "configured" }], upcomingConfirmedCommitments: 1861.06, cardDueThisMonth: 259.8, projectedVariableSpending: 282.76, projectedEndBalance: 11817.94 } };
+    const c = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot: s2 })).projections.cash!;
+    const [start, inc, ...rest] = c.steps;
+    const total = start.value + inc.value - rest.filter((x) => x.sign === "minus").reduce((a, x) => a + x.value, 0);
+    expect(Math.round(total * 100)).toBe(Math.round(c.projectedEnd * 100));
+    expect(c.projectedEnd).toBe(11817.94);
+  });
   it("renda não configurada fica fora do cenário conservador", () => {
     const s = { ...snapshot, projection: { ...snapshot.projection, estimatedIncomeEvents: [{ date: "2026-11-30", amount: 9430, source: "estimated", confidence: "medium" }] } };
     const c = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot: s })).projections.cash!;
@@ -161,7 +202,9 @@ describe("report_v2 — evolução e recomendações", () => {
     const r = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")]));
     const months = r.evolution.months;
     expect(months.find((m) => m.month === "2026-10")!.result).toBe(3400);
-    expect(months.find((m) => m.month === "2026-11")!.result).toBeNull();
+    const open = months.find((m) => m.month === "2026-11")!;
+    expect(open.partial).toBe(true);
+    expect(open.result).toBe(-1000);
   });
   it("recomendações ordenadas por impacto×confiança, com total anual e sem duplicar alvo", () => {
     const e = [...history(),
@@ -171,7 +214,8 @@ describe("report_v2 — evolução e recomendações", () => {
     const rec = buildReportV2(base(e)).recommendations;
     expect(rec.items[0].title).toMatch(/iFood/);
     expect(rec.items.length).toBeLessThanOrEqual(3);
-    expect(rec.yearlyTotal).toBe(Math.round(rec.monthlyTotal * 12 * 100) / 100);
+    expect(rec.items.every((i) => i.basis.length > 0)).toBe(true);
+    expect("monthlyTotal" in rec).toBe(false); // sem agregado: as ações se sobrepõem
     const scores = rec.items.map((i) => i.score);
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
   });

@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 // Relatórios v2: só desenha o que o servidor calculou. Sem dado, o bloco some ou diz "aguardando"; nunca zero inventado.
 // Estado nunca é só cor: sinal/seta + texto. Detalhe sob demanda (toque), não tudo aberto na primeira tela.
 
+/** Centavos: onde o leitor vai somar de cabeça (projeções), a conta tem de fechar na tela. */
+export const brl2 = (n: number) => `${n < 0 ? "−" : ""}R$ ${Math.abs(n).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const brlS = (n: number) => `${n < 0 ? "−" : ""}R$ ${Math.abs(Math.round(n)).toLocaleString("pt-BR")}`;
 const monthTitle = (ym: string) => `${monthName(ym).replace(/^./, (c) => c.toUpperCase())} ${ym.slice(0, 4)}`;
 const shiftMonth = (ym: string, d: number) => {
@@ -142,15 +144,14 @@ export function ConsumptionHero({ o, isCurrent }: { o: OverviewV2; isCurrent: bo
           <span>seu habitual {isCurrent ? `até o dia ${o.windowDays}` : "no mês"}: {brl0(h.value)} (mediana de {h.months.length} {h.months.length === 1 ? "mês" : "meses"})</span>
         </p>
       ) : <p className="mt-1 text-[12.5px] text-muted-foreground">Ainda sem histórico para comparar com o seu habitual.</p>}
-      <More label="De que é feito">
+      <More label="Entender composição">
         <ul className="space-y-1 text-[13px]">
-          {(Object.keys(CLASS_LABEL) as Array<keyof OverviewV2["classes"]>).filter((k) => o.classes[k] !== 0).map((k) => (
-            <li key={k} className="flex justify-between"><span>{CLASS_LABEL[k]}</span><span className="font-semibold tabular-nums">{brlS(o.classes[k])}</span></li>
-          ))}
-          <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Consumo</span><span className="tabular-nums">{brlS(o.consumption)}</span></li>
+          <li className="flex justify-between"><span>Despesas do período</span><span className="font-semibold tabular-nums">{brl2(o.reconciliation.gross)}</span></li>
+          {o.reconciliation.refunds > 0 ? <li className="flex justify-between"><span>Estornos</span><span className="font-semibold tabular-nums">− {brl2(o.reconciliation.refunds)}</span></li> : null}
+          <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Consumo</span><span className="tabular-nums">{brl2(o.consumption)}</span></li>
         </ul>
-        {o.refunds > 0 ? <p className="mt-2 text-[11.5px] text-muted-foreground">Já descontados {brl0(o.refunds)} de estornos.</p> : null}
-        {o.debtPaid > 0 ? <p className="mt-1 text-[11.5px] text-muted-foreground">Dívida paga (principal, fora do consumo): {brl0(o.debtPaid)}.</p> : null}
+        {o.debtPaid > 0 ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">Fora do consumo: {brl2(o.debtPaid)} de principal de dívida amortizado (sai do caixa, não é gasto novo). Transferências, pagamento de fatura e aplicações também ficam de fora.</p> : null}
+        <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Compras no cartão contam no mês da fatura. Método report_v2.1: pagamentos de dívida deixaram de contar inteiros, então o número é menor que o da versão anterior.</p>
       </More>
     </Card>
   );
@@ -164,12 +165,12 @@ export function SummaryTrioV2({ o }: { o: OverviewV2 }) {
       <div className="rounded-2xl border border-border bg-card p-3">
         <p className="text-[11px] text-muted-foreground">Receitas</p>
         <p className="mt-0.5 text-[15px] font-bold tabular-nums">{brl0(income.realized)}</p>
-        <p className="mt-0.5 text-[10.5px] leading-tight text-muted-foreground">{income.incomplete ? `ainda não entrou tudo (típico ${brl0(income.typical)})` : income.recurring > 0 && income.extraordinary > 0 ? `${brl0(income.recurring)} recorrente` : "realizadas"}</p>
+        <p className="mt-0.5 text-[10.5px] leading-tight text-muted-foreground">{income.incomplete ? (income.expected ? `prevista ${fmtDay(income.expected.date)}: ${brl0(income.expected.amount)}` : `ainda não entrou tudo (típico ${brl0(income.typical)})`) : income.recurring > 0 && income.extraordinary > 0 ? `${brl0(income.recurring)} recorrente` : "realizadas"}</p>
       </div>
       <div className="rounded-2xl border border-border bg-card p-3">
         <p className="text-[11px] text-muted-foreground">Resultado</p>
-        {res.value == null ? <><p className="mt-0.5 text-[13px] font-bold">Aguardando</p><p className="mt-0.5 text-[10.5px] leading-tight text-muted-foreground">a renda do mês</p></>
-          : <><p className={cn("mt-0.5 text-[15px] font-bold tabular-nums", res.value < 0 && "text-red-700")}>{res.value > 0 ? "+" : ""}{brlS(res.value)}</p><p className="mt-0.5 text-[10.5px] leading-tight text-muted-foreground">receitas − consumo</p></>}
+        <p className={cn("mt-0.5 text-[15px] font-bold tabular-nums", res.partial ? "text-muted-foreground" : res.value < 0 && "text-red-700")}>{res.value > 0 ? "+" : ""}{brlS(res.value)}</p>
+        <p className="mt-0.5 text-[10.5px] leading-tight text-muted-foreground">{res.partial ? (o.income.expected ? `parcial, sem a renda de ${brl0(o.income.expected.amount)} (${fmtDay(o.income.expected.date)})` : "parcial, sem a renda do mês") : "receitas − consumo"}</p>
       </div>
       <div className="rounded-2xl border border-border bg-card p-3">
         <p className="text-[11px] text-muted-foreground">Saldo hoje</p>
@@ -248,15 +249,11 @@ export function TopCategoriesV2({ categories, onSeeAll }: { categories: Category
 export function RecommendationsCard({ r }: { r: ReportV2["recommendations"] }) {
   if (r.items.length === 0) return null;
   return (
-    <Card title="O que fazer agora" subtitle="Ordenado pelo que mais pesa no seu bolso, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência, facilidade e confiança dos dados.">
+    <Card title="O que fazer agora" subtitle="Ordenado por urgência de caixa e impacto em reais, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência e confiança dos dados. Organizar o caixa não é economizar: essas ações não têm valor mensal.">
       <ol className="space-y-3">
         {r.items.map((it, i) => <RecItem key={it.key} it={it} n={i + 1} />)}
       </ol>
-      {r.items.length > 1 ? (
-        <p className="mt-3 rounded-xl bg-primary/5 p-3 text-[12.5px] leading-snug">
-          Juntas, {r.independent ? "essas ações podem liberar" : "essas ações têm potencial de"} cerca de <b>{brl0(r.monthlyTotal)}</b> por mês ({brl0(r.yearlyTotal)} por ano).{r.independent ? "" : " Parte delas pode se sobrepor."}
-        </p>
-      ) : null}
+      <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">Cada valor é uma estimativa própria e não deve ser somado: as ações podem se sobrepor.</p>
     </Card>
   );
 }
@@ -268,6 +265,8 @@ function RecItem({ it, n }: { it: Recommendation; n: number }) {
       <div className="min-w-0 flex-1">
         <p className="text-[13.5px] font-semibold leading-snug">{it.title}</p>
         {it.body ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{it.body}</p> : null}
+        {it.nature === "saving" && it.monthlyImpact > 0 ? <p className="mt-0.5 text-[12px] font-semibold">Economia estimada: {brl0(it.monthlyImpact)} por mês</p> : null}
+        <More label="Como calculamos"><p className="text-[11.5px] leading-snug text-muted-foreground">{it.basis} Confiança: {Math.round(it.confidence * 100)}%.</p></More>
         {it.route && it.routeLabel ? <Link to={it.route} className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">{it.routeLabel}<ArrowRight size={12} aria-hidden /></Link> : null}
       </div>
     </li>
@@ -291,16 +290,16 @@ export function CompareControlV2({ compare, onChange }: { compare: CompareKind; 
 
 export function SplitCard({ b }: { b: BehaviorV2 }) {
   const { classes, total } = b.split;
-  const parts = (Object.keys(CLASS_LABEL) as Array<keyof typeof classes>).map((k) => ({ k, v: classes[k] })).filter((p) => p.v > 0);
+  const parts = (Object.keys(CLASS_LABEL) as Array<keyof typeof classes>).map((k) => ({ k, v: classes[k] })).filter((p) => p.v !== 0);
   if (total <= 0 || parts.length === 0) return null;
-  const note: Record<string, string> = { estrutural: "moradia, saúde, contas, educação e parcelas: o que você paga antes de decidir", ajustavel: "o que ainda dá para ajustar mês a mês", extraordinario: "compras muito acima do seu padrão", nao_classificado: "sem categoria: categorize para melhorar a leitura" };
+  const note: Record<string, string> = { estrutural: "moradia, saúde, contas, educação e parcelas: o que você paga antes de decidir", ajustavel: "o que ainda dá para ajustar mês a mês", extraordinario: "compras muito acima do seu padrão", nao_classificado: "sem categoria; valor negativo = estornos sem categoria que abateram o consumo" };
   return (
     <Card title="Gastos fixos e ajustáveis" subtitle="Cada real do consumo cai em um só grupo; os grupos somam o total." info="Fixo não é o mesmo que essencial, e ajustável não é supérfluo: a divisão mostra o que dá para mexer no mês, não o que é necessário.">
       <ul className="space-y-3">
         {parts.map((p) => (
           <li key={p.k}>
-            <span className="flex items-baseline justify-between"><span className="text-[13.5px] font-semibold">{CLASS_LABEL[p.k]}</span><span className="text-[14px] font-bold tabular-nums">{brl0(p.v)} <span className="text-[11px] font-medium text-muted-foreground">{Math.round((p.v / total) * 100)}%</span></span></span>
-            <span className="mt-1 block"><Bar pct={p.v / total} /></span>
+            <span className="flex items-baseline justify-between"><span className="text-[13.5px] font-semibold">{p.k === "nao_classificado" && p.v < 0 ? "Estornos sem categoria" : CLASS_LABEL[p.k]}</span><span className="text-[14px] font-bold tabular-nums">{brlS(p.v)} <span className="text-[11px] font-medium text-muted-foreground">{Math.round((p.v / total) * 100)}%</span></span></span>
+            <span className="mt-1 block"><Bar pct={Math.abs(p.v) / total} tone={p.v < 0 ? "ok" : "primary"} /></span>
             <span className="mt-0.5 block text-[11px] text-muted-foreground">{note[p.k]}</span>
           </li>
         ))}
@@ -314,16 +313,17 @@ export function DriversCard({ b }: { b: BehaviorV2 }) {
   if (!d || d.rows.length === 0) return null;
   const max = Math.max(...d.rows.map((r) => Math.abs(r.impact)), 1);
   return (
-    <Card title="Principais fatores de mudança" subtitle={`Contra o seu habitual: ${d.totalDelta >= 0 ? "+" : "−"}${brl0(Math.abs(d.totalDelta))} no total.`}>
+    <Card title="Principais fatores de mudança" subtitle={`Contra o seu habitual (mediana de ${b.habitualBase?.months ?? "vários"} meses, mesmos dias): ${d.totalDelta >= 0 ? "+" : "−"}${brl0(Math.abs(d.totalDelta))} no total.`}>
       <ul className="space-y-2.5">
         {d.rows.map((r) => (
           <li key={r.name}>
-            <span className="flex items-baseline justify-between text-[13px]"><span className="truncate font-semibold">{r.name}</span><span className={cn("font-bold tabular-nums", r.impact > 0 ? "text-red-700" : "text-emerald-700")}>{r.impact > 0 ? "+" : "−"}{brl0(Math.abs(r.impact))}</span></span>
-            <span className="mt-1 block"><Bar pct={Math.abs(r.impact) / max} tone={r.impact > 0 ? "danger" : "ok"} /></span>
+            <span className="flex items-baseline justify-between text-[13px]"><span className="truncate font-semibold">{r.name}</span><span className={cn("font-bold tabular-nums", r.impact > 0 ? "text-red-700" : r.klass === "estrutural" ? "text-foreground" : "text-emerald-700")}>{r.impact > 0 ? "+" : "−"}{brl0(Math.abs(r.impact))}</span></span>
+            <span className="mt-1 block"><Bar pct={Math.abs(r.impact) / max} tone={r.impact > 0 ? "danger" : r.klass === "estrutural" ? "primary" : "ok"} /></span>
           </li>
         ))}
       </ul>
-      {Math.abs(d.residual) >= 1 ? <p className="mt-2 text-[11.5px] text-muted-foreground">Outras categorias e arredondamentos: {d.residual > 0 ? "+" : "−"}{brl0(Math.abs(d.residual))}.</p> : null}
+      {Math.abs(d.residual) >= 1 ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">Resíduo: {d.residual > 0 ? "+" : "−"}{brl0(Math.abs(d.residual))}. Medianas por categoria não somam à mediana do total, e as categorias menores ficam fora da lista.</p> : null}
+      {d.rows.some((r) => r.impact < 0 && r.klass === "estrutural") ? <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Queda em gasto fixo pode ser só uma conta que ainda não venceu este mês, não economia.</p> : null}
     </Card>
   );
 }
@@ -347,7 +347,7 @@ export function CategoriesAndMerchants({ b, compared }: { b: BehaviorV2; compare
   const q = query.trim().toLowerCase();
   const mer = useMemo(() => b.merchants.filter((m) => !q || m.label.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)).sort(sorter), [b.merchants, q, sort]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Card title="Categorias e estabelecimentos" subtitle={compared && b.previousLabel ? `Comparado com ${monthTitle(b.previousLabel)}.` : "Para onde foi o dinheiro."}>
+    <Card title="Categorias e estabelecimentos" subtitle={compared && b.previousLabel ? `Comparado com ${b.previousRange ? `${fmtDay(b.previousRange.start)} a ${fmtDay(b.previousRange.end)} de ` : ""}${monthTitle(b.previousLabel)} (mesmos dias do mês).` : "Para onde foi o dinheiro."}>
       <div className="mb-2 flex gap-1 text-[12.5px]" role="tablist" aria-label="Agrupar por">
         {([["cat", "Categorias"], ["est", "Estabelecimentos"]] as const).map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)} className={cn("rounded-full px-3 py-1.5", view === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground")}>{label}</button>
@@ -466,14 +466,16 @@ export function ConsumptionProjectionCard({ p }: { p: ProjectionsV2 }) {
   const c = p.consumption;
   if (!c) return null;
   return (
-    <Card title="Projeção de consumo" subtitle="Onde o mês deve terminar." info="Realizado + obrigações que ainda vão vencer + gasto ajustável esperado pelo seu padrão dos meses anteriores. A faixa mostra o intervalo provável.">
-      <p className="text-2xl font-bold tabular-nums">{brl0(c.total)} <span className="text-[12px] font-medium text-muted-foreground">entre {brl0(c.low)} e {brl0(c.high)}</span></p>
+    <Card title="Projeção de consumo" subtitle="Onde o mês deve terminar." info="Realizado + obrigações de consumo que ainda vão vencer (recorrências e planejados; parcela de dívida não entra, é amortização) + gasto ajustável esperado pelo seu padrão dos meses anteriores.">
+      <p className="text-2xl font-bold tabular-nums">{brl2(c.total)}</p>
+      <p className="text-[12px] text-muted-foreground">faixa provável: {brl2(c.low)} a {brl2(c.high)}</p>
       <ul className="mt-2 space-y-1 text-[13px]">
-        <li className="flex justify-between"><span>Já consumido</span><span className="font-semibold tabular-nums">{brl0(c.realized)}</span></li>
-        <li className="flex justify-between"><span>Obrigações ainda por vencer no mês</span><span className="font-semibold tabular-nums">+ {brl0(c.structuralPending)}</span></li>
-        <li className="flex justify-between"><span>Gasto ajustável esperado</span><span className="font-semibold tabular-nums">+ {brl0(c.adjustableFuture)}</span></li>
-        <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Projeção</span><span className="tabular-nums">{brl0(c.total)}</span></li>
+        <li className="flex justify-between"><span>Já consumido</span><span className="font-semibold tabular-nums">{brl2(c.realized)}</span></li>
+        <li className="flex justify-between"><span>Obrigações de consumo por vencer</span><span className="font-semibold tabular-nums">+ {brl2(c.structuralPending)}</span></li>
+        <li className="flex justify-between"><span>Gasto ajustável esperado</span><span className="font-semibold tabular-nums">+ {brl2(c.adjustableFuture)}</span></li>
+        <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Projeção</span><span className="tabular-nums">{brl2(c.total)}</span></li>
       </ul>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{c.method}</p>
     </Card>
   );
 }
@@ -482,17 +484,17 @@ export function CashProjectionCard({ p }: { p: ProjectionsV2 }) {
   const c = p.cash;
   if (!c) return null;
   return (
-    <Card title="Projeção de saldo até o fim do mês" subtitle="A conta aberta, passo a passo." info="Compras no cartão só afetam o caixa quando a fatura é paga. Valores a receber de terceiros não entram aqui.">
+    <Card title="Projeção de saldo até o fim do mês" subtitle="A conta aberta, passo a passo, em centavos." info="Saldo de caixa, não consumo: compras no cartão só afetam o caixa quando a fatura é paga, e parcelas de dívida saem do caixa mesmo sem serem consumo. Valores a receber de terceiros não entram aqui.">
       <ul className="space-y-1 text-[13px]">
         {c.steps.map((s) => (
           <li key={s.key} className={cn("flex justify-between", s.sign === "result" && "border-t border-border pt-1 font-bold")}>
             <span>{s.label}{s.uncertain ? " *" : ""}</span>
-            <span className="font-semibold tabular-nums">{s.sign === "plus" ? "+ " : s.sign === "minus" ? "− " : ""}{brlS(s.value)}</span>
+            <span className="font-semibold tabular-nums">{s.sign === "plus" ? "+ " : s.sign === "minus" ? "− " : ""}{brl2(s.value)}</span>
           </li>
         ))}
       </ul>
-      {c.steps.some((s) => s.uncertain) ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">* Receita ainda não confirmada. Sem ela, o saldo projetado seria <b>{brlS(c.conservativeEnd)}</b> (cenário conservador).</p> : null}
-      {c.expectedIncome ? <p className="mt-1 text-[11.5px] text-muted-foreground">Próxima renda: {brl0(c.expectedIncome.amount)} em {fmtDay(c.expectedIncome.date)} ({c.expectedIncome.configured ? "configurada" : "estimada"}).</p> : null}
+      {c.steps.some((s) => s.uncertain) ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">* Receita ainda não confirmada. Sem ela, o saldo projetado seria <b>{brl2(c.conservativeEnd)}</b> (cenário conservador).</p> : null}
+      {c.expectedIncome ? <p className="mt-1 text-[11.5px] text-muted-foreground">Próxima renda: {brl2(c.expectedIncome.amount)} em {fmtDay(c.expectedIncome.date)} ({c.expectedIncome.configured ? "informada no perfil, ainda não recebida" : "estimada"}).</p> : null}
       {!c.reconciles ? <p className="mt-1 text-[11.5px] text-amber-700">Esta conta não fecha exatamente com a da Home.</p> : null}
     </Card>
   );
@@ -505,10 +507,10 @@ export function CommitmentsCardV2({ p }: { p: ProjectionsV2 }) {
   if (!c) return null;
   return (
     <Card title="Compromissos futuros" subtitle="O que já está agendado.">
-      <p className="text-2xl font-bold tabular-nums">{brl0(c.next30)}<span className="ml-1 text-[12px] font-medium text-muted-foreground">nos próximos 30 dias</span></p>
-      {c.groups.length > 0 ? <ul className="mt-2 space-y-1 text-[13px]">{c.groups.map((g) => <li key={g.key} className="flex justify-between"><span>{GROUP_LABEL[g.key]}</span><span className="font-semibold tabular-nums">{brl0(g.amount)}</span></li>)}</ul> : null}
+      <p className="text-2xl font-bold tabular-nums">{brl0(c.next30)}<span className="ml-1 text-[12px] font-medium text-muted-foreground">{c.horizonEnd ? `até ${fmtDay(c.horizonEnd)}` : "nos próximos 30 dias"}</span></p>
+      {c.groups.length > 0 ? <ul className="mt-2 space-y-1 text-[13px]">{c.groups.map((g) => <li key={g.key} className="flex justify-between"><span>{GROUP_LABEL[g.key]}{g.estimated ? " (estimada)" : ""}</span><span className="font-semibold tabular-nums">{brl0(g.amount)}</span></li>)}</ul> : null}
       {p.committedIncome ? (
-        <p className="mt-2 rounded-xl bg-primary/5 p-3 text-[12.5px] leading-snug"><b>{Math.round(p.committedIncome.pct * 100)}%</b> da sua renda típica ({brl0(p.committedIncome.income)}) já está comprometida nos próximos 30 dias.</p>
+        <p className="mt-2 rounded-xl bg-primary/5 p-3 text-[12.5px] leading-snug"><b>{Math.round(p.committedIncome.pct * 100)}%</b> da renda mensal de {brl0(p.committedIncome.income)} ({p.committedIncome.basis}) já está comprometida nos próximos 30 dias. A renda típica dos meses anteriores pode ser diferente.</p>
       ) : null}
       {c.months.length > 0 ? (
         <More label="Parcelas de cartão nos próximos meses">
@@ -548,6 +550,7 @@ export function SavingsCardV2({ p }: { p: ProjectionsV2 }) {
     <Card title="Poupança sustentável" info="Estimativa do quanto sobra por mês de forma recorrente, usando só meses fechados.">
       {s.status === "ok" ? <p className="text-2xl font-bold tabular-nums">{brl0(s.monthly ?? 0)}<span className="ml-1 text-[12px] font-medium text-muted-foreground">por mês</span></p> : s.status === "zero_real" ? <p className="text-xl font-bold">R$ 0 por mês</p> : <p className="text-[15px] font-bold">Em formação</p>}
       <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{msg[s.status]}</p>
+      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">Método: mediana de {s.closedMonths} {s.closedMonths === 1 ? "mês fechado" : "meses fechados"}{s.incomeBaseline ? `, sobre renda de referência de ${brl0(s.incomeBaseline)}` : ""}.</p>
     </Card>
   );
 }
@@ -570,27 +573,40 @@ export function RecoverableCardV2({ p }: { p: ProjectionsV2 }) {
 export function MonthlyResultCard({ e }: { e: EvolutionV2 }) {
   const months = e.months;
   if (months.length < 2) return null;
-  const max = Math.max(...months.map((m) => Math.max(m.income, m.consumption)), 1);
+  const maxAbs = Math.max(...months.map((m) => Math.abs(m.result)), 1);
+  const H = 110; const mid = H / 2;
   return (
-    <Card title="Evolução mensal do resultado" subtitle="Receitas e consumo, mês a mês." info="Resultado = receitas − consumo. O mês em aberto fica sem resultado enquanto a renda não entra.">
-      <div className="mb-1 flex gap-4 text-[11px] text-muted-foreground"><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500/70" aria-hidden />Receitas</span><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary" aria-hidden />Consumo</span></div>
-      <div className="flex h-32 items-end gap-2" role="img" aria-label={`Resultado dos últimos ${months.length} meses`}>
-        {months.map((m) => (
-          <div key={m.month} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-            <div className="flex h-full w-full items-end justify-center gap-0.5">
-              <span className="w-1/2 rounded-t bg-emerald-500/70" style={{ height: `${Math.max(2, (m.income / max) * 100)}%` }} aria-hidden />
-              <span className="w-1/2 rounded-t bg-primary" style={{ height: `${Math.max(2, (m.consumption / max) * 100)}%` }} aria-hidden />
-            </div>
-            <span className="text-[10.5px] text-muted-foreground">{monthName(m.month).slice(0, 3)}</span>
-          </div>
-        ))}
-      </div>
-      <ul className="mt-2 divide-y divide-border text-[12.5px]">
-        {months.slice().reverse().map((m) => (
-          <li key={m.month} className="flex items-center justify-between py-1.5"><span className="capitalize">{monthName(m.month)}{m.open ? " (em aberto)" : ""}</span>
-            <span className={cn("font-semibold tabular-nums", m.result != null && m.result < 0 && "text-red-700")}>{m.result == null ? "aguardando renda" : `${m.result > 0 ? "+" : ""}${brlS(m.result)}`}</span></li>
-        ))}
-      </ul>
+    <Card title="Evolução mensal do resultado" subtitle="Receitas − consumo, mês a mês." info="Resultado = receitas − consumo (mesma definição da Visão geral). Barra para cima = sobrou; para baixo = faltou. O mês em aberto aparece tracejado e é parcial.">
+      <svg viewBox={`0 0 320 ${H + 22}`} className="w-full" role="img" aria-label={`Resultado dos últimos ${months.length} meses`}>
+        <line x1={0} x2={320} y1={mid} y2={mid} className="stroke-border" strokeWidth={1} />
+        <text x={2} y={mid - 3} className="fill-muted-foreground" fontSize={8}>R$ 0</text>
+        {months.map((m, i) => {
+          const w = 320 / months.length;
+          const x = i * w + w * 0.2;
+          const h = Math.max(1, (Math.abs(m.result) / maxAbs) * (mid - 14));
+          const up = m.result >= 0;
+          const y = up ? mid - h : mid;
+          return (
+            <g key={m.month}>
+              <rect x={x} y={y} width={w * 0.6} height={h} rx={3} className={up ? "fill-emerald-500/70" : "fill-red-500/70"} stroke={m.partial ? "currentColor" : "none"} strokeDasharray={m.partial ? "3 2" : undefined} fillOpacity={m.partial ? 0.35 : 1} />
+              <text x={x + w * 0.3} y={up ? y - 3 : y + h + 9} textAnchor="middle" className="fill-foreground" fontSize={8.5} fontWeight={600}>{`${m.result > 0 ? "+" : "−"}${Math.abs(Math.round(m.result)).toLocaleString("pt-BR")}`}</text>
+              <text x={x + w * 0.3} y={H + 16} textAnchor="middle" className="fill-muted-foreground" fontSize={9}>{monthName(m.month).slice(0, 3)}{m.partial ? "*" : ""}</text>
+            </g>
+          );
+        })}
+      </svg>
+      {months.some((m) => m.partial) ? <p className="text-[11px] text-muted-foreground">* Mês em aberto: resultado parcial, a renda do mês ainda não entrou por inteiro.</p> : null}
+      <More label="Receitas, consumo e dívida por mês">
+        <ul className="divide-y divide-border text-[12.5px]">
+          {months.slice().reverse().map((m) => (
+            <li key={m.month} className="py-1.5">
+              <span className="flex items-center justify-between"><span className="capitalize">{monthName(m.month)}{m.open ? " (em aberto)" : ""}</span>
+                <span className={cn("font-semibold tabular-nums", m.result < 0 && "text-red-700")}>{m.result > 0 ? "+" : ""}{brlS(m.result)}{m.partial ? " parcial" : ""}</span></span>
+              <span className="block text-[11px] text-muted-foreground tabular-nums">receitas {brl0(m.income)} − consumo {brl0(m.consumption)}{m.debtPaid > 0 ? ` · dívida paga (fora) ${brl0(m.debtPaid)}` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      </More>
     </Card>
   );
 }
@@ -607,6 +623,20 @@ export function NetWorthCard({ e }: { e: EvolutionV2 }) {
   return (
     <Card title="Evolução patrimonial" subtitle={nw.label}>
       {nw.current != null ? <p className={cn("text-2xl font-bold tabular-nums", nw.current < 0 && "text-red-700")}>{brlS(nw.current)}</p> : null}
+      {nw.composition ? (
+        <More label="Ativos e passivos">
+          <ul className="space-y-1 text-[13px]">
+            <li className="flex justify-between"><span>Dinheiro em contas</span><span className="font-semibold tabular-nums">{brl2(nw.composition.cash)}</span></li>
+            <li className="flex justify-between"><span>Investimentos</span><span className="font-semibold tabular-nums">{brl2(nw.composition.invested)}</span></li>
+            <li className="flex justify-between border-t border-border pt-1"><span>Ativos</span><span className="font-bold tabular-nums">{brl2(nw.composition.assets)}</span></li>
+            <li className="flex justify-between"><span>Dívidas e empréstimos</span><span className="font-semibold tabular-nums">− {brl2(nw.composition.otherDebts)}</span></li>
+            <li className="flex justify-between"><span>Cartões (fatura em aberto)</span><span className="font-semibold tabular-nums">− {brl2(nw.composition.cardsOwed)}</span></li>
+            <li className="flex justify-between border-t border-border pt-1"><span>Passivos</span><span className="font-bold tabular-nums">− {brl2(nw.composition.liabilities)}</span></li>
+            <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Patrimônio líquido</span><span className="tabular-nums">{brl2(nw.composition.net)}</span></li>
+          </ul>
+          <p className="mt-1 text-[11px] text-muted-foreground">Posição de hoje ({fmtDay(nw.composition.asOf)}), só com o que foi registrado no Nino. Sem registro novo, o valor não muda: isso não significa estabilidade.</p>
+        </More>
+      ) : null}
       {s.length >= 2 ? (
         <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 w-full" role="img" aria-label={`Patrimônio de ${brlS(s[0].value)} para ${brlS(s[s.length - 1].value)}`}>
           <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} className="stroke-border" strokeWidth={0.6} />
