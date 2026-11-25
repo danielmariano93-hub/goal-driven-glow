@@ -25,9 +25,9 @@ describe("financial concepts shown to the user", () => {
   it("keeps a single reports screen, monthly, with the comparison choice inside Comportamento", () => {
     const reports = read("src/pages/RelatoriosInteligentes.tsx");
     // Painel único: já abre calculado, com seletor de mês e a escolha do período de comparação na aba Categorias e mais.
-    expect(reports).toContain("<MonthPicker");
-    expect(reports).toContain("CategoriesAndMerchants");
-    expect(read("src/components/reports/v2/ReportV2Parts.tsx")).toContain("Comparar com");
+    expect(reports).toContain("<PeriodSelector");
+    expect(reports).toContain("<BehaviorTab");
+    expect(read("src/components/reports/v2/tabs.tsx")).toContain("Comparar com");
     expect(reports).not.toContain(">Saldo</p>");
   });
 

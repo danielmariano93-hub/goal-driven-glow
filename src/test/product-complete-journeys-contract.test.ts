@@ -18,7 +18,7 @@ describe("jornadas completas de produto", () => {
     expect(reports).not.toContain("useNinoDiagnosisContext");
     expect(reports).not.toContain("useExecutiveInsights");
     expect(reports).not.toContain("Leituras do Nino");
-    expect(reports).toContain("TabsV2");
+    expect(reports).toContain("<ReportTabs");
     for (const tab of ["geral", "comportamento", "projecoes", "evolucao"]) expect(reports).toContain(`painel-${tab}`);
   });
 

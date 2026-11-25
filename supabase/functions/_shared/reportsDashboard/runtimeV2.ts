@@ -159,7 +159,7 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
         user_id: userId, month: report.month, as_of: today,
         projected_consumption: report.projections.consumption?.total ?? null,
         projected_end_balance: report.projections.cash?.projectedEnd ?? null,
-        conservative_end_balance: report.projections.cash?.conservativeEnd ?? null,
+        conservative_end_balance: report.projections.cash?.withoutIncomeEnd ?? null,
         formula_version: report.version,
         payload: { consumption: report.projections.consumption, cash: report.projections.cash?.steps ?? null },
       }, { onConflict: "user_id,month,as_of" });

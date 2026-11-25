@@ -170,7 +170,7 @@ describe("report_v2 — projeções", () => {
   it("renda não configurada fica fora do cenário conservador", () => {
     const s = { ...snapshot, projection: { ...snapshot.projection, estimatedIncomeEvents: [{ date: "2026-11-30", amount: 9430, source: "estimated", confidence: "medium" }] } };
     const c = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot: s })).projections.cash!;
-    expect(c.conservativeEnd).toBe(c.projectedEnd - 9430);
+    expect(c.withoutIncomeEnd).toBe(c.projectedEnd - 9430);
   });
   it("a receber separa a vencer, vencido e recebido, e não entra no caixa", () => {
     const r = buildReportV2(base([...history(), exp("2026-11-02", 1000, "Aluguel")], { snapshot, receivables: [
