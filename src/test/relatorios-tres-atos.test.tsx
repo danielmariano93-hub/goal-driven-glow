@@ -22,7 +22,7 @@ describe("Relatórios em 3 atos", () => {
   });
   it("cada ato é uma seção da mesma página, com número e título", () => {
     render(<ActSection id="vai"><p>conteúdo</p></ActSection>);
-    expect(screen.getByRole("heading", { name: "Para onde vai" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Para onde você vai" })).toBeTruthy();
     expect(document.getElementById("ato-vai")).not.toBeNull();
     expect(screen.getByText("3")).toBeTruthy();
   });

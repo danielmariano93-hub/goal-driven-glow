@@ -12,6 +12,7 @@
 // da Home (`financial_current_snapshots`): nada é estimado por modelo e nada é inventado.
 // Onde falta base (menos de 2 meses de histórico, sem categorias essenciais marcadas),
 // o campo vem `null` e a tela esconde o bloco.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { DashEntry } from "./reportDashboard";
 
 export const REPORT_STORY_VERSION = "report_story.v1";
