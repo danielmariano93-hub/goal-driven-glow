@@ -52,6 +52,12 @@ export interface V2Inputs {
   situationActions: SituationActionRow[];
   savingsGoalIds: string[];
   netWorthSeries: Array<{ month: string; value: number }>;
+  /** Movimentos de conta do mês (entradas e saídas de caixa por tipo), sem transferência entre contas próprias. */
+  cashMovements?: Array<{ dir: "in" | "out"; key: string; amount: number }>;
+  /** Última previsão gravada de cada mês (para comparar previsto x realizado). */
+  projectionHistory?: Array<{ month: string; asOf: string; projectedConsumption: number | null; projectedEnd: number | null }>;
+  /** Ações aceitas/dispensadas pelo usuário. */
+  recommendationActions?: Array<{ month: string; recKey: string; kind: string; title: string; action: "accepted" | "dismissed"; merchantKey: string | null; category: string | null; baselineAmount: number | null; monthlyImpact: number | null }>;
 }
 
 export interface ProfileLite {
@@ -97,6 +103,12 @@ export interface OverviewV2 {
   reconciliation: { gross: number; refunds: number; consumption: number };
   /** Frase de diagnóstico do mês, montada só com fatos do próprio relatório. */
   headline: string;
+  /** As três maiores causas da diferença contra o habitual. */
+  causes: DriverRow[];
+  /** Ponte do caixa do mês: saldo inicial (derivado) + entradas − saídas = saldo hoje. Só no mês corrente com retrato do dia. */
+  cashBridge: { opening: number; inflows: Array<{ label: string; amount: number }>; outflows: Array<{ label: string; amount: number }>; closing: number; openingDerived: true } | null;
+  /** Dívida paga no período: fora do consumo, com a lista do que entrou e se os juros são conhecidos. */
+  debt: { paid: number; items: DebtItem[]; unsplit: number };
   balance: { available: number | null; asOf: string | null };
   /** Frases que ligam consumo, resultado, caixa e saldo. */
   bridge: string[];
@@ -146,7 +158,14 @@ export interface BehaviorV2 {
   habitualBase: { months: number } | null;
   split: { classes: ClassTotals; total: number } ;
   drivers: { rows: DriverRow[]; totalDelta: number; residual: number } | null;
-  weekday: { rows: WeekdayRowV2[]; peakDow: number; weekend: { weekendAvg: number; weekdayAvg: number; pct: number } | null } | null;
+  weekday: {
+    rows: WeekdayRowV2[]; peakDow: number; weekend: { weekendAvg: number; weekdayAvg: number; pct: number } | null;
+    /** Janela e amostra do cálculo, e se o padrão se repete nos meses de referência. */
+    sample: { days: number; refMonths: number; observations: number };
+    persistence: { months: number; withPattern: number } | null;
+    habitualWeekend: { weekendAvg: number; weekdayAvg: number } | null;
+  } | null;
+  signals: Signal[];
   smallSpend: { ceiling: number; total: number; count: number; share: number; topMerchants: Array<{ label: string; total: number; count: number }>; history: Array<{ month: string; total: number }> } | null;
   patterns: Array<{ label: string; status: string; upliftPct: number | null; absoluteDelta: number | null; sampleSize: number; confidence: number | null }>;
   priceChanges: Array<{ key: string; label: string; from: number; to: number; deltaAbs: number; deltaPct: number }>;
@@ -155,8 +174,8 @@ export interface BehaviorV2 {
 export interface ProjectionStep { key: string; label: string; value: number; sign: "start" | "plus" | "minus" | "result"; uncertain?: boolean }
 
 export interface ProjectionsV2 {
-  consumption: { realized: number; structuralPending: number; adjustableFuture: number; total: number; low: number; high: number; method: string } | null;
-  cash: { steps: ProjectionStep[]; projectedEnd: number; conservativeEnd: number; reconciles: boolean; expectedIncome: { amount: number; date: string; label: string; configured: boolean } | null; uncertainReceivables: number } | null;
+  consumption: { realized: number; structuralPending: number; structuralItems: Array<{ label: string; amount: number; date: string }>; adjustableFuture: number; total: number; low: number; high: number; method: string } | null;
+  cash: { freeCash: number | null; steps: ProjectionStep[]; projectedEnd: number; conservativeEnd: number; reconciles: boolean; expectedIncome: { amount: number; date: string; label: string; configured: boolean } | null; uncertainReceivables: number } | null;
   commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null } | null;
   committedIncome: { pct: number; income: number; obligations: number; basis: string } | null;
   receivables: { toDue: number; overdue: number; receivedInPeriod: number; count: number } | null;
@@ -166,14 +185,21 @@ export interface ProjectionsV2 {
 
 export interface EvolutionMonth { month: string; income: number; consumption: number; debtPaid: number; result: number; open: boolean; partial: boolean }
 
+export interface ForecastRow { month: string; asOf: string; predictedConsumption: number | null; actualConsumption: number; consumptionErrorPct: number | null; predictedEnd: number | null }
+export interface TrackedAction { key: string; title: string; kind: string; acceptedMonth: string; baseline: number; current: number; delta: number; status: "reduzindo" | "sem_mudanca" | "aumentou" | "sem_dado" }
+
 export interface EvolutionV2 {
+  /** Previsão gravada x realizado dos meses fechados. */
+  forecast: ForecastRow[];
+  /** Ações aceitas e o que mudou desde o ponto de partida. */
+  tracked: TrackedAction[];
   months: EvolutionMonth[];
   netWorth: {
     series: Array<{ month: string; value: number }>; current: number | null; label: string;
     composition: { asOf: string; cash: number; invested: number; assets: number; cardsOwed: number; otherDebts: number; liabilities: number; net: number } | null;
   } | null;
   goals: {
-    spending: Array<{ id: string; category: string; spent: number; limit: number; pct: number; status: string }>;
+    spending: Array<{ id: string; category: string; spent: number; limit: number; pct: number; status: string; projectedPct: number | null; daysRemaining: number | null; verdict: "no_ritmo" | "atencao" | "vai_estourar" | "estourou" }>;
     savings: Array<{ id: string; name: string; target: number; contributed: number; pct: number; remaining: number }>;
     summary: string | null;
   };
@@ -189,13 +215,28 @@ export interface Recommendation {
   /** De onde vem o número (baseline e premissa). Sem premissa, não há impacto. */
   basis: string;
   monthlyImpact: number;
+  /** Chave do estabelecimento (quando a ação é sobre um) e valor de partida, para medir depois. */
+  merchantKey?: string | null;
+  baselineAmount?: number | null;
+  category?: string | null;
   confidence: number;
   score: number;
   route: string | null;
   routeLabel: string | null;
 }
 
-export interface QualityNote { code: string; level: "info" | "warn"; text: string }
+export interface QualityNote { code: string; level: "info" | "warn"; text: string; /** indicadores afetados (números da especificação) */ affects?: string[]; /** o que fazer para corrigir */ fix?: string }
+
+export interface Signal { key: string; title: string; evidence: string; sample: string; confidence: "alta" | "media" | "baixa"; query: { category?: string } | null }
+
+export interface ReportMeta {
+  formulaVersion: string;
+  asOf: string;
+  competenceRule: string;
+  /** Cobertura: o que sustenta os números. */
+  coverage: { categorizedShare: number; historyMonths: number; debtSplitShare: number | null; snapshotFresh: boolean };
+  previousVersionNote: string;
+}
 
 export interface ReportV2 {
   version: typeof REPORT_V2_VERSION;
@@ -208,6 +249,7 @@ export interface ReportV2 {
   evolution: EvolutionV2;
   recommendations: { items: Recommendation[] };
   quality: QualityNote[];
+  meta: ReportMeta;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +268,7 @@ const shiftMonth = (ym: string, d: number) => {
 };
 const weekdayIndex = (iso: string) => (new Date(toMs(iso)).getUTCDay() + 6) % 7; // 0 = segunda
 const isoOf = (ym: string, d: number) => `${ym}-${String(d).padStart(2, "0")}`;
+const brlTxt = (n: number) => `R$ ${Math.round(n).toLocaleString("pt-BR")}`;
 const WEEKDAY_LABEL = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
 
@@ -276,15 +319,22 @@ export interface Cls {
   charge: boolean;
 }
 
+export interface DebtItem { date: string; label: string; amount: number; principal: number; interest: number; /** juros/encargos conhecidos pelo registro da dívida */ split: boolean; /** categoria de dívida sem registro de pagamento de dívida */ fromCategory: boolean }
+
 export interface ClassifyResult {
+  debtItems: DebtItem[];
   rows: Cls[];
   debtPaidByMonth: Map<string, number>;
   debtUnsplit: number;
   incomeRows: Array<{ date: string; month: string; amount: number; category: string }>;
 }
 
+/** Categoria de dívida/empréstimo/financiamento: pagamento de dívida lançado como despesa comum (ex.: Pix para financeira). */
+export const isDebtCategoryName = (name: string | null | undefined): boolean => /d[ií]vid|empr[eé]stim|financiamento|consignado|credi[aá]rio/i.test(String(name ?? ""));
+
 export function classifyLedger(entries: V2Entry[], debtSplits: Record<string, DebtSplit>, isStructural: (name: string) => boolean, referenceMonth: string): ClassifyResult {
   const rows: Cls[] = [];
+  const debtItems: DebtItem[] = [];
   const debtPaidByMonth = new Map<string, number>();
   const incomeRows: ClassifyResult["incomeRows"] = [];
   let debtUnsplit = 0;
@@ -295,15 +345,19 @@ export function classifyLedger(entries: V2Entry[], debtSplits: Record<string, De
     if (e.kind === "income") { if (e.amount > 0) incomeRows.push({ date: e.date, month, amount: e.amount, category: e.category || "Receita" }); continue; }
     if (e.kind !== "expense" || e.amount === 0) continue;
     const base = { date: e.date, month, day: dayOfMonth(e.date), categoryId: e.category_id, merchantKey: e.merchant_key, merchant: e.merchant, chartDay: e.chart_carried ? null : (e.chart_date ?? e.date) };
-    if (e.debt_payment) {
+    const fromCategory = !e.debt_payment && e.amount > 0 && e.category_id != null && isDebtCategoryName(e.category);
+    if (e.debt_payment || fromCategory) {
       const split = e.id ? debtSplits[e.id] : undefined;
+      const label = e.merchant ?? e.category ?? "Dívida";
       if (split && split.principal + split.interest > 0) {
         addDebt(month, split.principal);
+        debtItems.push({ date: e.date, label, amount: e.amount, principal: round2(split.principal), interest: round2(split.interest), split: true, fromCategory });
         if (split.interest > 0) rows.push({ ...base, amount: round2(split.interest), klass: "estrutural", category: "Juros e encargos de dívida", categoryId: null, merchantKey: null, merchant: null, charge: true });
       } else {
-        // Sem separação de juros: o pagamento inteiro fica fora do consumo e a lacuna é declarada na qualidade.
+        // Sem separação de juros: o pagamento inteiro fica fora do consumo (não se inventa juros) e a lacuna é declarada.
         addDebt(month, e.amount);
         if (e.amount > 0) debtUnsplit += e.amount;
+        debtItems.push({ date: e.date, label, amount: e.amount, principal: round2(e.amount), interest: 0, split: false, fromCategory });
       }
       continue;
     }
@@ -318,7 +372,7 @@ export function classifyLedger(entries: V2Entry[], debtSplits: Record<string, De
   if (window.length >= 12) fence = Math.max(EXTRAORDINARY_FLOOR, quantile(window, 0.75) + 3 * (quantile(window, 0.75) - quantile(window, 0.25)));
   if (Number.isFinite(fence)) for (const r of rows) if (r.klass === "ajustavel" && r.amount >= fence) r.klass = "extraordinario";
 
-  return { rows, debtPaidByMonth, debtUnsplit: round2(debtUnsplit), incomeRows };
+  return { rows, debtPaidByMonth, debtUnsplit: round2(debtUnsplit), incomeRows, debtItems };
 }
 
 const emptyClasses = (): ClassTotals => ({ estrutural: 0, ajustavel: 0, extraordinario: 0, nao_classificado: 0 });
@@ -416,19 +470,35 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
     curve = cur.map((v, i) => ({ day: i + 1, current: round2(v), habitual: round2(median(refs.map((r) => r[i]))) }));
   }
 
+  // Ponte do caixa: o saldo inicial é derivado (saldo de hoje − movimento líquido do mês); a ponte mostra o que moveu o caixa.
+  const CASH_LABEL: Record<string, string> = {
+    in_income: "Receitas (renda e outras)", in_external: "Transferências recebidas de fora", in_loan: "Empréstimos recebidos", in_refund: "Estornos e reembolsos", in_invest: "Resgates e rendimentos", in_other: "Outras entradas",
+    out_spend: "Gastos à vista e no débito", out_debt: "Dívidas pagas", out_card: "Fatura do cartão paga", out_external: "Transferências enviadas para fora", out_invest: "Aplicações", out_other: "Outras saídas",
+  };
+  let cashBridge: OverviewV2["cashBridge"] = null;
+  if (isCurrentMonth && available != null && (input.cashMovements?.length ?? 0) > 0) {
+    const sum = (dir: "in" | "out") => {
+      const by = new Map<string, number>();
+      for (const m of input.cashMovements ?? []) if (m.dir === dir) by.set(m.key, (by.get(m.key) ?? 0) + m.amount);
+      return [...by.entries()].map(([k, v]) => ({ label: CASH_LABEL[k] ?? k, amount: round2(v) })).filter((x) => x.amount !== 0).sort((x, y) => y.amount - x.amount);
+    };
+    const inflows = sum("in"); const outflows = sum("out");
+    const net = inflows.reduce((t, x) => t + x.amount, 0) - outflows.reduce((t, x) => t + x.amount, 0);
+    cashBridge = { opening: round2(available - net), inflows, outflows, closing: round2(available), openingDerived: true };
+  }
   const overview: OverviewV2 | null = consumption === 0 && rows.every((r) => r.month !== month) && realizedIncome === 0 && debtPaid === 0
     ? null
     : {
         consumption, classes: roundClasses(classes), debtPaid, refunds, habitual,
         income: { realized: realizedIncome, recurring: recurringIncome, extraordinary: round2(realizedIncome - recurringIncome), typical: typicalIncome, incomplete, expected: incomplete ? expectedIncome : null },
-        result, reconciliation: { gross, refunds, consumption }, headline: "", balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
+        result, reconciliation: { gross, refunds, consumption }, headline: "", causes: [], cashBridge, debt: { paid: debtPaid, items: cls.debtItems.filter((d) => monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays), unsplit: round2(cls.debtItems.filter((d) => !d.split && monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays).reduce((a, d) => a + d.amount, 0)) }, balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
       };
 
   // ---- Comportamento ---------------------------------------------------------------------
   const previousMonth = input.compare === "year" ? shiftMonth(month, -12) : shiftMonth(month, -1);
   const prevUpTo = Math.min(windowDays, daysInMonth(previousMonth));
   const hasPrevious = input.compare !== "none" && rows.some((r) => r.month === previousMonth);
-  const behavior = buildBehavior({ rows, month, windowDays, previousMonth: hasPrevious ? previousMonth : null, prevUpTo, refMonths, windowOf, habitual, input, classes, consumption });
+  const behavior = buildBehavior({ rows, month, windowDays, previousMonth: hasPrevious ? previousMonth : null, prevUpTo, refMonths, windowOf, habitual, input, classes, consumption, incomeRows: cls.incomeRows });
   if (behavior && hasPrevious) behavior.previousRange = { start: isoOf(previousMonth, 1), end: isoOf(previousMonth, prevUpTo) };
 
   // ---- Projeções ---------------------------------------------------------------------------
@@ -446,26 +516,50 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
   }
 
   // ---- Evolução ----------------------------------------------------------------------------
-  const evolution = buildEvolution({ rows, cls, month, today, isCurrentMonth, input, snapshot, typicalIncome });
+  const evolution = buildEvolution({ rows, cls, month, today, isCurrentMonth, input, snapshot, typicalIncome, behavior });
 
   // ---- Recomendações -----------------------------------------------------------------------
   const recommendations = buildRecommendations({ behavior, projections, input, month });
-  if (overview) overview.headline = makeHeadline(overview, isCurrentMonth);
+  if (overview) {
+    overview.headline = makeHeadline(overview, isCurrentMonth);
+    overview.causes = (behavior?.drivers?.rows ?? []).slice(0, 3);
+  }
 
   // ---- Qualidade ---------------------------------------------------------------------------
   const cats = rows.filter((r) => r.month === month && r.day <= windowDays && r.amount > 0);
   const totalPos = cats.reduce((a, r) => a + r.amount, 0);
   const uncategorized = cats.filter((r) => r.klass === "nao_classificado").reduce((a, r) => a + r.amount, 0);
-  if (totalPos > 0 && uncategorized / totalPos >= 0.1) quality.push({ code: "uncategorized", level: "warn", text: `R$ ${Math.round(uncategorized).toLocaleString("pt-BR")} (${Math.round((uncategorized / totalPos) * 100)}%) dos gastos estão sem categoria, então comparações por categoria e a divisão entre fixos e ajustáveis ficam menos precisas.` });
-  if (cls.debtUnsplit > 0) quality.push({ code: "debt_unsplit", level: "info", text: `Os pagamentos de dívida (R$ ${Math.round(cls.debtUnsplit).toLocaleString("pt-BR")} no histórico) não informam juros e encargos, então ficam inteiros fora do consumo.` });
+  if (totalPos > 0 && uncategorized / totalPos >= 0.1) quality.push({ code: "uncategorized", level: "warn", affects: ["07 Categorias", "08 Fixos e ajustáveis", "09 Fatores"], fix: "Categorize os lançamentos sem categoria em Movimentos.", text: `R$ ${Math.round(uncategorized).toLocaleString("pt-BR")} (${Math.round((uncategorized / totalPos) * 100)}%) dos gastos estão sem categoria, então comparações por categoria e a divisão entre fixos e ajustáveis ficam menos precisas.` });
+  if (cls.debtUnsplit > 0) {
+    const unsplitMonth = overview?.debt.unsplit ?? 0;
+    quality.push({
+      code: "debt_unsplit", level: "info",
+      text: `${unsplitMonth > 0 ? `Neste mês, R$ ${Math.round(unsplitMonth).toLocaleString("pt-BR")} de pagamentos de dívida não informam juros e encargos; no histórico são R$ ${Math.round(cls.debtUnsplit).toLocaleString("pt-BR")}.` : `Pagamentos de dívida do histórico (R$ ${Math.round(cls.debtUnsplit).toLocaleString("pt-BR")}) não informam juros e encargos.`} Eles ficam inteiros fora do consumo; os juros reais, se houver, não estão contados.`,
+      affects: ["01 Consumo", "02 Habitual", "04 Resultado", "09 Fatores", "20 Resultado histórico"],
+      fix: "Ao registrar o pagamento da dívida, informe quanto foi juros e encargos. Pagamentos lançados só como despesa comum precisam ser registrados como pagamento de dívida.",
+    });
+  }
   if (isCurrentMonth && !snapshot) quality.push({ code: "snapshot_stale", level: "warn", text: "A previsão de caixa e os compromissos ainda não foram atualizados hoje; saldo e projeções ficam indisponíveis até a próxima atualização." });
   if (input.profile) {
     const age = Math.round((toMs(today) - toMs(input.profile.asOf)) / DAY);
     if (age > 3) quality.push({ code: "profile_stale", level: "warn", text: `O perfil financeiro (poupança sustentável e gasto recuperável) foi calculado há ${age} dias.` });
   }
 
+  const debtMonthItems = cls.debtItems;
+  const meta: ReportMeta = {
+    formulaVersion: REPORT_V2_VERSION,
+    asOf: today,
+    competenceRule: "Despesa pelo dia do lançamento; compra no cartão pelo mês da fatura (competência). Estornos abatem o consumo.",
+    coverage: {
+      categorizedShare: totalPos > 0 ? Math.round(((totalPos - uncategorized) / totalPos) * 1000) / 1000 : 1,
+      historyMonths: refMonths.length,
+      debtSplitShare: debtMonthItems.length > 0 ? Math.round((debtMonthItems.filter((d) => d.split).length / debtMonthItems.length) * 1000) / 1000 : null,
+      snapshotFresh: Boolean(snapshot),
+    },
+    previousVersionNote: "Versão anterior contava o pagamento de dívida inteiro como consumo e não abatia estornos; a atual separa o principal da dívida e abate estornos, por isso o consumo é menor.",
+  };
   return {
-    version: REPORT_V2_VERSION, month, today, isCurrentMonth, overview, behavior, projections, evolution, recommendations, quality,
+    version: REPORT_V2_VERSION, month, today, isCurrentMonth, overview, behavior, projections, evolution, recommendations, quality, meta,
   };
 }
 
@@ -475,7 +569,7 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
 
 function buildBehavior(a: {
   rows: Cls[]; month: string; windowDays: number; previousMonth: string | null; prevUpTo: number; refMonths: string[]; windowOf: (m: string) => number;
-  habitual: HabitualV2 | null; input: V2Inputs; classes: ClassTotals; consumption: number;
+  habitual: HabitualV2 | null; input: V2Inputs; classes: ClassTotals; consumption: number; incomeRows: ClassifyResult["incomeRows"];
 }): BehaviorV2 | null {
   const { rows, month, windowDays, previousMonth, prevUpTo } = a;
   const cur = rows.filter((r) => r.month === month && r.day <= windowDays);
@@ -569,7 +663,25 @@ function buildBehavior(a: {
       const weekdayAvg = wrows.slice(0, 5).reduce((s, w) => s + w.avg, 0) / 5;
       const weekendAvg = (wrows[5].avg + wrows[6].avg) / 2;
       const pct = weekdayAvg > 0 ? weekendAvg / weekdayAvg - 1 : 0;
-      weekday = { rows: wrows, peakDow, weekend: weekdayAvg > 0 && pct >= 0.2 ? { weekendAvg: round2(weekendAvg), weekdayAvg: round2(weekdayAvg), pct: Math.round(pct * 100) / 100 } : null };
+      // Persistência: em quantos meses de referência o fim de semana também pesou ≥20% mais por dia que os dias úteis.
+      const monthAvgs = a.refMonths.map((m) => {
+        const upTo = a.windowOf(m);
+        const sum = new Array<number>(7).fill(0); const n = new Array<number>(7).fill(0);
+        for (let d = 1; d <= upTo; d += 1) n[weekdayIndex(isoOf(m, d))] += 1;
+        for (const r of rows) if (r.month === m && r.day <= upTo && r.klass === "ajustavel" && r.chartDay) sum[weekdayIndex(r.chartDay)] += r.amount;
+        const wd = [0, 1, 2, 3, 4].reduce((t, i) => t + (n[i] > 0 ? sum[i] / n[i] : 0), 0) / 5;
+        const we = [5, 6].reduce((t, i) => t + (n[i] > 0 ? sum[i] / n[i] : 0), 0) / 2;
+        return { wd, we };
+      });
+      const habWd = monthAvgs.length ? median(monthAvgs.map((x) => x.wd)) : 0;
+      const habWe = monthAvgs.length ? median(monthAvgs.map((x) => x.we)) : 0;
+      const observations = cur.filter((r) => adj(r) && r.amount > 0).length;
+      weekday = {
+        rows: wrows, peakDow, weekend: weekdayAvg > 0 && pct >= 0.2 ? { weekendAvg: round2(weekendAvg), weekdayAvg: round2(weekdayAvg), pct: Math.round(pct * 100) / 100 } : null,
+        sample: { days: windowDays, refMonths: a.refMonths.length, observations },
+        persistence: monthAvgs.length >= 2 ? { months: monthAvgs.length, withPattern: monthAvgs.filter((x) => x.we > 0 && (x.wd === 0 || x.we / x.wd - 1 >= 0.2)).length } : null,
+        habitualWeekend: monthAvgs.length >= 2 ? { weekendAvg: round2(habWe), weekdayAvg: round2(habWd) } : null,
+      };
     }
   }
 
@@ -624,8 +736,39 @@ function buildBehavior(a: {
     priceChanges.sort((x, y) => y.deltaAbs - x.deltaAbs);
   }
 
+  // Sinais: frequência crescente e concentração após a renda, só com evidência e sem inferir motivo.
+  const signals: Signal[] = [];
+  if (previousMonth) {
+    const prevCount = new Map<string, number>();
+    for (const r of prev) if (r.amount > 0 && r.klass === "ajustavel") prevCount.set(r.category, (prevCount.get(r.category) ?? 0) + 1);
+    for (const c of categories) {
+      const before = prevCount.get(c.name) ?? 0;
+      if (c.klass === "ajustavel" && c.count >= 5 && before >= 2 && c.count >= before * 1.5 && c.count - before >= 3 && c.total >= 100) {
+        signals.push({ key: `freq:${c.name}`, title: `Mais compras em ${c.name}`, evidence: `${c.count} compras até agora contra ${before} no mesmo período anterior (${brlTxt(c.total)}).`, sample: `${c.count + before} compras em 2 períodos`, confidence: c.count >= 8 ? "media" : "baixa", query: { category: c.name } });
+      }
+    }
+  }
+  {
+    const shares: number[] = [];
+    for (const m of a.refMonths) {
+      const inc = a.incomeRows.filter((r) => r.month === m);
+      if (inc.length === 0) continue;
+      const main = inc.reduce((best, r) => (r.amount > best.amount ? r : best));
+      if (main.amount < 500) continue;
+      const startDay = dayOfMonth(main.date);
+      const upTo = a.windowOf(m);
+      let after = 0; let total = 0;
+      for (const r of rows) if (r.month === m && r.day <= upTo && r.klass === "ajustavel" && r.amount > 0) { total += r.amount; if (r.day >= startDay && r.day < startDay + 5) after += r.amount; }
+      if (total >= 200) shares.push(after / total);
+    }
+    const expected = 5 / 30;
+    if (shares.length >= 3 && median(shares) >= expected * 2 && shares.filter((x) => x >= expected * 2).length >= Math.ceil(shares.length * 0.6)) {
+      signals.push({ key: "after_income", title: "Gasto concentrado logo após a renda", evidence: `Em média ${Math.round(median(shares) * 100)}% do gasto ajustável do mês acontece nos 5 dias seguintes à entrada da renda (o esperado, se fosse uniforme, seria ${Math.round(expected * 100)}%).`, sample: `${shares.length} meses fechados`, confidence: shares.length >= 5 ? "media" : "baixa", query: null });
+    }
+  }
+
   return {
-    categories, merchants,
+    categories, merchants, signals,
     previousLabel: previousMonth ? `${previousMonth}` : null,
     previousRange: null,
     habitualBase: a.habitual ? { months: a.habitual.months.length } : null,
@@ -650,7 +793,8 @@ function buildProjections(a: {
   if (a.isCurrentMonth && a.refMonths.length >= 2 && a.windowDays < total) {
     const pending: any[] = Array.isArray(snapshot?.commitmentAgenda?.pendingItems) ? snapshot.commitmentAgenda.pendingItems : [];
     const monthEnd = isoOf(a.month, total);
-    const structuralPending = round2(pending.filter((i) => i?.type === "expense" && ["recurring", "planned", "donation_goal"].includes(String(i.source)) && i.date > a.today && i.date <= monthEnd).reduce((s, i) => s + (num(i.amount) ?? 0), 0));
+    const structuralItems = pending.filter((i) => i?.type === "expense" && ["recurring", "planned", "donation_goal"].includes(String(i.source)) && i.date > a.today && i.date <= monthEnd).map((i) => ({ label: String(i.name ?? "Obrigação"), amount: round2(num(i.amount) ?? 0), date: String(i.date) }));
+    const structuralPending = round2(structuralItems.reduce((s, i) => s + i.amount, 0));
     // Base por dia da semana: ajustável médio dos dias restantes nos meses de referência
     const remainingByRef = a.refMonths.map((m) => {
       let s = 0;
@@ -667,7 +811,7 @@ function buildProjections(a: {
     const low = round2(Math.max(0, quantile(sortedRem, 0.25) * pace));
     const high = round2(Math.max(adjustableFuture, quantile(sortedRem, 0.75) * pace));
     const realized = round2(a.consumption);
-    out.consumption = { realized, structuralPending, adjustableFuture, total: round2(realized + structuralPending + adjustableFuture), low: round2(realized + structuralPending + low), high: round2(realized + structuralPending + high), method: `Faixa = percentis 25–75 do gasto ajustável que costuma restar do dia ${a.windowDays + 1} ao fim do mês, em ${a.refMonths.length} meses de histórico, ajustado ao seu ritmo deste mês.` };
+    out.consumption = { realized, structuralPending, structuralItems, adjustableFuture, total: round2(realized + structuralPending + adjustableFuture), low: round2(realized + structuralPending + low), high: round2(realized + structuralPending + high), method: `Faixa = percentis 25–75 do gasto ajustável que costuma restar do dia ${a.windowDays + 1} ao fim do mês, em ${a.refMonths.length} meses de histórico, ajustado ao seu ritmo deste mês.` };
   }
 
   // 14. Caixa: a conta aberta, passo a passo (mesma conta da Home)
@@ -695,6 +839,7 @@ function buildProjections(a: {
     const next = events.sort((x, y) => (x.date < y.date ? -1 : 1))[0];
     const uncertainReceivables = round2(input.receivables.filter((r) => r.state === "pending" || r.state === "overdue").reduce((s, r) => s + r.balance, 0));
     out.cash = {
+      freeCash: num(snapshot?.projection?.freeAfterKnownCommitments),
       steps, projectedEnd, conservativeEnd: round2(projectedEnd - incomeUncertain), reconciles: homeEnd == null || Math.abs(homeEnd - projectedEnd) <= 1,
       expectedIncome: next ? { amount: round2(num(next.amount) ?? 0), date: next.date, label: String(next.label ?? "Renda prevista"), configured: configured.includes(next) } : null,
       uncertainReceivables,
@@ -759,7 +904,7 @@ function buildProjections(a: {
 // D. Evolução
 // ---------------------------------------------------------------------------
 
-function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; today: string; isCurrentMonth: boolean; input: V2Inputs; snapshot: any | null; typicalIncome: number }): EvolutionV2 {
+function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; today: string; isCurrentMonth: boolean; input: V2Inputs; snapshot: any | null; typicalIncome: number; behavior: BehaviorV2 | null }): EvolutionV2 {
   const months: EvolutionMonth[] = [];
   const openMonth = monthOf(a.today);
   for (let i = 5; i >= 0; i -= 1) {
@@ -787,15 +932,39 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
   const LIVE = new Set(["on_track", "attention", "at_risk", "exceeded", "limit_reached"]);
   const spending = (Array.isArray(a.snapshot?.activeCategoryGoals) ? a.snapshot.activeCategoryGoals : [])
     .filter((g: any) => LIVE.has(String(g?.status)) && typeof g?.period?.start === "string" && g.period.start <= a.today && g.period.end >= a.today && (num(g?.targetAmount) ?? 0) > 0)
-    .map((g: any) => ({ id: String(g.goal?.id ?? g.categoryName), category: String(g.categoryName ?? "Categoria"), spent: round2(num(g.actualSpend) ?? 0), limit: round2(num(g.targetAmount) ?? 0), pct: Math.round(((num(g.actualSpend) ?? 0) / (num(g.targetAmount) as number)) * 1000) / 1000, status: String(g.status) }))
-    .sort((x: any, y: any) => y.pct - x.pct);
+    .map((g: any) => {
+      const limit = num(g.targetAmount) as number;
+      const spent = num(g.actualSpend) ?? 0;
+      const projected = num(g.projectedSpend);
+      const pct = Math.round((spent / limit) * 1000) / 1000;
+      const projectedPct = projected != null ? Math.round((projected / limit) * 1000) / 1000 : null;
+      const verdict: "no_ritmo" | "atencao" | "vai_estourar" | "estourou" = pct >= 1 ? "estourou" : projectedPct != null && projectedPct > 1 ? "vai_estourar" : (projectedPct ?? pct) >= 0.85 ? "atencao" : "no_ritmo";
+      return { id: String(g.goal?.id ?? g.categoryName), category: String(g.categoryName ?? "Categoria"), spent: round2(spent), limit: round2(limit), pct, status: String(g.status), projectedPct, daysRemaining: num(g.daysRemaining), verdict };
+    })
+    .sort((x: any, y: any) => (y.projectedPct ?? y.pct) - (x.projectedPct ?? x.pct));
   const savingsIds = new Set(a.input.savingsGoalIds);
   const savings = (Array.isArray(a.snapshot?.goalProgress) ? a.snapshot.goalProgress : [])
     .filter((g: any) => savingsIds.has(String(g?.id)) && (num(g?.target) ?? 0) > 0)
     .map((g: any) => { const target = num(g.target) as number; const contributed = num(g.contributed) ?? 0; return { id: String(g.id), name: String(g.name ?? "Meta"), target: round2(target), contributed: round2(contributed), pct: Math.min(1, Math.round((contributed / target) * 1000) / 1000), remaining: round2(Math.max(0, target - contributed)) }; });
-  const onTrack = spending.filter((g: any) => g.status === "on_track").length;
+  const onTrack = spending.filter((g: any) => g.verdict === "no_ritmo").length;
   const summary = spending.length > 0 ? `${onTrack} de ${spending.length} meta${spending.length === 1 ? "" : "s"} de gasto no ritmo${savings.length ? `; ${savings.length} de acumulação em andamento` : ""}.` : savings.length > 0 ? `${savings.length} meta${savings.length === 1 ? "" : "s"} de acumulação em andamento.` : null;
-  return { months, netWorth, goals: { spending, savings, summary } };
+  // Previsto x realizado: última previsão gravada de cada mês fechado contra o consumo que de fato aconteceu.
+  const forecast: ForecastRow[] = [];
+  for (const h of (a.input.projectionHistory ?? []).filter((x) => x.month < openMonth).sort((x, y) => (x.month < y.month ? 1 : -1)).slice(0, 4)) {
+    const actual = round2(a.rows.filter((r) => r.month === h.month).reduce((t, r) => t + r.amount, 0));
+    const pred = h.projectedConsumption;
+    forecast.push({ month: h.month, asOf: h.asOf, predictedConsumption: pred, actualConsumption: actual, consumptionErrorPct: pred != null && actual > 0 ? Math.round(((pred - actual) / actual) * 1000) / 1000 : null, predictedEnd: h.projectedEnd });
+  }
+  // Ações aceitas: partida (baseline) contra o gasto atual no mesmo estabelecimento.
+  const tracked: TrackedAction[] = [];
+  for (const act of (a.input.recommendationActions ?? []).filter((x) => x.action === "accepted" && x.baselineAmount != null && x.merchantKey)) {
+    const m = a.behavior?.merchants.find((x) => x.key === act.merchantKey);
+    const baseline = act.baselineAmount as number;
+    const current = m ? m.total : 0;
+    const delta = round2(current - baseline);
+    tracked.push({ key: act.recKey, title: act.title, kind: act.kind, acceptedMonth: act.month, baseline, current, delta, status: !m && !a.isCurrentMonth ? "sem_dado" : delta < -0.05 * baseline ? "reduzindo" : delta > 0.05 * baseline ? "aumentou" : "sem_mudanca" });
+  }
+  return { forecast, tracked, months, netWorth, goals: { spending, savings, summary } };
 }
 
 // ---------------------------------------------------------------------------
@@ -803,6 +972,7 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
 // ---------------------------------------------------------------------------
 
 function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: ProjectionsV2; input: V2Inputs; month: string }): ReportV2["recommendations"] {
+  const handled = new Set((a.input.recommendationActions ?? []).map((x) => x.recKey));
   // Cada ação traz baseline, premissa e impacto estimado próprios. Não há total agregado: as ações se sobrepõem
   // (a categoria contém o estabelecimento, que contém os pequenos gastos) e somar seria prometer o que não se mede.
   const items: Recommendation[] = [];
@@ -818,7 +988,7 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
         key: `merchant:${m.key}`, kind: "merchant", nature: "saving", title: `Voltar ${m.label} ao nível anterior`,
         body: `Você gastou ${fmt(m.total)} em ${m.label} (${m.count} ${m.count === 1 ? "compra" : "compras"}) contra ${fmt(m.previous)} no período anterior.`,
         basis: `Baseline: ${fmt(m.previous)} no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de ${fmt(m.deltaAbs)}).`,
-        monthlyImpact: round2(m.deltaAbs), confidence: round2(0.5 + 0.4 * recurrence), score: 0, route: cat.id ? `/app/metas/categoria/${cat.id}` : "/app/metas", routeLabel: "Criar meta de gasto",
+        monthlyImpact: round2(m.deltaAbs), merchantKey: m.key, baselineAmount: m.previous, category: m.category, confidence: round2(0.5 + 0.4 * recurrence), score: 0, route: cat.id ? `/app/metas/categoria/${cat.id}` : "/app/metas", routeLabel: "Criar meta de gasto",
       });
     }
     for (const p of b.priceChanges.slice(0, 2)) items.push({ key: `price:${p.key}`, kind: "price", nature: "saving", title: `${p.label} ficou ${fmt(p.deltaAbs)} mais cara`, body: `De ${fmt(p.from)} para ${fmt(p.to)} por mês. Vale conferir se mudou de plano ou se foi reajuste.`, basis: `Baseline: mediana dos 3 meses anteriores (${fmt(p.from)}).`, monthlyImpact: round2(p.deltaAbs), confidence: 0.8, score: 0, route: "/app/recorrencias", routeLabel: "Revisar assinaturas" });
@@ -843,7 +1013,7 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
   // Ordem: ações de caixa com urgência primeiro (não têm valor), depois economia por impacto × confiança.
   items.sort((x, y) => (x.nature === y.nature ? y.score - x.score : x.nature === "cash" ? -1 : 1));
   const seen = new Set<string>();
-  const top = items.filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
+  const top = items.filter((it) => !handled.has(it.key)).filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
   return { items: top };
 }
 

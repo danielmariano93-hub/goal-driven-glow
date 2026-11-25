@@ -1,10 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
-import type { BehaviorV2, CategoryRowV2, CompareKind, EvolutionV2, OverviewV2, ProjectionsV2, QualityNote, Recommendation, ReportV2 } from "@/lib/engine/reportV2";
+import type { BehaviorV2, ForecastRow, TrackedAction, CategoryRowV2, CompareKind, EvolutionV2, OverviewV2, ProjectionsV2, QualityNote, Recommendation, ReportMeta, ReportV2 } from "@/lib/engine/reportV2";
 import { brl0, categoryIcon, monthName, pctText } from "@/components/reports/format";
 import { COMPARE_CHOICES, REPORT_TABS_V2, type ReportTabV2 } from "@/lib/reports/reportV2Client";
 import { cn } from "@/lib/utils";
+import { useRecommendationAction } from "@/lib/reports/recommendationActions";
 
 // Relatórios v2: só desenha o que o servidor calculou. Sem dado, o bloco some ou diz "aguardando"; nunca zero inventado.
 // Estado nunca é só cor: sinal/seta + texto. Detalhe sob demanda (toque), não tudo aberto na primeira tela.
@@ -23,13 +24,13 @@ const fmtDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 // Blocos básicos
 // ---------------------------------------------------------------------------
 
-export function Card({ title, subtitle, info, children, className, id }: { title?: string; subtitle?: string; info?: ReactNode; children: ReactNode; className?: string; id?: string }) {
+export function Card({ title, subtitle, info, children, className, id, tone = "plain" }: { title?: string; subtitle?: string; info?: ReactNode; children: ReactNode; className?: string; id?: string; tone?: "plain" | "hero" | "quiet" }) {
   const [open, setOpen] = useState(false);
   return (
-    <section id={id} aria-label={title} className={cn("rounded-2xl border border-border bg-card p-4 print:break-inside-avoid", className)}>
+    <section id={id} aria-label={title} className={cn("print:break-inside-avoid", tone === "quiet" ? "border-t border-border px-1 pt-4" : "rounded-2xl border border-border bg-card p-4", tone === "hero" && "border-primary/20 bg-primary/5", className)}>
       {title ? (
         <header className="mb-2">
-          <p className="flex items-center gap-1.5 text-[15px] font-bold">
+          <p className={cn("flex items-center gap-1.5 font-bold", tone === "quiet" ? "text-[13px] text-muted-foreground" : "text-[15px]")}>
             {title}
             {info ? (
               <button type="button" aria-label={`O que é: ${title}`} aria-expanded={open} onClick={() => setOpen((v) => !v)} className="inline-grid h-4 w-4 place-items-center rounded-full text-muted-foreground"><Info size={13} aria-hidden /></button>
@@ -44,7 +45,6 @@ export function Card({ title, subtitle, info, children, className, id }: { title
   );
 }
 
-/** Detalhe que abre com um toque. */
 export function More({ label, children }: { label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
@@ -100,10 +100,10 @@ export function MonthPicker({ month, thisMonth, today, onPick }: { month: string
 
 export function TabsV2({ active, onChange }: { active: ReportTabV2; onChange: (id: ReportTabV2) => void }) {
   return (
-    <div role="tablist" aria-label="Seções do relatório" className="-mx-4 flex gap-1 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden print:hidden">
+    <div role="tablist" aria-label="Seções do relatório" className="-mx-4 flex gap-0.5 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden print:hidden">
       {REPORT_TABS_V2.map((t) => (
         <button key={t.id} type="button" role="tab" id={`aba-${t.id}`} aria-selected={t.id === active} aria-controls={`painel-${t.id}`} onClick={() => onChange(t.id)}
-          className={cn("shrink-0 rounded-full px-3.5 py-2 text-[13px] transition", t.id === active ? "bg-primary/10 font-bold text-primary" : "font-medium text-muted-foreground")}>
+          className={cn("shrink-0 rounded-full px-2.5 py-2 text-[12.5px] transition", t.id === active ? "bg-primary/10 font-bold text-primary" : "font-medium text-muted-foreground")}>
           {t.label}
         </button>
       ))}
@@ -135,23 +135,35 @@ const CLASS_LABEL: Record<keyof OverviewV2["classes"], string> = { estrutural: "
 
 export function ConsumptionHero({ o, isCurrent }: { o: OverviewV2; isCurrent: boolean }) {
   const h = o.habitual;
+  const r = o.reconciliation;
   return (
-    <Card title="Consumo do mês" info="Consumo é o que você gastou de fato, no dia da compra, já descontando estornos. Não inclui transferências, pagamento de fatura nem o principal de dívida amortizado (esse aparece separado, como dívida paga)." className="bg-primary/5">
-      <p className="text-3xl font-bold tabular-nums">{brlS(o.consumption)}</p>
+    <Card title="Consumo do mês" tone="hero" info="Consumo é o que você gastou de fato (cartão pelo mês da fatura), já descontando estornos. Não inclui transferências, pagamento de fatura nem o principal de dívida amortizado: esse aparece à parte, como dívida paga.">
+      <p className="text-3xl font-bold tabular-nums">{brl2(o.consumption)}</p>
       {h ? (
         <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
           <Chip ratio={h.deltaPct} />
           <span>seu habitual {isCurrent ? `até o dia ${o.windowDays}` : "no mês"}: {brl0(h.value)} (mediana de {h.months.length} {h.months.length === 1 ? "mês" : "meses"})</span>
         </p>
       ) : <p className="mt-1 text-[12.5px] text-muted-foreground">Ainda sem histórico para comparar com o seu habitual.</p>}
+      <p className="mt-2 text-[12px] leading-snug text-muted-foreground">Despesas {brl0(r.gross)}{r.refunds > 0 ? ` − estornos ${brl0(r.refunds)}` : ""}; fora do consumo, {brl0(o.debt.paid)} de dívida paga.</p>
       <More label="Entender composição">
         <ul className="space-y-1 text-[13px]">
-          <li className="flex justify-between"><span>Despesas do período</span><span className="font-semibold tabular-nums">{brl2(o.reconciliation.gross)}</span></li>
-          {o.reconciliation.refunds > 0 ? <li className="flex justify-between"><span>Estornos</span><span className="font-semibold tabular-nums">− {brl2(o.reconciliation.refunds)}</span></li> : null}
+          <li className="flex justify-between"><span>Despesas do período</span><span className="font-semibold tabular-nums">{brl2(r.gross)}</span></li>
+          {r.refunds > 0 ? <li className="flex justify-between"><span>Estornos e reembolsos</span><span className="font-semibold tabular-nums">− {brl2(r.refunds)}</span></li> : null}
           <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Consumo</span><span className="tabular-nums">{brl2(o.consumption)}</span></li>
         </ul>
-        {o.debtPaid > 0 ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">Fora do consumo: {brl2(o.debtPaid)} de principal de dívida amortizado (sai do caixa, não é gasto novo). Transferências, pagamento de fatura e aplicações também ficam de fora.</p> : null}
-        <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Compras no cartão contam no mês da fatura. Método report_v2.1: pagamentos de dívida deixaram de contar inteiros, então o número é menor que o da versão anterior.</p>
+        {o.debt.items.length > 0 ? (
+          <div className="mt-3">
+            <p className="text-[12px] font-semibold">Dívida paga (fora do consumo): {brl2(o.debt.paid)}</p>
+            <ul className="mt-1 space-y-1 text-[12px] text-muted-foreground">
+              {o.debt.items.map((d, i) => (
+                <li key={`${d.date}-${i}`} className="flex justify-between gap-2"><span className="min-w-0 truncate">{fmtDay(d.date)} · {d.label}{d.split ? (d.interest > 0 ? ` (juros ${brl0(d.interest)} contam como consumo)` : "") : " · juros não informados"}</span><span className="shrink-0 tabular-nums">{brl2(d.amount)}</span></li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">Regra: cartão conta no mês da fatura; estornos abatem; transferências, fatura paga e aplicações ficam de fora. Juros e encargos conhecidos de dívida entram; juros desconhecidos não são inventados.</p>
+        <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Método report_v2.1. Versão anterior contava o pagamento de dívida inteiro como consumo e não abatia estornos, por isso este número é menor.</p>
       </More>
     </Card>
   );
@@ -181,11 +193,26 @@ export function SummaryTrioV2({ o }: { o: OverviewV2 }) {
   );
 }
 
-export function BridgeCard({ lines }: { lines: string[] }) {
-  if (lines.length === 0) return null;
+export function BridgeCard({ lines, cash }: { lines: string[]; cash?: OverviewV2["cashBridge"] }) {
+  if (lines.length === 0 && !cash) return null;
   return (
-    <Card title="Como esses números se relacionam" info="Consumo, resultado operacional, fluxo de caixa e saldo são coisas diferentes.">
-      <ul className="space-y-1.5 text-[12.5px] leading-snug">{lines.map((l) => <li key={l}>• {l}</li>)}</ul>
+    <Card title="Como esses números se relacionam" tone="quiet" info="Consumo, resultado operacional, fluxo de caixa e saldo são coisas diferentes.">
+      {lines[0] ? <p className="text-[12.5px] leading-snug">{lines[0]}</p> : null}
+      <More label="Ver a ponte completa">
+        {lines.length > 1 ? <ul className="mb-3 space-y-1.5 text-[12.5px] leading-snug">{lines.slice(1).map((l) => <li key={l}>• {l}</li>)}</ul> : null}
+        {cash ? (
+          <div>
+            <p className="text-[12px] font-semibold">Ponte do caixa no mês</p>
+            <ul className="mt-1 space-y-1 text-[12.5px]">
+              <li className="flex justify-between"><span>Saldo no início do mês (derivado)</span><span className="font-semibold tabular-nums">{brl2(cash.opening)}</span></li>
+              {cash.inflows.map((i) => <li key={i.label} className="flex justify-between text-emerald-700"><span>+ {i.label}</span><span className="tabular-nums">{brl2(i.amount)}</span></li>)}
+              {cash.outflows.map((o) => <li key={o.label} className="flex justify-between"><span>− {o.label}</span><span className="tabular-nums">{brl2(o.amount)}</span></li>)}
+              <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Saldo hoje</span><span className="tabular-nums">{brl2(cash.closing)}</span></li>
+            </ul>
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">O saldo inicial é derivado (saldo de hoje menos o movimento líquido do mês), não um saldo certificado. Transferências entre contas próprias ficam de fora; entradas de fora e empréstimos movem o caixa mas não são receita.</p>
+          </div>
+        ) : null}
+      </More>
     </Card>
   );
 }
@@ -194,7 +221,7 @@ export function CurveChart({ o }: { o: OverviewV2 }) {
   const pts = o.curve;
   if (!pts || pts.length < 2) return null;
   const proj = o.curveProjection;
-  const W = 320; const H = 160; const L = 36; const R = 10; const T = 14; const B = 22;
+  const W = 320; const H = 172; const L = 40; const R = 12; const T = 16; const B = 26;
   const lastDay = proj ? proj[proj.length - 1].day : pts[pts.length - 1].day;
   const last = pts[pts.length - 1];
   const maxRaw = Math.max(last.current, last.habitual, ...(proj ? proj.map((p) => p.high) : [0]), 1);
@@ -204,21 +231,28 @@ export function CurveChart({ o }: { o: OverviewV2 }) {
   const y = (v: number) => T + (1 - v / max) * (H - T - B);
   const line = (arr: Array<{ day: number; v: number }>) => arr.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.day).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
   const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+  const xt = [1, 8, 15, 22, lastDay].filter((d, i, a) => a.indexOf(d) === i);
+  const end = proj ? proj[proj.length - 1] : null;
   return (
-    <Card title="Evolução do consumo" subtitle="Acumulado no mês contra o seu habitual.">
+    <Card title="Evolução do consumo" subtitle="Acumulado no mês contra o seu habitual (R$).">
       <div className="mb-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />Este mês</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary/30" aria-hidden />Habitual</span>
-        {proj ? <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 border-t-2 border-dashed border-primary" aria-hidden />Projeção</span> : null}
+        {proj ? <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 border-t-2 border-dashed border-primary" aria-hidden />Projeção e faixa provável</span> : null}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Consumo acumulado de ${brl0(last.current)} até o dia ${last.day}, contra ${brl0(last.habitual)} no habitual${proj ? `; projeção de ${brl0(proj[proj.length - 1].value)} no fim do mês` : ""}`}>
-        {ticks.map((t) => (<g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="stroke-border" strokeWidth={0.5} /><text x={L - 4} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={8}>{t.toLocaleString("pt-BR")}</text></g>))}
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Consumo acumulado de ${brl0(last.current)} até o dia ${last.day}, contra ${brl0(last.habitual)} no habitual${end ? `; projeção de ${brl0(end.value)} no fim do mês, entre ${brl0(end.low)} e ${brl0(end.high)}` : ""}`}>
+        {ticks.map((t) => (<g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="stroke-border" strokeWidth={0.5} /><text x={L - 4} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={9}>{t.toLocaleString("pt-BR")}</text></g>))}
         {proj ? <path d={`${line(proj.map((p) => ({ day: p.day, v: p.high })))} ${proj.slice().reverse().map((p) => `L${x(p.day).toFixed(1)} ${y(p.low).toFixed(1)}`).join(" ")} Z`} className="fill-primary/10" /> : null}
         <path d={line(pts.map((p) => ({ day: p.day, v: p.habitual })))} fill="none" className="stroke-primary/35" strokeWidth={1.6} />
         {proj ? <path d={line(proj.map((p) => ({ day: p.day, v: p.value })))} fill="none" className="stroke-primary" strokeWidth={1.8} strokeDasharray="4 3" /> : null}
-        <path d={line(pts.map((p) => ({ day: p.day, v: p.current })))} fill="none" className="stroke-primary" strokeWidth={2.2} strokeLinejoin="round" />
-        <circle cx={x(last.day)} cy={y(last.current)} r={3.5} className="fill-background stroke-primary" strokeWidth={2} />
-        {[1, 8, 15, 22, lastDay].filter((d, i, a) => a.indexOf(d) === i).map((d) => <text key={d} x={x(d)} y={H - 6} textAnchor="middle" className="fill-muted-foreground" fontSize={8}>{d}</text>)}
+        <path d={line(pts.map((p) => ({ day: p.day, v: p.current })))} fill="none" className="stroke-primary" strokeWidth={2.4} strokeLinejoin="round" />
+        {proj ? <line x1={x(last.day)} x2={x(last.day)} y1={T} y2={H - B} className="stroke-primary/50" strokeWidth={1} strokeDasharray="2 2" /> : null}
+        <circle cx={x(last.day)} cy={y(last.current)} r={3.8} className="fill-background stroke-primary" strokeWidth={2} />
+        {proj ? <text x={x(last.day)} y={T - 4} textAnchor="middle" className="fill-primary" fontSize={9} fontWeight={700}>hoje</text> : null}
+        <text x={x(last.day) + (last.day > lastDay * 0.7 ? -6 : 6)} y={y(last.current) - 7} textAnchor={last.day > lastDay * 0.7 ? "end" : "start"} className="fill-foreground" fontSize={9.5} fontWeight={700}>{brl0(last.current)}</text>
+        {end ? <text x={W - R} y={y(end.value) - 6} textAnchor="end" className="fill-muted-foreground" fontSize={9}>{brl0(end.value)}</text> : null}
+        {xt.map((d) => <text key={d} x={x(d)} y={H - 8} textAnchor="middle" className="fill-muted-foreground" fontSize={9}>{d}</text>)}
+        <text x={L} y={H - 0} className="fill-muted-foreground" fontSize={8}>dia do mês</text>
       </svg>
     </Card>
   );
@@ -246,19 +280,23 @@ export function TopCategoriesV2({ categories, onSeeAll }: { categories: Category
   );
 }
 
-export function RecommendationsCard({ r }: { r: ReportV2["recommendations"] }) {
-  if (r.items.length === 0) return null;
+export function RecommendationsCard({ r, month }: { r: ReportV2["recommendations"]; month: string }) {
+  const act = useRecommendationAction(month);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const items = r.items.filter((i) => !hidden.includes(i.key));
+  if (items.length === 0) return null;
+  const hide = (it: Recommendation, a: "accepted" | "dismissed") => { setHidden((h) => [...h, it.key]); void act(it, a); };
   return (
-    <Card title="O que fazer agora" subtitle="Ordenado por urgência de caixa e impacto em reais, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência e confiança dos dados. Organizar o caixa não é economizar: essas ações não têm valor mensal.">
+    <Card title="O que fazer agora" subtitle="Ordenado por urgência de caixa e impacto em reais, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência e confiança dos dados. Organizar o caixa não é economizar: essas ações não têm valor mensal. Ao aceitar uma ação de economia, o Nino guarda o ponto de partida e mede o resultado na aba Evolução.">
       <ol className="space-y-3">
-        {r.items.map((it, i) => <RecItem key={it.key} it={it} n={i + 1} />)}
+        {items.map((it, i) => <RecItem key={it.key} it={it} n={i + 1} onDismiss={() => hide(it, "dismissed")} onAccept={() => hide(it, "accepted")} />)}
       </ol>
       <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">Cada valor é uma estimativa própria e não deve ser somado: as ações podem se sobrepor.</p>
     </Card>
   );
 }
 
-function RecItem({ it, n }: { it: Recommendation; n: number }) {
+function RecItem({ it, n, onDismiss, onAccept }: { it: Recommendation; n: number; onDismiss: () => void; onAccept?: () => void }) {
   return (
     <li className="flex gap-3">
       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[12px] font-bold text-primary" aria-hidden>{n}</span>
@@ -266,6 +304,7 @@ function RecItem({ it, n }: { it: Recommendation; n: number }) {
         <p className="text-[13.5px] font-semibold leading-snug">{it.title}</p>
         {it.body ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{it.body}</p> : null}
         {it.nature === "saving" && it.monthlyImpact > 0 ? <p className="mt-0.5 text-[12px] font-semibold">Economia estimada: {brl0(it.monthlyImpact)} por mês</p> : null}
+        <button type="button" onClick={onDismiss} className="ml-3 text-[12px] font-medium text-muted-foreground underline print:hidden">Dispensar</button>
         <More label="Como calculamos"><p className="text-[11.5px] leading-snug text-muted-foreground">{it.basis} Confiança: {Math.round(it.confidence * 100)}%.</p></More>
         {it.route && it.routeLabel ? <Link to={it.route} className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">{it.routeLabel}<ArrowRight size={12} aria-hidden /></Link> : null}
       </div>
@@ -314,16 +353,24 @@ export function DriversCard({ b }: { b: BehaviorV2 }) {
   const max = Math.max(...d.rows.map((r) => Math.abs(r.impact)), 1);
   return (
     <Card title="Principais fatores de mudança" subtitle={`Contra o seu habitual (mediana de ${b.habitualBase?.months ?? "vários"} meses, mesmos dias): ${d.totalDelta >= 0 ? "+" : "−"}${brl0(Math.abs(d.totalDelta))} no total.`}>
+      <div className="mb-1 flex justify-between text-[10.5px] text-muted-foreground"><span>← abaixo do habitual</span><span>acima do habitual →</span></div>
       <ul className="space-y-2.5">
-        {d.rows.map((r) => (
-          <li key={r.name}>
-            <span className="flex items-baseline justify-between text-[13px]"><span className="truncate font-semibold">{r.name}</span><span className={cn("font-bold tabular-nums", r.impact > 0 ? "text-red-700" : r.klass === "estrutural" ? "text-foreground" : "text-emerald-700")}>{r.impact > 0 ? "+" : "−"}{brl0(Math.abs(r.impact))}</span></span>
-            <span className="mt-1 block"><Bar pct={Math.abs(r.impact) / max} tone={r.impact > 0 ? "danger" : r.klass === "estrutural" ? "primary" : "ok"} /></span>
-          </li>
-        ))}
+        {d.rows.map((r) => {
+          const w = (Math.abs(r.impact) / max) * 50;
+          const up = r.impact > 0;
+          return (
+            <li key={r.name}>
+              <span className="flex items-baseline justify-between text-[13px]"><span className="truncate font-semibold">{r.name}</span><span className={cn("font-bold tabular-nums", up ? "text-red-700" : r.klass === "estrutural" ? "text-foreground" : "text-emerald-700")}>{up ? "+" : "−"}{brl0(Math.abs(r.impact))}</span></span>
+              <span className="relative mt-1 block h-2 rounded-full bg-secondary" aria-hidden>
+                <span className="absolute inset-y-0 left-1/2 w-px bg-border" />
+                <span className={cn("absolute inset-y-0 rounded-full", up ? "bg-red-500" : r.klass === "estrutural" ? "bg-primary/60" : "bg-emerald-500")} style={up ? { left: "50%", width: `${w}%` } : { right: "50%", width: `${w}%` }} />
+              </span>
+            </li>
+          );
+        })}
       </ul>
       {Math.abs(d.residual) >= 1 ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">Resíduo: {d.residual > 0 ? "+" : "−"}{brl0(Math.abs(d.residual))}. Medianas por categoria não somam à mediana do total, e as categorias menores ficam fora da lista.</p> : null}
-      {d.rows.some((r) => r.impact < 0 && r.klass === "estrutural") ? <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Queda em gasto fixo pode ser só uma conta que ainda não venceu este mês, não economia.</p> : null}
+      {d.rows.some((r) => r.impact < 0 && r.klass === "estrutural") ? <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">Queda em gasto fixo (cor neutra) pode ser só uma conta que ainda não venceu este mês, não economia.</p> : null}
     </Card>
   );
 }
@@ -336,7 +383,7 @@ function ChangeChipV2({ total, previous, deltaPct }: { total: number; previous: 
 type SortKey = "spend" | "up" | "down";
 const SORTS: Array<{ id: SortKey; label: string }> = [{ id: "spend", label: "Maior gasto" }, { id: "up", label: "Mais subiu" }, { id: "down", label: "Mais caiu" }];
 
-export function CategoriesAndMerchants({ b, compared }: { b: BehaviorV2; compared: boolean }) {
+export function CategoriesAndMerchants({ b, compared, month }: { b: BehaviorV2; compared: boolean; month: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("spend");
   const [query, setQuery] = useState("");
@@ -353,7 +400,7 @@ export function CategoriesAndMerchants({ b, compared }: { b: BehaviorV2; compare
           <button key={id} type="button" role="tab" aria-selected={view === id} onClick={() => setView(id)} className={cn("rounded-full px-3 py-1.5", view === id ? "bg-primary/10 font-bold text-primary" : "text-muted-foreground")}>{label}</button>
         ))}
         <span className="flex-1" />
-        <select aria-label="Ordenar por" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className="rounded-lg bg-transparent text-[12px] text-muted-foreground">
+        <select aria-label="Ordenar por" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className="min-w-[7.5rem] rounded-lg bg-transparent text-[12px] text-muted-foreground">
           {SORTS.filter((s) => compared || s.id === "spend").map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
       </div>
@@ -375,6 +422,7 @@ export function CategoriesAndMerchants({ b, compared }: { b: BehaviorV2; compare
                   <span className="mt-1.5 block"><Bar pct={c.share} /></span>
                   <span className="mt-1 block text-[11.5px] text-muted-foreground tabular-nums">{Math.round(c.share * 100)}% do consumo · {c.count} {c.count === 1 ? "compra" : "compras"}{c.ticket != null ? ` · ticket ${brl0(c.ticket)}` : ""}{compared ? ` · antes ${brl0(c.previous)}` : ""}</span>
                 </button>
+                {isOpen && c.id ? <Link to={`/app/lancamentos?category=${c.id}&start=${month}-01&end=${month}-31`} className="mb-2 ml-7 inline-flex items-center gap-1 text-[12px] font-semibold text-primary print:hidden">Ver os {c.count} lançamentos<ArrowRight size={11} aria-hidden /></Link> : null}
                 {isOpen && c.merchants.length > 0 ? (
                   <ul className="mb-3 ml-7 space-y-2 border-l border-border pl-3">
                     {c.merchants.map((m) => (
@@ -410,19 +458,28 @@ export function CategoriesAndMerchants({ b, compared }: { b: BehaviorV2; compare
 export function WeekdayCardV2({ b }: { b: BehaviorV2 }) {
   const w = b.weekday;
   if (!w) return null;
-  const max = Math.max(...w.rows.map((r) => r.avg), 1);
+  const max = Math.max(...w.rows.map((r) => Math.max(r.avg, r.habitualAvg ?? 0)), 1);
   return (
-    <Card title="Padrão por dia da semana" subtitle="Gasto ajustável por dia, contando os dias sem gasto." info="É o consumo ajustável dividido pelo número de dias daquele tipo no período, incluindo os dias em que você não gastou nada.">
+    <Card title="Padrão por dia da semana" subtitle="Gasto ajustável por dia, contando os dias sem gasto." info="Média por dia = consumo ajustável naquele dia da semana ÷ número de dias daquele tipo no período (incluindo os sem gasto). A marca cinza é o seu histórico equivalente.">
       <div className="flex h-28 items-end gap-1.5" role="img" aria-label={`Maior média por dia: ${w.rows[w.peakDow].label}, ${brl0(w.rows[w.peakDow].avg)}`}>
         {w.rows.map((r) => (
-          <div key={r.dow} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+          <div key={r.dow} className="relative flex h-full flex-1 flex-col items-center justify-end gap-1">
             <span className="text-[10px] font-semibold tabular-nums">{r.avg > 0 ? brl0(r.avg).replace("R$ ", "") : "0"}</span>
-            <span className={cn("w-full rounded-t-md", r.dow === w.peakDow ? "bg-primary" : "bg-primary/30")} style={{ height: `${Math.max(3, (r.avg / max) * 76)}%` }} aria-hidden />
+            <span className="relative flex w-full flex-1 items-end">
+              <span className={cn("w-full rounded-t-md", r.dow === w.peakDow ? "bg-primary" : "bg-primary/30")} style={{ height: `${Math.max(3, (r.avg / max) * 100)}%` }} aria-hidden />
+              {r.habitualAvg != null ? <span className="absolute inset-x-0 border-t-2 border-foreground/40" style={{ bottom: `${(r.habitualAvg / max) * 100}%` }} aria-hidden /> : null}
+            </span>
             <span className="text-[10.5px] text-muted-foreground">{r.label}</span>
           </div>
         ))}
       </div>
       {w.weekend ? <p className="mt-2 text-[12.5px] leading-snug">Nos fins de semana você gasta em média <b>{brl0(w.weekend.weekendAvg)}</b> por dia, contra <b>{brl0(w.weekend.weekdayAvg)}</b> nos dias úteis ({pctText(w.weekend.pct)}).</p> : null}
+      <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
+        Amostra: {w.sample.days} dias, {w.sample.observations} compras ajustáveis.
+        {w.habitualWeekend ? ` Histórico equivalente (${w.sample.refMonths} meses): ${brl0(w.habitualWeekend.weekendAvg)} por dia no fim de semana e ${brl0(w.habitualWeekend.weekdayAvg)} nos dias úteis.` : " Sem histórico suficiente para comparar."}
+        {w.persistence ? ` O fim de semana pesou mais em ${w.persistence.withPattern} de ${w.persistence.months} meses anteriores${w.persistence.withPattern >= Math.ceil(w.persistence.months * 0.6) ? ": é um padrão que se repete." : ": ainda não é um padrão firme."}` : ""}
+      </p>
+      <p className="mt-1 text-[11px] text-muted-foreground">Gasto observado não é o mesmo que gasto evitável.</p>
     </Card>
   );
 }
@@ -442,25 +499,35 @@ export function SmallSpendCard({ b }: { b: BehaviorV2 }) {
   );
 }
 
-export function PatternsCard({ b }: { b: BehaviorV2 }) {
-  if (b.patterns.length === 0 && b.priceChanges.length === 0) return null;
+export function PatternsCard({ b, month }: { b: BehaviorV2; month: string }) {
+  const rangeEnd = `${month}-31`;
+  const catId = (name: string) => b.categories.find((c) => c.name === name)?.id ?? null;
+  if (b.patterns.length === 0 && b.priceChanges.length === 0 && b.signals.length === 0) return null;
+  const conf = { alta: "confiança alta", media: "confiança média", baixa: "confiança baixa" } as const;
   return (
-    <Card title="Padrões que o Nino observou" subtitle="Repetições nos seus dados, não julgamentos." info="São padrões estatísticos do seu histórico. Eles não dizem por que você gasta assim.">
-      <ul className="space-y-2.5 text-[13px] leading-snug">
+    <Card title="Padrões que o Nino observou" subtitle="Repetições nos seus dados, com a evidência. Não dizem por que você gasta assim." info="Só aparecem sinais com amostra mínima e relevância em reais. Correlação não é causa, e nada aqui infere emoção ou intenção.">
+      <ul className="space-y-3 text-[13px] leading-snug">
+        {b.signals.map((sg) => {
+          const id = sg.query?.category ? catId(sg.query.category) : null;
+          return (
+            <li key={sg.key}>
+              <span className="font-semibold">{sg.title}</span>
+              <span className="block text-muted-foreground">{sg.evidence}</span>
+              <span className="block text-[11px] text-muted-foreground">Amostra: {sg.sample} · {conf[sg.confidence]}</span>
+              {id ? <Link to={`/app/lancamentos?category=${id}&start=${month}-01&end=${rangeEnd}`} className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-semibold text-primary print:hidden">Ver lançamentos<ArrowRight size={11} aria-hidden /></Link> : null}
+            </li>
+          );
+        })}
         {b.patterns.map((p) => (
-          <li key={p.label}><span className="font-semibold">{p.label}</span>{p.upliftPct != null ? <span className="text-muted-foreground"> · {pctText(p.upliftPct / 100)} em relação ao seu normal</span> : null}<span className="block text-[11px] text-muted-foreground">{p.status === "validated" ? "Confirmado" : "Em observação"} · {p.sampleSize} ocorrências</span></li>
+          <li key={p.label}><span className="font-semibold">{p.label}</span>{p.upliftPct != null ? <span className="text-muted-foreground"> · {pctText(p.upliftPct / 100)} em relação ao seu normal</span> : null}<span className="block text-[11px] text-muted-foreground">{p.status === "validated" ? "Confirmado" : "Em observação"} · {p.sampleSize} ocorrências{p.confidence != null ? ` · confiança ${Math.round(p.confidence * 100)}%` : ""}</span></li>
         ))}
         {b.priceChanges.map((p) => (
-          <li key={p.key}><span className="font-semibold capitalize">{p.label}</span> subiu de {brl0(p.from)} para {brl0(p.to)} <span className="text-muted-foreground">({pctText(p.deltaPct)})</span></li>
+          <li key={p.key}><span className="font-semibold capitalize">{p.label}</span> subiu de {brl0(p.from)} para {brl0(p.to)} <span className="text-muted-foreground">({pctText(p.deltaPct)})</span><span className="block text-[11px] text-muted-foreground">Amostra: 3 meses anteriores estáveis</span></li>
         ))}
       </ul>
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Projeções (C)
-// ---------------------------------------------------------------------------
 
 export function ConsumptionProjectionCard({ p }: { p: ProjectionsV2 }) {
   const c = p.consumption;
@@ -475,6 +542,7 @@ export function ConsumptionProjectionCard({ p }: { p: ProjectionsV2 }) {
         <li className="flex justify-between"><span>Gasto ajustável esperado</span><span className="font-semibold tabular-nums">+ {brl2(c.adjustableFuture)}</span></li>
         <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Projeção</span><span className="tabular-nums">{brl2(c.total)}</span></li>
       </ul>
+      {c.structuralItems.length > 0 ? <More label="Quais obrigações"><ul className="space-y-1 text-[12px] text-muted-foreground">{c.structuralItems.map((i) => <li key={`${i.label}-${i.date}`} className="flex justify-between"><span>{fmtDay(i.date)} · {i.label}</span><span className="tabular-nums">{brl2(i.amount)}</span></li>)}</ul></More> : null}
       <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{c.method}</p>
     </Card>
   );
@@ -483,9 +551,16 @@ export function ConsumptionProjectionCard({ p }: { p: ProjectionsV2 }) {
 export function CashProjectionCard({ p }: { p: ProjectionsV2 }) {
   const c = p.cash;
   if (!c) return null;
+  const hasUncertain = c.steps.some((s) => s.uncertain);
   return (
-    <Card title="Projeção de saldo até o fim do mês" subtitle="A conta aberta, passo a passo, em centavos." info="Saldo de caixa, não consumo: compras no cartão só afetam o caixa quando a fatura é paga, e parcelas de dívida saem do caixa mesmo sem serem consumo. Valores a receber de terceiros não entram aqui.">
-      <ul className="space-y-1 text-[13px]">
+    <Card title="Saldo esperado até o fim do mês" tone="hero" subtitle="A conta aberta, passo a passo, em centavos." info="Saldo de caixa, não consumo: compras no cartão só afetam o caixa quando a fatura é paga, e parcelas de dívida saem do caixa mesmo sem serem consumo. Valores a receber de terceiros não entram aqui.">
+      <p className="text-3xl font-bold tabular-nums">{brl2(c.projectedEnd)}</p>
+      <p className="text-[12px] text-muted-foreground">{hasUncertain ? "cenário com receitas estimadas" : "com a renda informada no perfil"}</p>
+      <div className="mt-2 rounded-xl bg-background/70 p-3 text-[12.5px]">
+        <p><b>Cenário conservador:</b> {brl2(c.conservativeEnd)}{hasUncertain ? " (sem a receita ainda não confirmada)" : " (igual: não há receita incerta na conta)"}.</p>
+        {c.freeCash != null ? <p className="mt-0.5 text-muted-foreground">Dinheiro livre depois dos compromissos conhecidos, antes do consumo variável: {brl2(c.freeCash)}.</p> : null}
+      </div>
+      <ul className="mt-3 space-y-1 text-[13px]">
         {c.steps.map((s) => (
           <li key={s.key} className={cn("flex justify-between", s.sign === "result" && "border-t border-border pt-1 font-bold")}>
             <span>{s.label}{s.uncertain ? " *" : ""}</span>
@@ -493,8 +568,8 @@ export function CashProjectionCard({ p }: { p: ProjectionsV2 }) {
           </li>
         ))}
       </ul>
-      {c.steps.some((s) => s.uncertain) ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">* Receita ainda não confirmada. Sem ela, o saldo projetado seria <b>{brl2(c.conservativeEnd)}</b> (cenário conservador).</p> : null}
-      {c.expectedIncome ? <p className="mt-1 text-[11.5px] text-muted-foreground">Próxima renda: {brl2(c.expectedIncome.amount)} em {fmtDay(c.expectedIncome.date)} ({c.expectedIncome.configured ? "informada no perfil, ainda não recebida" : "estimada"}).</p> : null}
+      {hasUncertain ? <p className="mt-2 text-[11.5px] leading-snug text-muted-foreground">* Receita ainda não confirmada.</p> : null}
+      {c.expectedIncome ? <p className="mt-1 text-[11.5px] text-muted-foreground">Próxima renda: {brl2(c.expectedIncome.amount)} em {fmtDay(c.expectedIncome.date)} ({c.expectedIncome.configured ? "informada no perfil, ainda não recebida" : "estimada"}). Receita prevista não é receita realizada.</p> : null}
       {!c.reconciles ? <p className="mt-1 text-[11.5px] text-amber-700">Esta conta não fecha exatamente com a da Home.</p> : null}
     </Card>
   );
@@ -505,18 +580,47 @@ const GROUP_LABEL = { cards: "Cartões e parcelas", debts: "Dívidas e emprésti
 export function CommitmentsCardV2({ p }: { p: ProjectionsV2 }) {
   const c = p.commitments;
   if (!c) return null;
+  const maxMonth = Math.max(...c.months.map((m) => m.cards + m.debts + m.recurring), 1);
+  const COLORS = { cards: "bg-primary", debts: "bg-primary/55", recurring: "bg-primary/25" } as const;
   return (
     <Card title="Compromissos futuros" subtitle="O que já está agendado.">
       <p className="text-2xl font-bold tabular-nums">{brl0(c.next30)}<span className="ml-1 text-[12px] font-medium text-muted-foreground">{c.horizonEnd ? `até ${fmtDay(c.horizonEnd)}` : "nos próximos 30 dias"}</span></p>
       {c.groups.length > 0 ? <ul className="mt-2 space-y-1 text-[13px]">{c.groups.map((g) => <li key={g.key} className="flex justify-between"><span>{GROUP_LABEL[g.key]}{g.estimated ? " (estimada)" : ""}</span><span className="font-semibold tabular-nums">{brl0(g.amount)}</span></li>)}</ul> : null}
       {p.committedIncome ? (
-        <p className="mt-2 rounded-xl bg-primary/5 p-3 text-[12.5px] leading-snug"><b>{Math.round(p.committedIncome.pct * 100)}%</b> da renda mensal de {brl0(p.committedIncome.income)} ({p.committedIncome.basis}) já está comprometida nos próximos 30 dias. A renda típica dos meses anteriores pode ser diferente.</p>
+        <p className="mt-2 rounded-xl bg-primary/5 p-3 text-[12.5px] leading-snug"><b>{Math.round(p.committedIncome.pct * 100)}%</b> da renda mensal de {brl0(p.committedIncome.income)} ({p.committedIncome.basis}) já está comprometida nesse horizonte. A renda típica dos meses anteriores pode ser diferente.</p>
       ) : null}
-      {c.months.length > 0 ? (
-        <More label="Parcelas de cartão nos próximos meses">
-          <ul className="space-y-1 text-[13px]">{c.months.map((m) => <li key={m.month} className="flex justify-between"><span className="capitalize">{monthName(m.month)}</span><span className="font-semibold tabular-nums">{brl0(m.cards + m.debts + m.recurring)}</span></li>)}</ul>
-          <p className="mt-1 text-[11px] text-muted-foreground">Só parcelas já contratadas; contas fixas e recorrências futuras não entram.</p>
-        </More>
+      {c.months.some((m) => m.cards + m.debts + m.recurring > 0) ? (
+        <div className="mt-4">
+          <p className="text-[12px] font-semibold">Próximos 6 meses</p>
+          <div className="mt-6 flex h-32 items-end gap-2" role="img" aria-label="Compromissos por mês, separados em cartões, dívidas e recorrências">
+            {c.months.map((m) => {
+              const total = m.cards + m.debts + m.recurring;
+              return (
+                <div key={m.month} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+                  <span className="text-[9.5px] font-semibold tabular-nums">{total > 0 ? Math.round(total).toLocaleString("pt-BR") : "0"}</span>
+                  <span className="flex w-full flex-1 flex-col-reverse overflow-hidden rounded-t-md" style={{ height: `${Math.max(2, (total / maxMonth) * 82)}%`, flex: "none" }}>
+                    {(["cards", "debts", "recurring"] as const).map((k) => (m[k] > 0 ? <span key={k} className={COLORS[k]} style={{ height: `${(m[k] / total) * 100}%` }} /> : null))}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{monthName(m.month).slice(0, 3)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 text-[10.5px] text-muted-foreground">
+            {(["cards", "debts", "recurring"] as const).map((k) => <span key={k} className="inline-flex items-center gap-1"><span className={cn("h-2 w-2 rounded-sm", COLORS[k])} aria-hidden />{GROUP_LABEL[k]}</span>)}
+          </div>
+          <More label="Detalhe por mês">
+            <ul className="space-y-1.5 text-[12.5px]">
+              {c.months.map((m) => (
+                <li key={m.month}>
+                  <span className="flex justify-between"><span className="capitalize">{monthName(m.month)}</span><span className="font-semibold tabular-nums">{brl0(m.cards + m.debts + m.recurring)}</span></span>
+                  <span className="block text-[11px] text-muted-foreground">cartões {brl0(m.cards)} · dívidas {brl0(m.debts)} · recorrências {brl0(m.recurring)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[11px] text-muted-foreground">Só o que já está contratado (parcelas, dívidas ativas e recorrências mensais). Gastos novos não entram.</p>
+          </More>
+        </div>
       ) : null}
     </Card>
   );
@@ -650,6 +754,8 @@ export function NetWorthCard({ e }: { e: EvolutionV2 }) {
 
 const GOAL_TONE: Record<string, string> = { on_track: "no ritmo", attention: "atenção", at_risk: "em risco", exceeded: "estourou", limit_reached: "no limite" };
 
+const VERDICT = { no_ritmo: { label: "no ritmo", tone: "ok" }, atencao: { label: "atenção", tone: "warn" }, vai_estourar: { label: "deve estourar", tone: "danger" }, estourou: { label: "estourou", tone: "danger" } } as const;
+
 export function GoalsCardV2({ e }: { e: EvolutionV2 }) {
   const g = e.goals;
   if (g.spending.length === 0 && g.savings.length === 0) return null;
@@ -657,21 +763,120 @@ export function GoalsCardV2({ e }: { e: EvolutionV2 }) {
     <Card title="Evolução das metas" subtitle={g.summary ?? undefined}>
       {g.spending.length > 0 ? (
         <div>
-          <p className="text-[12px] font-semibold text-muted-foreground">Metas de gasto</p>
-          <ul className="mt-1.5 space-y-2.5">{g.spending.map((s) => (
-            <li key={s.id}><span className="flex items-baseline justify-between text-[13px]"><span className="font-semibold">{s.category}</span><span className="tabular-nums">{brl0(s.spent)} de {brl0(s.limit)} <span className="text-[11px] text-muted-foreground">· {GOAL_TONE[s.status] ?? s.status}</span></span></span><span className="mt-1 block"><Bar pct={s.pct} tone={s.pct >= 1 ? "danger" : s.pct >= 0.8 ? "warn" : "ok"} /></span></li>
+          <p className="text-[12px] font-semibold text-muted-foreground">Metas de gasto · utilização = gasto ÷ limite, com projeção até o fim do período</p>
+          <ul className="mt-1.5 space-y-3">{g.spending.map((s) => (
+            <li key={s.id}>
+              <span className="flex items-baseline justify-between text-[13px]"><span className="font-semibold">{s.category}</span><span className="tabular-nums">{brl0(s.spent)} de {brl0(s.limit)} <span className="text-[11px] text-muted-foreground">· {VERDICT[s.verdict].label}</span></span></span>
+              <span className="relative mt-1 block h-2 overflow-hidden rounded-full bg-secondary" aria-hidden>
+                {s.projectedPct != null ? <span className="absolute inset-y-0 left-0 rounded-full bg-primary/25" style={{ width: `${Math.min(100, s.projectedPct * 100)}%` }} /> : null}
+                <span className={cn("absolute inset-y-0 left-0 rounded-full", VERDICT[s.verdict].tone === "danger" ? "bg-red-500" : VERDICT[s.verdict].tone === "warn" ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${Math.min(100, Math.max(2, s.pct * 100))}%` }} />
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">{Math.round(s.pct * 100)}% usado{s.projectedPct != null ? ` · projeção ${Math.round(s.projectedPct * 100)}% no fim do período` : ""}{s.daysRemaining != null ? ` · ${s.daysRemaining} ${s.daysRemaining === 1 ? "dia" : "dias"} restantes` : ""}</span>
+            </li>
           ))}</ul>
         </div>
       ) : null}
       {g.savings.length > 0 ? (
         <div className={g.spending.length > 0 ? "mt-4" : ""}>
-          <p className="text-[12px] font-semibold text-muted-foreground">Metas de acumulação</p>
+          <p className="text-[12px] font-semibold text-muted-foreground">Metas de acumulação · progresso = valor acumulado ÷ alvo</p>
           <ul className="mt-1.5 space-y-2.5">{g.savings.map((s) => (
             <li key={s.id}><span className="flex items-baseline justify-between text-[13px]"><span className="font-semibold">{s.name}</span><span className="tabular-nums">{brl0(s.contributed)} de {brl0(s.target)}</span></span><span className="mt-1 block"><Bar pct={s.pct} tone="ok" /></span><span className="mt-0.5 block text-[11px] text-muted-foreground">faltam {brl0(s.remaining)}</span></li>
           ))}</ul>
         </div>
       ) : null}
-      <Link to="/app/metas" className="mt-3 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">Abrir metas<ArrowRight size={12} aria-hidden /></Link>
+      <p className="mt-3 text-[11px] text-muted-foreground">O impacto realizado das metas (economia contra o ponto de partida) aparece na tela de Metas.</p>
+      <Link to="/app/metas" className="mt-1 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">Abrir metas<ArrowRight size={12} aria-hidden /></Link>
+    </Card>
+  );
+}
+
+export function CausesCard({ o }: { o: OverviewV2 }) {
+  if (o.causes.length === 0) return null;
+  return (
+    <Card title="Principais causas" subtitle="O que mais explica a diferença contra o seu habitual.">
+      <ol className="space-y-1.5">
+        {o.causes.map((c, i) => (
+          <li key={c.name} className="flex items-baseline gap-2 text-[13.5px]">
+            <span className="w-4 shrink-0 text-[12px] font-bold text-primary">{i + 1}</span>
+            <span className="min-w-0 flex-1 truncate font-semibold">{c.name}</span>
+            <span className={cn("font-bold tabular-nums", c.impact > 0 ? "text-red-700" : c.klass === "estrutural" ? "text-foreground" : "text-emerald-700")}>{c.impact > 0 ? "+" : "−"}{brl0(Math.abs(c.impact))}</span>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
+export function PriorityAction({ r, month }: { r: ReportV2["recommendations"]; month: string }) {
+  const act = useRecommendationAction(month);
+  const it = r.items[0];
+  if (!it) return null;
+  return (
+    <Card title="Ação prioritária" tone="hero">
+      <p className="text-[14px] font-semibold leading-snug">{it.title}</p>
+      {it.body ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{it.body}</p> : null}
+      {it.nature === "saving" && it.monthlyImpact > 0 ? <p className="mt-1 text-[12px] font-semibold">Economia estimada: {brl0(it.monthlyImpact)} por mês</p> : null}
+      {it.route && it.routeLabel ? <Link to={it.route} onClick={() => { if (it.nature === "saving") void act(it, "accepted"); }} className="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">{it.routeLabel}<ArrowRight size={12} aria-hidden /></Link> : null}
+    </Card>
+  );
+}
+
+export function MethodCard({ meta, notes }: { meta: ReportMeta; notes: QualityNote[] }) {
+  return (
+    <Card title="Qualidade dos dados" tone="quiet" subtitle="O que sustenta e o que limita estes números.">
+      {notes.length > 0 ? (
+        <ul className="space-y-2.5">
+          {notes.map((n) => (
+            <li key={n.code} className="text-[12.5px] leading-snug">
+              <span className="flex items-start gap-2">{n.level === "warn" ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-600" aria-hidden /> : <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />}<span>{n.text}</span></span>
+              {n.affects?.length ? <span className="mt-0.5 block pl-6 text-[11.5px] text-muted-foreground">Afeta: {n.affects.join(", ")}.</span> : null}
+              {n.fix ? <span className="mt-0.5 block pl-6 text-[11.5px] text-muted-foreground">Como corrigir: {n.fix}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-[12.5px] text-muted-foreground">Sem alertas de qualidade neste mês.</p>}
+      <More label="Como este relatório é calculado">
+        <ul className="space-y-1 text-[12px] leading-snug text-muted-foreground">
+          <li>Versão do cálculo: {meta.formulaVersion}; dados até {fmtDay(meta.asOf)}.</li>
+          <li>{meta.competenceRule}</li>
+          <li>Cobertura: {Math.round(meta.coverage.categorizedShare * 100)}% do gasto com categoria; {meta.coverage.historyMonths} {meta.coverage.historyMonths === 1 ? "mês" : "meses"} de histórico{meta.coverage.debtSplitShare != null ? `; ${Math.round(meta.coverage.debtSplitShare * 100)}% dos pagamentos de dívida com juros informados` : ""}; retrato do dia {meta.coverage.snapshotFresh ? "atualizado" : "indisponível"}.</li>
+          <li>{meta.previousVersionNote}</li>
+        </ul>
+      </More>
+    </Card>
+  );
+}
+
+export function ForecastCard({ e }: { e: EvolutionV2 }) {
+  if (e.forecast.length === 0) return null;
+  return (
+    <Card title="Previsto x realizado" subtitle="O que o relatório previu para o consumo e o que aconteceu." info="Guardamos a última previsão de cada mês. Quando o mês fecha, comparamos com o consumo real. Erro positivo = previu mais do que gastou.">
+      <ul className="divide-y divide-border text-[13px]">
+        {e.forecast.map((f) => (
+          <li key={f.month} className="py-2">
+            <span className="flex items-baseline justify-between"><span className="capitalize font-semibold">{monthName(f.month)}</span>{f.consumptionErrorPct != null ? <span className={cn("text-[12px] font-semibold tabular-nums", Math.abs(f.consumptionErrorPct) <= 0.1 ? "text-emerald-700" : "text-amber-700")}>erro {pctText(f.consumptionErrorPct)}</span> : null}</span>
+            <span className="block text-[11.5px] text-muted-foreground tabular-nums">previsto {f.predictedConsumption != null ? brl0(f.predictedConsumption) : "—"} · realizado {brl0(f.actualConsumption)} · previsão de {fmtDay(f.asOf)}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+const TRACK_LABEL: Record<TrackedAction["status"], string> = { reduzindo: "reduzindo", sem_mudanca: "sem mudança", aumentou: "aumentou", sem_dado: "sem dado" };
+
+export function TrackedActionsCard({ e }: { e: EvolutionV2 }) {
+  if (e.tracked.length === 0) return null;
+  return (
+    <Card title="Ações que você aceitou" subtitle="Quanto mudou desde o ponto de partida." info="Ponto de partida = o gasto do período anterior quando você aceitou a ação. Comparamos com o gasto deste mês no mesmo estabelecimento.">
+      <ul className="space-y-2.5 text-[13px]">
+        {e.tracked.map((t) => (
+          <li key={t.key}>
+            <span className="flex items-baseline justify-between gap-2"><span className="min-w-0 truncate font-semibold">{t.title}</span><span className={cn("shrink-0 text-[12px] font-semibold", t.status === "reduzindo" ? "text-emerald-700" : t.status === "aumentou" ? "text-red-700" : "text-muted-foreground")}>{TRACK_LABEL[t.status]}</span></span>
+            <span className="block text-[11.5px] text-muted-foreground tabular-nums">partida {brl0(t.baseline)} → agora {brl0(t.current)} ({t.delta > 0 ? "+" : "−"}{brl0(Math.abs(t.delta))})</span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

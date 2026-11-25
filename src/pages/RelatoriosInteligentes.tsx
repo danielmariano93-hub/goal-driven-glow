@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useReportV2, useReportV2Query } from "@/lib/reports/reportV2Client";
-import { BridgeCard, CashProjectionCard, CategoriesAndMerchants, CommitmentsCardV2, CompareControlV2, ConsumptionHero, ConsumptionProjectionCard, CurveChart, DriversCard, GoalsCardV2, MonthPicker, MonthlyResultCard, NetWorthCard, PatternsCard, QualityNotes, ReceivablesCardV2, RecommendationsCard, RecoverableCardV2, SavingsCardV2, SmallSpendCard, SplitCard, SummaryTrioV2, TabsV2, TopCategoriesV2, WeekdayCardV2 } from "@/components/reports/v2/ReportV2Parts";
+import { ForecastCard, TrackedActionsCard, BridgeCard, CausesCard, MethodCard, PriorityAction, CashProjectionCard, CategoriesAndMerchants, CommitmentsCardV2, CompareControlV2, ConsumptionHero, ConsumptionProjectionCard, CurveChart, DriversCard, GoalsCardV2, MonthPicker, MonthlyResultCard, NetWorthCard, PatternsCard, QualityNotes, ReceivablesCardV2, RecommendationsCard, RecoverableCardV2, SavingsCardV2, SmallSpendCard, SplitCard, SummaryTrioV2, TabsV2, TopCategoriesV2, WeekdayCardV2 } from "@/components/reports/v2/ReportV2Parts";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -123,16 +123,17 @@ export default function RelatoriosInteligentes() {
             <div role="tabpanel" id="painel-geral" aria-labelledby="aba-geral" className="space-y-3">
               {rep.overview ? (
                 <>
-                  {rep.overview.headline ? <p className="rounded-2xl bg-primary/5 p-4 text-[14px] font-medium leading-snug">{rep.overview.headline}</p> : null}
+                  {rep.overview.headline ? <p className="px-1 text-[15px] font-medium leading-snug">{rep.overview.headline}</p> : null}
                   <ConsumptionHero o={rep.overview} isCurrent={rep.isCurrentMonth} />
                   <SummaryTrioV2 o={rep.overview} />
-                  <BridgeCard lines={rep.overview.bridge} />
+                  <BridgeCard lines={rep.overview.bridge} cash={rep.overview.cashBridge} />
+                  <CausesCard o={rep.overview} />
+                  <PriorityAction r={rep.recommendations} month={month} />
                   <CurveChart o={rep.overview} />
                   {rep.behavior ? <TopCategoriesV2 categories={rep.behavior.categories} onSeeAll={() => update({ tab: "comportamento" })} /> : null}
-                  <RecommendationsCard r={rep.recommendations} />
                 </>
               ) : <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há movimentações neste mês.</p>}
-              <QualityNotes notes={rep.quality} />
+              <MethodCard meta={rep.meta} notes={rep.quality} />
             </div>
           ) : null}
 
@@ -141,12 +142,12 @@ export default function RelatoriosInteligentes() {
               {rep.behavior ? (
                 <>
                   <CompareControlV2 compare={compare} onChange={(c) => update({ compare: c })} />
-                  <SplitCard b={rep.behavior} />
                   <DriversCard b={rep.behavior} />
-                  <CategoriesAndMerchants b={rep.behavior} compared={compare !== "none" && rep.behavior.previousLabel != null} />
+                  <SplitCard b={rep.behavior} />
+                  <PatternsCard b={rep.behavior} month={month} />
+                  <CategoriesAndMerchants b={rep.behavior} compared={compare !== "none" && rep.behavior.previousLabel != null} month={month} />
                   <WeekdayCardV2 b={rep.behavior} />
                   <SmallSpendCard b={rep.behavior} />
-                  <PatternsCard b={rep.behavior} />
                 </>
               ) : <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há gastos neste mês para analisar.</p>}
             </div>
@@ -155,12 +156,13 @@ export default function RelatoriosInteligentes() {
           {tab === "projecoes" ? (
             <div role="tabpanel" id="painel-projecoes" aria-labelledby="aba-projecoes" className="space-y-3">
               {!rep.isCurrentMonth ? <p className="rounded-2xl border border-dashed border-border bg-card p-3 text-[12.5px] text-muted-foreground">Projeções valem para o mês em andamento; abaixo, o que continua valendo hoje.</p> : null}
-              <ConsumptionProjectionCard p={rep.projections} />
               <CashProjectionCard p={rep.projections} />
+              <ConsumptionProjectionCard p={rep.projections} />
               <CommitmentsCardV2 p={rep.projections} />
               <ReceivablesCardV2 p={rep.projections} />
               <SavingsCardV2 p={rep.projections} />
               <RecoverableCardV2 p={rep.projections} />
+              <RecommendationsCard r={rep.recommendations} month={month} />
               <QualityNotes notes={rep.quality.filter((q) => ["snapshot_stale", "cash_mismatch", "profile_stale"].includes(q.code))} />
             </div>
           ) : null}
@@ -168,6 +170,8 @@ export default function RelatoriosInteligentes() {
           {tab === "evolucao" ? (
             <div role="tabpanel" id="painel-evolucao" aria-labelledby="aba-evolucao" className="space-y-3">
               <MonthlyResultCard e={rep.evolution} />
+              <ForecastCard e={rep.evolution} />
+              <TrackedActionsCard e={rep.evolution} />
               <NetWorthCard e={rep.evolution} />
               <GoalsCardV2 e={rep.evolution} />
             </div>
