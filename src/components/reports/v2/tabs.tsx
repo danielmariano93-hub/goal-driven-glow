@@ -240,7 +240,7 @@ export function BehaviorTab({ rep, compare, onCompare, month }: { rep: ReportV2;
 
       <DisclosureSheet {...sheet.props("drivers")} title="Como lemos os fatores" description="Cada categoria contra a mediana dos meses anteriores, nos mesmos dias.">
         {d ? (
-          <LedgerLines lines={[...d.rows.map((r) => ({ label: r.name, value: signed0(r.impact) })), { label: "Outras categorias", value: signed0(d.omitted), muted: true }, { label: "Efeito de comparar medianas", value: signed0(d.medianEffect), muted: true }]} total={{ label: "Diferença total", value: signed0(d.totalDelta) }} />
+          <LedgerLines lines={[...d.rows.map((r) => ({ label: r.name, value: signed0(r.impact) })), ...(d.omitted != null ? [{ label: "Outras categorias", value: signed0(d.omitted), muted: true }] : []), ...(d.medianEffect != null ? [{ label: "Efeito de comparar medianas", value: signed0(d.medianEffect), muted: true }] : [])]} total={{ label: "Diferença total", value: signed0(d.totalDelta) }} />
         ) : null}
         <p className="mt-3 text-xs leading-4 text-muted-foreground">Medianas por categoria não somam à mediana do total; essa diferença aparece separada, em vez de esconder na última linha. Queda em gasto fixo pode ser só uma conta ainda não vencida.</p>
       </DisclosureSheet>
@@ -362,7 +362,7 @@ export function ProjectionsTab({ rep, month }: { rep: ReportV2; month: string })
               {c.expectedIncome ? <p className="text-xs leading-4 text-muted-foreground">Condicionado à renda prevista em {ddmm(c.expectedIncome.date)} ({brl0(c.expectedIncome.amount)})</p> : null}
             </div>
           </div>
-          {c.expectedIncome ? <p className="mt-3 rounded-xl bg-secondary/60 px-3 py-2 text-sm leading-5">Sem a renda prevista: <b className={cn("tabular-nums", c.withoutIncomeEnd < 0 && TONE.risk)}>{brl0(c.withoutIncomeEnd)}</b><span className="text-muted-foreground"> · demais premissas iguais</span></p> : null}
+          {c.expectedIncome && c.withoutIncomeEnd != null ? <p className="mt-3 rounded-xl bg-secondary/60 px-3 py-2 text-sm leading-5">Sem a renda prevista: <b className={cn("tabular-nums", c.withoutIncomeEnd < 0 && TONE.risk)}>{brl0(c.withoutIncomeEnd)}</b><span className="text-muted-foreground"> · demais premissas iguais</span></p> : null}
           <button type="button" onClick={() => sheet.show("cash")} className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-primary print:hidden">Como chegamos aqui</button>
         </section>
       ) : <div className="lg:col-span-2"><ContextNotice icon={AlertTriangle} tone="alert" title="Saldo esperado indisponível" text="O retrato de hoje ainda não foi atualizado; nada é estimado no lugar." /></div>}
