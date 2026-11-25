@@ -93,6 +93,8 @@ Rota preservada: `/app/relatorios` (links antigos `?aba=` e `?ato=` levam ao cap
 - **M1 Ordem das recomendações** (`reportV2.ts`): ação de caixa sem valor a proteger nem urgência demonstrada deixa de ser a primeira; urgência com valor continua primeiro. Título da oportunidade recuperável passa a começar com verbo ("Revise os gastos com …").
 - **M2 Vencimentos** (`projections.commitments.items`): lista com data, origem, valor e se é estimado, para o toque abrir os vencimentos. Campo opcional; nenhum cálculo existente muda.
 
+- **M3 Layout global** (`index.css`, `AppLayout.tsx`): `overflow-x: hidden` → `clip` no body e no layout (com `hidden` como reserva). Mesmo efeito visual, mas o índice fixo passa a funcionar; sem isso nenhum `position: sticky` do app ficava fixo.
+
 ## 6. Testes
 
 - `src/test/meu-mes.test.tsx`: estrutura, âncoras, heroes, capítulos 01/04/06, gaveta de categorias com comparação, troca de mês sem números antigos, casos de reconciliação da seção 14 (ponte 11.783,34; sem renda 2.352,90; antes do variável 12.070,70; recebíveis 5.437; classes assinadas = 100; oportunidades 723) e o motor editorial.
