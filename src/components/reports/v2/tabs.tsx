@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle, ArrowDownLeft, BarChart3, CalendarClock, CalendarDays, CheckCircle2, Coins, CreditCard, Eye, HandCoins, Landmark, Layers,
@@ -10,7 +10,7 @@ import { useRecommendationAction } from "@/lib/reports/recommendationActions";
 import { COMPARE_CHOICES } from "@/lib/reports/reportV2Client";
 import { cn } from "@/lib/utils";
 import {
-  ActionCard, ChartReadout, Chip, ContextNotice, DetailLink, DisclosureSheet, IconBadge, LedgerLines, Legend, MetricTile, Panel, RankedRows, TONE,
+  ActionCard, ChartReadout, Chip, ContextNotice, DetailLink, DisclosureSheet, IconBadge, LedgerLines, Legend, MetricTile, Money, Panel, RankedRows, TONE, smoothPath,
   brl0, brl2, ddmm, mon, monthFull, pct0, signed0, useSheet,
 } from "./ui";
 
@@ -33,17 +33,17 @@ export function OverviewTab({ rep, onTab }: { rep: ReportV2; onTab: (t: "comport
   return (
     <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
       {/* Hero: KPI dominante e comparação à direita */}
-      <section aria-label="Consumo do mês" className="rounded-2xl border border-border bg-card p-4 lg:col-span-2">
+      <section aria-label="Consumo do mês" className="rounded-[24px] border border-border/60 bg-card p-5 shadow-[0_1px_2px_rgba(33,22,79,0.04),0_12px_32px_-16px_rgba(109,59,255,0.18)] lg:col-span-2">
         <div className="flex items-start gap-3">
           <IconBadge icon={BarChart3} />
           <div className="min-w-0 flex-1">
             <p className="text-sm leading-5 text-muted-foreground">Você consumiu{rep.isCurrentMonth ? ` até o dia ${o.windowDays}` : ""}</p>
-            <p className="text-[30px] font-bold leading-[34px] tabular-nums">{brl0(o.consumption)}</p>
+            <Money value={o.consumption} size="hero" className="mt-0.5" />
           </div>
           {h?.deltaPct != null ? (
             <div className="shrink-0 text-right">
               <Chip ratio={h.deltaPct} base="seu habitual" />
-              <p className="mt-1 text-xs leading-4 text-muted-foreground">habitual<br />{brl0(h.value)}</p>
+              <p className="mt-1.5 text-xs leading-4 text-muted-foreground">habitual<br /><span className="font-semibold text-foreground tabular-nums">{brl0(h.value)}</span></p>
             </div>
           ) : null}
         </div>
@@ -122,35 +122,48 @@ export function OverviewTab({ rep, onTab }: { rep: ReportV2; onTab: (t: "comport
 
 function CurvePanel({ o, isCurrent }: { o: OverviewV2; isCurrent: boolean }) {
   const pts = o.curve;
+  const gid = useId().replace(/:/g, "");
   const [sel, setSel] = useState<number | null>(null);
   if (!pts || pts.length < 2) return null;
   const proj = o.curveProjection;
-  const W = 340; const H = 180; const L = 40; const R = 12; const T = 18; const B = 24;
+  const W = 340; const H = 190; const L = 34; const R = 14; const T = 20; const B = 22;
   const lastDay = proj ? proj[proj.length - 1].day : pts[pts.length - 1].day;
   const last = pts[pts.length - 1];
-  const maxRaw = Math.max(last.current, last.habitual, ...pts.map((p) => Math.max(p.current, p.habitual)), ...(proj ? proj.map((p) => p.high) : [0]), 1);
+  const maxRaw = Math.max(...pts.map((p) => Math.max(p.current, p.habitual)), ...(proj ? proj.map((p) => p.high) : [0]), 1);
   const step = maxRaw > 12000 ? 4000 : maxRaw > 6000 ? 2000 : maxRaw > 3000 ? 1000 : maxRaw > 1200 ? 500 : 250;
   const max = Math.ceil(maxRaw / step) * step;
   const x = (d: number) => L + ((d - 1) / Math.max(1, lastDay - 1)) * (W - L - R);
   const y = (v: number) => T + (1 - v / max) * (H - T - B);
-  const line = (arr: Array<{ day: number; v: number }>) => arr.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.day).toFixed(1)} ${y(p.v).toFixed(1)}`).join(" ");
+  const P = (arr: Array<{ day: number; v: number }>) => arr.map((p) => [x(p.day), y(p.v)] as [number, number]);
+  // O acumulado diário anda em degraus; para a curva suave, ligamos valores reais a cada 3 dias (o toque mostra o dia exato).
+  const sampled = pts.filter((p, i) => i === 0 || i === pts.length - 1 || (p.day - 1) % 3 === 0);
+  const real = P(sampled.map((p) => ({ day: p.day, v: p.current })));
+  const hab = P(sampled.map((p) => ({ day: p.day, v: p.habitual })));
   const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
   const end = proj ? proj[proj.length - 1] : null;
   const s = sel != null ? pts[sel] : null;
+  const projPts = proj ? P([{ day: last.day, v: last.current }, ...proj.filter((p) => p.day > last.day).map((p) => ({ day: p.day, v: p.value }))]) : null;
+  const bandHi = proj ? P(proj.map((p) => ({ day: p.day, v: p.high }))) : null;
+  const bandLo = proj ? P(proj.map((p) => ({ day: p.day, v: p.low }))).reverse() : null;
   return (
     <Panel title="Evolução do consumo" scope="Acumulado no mês, em R$" icon={LineChart} className="lg:row-span-2">
-      <Legend items={[{ label: "Real", swatch: "bg-primary" }, { label: "Habitual", swatch: "bg-primary/30" }, ...(proj ? [{ label: "Projeção", swatch: "border-primary", dashed: true }] : [])]} />
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full touch-none" role="img" aria-label={`Consumo acumulado de ${brl0(last.current)} até o dia ${last.day}, contra ${brl0(last.habitual)} no habitual${end ? `; projeção de ${brl0(end.value)} no fim do mês (faixa ${brl0(end.low)} a ${brl0(end.high)})` : ""}`}
+      <Legend items={[{ label: "Real", swatch: "bg-primary" }, { label: "Habitual", swatch: "bg-[#C4B5FD]" }, ...(proj ? [{ label: "Projeção", swatch: "border-primary", dashed: true }] : [])]} />
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full touch-none lg:max-h-[280px]" role="img" aria-label={`Consumo acumulado de ${brl0(last.current)} até o dia ${last.day}, contra ${brl0(last.habitual)} no habitual${end ? `; projeção de ${brl0(end.value)} no fim do mês` : ""}`}
         onPointerDown={(e) => { const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * W; const d = Math.round(((px - L) / (W - L - R)) * (lastDay - 1)) + 1; setSel(Math.max(0, Math.min(pts.length - 1, d - 1))); }}>
-        {ticks.map((t) => (<g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="stroke-border" strokeWidth={0.6} /><text x={L - 5} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={10}>{t >= 1000 ? `${t / 1000}k` : t}</text></g>))}
-        {proj ? <path d={`${line(proj.map((p) => ({ day: p.day, v: p.high })))} ${proj.slice().reverse().map((p) => `L${x(p.day).toFixed(1)} ${y(p.low).toFixed(1)}`).join(" ")} Z`} className="fill-primary/10" /> : null}
-        <path d={line(pts.map((p) => ({ day: p.day, v: p.habitual })))} fill="none" stroke="#A78BFA" strokeWidth={1.8} />
-        {proj ? <path d={line(proj.map((p) => ({ day: p.day, v: p.value })))} fill="none" className="stroke-primary" strokeWidth={2} strokeDasharray="5 4" /> : null}
-        <path d={line(pts.map((p) => ({ day: p.day, v: p.current })))} fill="none" className="stroke-primary" strokeWidth={2.6} strokeLinejoin="round" />
-        {isCurrent && proj ? <><line x1={x(last.day)} x2={x(last.day)} y1={T} y2={H - B} className="stroke-primary/40" strokeDasharray="2 3" /><text x={x(last.day)} y={T - 6} textAnchor="middle" className="fill-primary" fontSize={10} fontWeight={700}>hoje</text></> : null}
-        <circle cx={x(last.day)} cy={y(last.current)} r={4} className="fill-card stroke-primary" strokeWidth={2.2} />
-        {s ? <><line x1={x(s.day)} x2={x(s.day)} y1={T} y2={H - B} className="stroke-foreground/30" /><circle cx={x(s.day)} cy={y(s.current)} r={3.5} className="fill-primary" /></> : null}
-        {[1, 8, 15, 22, lastDay].filter((d, i, a) => a.indexOf(d) === i).map((d) => <text key={d} x={x(d)} y={H - 6} textAnchor="middle" className="fill-muted-foreground" fontSize={10}>{d}</text>)}
+        <defs>
+          <linearGradient id={`g${gid}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6D3BFF" stopOpacity={0.18} /><stop offset="100%" stopColor="#6D3BFF" stopOpacity={0} /></linearGradient>
+        </defs>
+        {ticks.map((t) => (<g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="currentColor" className="text-border" strokeWidth={0.7} strokeDasharray={t === 0 ? undefined : "2 4"} /><text x={L - 6} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={9.5}>{t >= 1000 ? `${t / 1000}k` : t}</text></g>))}
+        {bandHi && bandLo ? <path d={`${smoothPath(bandHi)} ${smoothPath(bandLo, false)} Z`} className="fill-primary/[0.07]" /> : null}
+        <path d={smoothPath(hab)} fill="none" stroke="#C4B5FD" strokeWidth={2} strokeLinecap="round" />
+        <path d={`${smoothPath(real)} L${real[real.length - 1][0].toFixed(1)} ${y(0).toFixed(1)} L${real[0][0].toFixed(1)} ${y(0).toFixed(1)} Z`} fill={`url(#g${gid})`} />
+        {projPts ? <path d={smoothPath(projPts)} fill="none" className="stroke-primary" strokeWidth={2} strokeDasharray="4 5" strokeLinecap="round" opacity={0.8} /> : null}
+        <path d={smoothPath(real)} fill="none" className="stroke-primary" strokeWidth={2.75} strokeLinecap="round" strokeLinejoin="round" />
+        {isCurrent && proj ? <><line x1={x(last.day)} x2={x(last.day)} y1={T - 2} y2={H - B} className="stroke-primary/30" strokeDasharray="2 3" /><text x={x(last.day)} y={T - 8} textAnchor="middle" className="fill-primary" fontSize={9.5} fontWeight={600}>hoje</text></> : null}
+        <circle cx={x(last.day)} cy={y(last.current)} r={8} className="fill-primary/15" />
+        <circle cx={x(last.day)} cy={y(last.current)} r={4} className="fill-card stroke-primary" strokeWidth={2.4} />
+        {s ? <><line x1={x(s.day)} x2={x(s.day)} y1={T} y2={H - B} className="stroke-foreground/20" /><circle cx={x(s.day)} cy={y(s.habitual)} r={3} fill="#C4B5FD" /><circle cx={x(s.day)} cy={y(s.current)} r={4} className="fill-primary stroke-card" strokeWidth={1.5} /></> : null}
+        {[1, 8, 15, 22, lastDay].filter((d, i, a) => a.indexOf(d) === i).map((d) => <text key={d} x={x(d)} y={H - 5} textAnchor="middle" className="fill-muted-foreground" fontSize={9.5}>{d}</text>)}
       </svg>
       <ChartReadout>
         {s ? <>Dia {s.day}: <b>{brl0(s.current)}</b> acumulado · habitual {brl0(s.habitual)}</> : end ? <>Hoje <b>{brl0(last.current)}</b> · fim do mês projetado <b>{brl0(end.value)}</b>{Math.round(end.high) > Math.round(end.low) ? ` (faixa histórica ${brl0(end.low)}–${brl0(end.high)})` : ""}. Toque no gráfico para ver um dia.</> : <>Toque no gráfico para ver um dia.</>}
@@ -267,10 +280,10 @@ function WeekdayPanel({ b }: { b: BehaviorV2 }) {
       <div className="flex h-36 items-end gap-1.5" role="img" aria-label={`Maior média: ${w.rows[w.peakDow].label}, ${brl0(w.rows[w.peakDow].avg)} por dia`}>
         {w.rows.map((r, i) => (
           <button key={r.dow} type="button" onClick={() => setSel(i)} aria-label={`${r.label}: ${brl0(r.avg)} por dia`} className="relative flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
-            <span className="text-[11px] font-semibold tabular-nums">{Math.round(r.avg)}</span>
+            <span className={cn("text-[11px] font-semibold tabular-nums", r.dow === w.peakDow || sel === i ? "text-foreground" : "text-transparent")}>{Math.round(r.avg)}</span>
             <span className="relative flex w-full flex-1 items-end">
-              <span className={cn("w-full rounded-t-md", r.dow === w.peakDow || sel === i ? "bg-primary" : "bg-primary/35")} style={{ height: `${Math.max(3, (r.avg / max) * 100)}%` }} />
-              {r.habitualAvg != null ? <span className="absolute inset-x-0 border-t-2 border-dashed border-foreground/50" style={{ bottom: `${(r.habitualAvg / max) * 100}%` }} /> : null}
+              <span className={cn("mx-auto w-[70%] rounded-full transition-colors", r.dow === w.peakDow || sel === i ? "bg-primary" : "bg-primary/20")} style={{ height: `${Math.max(3, (r.avg / max) * 100)}%` }} />
+              {r.habitualAvg != null ? <span className="absolute inset-x-1 border-t-[1.5px] border-dashed border-foreground/40" style={{ bottom: `${(r.habitualAvg / max) * 100}%` }} /> : null}
             </span>
             <span className="text-xs text-muted-foreground">{r.label}</span>
           </button>
@@ -353,12 +366,12 @@ export function ProjectionsTab({ rep, month }: { rep: ReportV2; month: string })
     <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
       {!rep.isCurrentMonth ? <div className="lg:col-span-2"><ContextNotice icon={CalendarClock} title="Projeções valem para o mês em andamento" text="Abaixo, o que continua valendo hoje." /></div> : null}
       {c ? (
-        <section aria-label="Saldo esperado" className="rounded-2xl border border-border bg-card p-4 lg:col-span-2">
+        <section aria-label="Saldo esperado" className="rounded-[24px] border border-border/60 bg-card p-5 shadow-[0_1px_2px_rgba(33,22,79,0.04),0_12px_32px_-16px_rgba(109,59,255,0.18)] lg:col-span-2">
           <div className="flex items-start gap-3">
             <IconBadge icon={Target} />
             <div className="min-w-0 flex-1">
               <p className="text-sm leading-5 text-muted-foreground">Saldo esperado no fim do mês</p>
-              <p className="text-[30px] font-bold leading-[34px] tabular-nums">{brl0(c.projectedEnd)}</p>
+              <Money value={c.projectedEnd} size="hero" className="mt-0.5" />
               {c.expectedIncome ? <p className="text-xs leading-4 text-muted-foreground">Condicionado à renda prevista em {ddmm(c.expectedIncome.date)} ({brl0(c.expectedIncome.amount)})</p> : null}
             </div>
           </div>
@@ -369,7 +382,7 @@ export function ProjectionsTab({ rep, month }: { rep: ReportV2; month: string })
 
       {p.consumption ? (
         <Panel title="Consumo projetado" scope="Fim do mês · faixa histórica estimada" icon={BarChart3} info={() => sheet.show("consumption")}>
-          <p className="text-xl font-bold leading-6 tabular-nums">{brl0(p.consumption.total)}</p>
+          <Money value={p.consumption.total} />
           <p className="text-xs leading-4 text-muted-foreground">{Math.round(p.consumption.high) > Math.round(p.consumption.low) ? `faixa ${brl0(p.consumption.low)} a ${brl0(p.consumption.high)} · ` : "sem variação histórica suficiente para faixa · "}não é saldo</p>
         </Panel>
       ) : null}
@@ -378,7 +391,7 @@ export function ProjectionsTab({ rep, month }: { rep: ReportV2; month: string })
 
       {p.receivables && p.receivables.toDue + p.receivables.overdue > 0 ? (
         <Panel title="A receber" scope="Divisões com outras pessoas · não entra no saldo" icon={HandCoins}>
-          <p className="text-xl font-bold leading-6 tabular-nums">{brl0(p.receivables.toDue + p.receivables.overdue)}</p>
+          <Money value={p.receivables.toDue + p.receivables.overdue} />
           <p className="text-xs leading-4 text-muted-foreground"><span className={p.receivables.overdue > 0 ? TONE.risk : ""}>{brl0(p.receivables.overdue)} vencidos</span> · {brl0(p.receivables.toDue)} a vencer · {brl0(p.receivables.receivedInPeriod)} recebidos no mês</p>
           <Link to="/app/divisao-do-role" className="mt-1 inline-flex min-h-[44px] items-center text-sm font-semibold text-primary print:hidden">Ver cobranças ›</Link>
         </Panel>
@@ -460,7 +473,7 @@ function CommitmentsPanel({ p }: { p: ProjectionsV2 }) {
   const s = sel != null ? months[sel] : null;
   return (
     <Panel title={`Compromissos até ${c.horizonEnd ? ddmm(c.horizonEnd) : "30 dias"}`} scope={p.committedIncome ? `${Math.round(p.committedIncome.pct * 100)}% da renda mensal informada (referência)` : "O que já está agendado"} icon={CalendarClock} className="lg:col-span-2">
-      <p className="text-xl font-bold leading-6 tabular-nums">{brl0(c.next30)}</p>
+      <Money value={c.next30} />
       <p className="text-xs leading-4 text-muted-foreground">{c.groups.map((g) => `${SERIES[g.key].label} ${brl0(g.amount)}${g.estimated ? " (estimada)" : ""}`).join(" · ")}</p>
       {months.length > 0 ? (
         <div className="mt-4">
@@ -471,9 +484,9 @@ function CommitmentsPanel({ p }: { p: ProjectionsV2 }) {
               const total = m.cards + m.debts + m.recurring;
               return (
                 <button key={m.month} type="button" onClick={() => setSel(i)} aria-label={`${monthFull(m.month)}: ${brl0(total)}`} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
-                  <span className="text-[11px] font-semibold tabular-nums">{(total / 1000).toFixed(1).replace(".", ",")}k</span>
-                  <span className={cn("flex w-full flex-col-reverse overflow-hidden rounded-t-md", sel === i && "ring-2 ring-primary ring-offset-1")} style={{ height: `${Math.max(3, (total / max) * 80)}%` }}>
-                    {(["cards", "debts", "recurring"] as const).map((k) => (m[k] > 0 ? <span key={k} style={{ height: `${(m[k] / total) * 100}%`, background: SERIES[k].color }} /> : null))}
+                  <span className={cn("text-[11px] tabular-nums", sel === i ? "font-semibold text-foreground" : "text-muted-foreground")}>{(total / 1000).toFixed(1).replace(".", ",")}k</span>
+                  <span className={cn("flex w-[68%] flex-col-reverse gap-[2px] transition-opacity", sel != null && sel !== i && "opacity-45")} style={{ height: `${Math.max(3, (total / max) * 80)}%` }}>
+                    {(["cards", "debts", "recurring"] as const).filter((k) => m[k] > 0).map((k, idx, arr) => <span key={k} className={cn("rounded-[3px]", idx === arr.length - 1 && "rounded-t-lg")} style={{ height: `${(m[k] / total) * 100}%`, background: SERIES[k].color }} />)}
                   </span>
                   <span className="text-xs text-muted-foreground">{mon(m.month)}</span>
                 </button>
@@ -529,15 +542,15 @@ function IncomeVsConsumption({ e }: { e: EvolutionV2 }) {
       <div className="relative flex h-40 items-end gap-2" role="img" aria-label={mode === "bars" ? "Receitas e consumo por mês" : "Resultado por mês, com zero ao centro"}>
         {mode === "result" ? <span className="absolute inset-x-0 top-1/2 border-t border-foreground/30" aria-hidden><span className="absolute -top-2.5 left-0 bg-card pr-1 text-[10px] text-muted-foreground">R$ 0</span></span> : null}
         {ms.map((m, i) => (
-          <button key={m.month} type="button" onClick={() => setSel(i)} aria-label={`${monthFull(m.month)}: receitas ${brl0(m.income)}, consumo ${brl0(m.consumption)}, resultado ${signed0(m.result)}${m.partial ? " (parcial)" : ""}`} className={cn("relative flex h-full min-w-0 flex-1 flex-col items-center justify-end", sel === i && "rounded-md bg-secondary/60")}>
+          <button key={m.month} type="button" onClick={() => setSel(i)} aria-label={`${monthFull(m.month)}: receitas ${brl0(m.income)}, consumo ${brl0(m.consumption)}, resultado ${signed0(m.result)}${m.partial ? " (parcial)" : ""}`} className={cn("relative flex h-full min-w-0 flex-1 flex-col items-center justify-end rounded-xl transition-colors", sel === i && "bg-primary/[0.06]")}>
             {mode === "bars" ? (
-              <span className="flex h-[calc(100%-18px)] w-full items-end justify-center gap-0.5">
-                <span className={cn("w-[42%] rounded-t", m.partial ? "text-[#16A37A]" : "bg-[#16A37A]")} style={{ height: `${Math.max(1.5, (m.income / max) * 100)}%` }}>{m.partial ? <svg className="h-full w-full"><rect width="100%" height="100%" fill="url(#hatch)" /></svg> : null}</span>
-                <span className={cn("w-[42%] rounded-t", m.partial ? "text-primary" : "bg-primary")} style={{ height: `${Math.max(1.5, (m.consumption / max) * 100)}%` }}>{m.partial ? <svg className="h-full w-full"><rect width="100%" height="100%" fill="url(#hatch)" /></svg> : null}</span>
+              <span className="flex h-[calc(100%-18px)] w-full items-end justify-center gap-1">
+                <span className={cn("w-[34%] overflow-hidden rounded-t-md", m.partial ? "text-[#16A37A]" : "bg-[#16A37A]/85")} style={{ height: `${Math.max(1.5, (m.income / max) * 100)}%` }}>{m.partial ? <svg className="h-full w-full"><rect width="100%" height="100%" fill="url(#hatch)" /></svg> : null}</span>
+                <span className={cn("w-[34%] overflow-hidden rounded-t-md", m.partial ? "text-primary" : "bg-primary")} style={{ height: `${Math.max(1.5, (m.consumption / max) * 100)}%` }}>{m.partial ? <svg className="h-full w-full"><rect width="100%" height="100%" fill="url(#hatch)" /></svg> : null}</span>
               </span>
             ) : (
               <span className="relative h-[calc(100%-18px)] w-full">
-                <span className={cn("absolute left-1/2 w-[55%] -translate-x-1/2", m.result >= 0 ? "bottom-1/2 rounded-t bg-[#16A37A]" : "top-1/2 rounded-b bg-[#DC4C64]", m.partial && "opacity-40")} style={{ height: `${Math.max(1, (Math.abs(m.result) / maxAbs) * 48)}%` }} />
+                <span className={cn("absolute left-1/2 w-[40%] -translate-x-1/2", m.result >= 0 ? "bottom-1/2 rounded-t-md bg-[#16A37A]/85" : "top-1/2 rounded-b-md bg-[#DC4C64]/85", m.partial && "opacity-40")} style={{ height: `${Math.max(1, (Math.abs(m.result) / maxAbs) * 48)}%` }} />
               </span>
             )}
             <span className="mt-1 text-xs text-muted-foreground">{mon(m.month)}{m.partial ? "*" : ""}</span>
@@ -563,19 +576,22 @@ function NetWorthPanel({ e }: { e: EvolutionV2 }) {
   const x = (i: number) => L + (i / Math.max(1, s.length - 1)) * (W - L - R);
   const y = (v: number) => T + (1 - (v - y0) / Math.max(1, y1 - y0)) * (H - T - B);
   const sp = sel != null ? s[sel] : null;
+  const pts = s.map((p, i) => [x(i), y(p.value)] as [number, number]);
   const fmtK = (v: number) => `${v < 0 ? "−" : ""}${Math.abs(Math.round(v / 1000))}k`;
   return (
     <Panel title="Patrimônio líquido registrado" scope={nw.composition ? `Atualizado em ${ddmm(nw.composition.asOf)} · ativos − passivos informados` : "Ativos − passivos informados"} icon={Landmark}>
-      {nw.current != null ? <p className={cn("text-[30px] font-bold leading-[34px] tabular-nums", nw.current < 0 && TONE.risk)}>{brl0(nw.current)}</p> : null}
+      {nw.current != null ? <Money value={nw.current} size="hero" className={nw.current < 0 ? TONE.risk : undefined} /> : null}
       {s.length >= 2 ? (
         <>
           <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full" role="img" aria-label={`Patrimônio de ${brl0(s[0].value)} em ${monthFull(s[0].month)} para ${brl0(s[s.length - 1].value)} em ${monthFull(s[s.length - 1].month)}`}>
-            {[y1, (y0 + y1) / 2, y0].map((t) => <g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} className="stroke-border" strokeWidth={0.6} /><text x={L - 5} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={10}>{fmtK(t)}</text></g>)}
-            <path d={s.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p.value).toFixed(1)}`).join(" ")} fill="none" className="stroke-primary" strokeWidth={2.4} />
+            {[y1, (y0 + y1) / 2, y0].map((t) => <g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="currentColor" className="text-border" strokeWidth={0.7} strokeDasharray="2 4" /><text x={L - 5} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground" fontSize={10}>{fmtK(t)}</text></g>)}
+            <defs><linearGradient id="nwfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#6D3BFF" stopOpacity={0.14} /><stop offset="100%" stopColor="#6D3BFF" stopOpacity={0} /></linearGradient></defs>
+            <path d={`${smoothPath(pts)} L${pts[pts.length - 1][0].toFixed(1)} ${(H - B).toFixed(1)} L${pts[0][0].toFixed(1)} ${(H - B).toFixed(1)} Z`} fill="url(#nwfill)" />
+            <path d={smoothPath(pts)} fill="none" className="stroke-primary" strokeWidth={2.5} strokeLinecap="round" />
             {s.map((p, i) => (
               <g key={p.month} onClick={() => setSel(i)} className="cursor-pointer">
                 <circle cx={x(i)} cy={y(p.value)} r={12} fill="transparent" />
-                <circle cx={x(i)} cy={y(p.value)} r={sel === i ? 5 : 3.5} className="fill-primary" />
+                <circle cx={x(i)} cy={y(p.value)} r={sel === i || i === s.length - 1 ? 4.5 : 3} className={sel === i || i === s.length - 1 ? "fill-card stroke-primary" : "fill-primary"} strokeWidth={2.2} />
                 <text x={x(i)} y={H - 5} textAnchor="middle" className="fill-muted-foreground" fontSize={10}>{mon(p.month)}</text>
               </g>
             ))}
@@ -612,7 +628,7 @@ function GoalsPanel({ e }: { e: EvolutionV2 }) {
               return (
                 <li key={s.id}>
                   <p className="flex items-baseline justify-between text-sm leading-5"><span className="font-semibold">{s.category}</span><span className="tabular-nums">{Math.round(s.pct * 100)}%{s.projectedPct != null ? ` · projeção ${Math.round(s.projectedPct * 100)}%` : ""} · <span className={s.verdict === "no_ritmo" ? TONE.success : s.verdict === "atencao" ? TONE.alert : TONE.risk}>{VERDICT[s.verdict]}</span></span></p>
-                  <span className="relative mt-1 block h-2 overflow-hidden rounded-full bg-secondary" aria-hidden>
+                  <span className="relative mt-1.5 block h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden>
                     {s.projectedPct != null ? <span className="absolute inset-y-0 left-0 rounded-full bg-primary/25" style={{ width: `${(s.projectedPct / scale) * 100}%` }} /> : null}
                     <span className={cn("absolute inset-y-0 left-0 rounded-full", color)} style={{ width: `${Math.max(2, (s.pct / scale) * 100)}%` }} />
                     <span className="absolute inset-y-[-2px] w-0.5 bg-foreground/60" style={{ left: `${(1 / scale) * 100}%` }} />
@@ -630,7 +646,7 @@ function GoalsPanel({ e }: { e: EvolutionV2 }) {
           <p className="text-xs leading-4 text-muted-foreground">Acumulação · progresso = acumulado ÷ alvo</p>
           <ul className="mt-2 space-y-2.5">{g.savings.map((s) => (
             <li key={s.id}><p className="flex items-baseline justify-between text-sm leading-5"><span className="font-semibold">{s.name}</span><span className="tabular-nums">{Math.round(s.pct * 100)}%</span></p>
-              <span className="mt-1 block h-2 overflow-hidden rounded-full bg-secondary" aria-hidden><span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(2, s.pct * 100)}%` }} /></span>
+              <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden><span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(2, s.pct * 100)}%` }} /></span>
               <p className="mt-0.5 text-xs leading-4 text-muted-foreground tabular-nums">{brl0(s.contributed)} de {brl0(s.target)} · faltam {brl0(s.remaining)}</p></li>
           ))}</ul>
         </div>
