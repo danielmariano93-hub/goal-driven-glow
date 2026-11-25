@@ -11,6 +11,9 @@ Versão do cálculo: `report_v2.1` (módulo puro `src/lib/engine/reportV2.ts`, e
 | Saldo, compromissos, projeção de caixa, patrimônio, metas | `financial_current_snapshots.payload.snapshot` (só se for de hoje) | É a conta da Home; o relatório não recalcula caixa |
 | Poupança sustentável, recuperável | `financial_profile_snapshots` (mais recente) | Cálculo canônico do perfil |
 | A receber | `split_receivables_v1` (`state`: pending/overdue/paid) | Separa a vencer, vencido e recebido |
+| Ponte do caixa | `transactions` de conta (sem cartão e sem transferência entre contas próprias) + saldo do snapshot | Saldo inicial é **derivado** (saldo de hoje − movimento líquido do mês) |
+| Previsto x realizado | `report_projection_snapshots` (uma previsão por dia do mês corrente, gravada a cada abertura) | Memória própria; compara a última previsão de cada mês fechado com o consumo real |
+| Ações aceitas/dispensadas | `report_recommendation_actions` (RLS do usuário) | Guarda o ponto de partida para medir a economia realizada |
 | Padrões | `behavioral_patterns` (validated; candidate com confiança ≥ 60%) | Evidência já calculada |
 | Compromissos 6 meses | `credit_card_installments` + `debts` + `recurring_rules` | Só o que já está contratado |
 
@@ -54,3 +57,7 @@ Versão do cálculo: `report_v2.1` (módulo puro `src/lib/engine/reportV2.ts`, e
 | 21 | Patrimônio | snapshot + perfil | hoje + série mensal | ativos − passivos, data de referência |
 | 22 | Metas | snapshot | período da meta | utilização + projeção + veredito |
 | 23 | Recomendações | 07, 11, 10, 19 e situações | mês | sem agregado |
+
+## Ciclo das recomendações
+
+Aceitar (clicar em "Criar meta de gasto"/ação de economia) grava o ponto de partida (gasto do período anterior no estabelecimento) e tira a ação da lista; dispensar grava e esconde. Na aba Evolução, "Ações que você aceitou" mostra partida → agora e se está reduzindo, sem mudança ou aumentou (±5%). "Previsto x realizado" mostra, para cada mês fechado, a última previsão de consumo contra o consumo real e o erro.

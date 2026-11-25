@@ -52,6 +52,12 @@ export interface V2Inputs {
   situationActions: SituationActionRow[];
   savingsGoalIds: string[];
   netWorthSeries: Array<{ month: string; value: number }>;
+  /** Movimentos de conta do mês (entradas e saídas de caixa por tipo), sem transferência entre contas próprias. */
+  cashMovements?: Array<{ dir: "in" | "out"; key: string; amount: number }>;
+  /** Última previsão gravada de cada mês (para comparar previsto x realizado). */
+  projectionHistory?: Array<{ month: string; asOf: string; projectedConsumption: number | null; projectedEnd: number | null }>;
+  /** Ações aceitas/dispensadas pelo usuário. */
+  recommendationActions?: Array<{ month: string; recKey: string; kind: string; title: string; action: "accepted" | "dismissed"; merchantKey: string | null; category: string | null; baselineAmount: number | null; monthlyImpact: number | null }>;
 }
 
 export interface ProfileLite {
@@ -99,6 +105,8 @@ export interface OverviewV2 {
   headline: string;
   /** As três maiores causas da diferença contra o habitual. */
   causes: DriverRow[];
+  /** Ponte do caixa do mês: saldo inicial (derivado) + entradas − saídas = saldo hoje. Só no mês corrente com retrato do dia. */
+  cashBridge: { opening: number; inflows: Array<{ label: string; amount: number }>; outflows: Array<{ label: string; amount: number }>; closing: number; openingDerived: true } | null;
   /** Dívida paga no período: fora do consumo, com a lista do que entrou e se os juros são conhecidos. */
   debt: { paid: number; items: DebtItem[]; unsplit: number };
   balance: { available: number | null; asOf: string | null };
@@ -177,7 +185,14 @@ export interface ProjectionsV2 {
 
 export interface EvolutionMonth { month: string; income: number; consumption: number; debtPaid: number; result: number; open: boolean; partial: boolean }
 
+export interface ForecastRow { month: string; asOf: string; predictedConsumption: number | null; actualConsumption: number; consumptionErrorPct: number | null; predictedEnd: number | null }
+export interface TrackedAction { key: string; title: string; kind: string; acceptedMonth: string; baseline: number; current: number; delta: number; status: "reduzindo" | "sem_mudanca" | "aumentou" | "sem_dado" }
+
 export interface EvolutionV2 {
+  /** Previsão gravada x realizado dos meses fechados. */
+  forecast: ForecastRow[];
+  /** Ações aceitas e o que mudou desde o ponto de partida. */
+  tracked: TrackedAction[];
   months: EvolutionMonth[];
   netWorth: {
     series: Array<{ month: string; value: number }>; current: number | null; label: string;
@@ -200,6 +215,10 @@ export interface Recommendation {
   /** De onde vem o número (baseline e premissa). Sem premissa, não há impacto. */
   basis: string;
   monthlyImpact: number;
+  /** Chave do estabelecimento (quando a ação é sobre um) e valor de partida, para medir depois. */
+  merchantKey?: string | null;
+  baselineAmount?: number | null;
+  category?: string | null;
   confidence: number;
   score: number;
   route: string | null;
@@ -451,12 +470,28 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
     curve = cur.map((v, i) => ({ day: i + 1, current: round2(v), habitual: round2(median(refs.map((r) => r[i]))) }));
   }
 
+  // Ponte do caixa: o saldo inicial é derivado (saldo de hoje − movimento líquido do mês); a ponte mostra o que moveu o caixa.
+  const CASH_LABEL: Record<string, string> = {
+    in_income: "Receitas (renda e outras)", in_external: "Transferências recebidas de fora", in_loan: "Empréstimos recebidos", in_refund: "Estornos e reembolsos", in_invest: "Resgates e rendimentos", in_other: "Outras entradas",
+    out_spend: "Gastos à vista e no débito", out_debt: "Dívidas pagas", out_card: "Fatura do cartão paga", out_external: "Transferências enviadas para fora", out_invest: "Aplicações", out_other: "Outras saídas",
+  };
+  let cashBridge: OverviewV2["cashBridge"] = null;
+  if (isCurrentMonth && available != null && (input.cashMovements?.length ?? 0) > 0) {
+    const sum = (dir: "in" | "out") => {
+      const by = new Map<string, number>();
+      for (const m of input.cashMovements ?? []) if (m.dir === dir) by.set(m.key, (by.get(m.key) ?? 0) + m.amount);
+      return [...by.entries()].map(([k, v]) => ({ label: CASH_LABEL[k] ?? k, amount: round2(v) })).filter((x) => x.amount !== 0).sort((x, y) => y.amount - x.amount);
+    };
+    const inflows = sum("in"); const outflows = sum("out");
+    const net = inflows.reduce((t, x) => t + x.amount, 0) - outflows.reduce((t, x) => t + x.amount, 0);
+    cashBridge = { opening: round2(available - net), inflows, outflows, closing: round2(available), openingDerived: true };
+  }
   const overview: OverviewV2 | null = consumption === 0 && rows.every((r) => r.month !== month) && realizedIncome === 0 && debtPaid === 0
     ? null
     : {
         consumption, classes: roundClasses(classes), debtPaid, refunds, habitual,
         income: { realized: realizedIncome, recurring: recurringIncome, extraordinary: round2(realizedIncome - recurringIncome), typical: typicalIncome, incomplete, expected: incomplete ? expectedIncome : null },
-        result, reconciliation: { gross, refunds, consumption }, headline: "", causes: [], debt: { paid: debtPaid, items: cls.debtItems.filter((d) => monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays), unsplit: round2(cls.debtItems.filter((d) => !d.split && monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays).reduce((a, d) => a + d.amount, 0)) }, balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
+        result, reconciliation: { gross, refunds, consumption }, headline: "", causes: [], cashBridge, debt: { paid: debtPaid, items: cls.debtItems.filter((d) => monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays), unsplit: round2(cls.debtItems.filter((d) => !d.split && monthOf(d.date) === month && dayOfMonth(d.date) <= windowDays).reduce((a, d) => a + d.amount, 0)) }, balance: { available, asOf: snapshot ? today : null }, bridge, curve, curveProjection: null, windowDays,
       };
 
   // ---- Comportamento ---------------------------------------------------------------------
@@ -481,7 +516,7 @@ export function buildReportV2(input: V2Inputs): ReportV2 {
   }
 
   // ---- Evolução ----------------------------------------------------------------------------
-  const evolution = buildEvolution({ rows, cls, month, today, isCurrentMonth, input, snapshot, typicalIncome });
+  const evolution = buildEvolution({ rows, cls, month, today, isCurrentMonth, input, snapshot, typicalIncome, behavior });
 
   // ---- Recomendações -----------------------------------------------------------------------
   const recommendations = buildRecommendations({ behavior, projections, input, month });
@@ -869,7 +904,7 @@ function buildProjections(a: {
 // D. Evolução
 // ---------------------------------------------------------------------------
 
-function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; today: string; isCurrentMonth: boolean; input: V2Inputs; snapshot: any | null; typicalIncome: number }): EvolutionV2 {
+function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; today: string; isCurrentMonth: boolean; input: V2Inputs; snapshot: any | null; typicalIncome: number; behavior: BehaviorV2 | null }): EvolutionV2 {
   const months: EvolutionMonth[] = [];
   const openMonth = monthOf(a.today);
   for (let i = 5; i >= 0; i -= 1) {
@@ -913,7 +948,23 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
     .map((g: any) => { const target = num(g.target) as number; const contributed = num(g.contributed) ?? 0; return { id: String(g.id), name: String(g.name ?? "Meta"), target: round2(target), contributed: round2(contributed), pct: Math.min(1, Math.round((contributed / target) * 1000) / 1000), remaining: round2(Math.max(0, target - contributed)) }; });
   const onTrack = spending.filter((g: any) => g.verdict === "no_ritmo").length;
   const summary = spending.length > 0 ? `${onTrack} de ${spending.length} meta${spending.length === 1 ? "" : "s"} de gasto no ritmo${savings.length ? `; ${savings.length} de acumulação em andamento` : ""}.` : savings.length > 0 ? `${savings.length} meta${savings.length === 1 ? "" : "s"} de acumulação em andamento.` : null;
-  return { months, netWorth, goals: { spending, savings, summary } };
+  // Previsto x realizado: última previsão gravada de cada mês fechado contra o consumo que de fato aconteceu.
+  const forecast: ForecastRow[] = [];
+  for (const h of (a.input.projectionHistory ?? []).filter((x) => x.month < openMonth).sort((x, y) => (x.month < y.month ? 1 : -1)).slice(0, 4)) {
+    const actual = round2(a.rows.filter((r) => r.month === h.month).reduce((t, r) => t + r.amount, 0));
+    const pred = h.projectedConsumption;
+    forecast.push({ month: h.month, asOf: h.asOf, predictedConsumption: pred, actualConsumption: actual, consumptionErrorPct: pred != null && actual > 0 ? Math.round(((pred - actual) / actual) * 1000) / 1000 : null, predictedEnd: h.projectedEnd });
+  }
+  // Ações aceitas: partida (baseline) contra o gasto atual no mesmo estabelecimento.
+  const tracked: TrackedAction[] = [];
+  for (const act of (a.input.recommendationActions ?? []).filter((x) => x.action === "accepted" && x.baselineAmount != null && x.merchantKey)) {
+    const m = a.behavior?.merchants.find((x) => x.key === act.merchantKey);
+    const baseline = act.baselineAmount as number;
+    const current = m ? m.total : 0;
+    const delta = round2(current - baseline);
+    tracked.push({ key: act.recKey, title: act.title, kind: act.kind, acceptedMonth: act.month, baseline, current, delta, status: !m && !a.isCurrentMonth ? "sem_dado" : delta < -0.05 * baseline ? "reduzindo" : delta > 0.05 * baseline ? "aumentou" : "sem_mudanca" });
+  }
+  return { forecast, tracked, months, netWorth, goals: { spending, savings, summary } };
 }
 
 // ---------------------------------------------------------------------------
@@ -921,6 +972,7 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
 // ---------------------------------------------------------------------------
 
 function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: ProjectionsV2; input: V2Inputs; month: string }): ReportV2["recommendations"] {
+  const handled = new Set((a.input.recommendationActions ?? []).map((x) => x.recKey));
   // Cada ação traz baseline, premissa e impacto estimado próprios. Não há total agregado: as ações se sobrepõem
   // (a categoria contém o estabelecimento, que contém os pequenos gastos) e somar seria prometer o que não se mede.
   const items: Recommendation[] = [];
@@ -936,7 +988,7 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
         key: `merchant:${m.key}`, kind: "merchant", nature: "saving", title: `Voltar ${m.label} ao nível anterior`,
         body: `Você gastou ${fmt(m.total)} em ${m.label} (${m.count} ${m.count === 1 ? "compra" : "compras"}) contra ${fmt(m.previous)} no período anterior.`,
         basis: `Baseline: ${fmt(m.previous)} no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de ${fmt(m.deltaAbs)}).`,
-        monthlyImpact: round2(m.deltaAbs), confidence: round2(0.5 + 0.4 * recurrence), score: 0, route: cat.id ? `/app/metas/categoria/${cat.id}` : "/app/metas", routeLabel: "Criar meta de gasto",
+        monthlyImpact: round2(m.deltaAbs), merchantKey: m.key, baselineAmount: m.previous, category: m.category, confidence: round2(0.5 + 0.4 * recurrence), score: 0, route: cat.id ? `/app/metas/categoria/${cat.id}` : "/app/metas", routeLabel: "Criar meta de gasto",
       });
     }
     for (const p of b.priceChanges.slice(0, 2)) items.push({ key: `price:${p.key}`, kind: "price", nature: "saving", title: `${p.label} ficou ${fmt(p.deltaAbs)} mais cara`, body: `De ${fmt(p.from)} para ${fmt(p.to)} por mês. Vale conferir se mudou de plano ou se foi reajuste.`, basis: `Baseline: mediana dos 3 meses anteriores (${fmt(p.from)}).`, monthlyImpact: round2(p.deltaAbs), confidence: 0.8, score: 0, route: "/app/recorrencias", routeLabel: "Revisar assinaturas" });
@@ -961,7 +1013,7 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
   // Ordem: ações de caixa com urgência primeiro (não têm valor), depois economia por impacto × confiança.
   items.sort((x, y) => (x.nature === y.nature ? y.score - x.score : x.nature === "cash" ? -1 : 1));
   const seen = new Set<string>();
-  const top = items.filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
+  const top = items.filter((it) => !handled.has(it.key)).filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
   return { items: top };
 }
 

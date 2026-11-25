@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useReportV2, useReportV2Query } from "@/lib/reports/reportV2Client";
-import { BridgeCard, CausesCard, MethodCard, PriorityAction, CashProjectionCard, CategoriesAndMerchants, CommitmentsCardV2, CompareControlV2, ConsumptionHero, ConsumptionProjectionCard, CurveChart, DriversCard, GoalsCardV2, MonthPicker, MonthlyResultCard, NetWorthCard, PatternsCard, QualityNotes, ReceivablesCardV2, RecommendationsCard, RecoverableCardV2, SavingsCardV2, SmallSpendCard, SplitCard, SummaryTrioV2, TabsV2, TopCategoriesV2, WeekdayCardV2 } from "@/components/reports/v2/ReportV2Parts";
+import { ForecastCard, TrackedActionsCard, BridgeCard, CausesCard, MethodCard, PriorityAction, CashProjectionCard, CategoriesAndMerchants, CommitmentsCardV2, CompareControlV2, ConsumptionHero, ConsumptionProjectionCard, CurveChart, DriversCard, GoalsCardV2, MonthPicker, MonthlyResultCard, NetWorthCard, PatternsCard, QualityNotes, ReceivablesCardV2, RecommendationsCard, RecoverableCardV2, SavingsCardV2, SmallSpendCard, SplitCard, SummaryTrioV2, TabsV2, TopCategoriesV2, WeekdayCardV2 } from "@/components/reports/v2/ReportV2Parts";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -126,9 +126,9 @@ export default function RelatoriosInteligentes() {
                   {rep.overview.headline ? <p className="px-1 text-[15px] font-medium leading-snug">{rep.overview.headline}</p> : null}
                   <ConsumptionHero o={rep.overview} isCurrent={rep.isCurrentMonth} />
                   <SummaryTrioV2 o={rep.overview} />
-                  <BridgeCard lines={rep.overview.bridge} />
+                  <BridgeCard lines={rep.overview.bridge} cash={rep.overview.cashBridge} />
                   <CausesCard o={rep.overview} />
-                  <PriorityAction r={rep.recommendations} />
+                  <PriorityAction r={rep.recommendations} month={month} />
                   <CurveChart o={rep.overview} />
                   {rep.behavior ? <TopCategoriesV2 categories={rep.behavior.categories} onSeeAll={() => update({ tab: "comportamento" })} /> : null}
                 </>
@@ -170,6 +170,8 @@ export default function RelatoriosInteligentes() {
           {tab === "evolucao" ? (
             <div role="tabpanel" id="painel-evolucao" aria-labelledby="aba-evolucao" className="space-y-3">
               <MonthlyResultCard e={rep.evolution} />
+              <ForecastCard e={rep.evolution} />
+              <TrackedActionsCard e={rep.evolution} />
               <NetWorthCard e={rep.evolution} />
               <GoalsCardV2 e={rep.evolution} />
             </div>

@@ -25,6 +25,16 @@ const safe = async <T>(fallback: T, fn: () => Promise<T>): Promise<T> => { try {
 
 export async function loadReportV2(sb: any, userId: string, today: string, params: ReportV2Params): Promise<ReportV2> {
   const monthStart = `${params.month}-01`;
+  const monthEndDate = (() => { const d = new Date(Date.UTC(Number(params.month.slice(0, 4)), Number(params.month.slice(5, 7)), 0)); return d.toISOString().slice(0, 10); })();
+  const [cashRows, projRows, actionRows] = await Promise.all([
+    params.month === today.slice(0, 7)
+      ? safe<any[]>([], async () => fetchAllPages<any>((a, b) => sb.from("transactions").select("id,type,movement_kind,amount,transfer_group_id,settles_card_id").eq("user_id", userId).eq("status", "confirmed")
+        .not("account_id", "is", null).is("credit_card_id", null).neq("payment_method", "credit_card").gte("occurred_at", `${params.month}-01`).lte("occurred_at", today > monthEndDate ? monthEndDate : today)
+        .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b), { source: "report_v2_cash" }))
+      : Promise.resolve([] as any[]),
+    safe<any[]>([], async () => (await sb.from("report_projection_snapshots").select("month,as_of,projected_consumption,projected_end_balance").eq("user_id", userId).order("as_of", { ascending: false }).limit(200)).data ?? []),
+    safe<any[]>([], async () => (await sb.from("report_recommendation_actions").select("month,rec_key,kind,title,action,merchant_key,category,baseline_amount,monthly_impact").eq("user_id", userId).limit(200)).data ?? []),
+  ]);
   const [debtsRows, recurringRows] = await Promise.all([
     safe<any[]>([], async () => (await sb.from("debts").select("installment_amount,installments_total,installments_paid,next_installment_due,next_installment_amount,status,kind").eq("user_id", userId).eq("status", "active")).data ?? []),
     safe<any[]>([], async () => (await sb.from("recurring_rules").select("amount,frequency,start_date,end_date,kind,status").eq("user_id", userId).eq("status", "active").eq("kind", "expense")).data ?? []),
@@ -98,6 +108,25 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
     }
   }
 
+  // Entradas e saídas de caixa do mês por tipo (transferência entre contas próprias não entra).
+  const cashMovements: NonNullable<V2Inputs["cashMovements"]> = [];
+  for (const r of cashRows) {
+    if (r.transfer_group_id) continue;
+    const amount = n(r.amount);
+    if (amount <= 0) continue;
+    const mk = String(r.movement_kind ?? "transaction");
+    if (r.type === "income") {
+      cashMovements.push({ dir: "in", amount, key: mk === "external_transfer_in" ? "in_external" : mk === "loan_proceeds" ? "in_loan" : mk === "refund" ? "in_refund" : mk === "investment_redemption" || mk === "investment_yield" ? "in_invest" : mk === "transaction" ? "in_income" : "in_other" });
+    } else if (r.type === "expense") {
+      cashMovements.push({ dir: "out", amount, key: r.settles_card_id || mk === "card_payment" ? "out_card" : mk === "debt_payment" || mk === "loan_payment" ? "out_debt" : mk === "external_transfer_out" ? "out_external" : mk === "investment_application" ? "out_invest" : mk === "transaction" ? "out_spend" : "out_other" });
+    }
+  }
+  // Uma previsão por mês: a mais recente.
+  const projectionHistory: NonNullable<V2Inputs["projectionHistory"]> = [];
+  const seenMonth = new Set<string>();
+  for (const r of projRows) { const m = String(r.month); if (seenMonth.has(m)) continue; seenMonth.add(m); projectionHistory.push({ month: m, asOf: String(r.as_of), projectedConsumption: r.projected_consumption == null ? null : n(r.projected_consumption), projectedEnd: r.projected_end_balance == null ? null : n(r.projected_end_balance) }); }
+  const recommendationActions: NonNullable<V2Inputs["recommendationActions"]> = actionRows.map((r) => ({ month: String(r.month), recKey: String(r.rec_key), kind: String(r.kind), title: String(r.title ?? ""), action: r.action === "accepted" ? "accepted" : "dismissed", merchantKey: r.merchant_key ?? null, category: r.category ?? null, baselineAmount: r.baseline_amount == null ? null : n(r.baseline_amount), monthlyImpact: r.monthly_impact == null ? null : n(r.monthly_impact) }));
+
   const input: V2Inputs = {
     today, month: params.month, compare: params.compare,
     entries: ledger.entries as any,
@@ -120,7 +149,21 @@ export async function loadReportV2(sb: any, userId: string, today: string, param
     patterns: patterns.map((p) => ({ label: String(p.label), status: String(p.status), upliftPct: p.uplift_pct == null ? null : n(p.uplift_pct), absoluteDelta: p.absolute_delta == null ? null : n(p.absolute_delta), sampleSize: n(p.sample_size), confidence: p.confidence == null ? null : n(p.confidence), coverage: p.data_coverage == null ? null : n(p.data_coverage) })),
     situationActions,
     savingsGoalIds,
-    netWorthSeries,
+    netWorthSeries, cashMovements, projectionHistory, recommendationActions,
   };
-  return buildReportV2(input);
+  const report = buildReportV2(input);
+  // Memória da previsão: uma por dia do mês corrente, para comparar previsto x realizado quando o mês fechar.
+  if (report.isCurrentMonth && (report.projections.consumption || report.projections.cash)) {
+    try {
+      await sb.from("report_projection_snapshots").upsert({
+        user_id: userId, month: report.month, as_of: today,
+        projected_consumption: report.projections.consumption?.total ?? null,
+        projected_end_balance: report.projections.cash?.projectedEnd ?? null,
+        conservative_end_balance: report.projections.cash?.conservativeEnd ?? null,
+        formula_version: report.version,
+        payload: { consumption: report.projections.consumption, cash: report.projections.cash?.steps ?? null },
+      }, { onConflict: "user_id,month,as_of" });
+    } catch { /* a previsão gravada é memória auxiliar: não derruba o relatório */ }
+  }
+  return report;
 }

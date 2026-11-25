@@ -93,4 +93,35 @@ describe("regressão — livro canônico e relatório", () => {
     expect(w.persistence).toEqual({ months: 3, withPattern: 3 });
     expect(w.sample.days).toBe(24);
   });
+  it("ponte do caixa: saldo inicial derivado + entradas − saídas = saldo de hoje, transferência própria fora", () => {
+    const snap = { availableToday: 4791.12, projection: { estimatedIncomeEvents: [] } };
+    const cashMovements = [
+      { dir: "in" as const, key: "in_external", amount: 7796.31 }, { dir: "in" as const, key: "in_refund", amount: 814.91 }, { dir: "in" as const, key: "in_invest", amount: 0.12 },
+      { dir: "out" as const, key: "out_spend", amount: 3734.52 }, { dir: "out" as const, key: "out_debt", amount: 1739.09 }, { dir: "out" as const, key: "out_external", amount: 230 }, { dir: "out" as const, key: "out_card", amount: 10 },
+    ];
+    const r = buildReportV2(input(ledger([...hist(), tx({ amount: 100, category_id: "c-mercado" })]), { snapshot: snap, cashMovements }));
+    const b = r.overview!.cashBridge!;
+    const inn = b.inflows.reduce((t, x) => t + x.amount, 0); const out = b.outflows.reduce((t, x) => t + x.amount, 0);
+    expect(cents(b.opening + inn - out)).toBe(cents(b.closing));
+    expect(b.closing).toBe(4791.12);
+    expect(b.opening).toBe(1893.39);
+    expect(b.inflows.find((x) => x.label.includes("de fora"))!.amount).toBe(7796.31);
+  });
+  it("previsto x realizado: compara a última previsão do mês fechado com o consumo real", () => {
+    const e = ledger([...hist(), tx({ amount: 100, category_id: "c-mercado" })]);
+    const r = buildReportV2(input(e, { projectionHistory: [{ month: "2026-10", asOf: "2026-10-20", projectedConsumption: 1100, projectedEnd: 5000 }] }));
+    expect(r.evolution.forecast[0]).toMatchObject({ month: "2026-10", predictedConsumption: 1100, actualConsumption: 1000, consumptionErrorPct: 0.1 });
+  });
+  it("ação aceita: some das recomendações e passa a ser medida contra o ponto de partida", () => {
+    const rows = [...hist(),
+      ...[1, 2, 3, 4].map((d) => tx({ amount: 25, category_id: "c-lazer", occurred_at: `2026-10-0${d}`, description: "iFood" })),
+      ...[1, 2, 3, 4, 5].map((d) => tx({ amount: 30, category_id: "c-lazer", occurred_at: `2026-11-0${d}`, description: "iFood" }))];
+    const entries = ledger(rows);
+    const first = buildReportV2(input(entries));
+    const merchant = first.behavior!.merchants[0];
+    expect(merchant).toBeTruthy();
+    const withAction = buildReportV2(input(entries, { recommendationActions: [{ month: "2026-11", recKey: `merchant:${merchant.key}`, kind: "merchant", title: "Voltar iFood", action: "accepted", merchantKey: merchant.key, category: "Lazer", baselineAmount: merchant.total + 100, monthlyImpact: 50 }] }));
+    expect(withAction.recommendations.items.some((i) => i.key === `merchant:${merchant.key}`)).toBe(false);
+    expect(withAction.evolution.tracked[0]).toMatchObject({ baseline: merchant.total + 100, current: merchant.total, status: "reduzindo" });
+  });
 });

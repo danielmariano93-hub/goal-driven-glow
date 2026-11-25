@@ -1,10 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
-import type { BehaviorV2, CategoryRowV2, CompareKind, EvolutionV2, OverviewV2, ProjectionsV2, QualityNote, Recommendation, ReportMeta, ReportV2 } from "@/lib/engine/reportV2";
+import type { BehaviorV2, ForecastRow, TrackedAction, CategoryRowV2, CompareKind, EvolutionV2, OverviewV2, ProjectionsV2, QualityNote, Recommendation, ReportMeta, ReportV2 } from "@/lib/engine/reportV2";
 import { brl0, categoryIcon, monthName, pctText } from "@/components/reports/format";
 import { COMPARE_CHOICES, REPORT_TABS_V2, type ReportTabV2 } from "@/lib/reports/reportV2Client";
 import { cn } from "@/lib/utils";
+import { useRecommendationAction } from "@/lib/reports/recommendationActions";
 
 // Relatórios v2: só desenha o que o servidor calculou. Sem dado, o bloco some ou diz "aguardando"; nunca zero inventado.
 // Estado nunca é só cor: sinal/seta + texto. Detalhe sob demanda (toque), não tudo aberto na primeira tela.
@@ -192,12 +193,26 @@ export function SummaryTrioV2({ o }: { o: OverviewV2 }) {
   );
 }
 
-export function BridgeCard({ lines }: { lines: string[] }) {
-  if (lines.length === 0) return null;
+export function BridgeCard({ lines, cash }: { lines: string[]; cash?: OverviewV2["cashBridge"] }) {
+  if (lines.length === 0 && !cash) return null;
   return (
     <Card title="Como esses números se relacionam" tone="quiet" info="Consumo, resultado operacional, fluxo de caixa e saldo são coisas diferentes.">
-      <p className="text-[12.5px] leading-snug">{lines[0]}</p>
-      {lines.length > 1 ? <More label="Ver a ponte completa"><ul className="space-y-1.5 text-[12.5px] leading-snug">{lines.slice(1).map((l) => <li key={l}>• {l}</li>)}</ul></More> : null}
+      {lines[0] ? <p className="text-[12.5px] leading-snug">{lines[0]}</p> : null}
+      <More label="Ver a ponte completa">
+        {lines.length > 1 ? <ul className="mb-3 space-y-1.5 text-[12.5px] leading-snug">{lines.slice(1).map((l) => <li key={l}>• {l}</li>)}</ul> : null}
+        {cash ? (
+          <div>
+            <p className="text-[12px] font-semibold">Ponte do caixa no mês</p>
+            <ul className="mt-1 space-y-1 text-[12.5px]">
+              <li className="flex justify-between"><span>Saldo no início do mês (derivado)</span><span className="font-semibold tabular-nums">{brl2(cash.opening)}</span></li>
+              {cash.inflows.map((i) => <li key={i.label} className="flex justify-between text-emerald-700"><span>+ {i.label}</span><span className="tabular-nums">{brl2(i.amount)}</span></li>)}
+              {cash.outflows.map((o) => <li key={o.label} className="flex justify-between"><span>− {o.label}</span><span className="tabular-nums">{brl2(o.amount)}</span></li>)}
+              <li className="flex justify-between border-t border-border pt-1 font-bold"><span>Saldo hoje</span><span className="tabular-nums">{brl2(cash.closing)}</span></li>
+            </ul>
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">O saldo inicial é derivado (saldo de hoje menos o movimento líquido do mês), não um saldo certificado. Transferências entre contas próprias ficam de fora; entradas de fora e empréstimos movem o caixa mas não são receita.</p>
+          </div>
+        ) : null}
+      </More>
     </Card>
   );
 }
@@ -266,22 +281,22 @@ export function TopCategoriesV2({ categories, onSeeAll }: { categories: Category
 }
 
 export function RecommendationsCard({ r, month }: { r: ReportV2["recommendations"]; month: string }) {
-  const storeKey = `nino-reports-dismissed-${month}`;
-  const [dismissed, setDismissed] = useState<string[]>(() => { try { return JSON.parse(window.localStorage.getItem(storeKey) ?? "[]"); } catch { return []; } });
-  const dismiss = (key: string) => { const next = [...dismissed, key]; setDismissed(next); try { window.localStorage.setItem(storeKey, JSON.stringify(next)); } catch { /* sem armazenamento: só some da tela */ } };
-  const items = r.items.filter((i) => !dismissed.includes(i.key));
+  const act = useRecommendationAction(month);
+  const [hidden, setHidden] = useState<string[]>([]);
+  const items = r.items.filter((i) => !hidden.includes(i.key));
   if (items.length === 0) return null;
+  const hide = (it: Recommendation, a: "accepted" | "dismissed") => { setHidden((h) => [...h, it.key]); void act(it, a); };
   return (
-    <Card title="O que fazer agora" subtitle="Ordenado por urgência de caixa e impacto em reais, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência e confiança dos dados. Organizar o caixa não é economizar: essas ações não têm valor mensal. Aceitar uma ação de economia cria uma meta; o resultado aparece na aba Evolução.">
+    <Card title="O que fazer agora" subtitle="Ordenado por urgência de caixa e impacto em reais, não pela variação em %." info="Cada ação é pontuada por impacto em reais, recorrência e confiança dos dados. Organizar o caixa não é economizar: essas ações não têm valor mensal. Ao aceitar uma ação de economia, o Nino guarda o ponto de partida e mede o resultado na aba Evolução.">
       <ol className="space-y-3">
-        {items.map((it, i) => <RecItem key={it.key} it={it} n={i + 1} onDismiss={() => dismiss(it.key)} />)}
+        {items.map((it, i) => <RecItem key={it.key} it={it} n={i + 1} onDismiss={() => hide(it, "dismissed")} onAccept={() => hide(it, "accepted")} />)}
       </ol>
       <p className="mt-3 text-[11.5px] leading-snug text-muted-foreground">Cada valor é uma estimativa própria e não deve ser somado: as ações podem se sobrepor.</p>
     </Card>
   );
 }
 
-function RecItem({ it, n, onDismiss }: { it: Recommendation; n: number; onDismiss: () => void }) {
+function RecItem({ it, n, onDismiss, onAccept }: { it: Recommendation; n: number; onDismiss: () => void; onAccept?: () => void }) {
   return (
     <li className="flex gap-3">
       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-[12px] font-bold text-primary" aria-hidden>{n}</span>
@@ -792,7 +807,8 @@ export function CausesCard({ o }: { o: OverviewV2 }) {
   );
 }
 
-export function PriorityAction({ r }: { r: ReportV2["recommendations"] }) {
+export function PriorityAction({ r, month }: { r: ReportV2["recommendations"]; month: string }) {
+  const act = useRecommendationAction(month);
   const it = r.items[0];
   if (!it) return null;
   return (
@@ -800,7 +816,7 @@ export function PriorityAction({ r }: { r: ReportV2["recommendations"] }) {
       <p className="text-[14px] font-semibold leading-snug">{it.title}</p>
       {it.body ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{it.body}</p> : null}
       {it.nature === "saving" && it.monthlyImpact > 0 ? <p className="mt-1 text-[12px] font-semibold">Economia estimada: {brl0(it.monthlyImpact)} por mês</p> : null}
-      {it.route && it.routeLabel ? <Link to={it.route} className="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">{it.routeLabel}<ArrowRight size={12} aria-hidden /></Link> : null}
+      {it.route && it.routeLabel ? <Link to={it.route} onClick={() => { if (it.nature === "saving") void act(it, "accepted"); }} className="mt-1.5 inline-flex items-center gap-1 text-[12.5px] font-semibold text-primary print:hidden">{it.routeLabel}<ArrowRight size={12} aria-hidden /></Link> : null}
     </Card>
   );
 }
@@ -827,6 +843,40 @@ export function MethodCard({ meta, notes }: { meta: ReportMeta; notes: QualityNo
           <li>{meta.previousVersionNote}</li>
         </ul>
       </More>
+    </Card>
+  );
+}
+
+export function ForecastCard({ e }: { e: EvolutionV2 }) {
+  if (e.forecast.length === 0) return null;
+  return (
+    <Card title="Previsto x realizado" subtitle="O que o relatório previu para o consumo e o que aconteceu." info="Guardamos a última previsão de cada mês. Quando o mês fecha, comparamos com o consumo real. Erro positivo = previu mais do que gastou.">
+      <ul className="divide-y divide-border text-[13px]">
+        {e.forecast.map((f) => (
+          <li key={f.month} className="py-2">
+            <span className="flex items-baseline justify-between"><span className="capitalize font-semibold">{monthName(f.month)}</span>{f.consumptionErrorPct != null ? <span className={cn("text-[12px] font-semibold tabular-nums", Math.abs(f.consumptionErrorPct) <= 0.1 ? "text-emerald-700" : "text-amber-700")}>erro {pctText(f.consumptionErrorPct)}</span> : null}</span>
+            <span className="block text-[11.5px] text-muted-foreground tabular-nums">previsto {f.predictedConsumption != null ? brl0(f.predictedConsumption) : "—"} · realizado {brl0(f.actualConsumption)} · previsão de {fmtDay(f.asOf)}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+const TRACK_LABEL: Record<TrackedAction["status"], string> = { reduzindo: "reduzindo", sem_mudanca: "sem mudança", aumentou: "aumentou", sem_dado: "sem dado" };
+
+export function TrackedActionsCard({ e }: { e: EvolutionV2 }) {
+  if (e.tracked.length === 0) return null;
+  return (
+    <Card title="Ações que você aceitou" subtitle="Quanto mudou desde o ponto de partida." info="Ponto de partida = o gasto do período anterior quando você aceitou a ação. Comparamos com o gasto deste mês no mesmo estabelecimento.">
+      <ul className="space-y-2.5 text-[13px]">
+        {e.tracked.map((t) => (
+          <li key={t.key}>
+            <span className="flex items-baseline justify-between gap-2"><span className="min-w-0 truncate font-semibold">{t.title}</span><span className={cn("shrink-0 text-[12px] font-semibold", t.status === "reduzindo" ? "text-emerald-700" : t.status === "aumentou" ? "text-red-700" : "text-muted-foreground")}>{TRACK_LABEL[t.status]}</span></span>
+            <span className="block text-[11.5px] text-muted-foreground tabular-nums">partida {brl0(t.baseline)} → agora {brl0(t.current)} ({t.delta > 0 ? "+" : "−"}{brl0(Math.abs(t.delta))})</span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }
