@@ -11,6 +11,7 @@ import { resolveAiProvider, type AiProviderConfig, type AiProviderName } from ".
 import { ACTION_KINDS } from "../core/ActionIR.ts";
 import { NINO_IDENTITY } from "../core/Conversational.ts";
 import { verifySemanticInvariantsV3 } from "./SemanticInvariantsV3.ts";
+import { parseTimeSpec, TIME_SPEC_JSON_SCHEMA } from "../../time/TimeSpec.ts";
 import {
   ADVISORY_OPERATIONS_V3,
   SCENARIO_LEVERS_V3,
@@ -69,7 +70,16 @@ const sourcedStringSchema = {
   },
 } as const;
 
-const periodSchema = sourcedStringSchema;
+// Período = linguagem do usuário (value) + escolha FECHADA (spec). Só o spec é calculado por código; o value é proveniência.
+const periodSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["value", "source", "source_span", "spec"],
+  properties: {
+    ...sourcedStringSchema.properties,
+    spec: { anyOf: [TIME_SPEC_JSON_SCHEMA, { type: "null" }] },
+  },
+} as const;
 const referenceSchema = {
   type: "object",
   additionalProperties: false,
@@ -279,7 +289,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 33. "Quando vou bater/alcançar a meta X?" = goal_query operation=projection com goal=X (ou null se não citar).
 34. Pedido composto de fato + conselho ("quanto gastei com lazer e o que você me sugere?") = duas tasks no mesmo turno: financial_query + advisory. Registro + consulta ("anota 50 no mercado e me diz quanto já foi no mês") = financial_write + financial_query.
 35a. "O que importa agora?", "tem algo que eu deveria saber?", "algum alerta pra mim?", "qual o insight de hoje?", "no que devo prestar atenção?" = advisory operation=current_insight (a fila de prioridades do usuário). Pedido de conselho sobre o que FAZER ("o que você me sugere?", "qual o próximo passo?") continua next_best_action.
-35h2. COMPARAÇÃO DO MÊS ATUAL ABERTO COM O MÊS ANTERIOR: vocabulário FECHADO, nunca invente datas e ignore erros de digitação (interprete a intenção). Quando a pessoa compara o mês atual ("esse mês", "até agora", "até hoje") com o mês anterior ("mês passado", "mês anterior", "o mesmo período", "mesmos dias", "antes"), emita EXATAMENTE periods=["este mês até hoje","mesmos dias do mês anterior"] e operation=compare. Só use periods=["este mês até hoje","mês anterior inteiro"] quando a pessoa PEDIR o mês anterior fechado ("inteiro", "completo", "fechado", "o mês todo"). Dois meses nomeados ("outubro e setembro") seguem a regra 35h. Esta regra TEM PRIORIDADE sobre 35b: se a frase pede um balanço ("como estou", "como tô indo") E também nomeia outro período para comparar ("comparado com", "em relação a", "contra", "mais ou menos que", "melhor ou pior que"), é financial_query compare, NUNCA period_review.
+35h2. PERÍODOS COM SPEC FECHADO (vale para QUALQUER pergunta com período): em cada item de periods preencha "value" com as palavras da pessoa e "spec" com UMA escolha do vocabulário fechado abaixo. Você NUNCA escreve datas, exceto em explicit_range quando a pessoa cita as datas. O código calcula as janelas. Ignore erros de digitação: interprete a intenção. Vocabulário (kind): today; yesterday; calendar_month (offset 0=este mês, -1=mês passado, -2=retrasado; extent="to_date" no mês corrente, "whole" para o mês fechado); same_days_previous_month (os MESMOS dias já decorridos do mês anterior: "mesmo período", "mesmos dias", "até agora" contra o mês passado); named_month (month 1-12 e year se dito; extent whole); rolling_days (days=N: "últimos N dias"); previous_rolling_days (days=N: "os N dias anteriores a esses"); day_range (from_day,to_day e offset do mês: "do dia 1 ao 15"); since_day (from_day: "desde o dia 5"); week (offset 0=esta semana, -1=semana passada); year (offset 0 ou -1); explicit_range (from,to em AAAA-MM-DD só se a pessoa citar as datas). Campos que não se aplicam ficam null. COMPARAR o mês atual aberto ("esse mês", "até agora", "até hoje") com o mês anterior ("mês passado", "mês anterior", "mesmo período", "antes"): operation=compare, periods=[calendar_month offset 0 extent to_date, same_days_previous_month]; só use calendar_month offset -1 extent whole quando a pessoa PEDIR o mês anterior fechado ("inteiro", "completo", "fechado", "o mês todo"). Dois meses nomeados ("outubro e setembro") usam named_month. Esta regra TEM PRIORIDADE sobre 35b: se a frase pede um balanço ("como estou", "como tô indo") E também nomeia outro período para comparar ("comparado com", "em relação a", "contra", "mais ou menos que", "melhor ou pior que"), é financial_query compare, NUNCA period_review.
 35b. Pedido de BALANÇO/RESUMO de um período ("como foi meu mês?", "faz um resumo do meu mês", "resumo do mês atual", "balanço de setembro", "como estou esse mês?", "me conta como foi a semana") = advisory operation=period_review, periods=[o período dito] (ou [] se não disser: vale o mês atual). NÃO transforme em financial_query expense_amount: resumo não é "quanto gastei". Pergunta de um número só ("quanto gastei esse mês?") continua financial_query.
 35c. "Em quais categorias gastei esse valor?", "onde foi esse dinheiro?", "divide isso por categoria" = financial_query expense_amount operation=breakdown group_by=[category] no mesmo período do turno anterior. "Esse valor" é referência ao total anterior, não pede operation=value.
 35d. META DE GASTO (limite de consumo) é diferente de meta de acumulação (guardar dinheiro). Limitar/reduzir/zerar gasto numa categoria ou estabelecimento = financial_write action=spending_goal.plan, NUNCA goal.create. Slots textuais: category (categoria, se dita), merchants (estabelecimentos separados por vírgula, se ditos), percent (redução em %, "pela metade"=50), amount (limite em R$ do estabelecimento), category_limit (limite em R$ da categoria), limit_kind ("zero" para zerar/cancelar/não quero mais cobranças; "track" para só acompanhar). Exemplos: "Dentro de Transporte, reduza Uber e 99 pela metade" = category=Transporte, merchants="Uber, 99", percent=50. "Não quero mais cobranças da Lovable" = merchants=Lovable, limit_kind=zero. "Crie uma meta de Lazer e limite o gasto no Thales a R$ 200" = category=Lazer, merchants=Thales, amount=200. "Quero limitar meus gastos com delivery" = merchants=delivery. "Quero gastar no máximo R$ 800 com Lazer por mês" = category=Lazer, category_limit=800. "Quero acompanhar Uber e 99 juntos" = merchants="Uber, 99", limit_kind=track.
@@ -322,7 +332,7 @@ PRINCÍPIOS OBRIGATÓRIOS:
 - seguimento de aviso: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"explain_message","periods":[],"scenario":null,"options":[]}}
 - sugerir metas de gasto: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"spending_goal_plan","periods":[],"scenario":null,"options":[]}}
 - submeta de gasto: {"kind":"financial_write","financial":null,"goal":null,"advisory":null,"write":{"action":"spending_goal.plan","slots":[{"key":"category","value":"Transporte"},{"key":"merchants","value":"Uber, 99"},{"key":"percent","value":"50"}]}}
-- resumo do mês: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"period_review","periods":[{"value":"este mês","source":"current_turn","source_span":"meu mês atual"}],"scenario":null,"options":[]}}
+- resumo do mês: {"kind":"advisory","financial":null,"goal":null,"write":null,"advisory":{"operation":"period_review","periods":[{"value":"este mês","source":"current_turn","source_span":"meu mês atual","spec":{"kind":"calendar_month","offset":0,"extent":"to_date","month":null,"year":null,"days":null,"from_day":null,"to_day":null,"from":null,"to":null}}],"scenario":null,"options":[]}}
 A saída deve ser exclusivamente emit_nino_turn_spec_v3.`;
 
 // Motivo da última recusa do normalizador: sem ele, "contract_invalid" não diz o que o modelo errou e a
@@ -345,13 +355,20 @@ function sourced(raw: any): { value: string; source: any; source_span: string | 
   };
 }
 
+function periodOf(raw: any): PeriodExpressionV3 | null {
+  const base = sourced(raw);
+  if (!base) return null;
+  const spec = raw?.spec == null ? null : parseTimeSpec(raw.spec);
+  return { ...(base as PeriodExpressionV3), spec };
+}
+
 function periods(raw: any): PeriodExpressionV3[] | null {
   if (!Array.isArray(raw)) return null;
   const out: PeriodExpressionV3[] = [];
   for (const item of raw) {
-    const parsed = sourced(item);
+    const parsed = periodOf(item);
     if (!parsed) return null;
-    out.push(parsed as PeriodExpressionV3);
+    out.push(parsed);
   }
   return out;
 }
@@ -395,10 +412,10 @@ function normalizeFinancial(raw: any): FinancialQueryTaskV3 | null {
   let comparison: FinancialQueryTaskV3["comparison"] = null;
   if (raw.comparison != null) {
     const c = raw.comparison;
-    const target = c.target == null ? null : sourced(c.target);
+    const target = c.target == null ? null : periodOf(c.target);
     if (c.target != null && !target) return invalid("comparison.target_invalid");
     if (c.baseline_kind === "period") {
-      const baselinePeriod = c.baseline_period == null ? null : sourced(c.baseline_period);
+      const baselinePeriod = c.baseline_period == null ? null : periodOf(c.baseline_period);
       if (c.baseline_period != null && !baselinePeriod) return invalid("comparison.baseline_period_invalid");
       // baseline_months não pertence a uma base por período: o campo é obrigatório no esquema e o modelo o
       // preenche à toa. Descartar é seguro (a base é o período); rejeitar derrubava a pergunta toda.
