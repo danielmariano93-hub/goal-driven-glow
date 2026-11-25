@@ -10,6 +10,8 @@
 // transferências/fatura/investimentos (`insights/executive/load.ts`). Módulo
 // puro e determinístico, sem I/O; espelhado para as Edge Functions.
 
+import type { FutureView, ReportStory } from "./reportStory";
+
 export const REPORT_DASHBOARD_VERSION = "report_dashboard.v1";
 
 export interface DashEntry {
@@ -202,6 +204,10 @@ export interface ReportDashboard {
   otherInflows?: OtherInflow[];
   /** `installment_anticipation.v1`: parcelas pagas antes do prazo no período. Liquidação de dívida, não consumo. */
   anticipation?: DashboardAnticipation | null;
+  /** `report_story.v1`: o mês contra o habitual da própria pessoa. `null` fora de recortes de um mês de calendário. */
+  story?: ReportStory | null;
+  /** Compromissos, a receber, saldo e meta (snapshot da Home). `null` sem snapshot de hoje. */
+  future?: FutureView | null;
 }
 
 export interface DashboardAnticipation {
