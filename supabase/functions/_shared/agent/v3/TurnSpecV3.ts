@@ -4,6 +4,8 @@
 // component is allowed to reinterpret user meaning; it may only validate,
 // ground, compile, execute and compose from typed semantics.
 
+import type { TimeSpec } from "../../time/TimeSpec.ts";
+
 export const TURN_SPEC_V3 = "nino_turn_spec.v3" as const;
 
 export const SLOT_SOURCES_V3 = [
@@ -54,7 +56,8 @@ export type FinancialOperationV3 =
   | "explain";
 export type FinancialDimensionV3 = "category" | "merchant" | "card" | "account" | "month" | "weekday" | "day" | "week" | "quarter";
 
-export type PeriodExpressionV3 = SourcedValueV3<string>;
+/** `value` guarda a linguagem do usuário (proveniência); `spec` é a escolha FECHADA do modelo, resolvida só por código. */
+export type PeriodExpressionV3 = SourcedValueV3<string> & { spec?: TimeSpec | null };
 
 export type EntityFilterV3 = {
   field: EntityFieldV3;

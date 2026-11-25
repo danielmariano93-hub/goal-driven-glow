@@ -7,6 +7,7 @@
 
 import { resolvePeriodPt, type ResolvedPeriod } from "../../analytics/periodResolver.ts";
 import { canonicalPeriodExpression, resolveExplicitPeriodPt } from "../../analytics/explicitPeriodResolver.ts";
+import { resolveTimeSpecAt } from "../../time/TimeSpec.ts";
 import type { PeriodExpressionV3, SemanticTaskV3, TurnSpecV3 } from "./TurnSpecV3.ts";
 
 export type GroundedPeriodV3 = {
@@ -19,6 +20,8 @@ export type GroundedPeriodV3 = {
   label: string;
   kind: ResolvedPeriod["kind"];
   canonical_expression: string;
+  /** Quem calculou a janela: o spec fechado do modelo ou o caminho legado por texto (a remover). */
+  resolved_by?: "time_spec" | "legacy";
 };
 
 export type TemporalContractV3 = {
@@ -70,6 +73,22 @@ export function resolvePeriodExpressionV3(
 ): GroundedPeriodV3 | null {
   const raw = String(expression?.value ?? "").trim();
   if (!raw) return null;
+  // Caminho principal: escolha fechada do modelo, calculada por código. O texto só vale se o spec não existir ou não resolver.
+  const fromSpec = resolveTimeSpecAt(expression?.spec ?? null, now);
+  if (fromSpec) {
+    return {
+      version: "nino_grounded_period.v1",
+      expression: raw,
+      source: expression.source,
+      source_span: expression.source_span,
+      from: fromSpec.from,
+      to: fromSpec.to,
+      label: fromSpec.label,
+      kind: fromSpec.kind,
+      canonical_expression: canonicalPeriodExpression(fromSpec),
+      resolved_by: "time_spec",
+    };
+  }
   // Absolute/range grammar has priority because strings like
   // "semana passada do dia 21 ao dia 27" contain both an explicit subrange
   // and a relative anchor. The explicit subrange is the user's narrower truth.
@@ -90,6 +109,7 @@ export function resolvePeriodExpressionV3(
     label: resolved.label,
     kind: resolved.kind,
     canonical_expression: canonicalPeriodExpression(resolved),
+    resolved_by: "legacy",
   };
 }
 
