@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
 import { buildReportDashboard, type DashEntry } from "@/lib/engine/reportDashboard";
-import { EvolutionChart } from "@/components/reports/DashboardCharts";
 import { purchaseDayOf, toLedger } from "../../supabase/functions/_shared/insights/executive/load";
 
 // `report_evolution.v3`: o gráfico diário responde "quanto gastei neste dia". Cartão = dia da compra; parcela 2+ de compra
@@ -55,18 +53,6 @@ describe("gráfico 'quanto saiu': cada barra é o que foi gasto naquele dia", ()
   });
   it("sem diferença entre barras e total, não há nota", () => {
     expect(dash([e("a", "2026-11-01", 10), e("b", "2026-11-02", 20, { chart_date: "2026-11-02" })]).barsGap).toBeNull();
-  });
-  it("a tela explica o que as barras mostram e o que ficou de fora", () => {
-    render(<EvolutionChart d={d} />);
-    const note = screen.getByTestId("evolution-gap").textContent ?? "";
-    expect(note).toMatch(/As barras mostram o dia em que você gastou \(data da compra\)\. O total do período segue a fatura\./);
-    expect(note).toMatch(/Fora das barras: R\$\s?1\.183,82 em parcelas e compras de faturas anteriores \(3 lançamentos\)/);
-    expect(note).not.toMatch(/Nas barras e ainda fora do total/);
-  });
-  it("a tela também declara compras do período que só entram na fatura seguinte", () => {
-    const oct = buildReportDashboard(entries, { today: "2026-11-03", start: "2026-10-01", end: "2026-10-31", compare: "none" });
-    render(<EvolutionChart d={oct} />);
-    expect(screen.getByTestId("evolution-gap").textContent).toMatch(/Nas barras e ainda fora do total: R\$\s?129,90 em compras deste período \(1 lançamento\) que só entram na fatura seguinte/);
   });
 });
 

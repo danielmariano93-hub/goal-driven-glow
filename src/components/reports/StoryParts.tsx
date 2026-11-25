@@ -101,9 +101,7 @@ export function MonthSelector({ start, end, today, onPick }: { start: string; en
 
 export const REPORT_TABS = [
   { id: "geral", label: "Visão geral" },
-  { id: "categorias", label: "Categorias" },
-  { id: "estabelecimentos", label: "Estabelecimentos" },
-  { id: "mais", label: "Mais" },
+  { id: "categorias", label: "Categorias e mais" },
 ] as const;
 export type ReportTabId = (typeof REPORT_TABS)[number]["id"];
 export const parseTab = (v: string | null): ReportTabId => (REPORT_TABS.some((t) => t.id === v) ? (v as ReportTabId) : "geral");
@@ -141,10 +139,11 @@ export function StorySection({ id, title, subtitle, children }: { id: string; ti
 /** "Você consumiu R$ X", contra o habitual (a mesma janela de dias dos últimos meses fechados). */
 export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: ReportStory }) {
   const h = story.habitual;
-  if (!h) return null;
-  const above = h.deltaAbs > 0;
-  const flat = Math.abs(h.deltaPct ?? 0) < 0.03;
-  const sentence = flat ? "Seu gasto está dentro do habitual para este período." : above ? "Seu gasto está acima do habitual para este período." : "Seu gasto está abaixo do habitual para este período.";
+  const above = (h?.deltaAbs ?? 0) > 0;
+  const flat = Math.abs(h?.deltaPct ?? 0) < 0.03;
+  const sentence = !h
+    ? "Ainda não há histórico suficiente (2 meses fechados) para comparar com o seu habitual."
+    : flat ? "Seu gasto está dentro do habitual para este período." : above ? "Seu gasto está acima do habitual para este período." : "Seu gasto está abaixo do habitual para este período.";
   return (
     <section aria-label="Consumo do período" className="rounded-2xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -153,7 +152,7 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
           <p className="text-[15px] font-bold">Você consumiu</p>
           <p className="font-display text-[28px] font-bold leading-none tabular-nums">{brl0(d.totals.expense)}</p>
         </div>
-        {h.deltaPct != null ? (
+        {h && h.deltaPct != null ? (
           <div className="shrink-0 text-right">
             <VariationChip ratio={h.deltaPct} className="text-[14px]" />
             <p className="mt-1 text-[11px] leading-tight text-muted-foreground">vs. seu habitual<br />({brl0(h.expense)})</p>
@@ -162,7 +161,7 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
       </div>
       <p className="mt-3 flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
         {sentence}
-        <InfoTip label="habitual">Habitual é o valor típico (mediana) dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.</InfoTip>
+        {h ? <InfoTip label="habitual">Habitual é o valor típico (mediana) dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.</InfoTip> : null}
       </p>
     </section>
   );
@@ -483,39 +482,3 @@ export function GoalProgressCard({ future }: { future: FutureView | null | undef
     </Link>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Abas Estabelecimentos
-// ---------------------------------------------------------------------------
-
-/** Estabelecimentos do período (somando as categorias), maiores primeiro. */
-export function MerchantsList({ d }: { d: ReportDashboard }) {
-  const acc = new Map<string, { label: string; total: number; previous: number }>();
-  for (const c of d.categories) {
-    for (const m of c.merchants) {
-      const cur = acc.get(m.key) ?? { label: m.label, total: 0, previous: 0 };
-      cur.total += m.total; cur.previous += m.previous;
-      acc.set(m.key, cur);
-    }
-  }
-  const rows = [...acc.values()].sort((a, b) => b.total - a.total).slice(0, 15);
-  if (rows.length === 0) return <p className="rounded-2xl border border-dashed border-border p-4 text-[12px] text-muted-foreground">Ainda não há estabelecimentos identificados neste período.</p>;
-  const max = Math.max(...rows.map((r) => r.total), 1);
-  return (
-    <section aria-label="Estabelecimentos" className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-[15px] font-bold">Principais estabelecimentos</p>
-      <ul className="mt-3 space-y-3">
-        {rows.map((r) => (
-          <li key={r.label} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
-            <span className="truncate text-[13px] font-medium capitalize">{r.label}</span>
-            <span className="text-[13px] font-semibold tabular-nums">{brl0(r.total)}</span>
-            <span className="col-span-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden>
-              <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(3, (r.total / max) * 100)}%` }} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-

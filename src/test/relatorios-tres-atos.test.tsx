@@ -23,13 +23,14 @@ const story = (over: Partial<ReportStory> = {}) => ({
 const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
 
 describe("Relatórios no desenho do protótipo", () => {
-  it("abas do protótipo; desconhecida cai em Visão geral", () => {
+  it('duas abas; a antiga aba mais cai em Visão geral', () => {
     expect(parseTab(null)).toBe("geral");
     expect(parseTab("xyz")).toBe("geral");
-    expect(parseTab("mais")).toBe("mais");
+    expect(parseTab("mais")).toBe("geral");
+    expect(parseTab("categorias")).toBe("categorias");
     render(<ReportTabs active="categorias" onChange={() => {}} />);
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Visão geral", "Categorias", "Estabelecimentos", "Mais"]);
-    expect(screen.getByRole("tab", { name: "Categorias" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Visão geral", "Categorias e mais"]);
+    expect(screen.getByRole("tab", { name: "Categorias e mais" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("seletor de mês: 'Novembro 2026 / Até o dia 24', setas e mês seguinte desligado no mês atual", () => {
@@ -40,6 +41,13 @@ describe("Relatórios no desenho do protótipo", () => {
     expect((screen.getByLabelText("Mês seguinte") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByLabelText("Mês anterior"));
     expect(picks[0]).toEqual({ start: "2026-10-01", end: "2026-10-31", isCurrent: false });
+  });
+
+  it("sem histórico, o hero mostra o consumo e explica por que não compara", () => {
+    wrap(<ConsumptionHero d={dash({})} story={story({ habitual: null })} />);
+    expect(screen.getByText("R$ 6.240")).toBeTruthy();
+    expect(screen.getByText(/2 meses fechados/)).toBeTruthy();
+    expect(screen.queryByText(/vs\. seu habitual/)).toBeNull();
   });
 
   it("hero: valor, variação contra o habitual e frase; a definição fica no ⓘ", () => {
