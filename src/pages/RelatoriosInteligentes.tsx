@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { AnchorNav, MeuMesBody, MeuMesError, MeuMesHeader, MeuMesSkeleton, MonthPicker, scrollToChapter } from "@/components/reports/meumes/MeuMes";
+import type { Anchor } from "@/lib/engine/reportEditorial";
 import { useReportV2, useReportV2Query } from "@/lib/reports/reportV2Client";
 import { BehaviorTab, EvolutionTab, OverviewTab, ProjectionsTab } from "@/components/reports/v2/tabs";
 import { PeriodSelector, ReportError, ReportHeader, ReportSkeleton, ReportTabs } from "@/components/reports/v2/shell";
@@ -26,7 +29,11 @@ function csvLoadFloor(from: string): string {
 export default function RelatoriosInteligentes() {
   const [exporting, setExporting] = useState(false);
   const { month, compare, tab, today, thisMonth, update } = useReportV2Query();
-  const { data: rep, isLoading, isFetching, isError, refetch } = useReportV2(month, compare);
+  const { data, isLoading, isFetching, isError, refetch, dataUpdatedAt } = useReportV2(month, compare);
+  // Nunca mostrar números de outro mês durante o carregamento.
+  const rep = data && data.month === month ? data : undefined;
+  const [params] = useSearchParams();
+  const legacy = params.get("versao") === "abas";
   const from = `${month}-01`;
   const to = month === thisMonth ? today : `${month}-${String(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0")}`;
   const rangeValid = Boolean(from <= to && to <= today);
@@ -82,7 +89,7 @@ export default function RelatoriosInteligentes() {
     }
   }
 
-  return (
+  if (legacy) return (
     <div className="mx-auto max-w-[1200px] space-y-3 pt-2 pb-8">
       <ReportHeader onExport={() => void handleExportCsv()} exporting={exporting} asOf={rep?.meta.asOf} />
       <PeriodSelector month={month} thisMonth={thisMonth} today={today} onPick={(m) => update({ month: m })} />
@@ -99,4 +106,37 @@ export default function RelatoriosInteligentes() {
       ) : null}
     </div>
   );
+
+
+  // Meu mês (padrão). `?versao=abas` mantém o layout anterior como reversão.
+  return (
+    <div className="mx-auto max-w-[1120px] pt-2 pb-10">
+      <MeuMesHeader onExport={() => void handleExportCsv()} exporting={exporting} />
+      <MonthPicker month={month} thisMonth={thisMonth} today={today} onPick={(m) => update({ month: m })} />
+      <AnchorNav watch={rep} />
+      <InitialAnchor ready={!!rep} />
+      {!rep && (isLoading || isFetching) ? <MeuMesSkeleton /> : !rep && isError ? <MeuMesError onRetry={() => void refetch()} /> : rep ? (
+        <div aria-busy={isFetching}>
+          {isError ? <p role="status" className="mt-3 rounded-xl bg-[#E9A23B]/10 px-3 py-2 text-xs leading-4">Sem conexão com o servidor: mostrando os dados carregados às {new Date(dataUpdatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.</p> : null}
+          <MeuMesBody rep={rep} compare={compare} onCompare={(c) => update({ compare: c })} month={month} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const LEGACY_TO_ANCHOR: Record<string, Anchor> = { geral: "momento", comportamento: "habitos", projecoes: "futuro", evolucao: "evolucao", foi: "momento", mudou: "gastos", vai: "futuro" };
+
+/** Links antigos (?aba=, ?ato=) e #âncora levam ao capítulo certo, uma vez, quando o conteúdo existe. */
+function InitialAnchor({ ready }: { ready: boolean }) {
+  const [params] = useSearchParams();
+  const done = useRef(false);
+  useEffect(() => {
+    if (!ready || done.current) return;
+    done.current = true;
+    const hash = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
+    const target = (hash || LEGACY_TO_ANCHOR[params.get("aba") ?? ""] || LEGACY_TO_ANCHOR[params.get("ato") ?? ""]) as Anchor | undefined;
+    if (target && target !== "momento") requestAnimationFrame(() => scrollToChapter(target));
+  }, [ready, params]);
+  return null;
 }

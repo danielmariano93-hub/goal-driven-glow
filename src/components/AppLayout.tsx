@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { BottomTabBar } from '@/components/BottomTabBar';
 import { DesktopSidebar } from '@/components/DesktopSidebar';
 import { AssessorProvider, useAssessor } from '@/context/AssessorContext';
@@ -26,6 +26,9 @@ function GlobalAssessorPanel() {
 
 export function AppLayout() {
   const { valuesHidden } = usePrivacyMode();
+  const { pathname } = useLocation();
+  // "Meu mês" usa grade de 12 colunas até 1120 px no desktop; as demais telas seguem em 720 px.
+  const wide = pathname === '/app/relatorios';
   usePrefetchShellContexts();
   return (
     <SessionInactivityGuard>
@@ -34,7 +37,7 @@ export function AppLayout() {
         <div className="min-h-screen flex overflow-x-hidden" style={{ background: "var(--home-bg)" }}>
           <DesktopSidebar />
           <main className="flex-1 min-w-0 overflow-x-hidden">
-            <div className="mx-auto w-full max-w-[720px] px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:pt-4 md:pb-10">
+            <div className={`mx-auto w-full ${wide ? 'max-w-[1168px]' : 'max-w-[720px]'} px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+5rem)] md:px-6 md:pt-4 md:pb-10`}>
               {/* Cada rota é responsável pelo próprio cabeçalho.
                   Reatividade do olho: remonta a rota quando a preferência muda,
                   garantindo formatBRL/formatPrivateBRL atualizados. */}

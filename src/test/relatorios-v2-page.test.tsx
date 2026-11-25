@@ -26,9 +26,9 @@ function Probe() { const l = useLocation(); return <p data-testid="destino">{l.p
 const renderAt = (url: string) => render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={[url]}><Routes><Route path="/app/relatorios" element={<RelatoriosInteligentes />} /><Route path="/app/lancamentos" element={<Probe />} /></Routes></MemoryRouter></QueryClientProvider>);
 const ready = () => screen.findByRole("region", { name: "Consumo do mês" });
 
-describe("Relatórios v2 — quatro abas (handoff de design)", () => {
+describe("Relatórios v2 — layout anterior (reversão ?versao=abas)", () => {
   it("Visão geral: KPI dominante, dois KPIs, resultado, curva; detalhes fechados", async () => {
-    renderAt("/app/relatorios");
+    renderAt("/app/relatorios?versao=abas");
     await ready();
     expect(screen.getByText("Receitas")).toBeTruthy();
     expect(screen.getByText("Saldo disponível")).toBeTruthy();
@@ -39,7 +39,7 @@ describe("Relatórios v2 — quatro abas (handoff de design)", () => {
     expect(screen.queryByText(/bom sinal/i)).toBeNull();
   });
   it("a aba ativa é a única selecionada e as setas do teclado trocam de aba", async () => {
-    renderAt("/app/relatorios");
+    renderAt("/app/relatorios?versao=abas");
     await ready();
     const geral = screen.getByRole("tab", { name: "Visão geral" });
     expect(geral.getAttribute("aria-selected")).toBe("true");
@@ -47,7 +47,7 @@ describe("Relatórios v2 — quatro abas (handoff de design)", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Comportamento" }).getAttribute("aria-selected")).toBe("true"));
   });
   it("navega pelas quatro abas e mostra o conteúdo de cada uma", async () => {
-    renderAt("/app/relatorios");
+    renderAt("/app/relatorios?versao=abas");
     await ready();
     fireEvent.click(screen.getByRole("tab", { name: "Comportamento" }));
     await screen.findByRole("region", { name: "Composição do consumo" });
@@ -65,31 +65,31 @@ describe("Relatórios v2 — quatro abas (handoff de design)", () => {
 describe("Relatórios v2 — período, drill-down, exportação e meses fechados", () => {
   it("trocar o mês pede o mês certo ao servidor", async () => {
     invoke.mockClear();
-    renderAt("/app/relatorios");
+    renderAt("/app/relatorios?versao=abas");
     await ready();
     fireEvent.click(screen.getByLabelText("Mês anterior"));
     await waitFor(() => expect(invoke.mock.calls.some((c) => (c[1] as { body: { month: string } }).body.month === "2026-10")).toBe(true));
   });
   it("mudar a comparação (dentro do cartão) pede o servidor de novo", async () => {
     invoke.mockClear();
-    renderAt("/app/relatorios?aba=comportamento");
+    renderAt("/app/relatorios?versao=abas&aba=comportamento");
     await screen.findByRole("region", { name: "Categorias e estabelecimentos" });
     fireEvent.change(screen.getByLabelText("Comparar com"), { target: { value: "year" } });
     await waitFor(() => expect(invoke.mock.calls.some((c) => (c[1] as { body: { compare: string } }).body.compare === "year")).toBe(true));
   });
   it("drill-down: tocar na categoria leva aos lançamentos dela no mês", async () => {
-    renderAt("/app/relatorios?aba=comportamento");
+    renderAt("/app/relatorios?versao=abas&aba=comportamento");
     const card = await screen.findByRole("region", { name: "Categorias e estabelecimentos" });
     fireEvent.click(within(card).getByText("Mercado"));
     expect((await screen.findByTestId("destino")).textContent).toBe("/app/lancamentos?category=c-Mercado&start=2026-11-01&end=2026-11-31");
   });
   it("exportação e impressão ficam no menu de ações", async () => {
-    renderAt("/app/relatorios");
+    renderAt("/app/relatorios?versao=abas");
     await ready();
     expect(screen.getByLabelText("Ações do relatório")).toBeTruthy();
   });
   it("a composição de gastos fecha 100% na tela (estorno como ajuste negativo)", async () => {
-    renderAt("/app/relatorios?aba=comportamento");
+    renderAt("/app/relatorios?versao=abas&aba=comportamento");
     const card = await screen.findByRole("region", { name: "Composição do consumo" });
     const lis = Array.from(card.querySelectorAll("li")).slice(0, -1);
     const pcts = lis.map((li) => { const m = (li.textContent ?? "").match(/([−-]?)(\d+)%/); return m ? (m[1] ? -1 : 1) * Number(m[2]) : NaN; });

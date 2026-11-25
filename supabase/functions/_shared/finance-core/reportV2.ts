@@ -178,7 +178,7 @@ export interface ProjectionStep { key: string; label: string; value: number; sig
 export interface ProjectionsV2 {
   consumption: { realized: number; structuralPending: number; structuralItems: Array<{ label: string; amount: number; date: string }>; adjustableFuture: number; total: number; low: number; high: number; method: string } | null;
   cash: { freeCash: number | null; steps: ProjectionStep[]; projectedEnd: number; /** Mesmo cálculo sem nenhuma renda prevista (confirmada, informada ou estimada); demais premissas iguais. */ withoutIncomeEnd: number; reconciles: boolean; expectedIncome: { amount: number; date: string; label: string; configured: boolean } | null; uncertainReceivables: number } | null;
-  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null } | null;
+  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null; /** Vencimentos do horizonte, com data e origem (o toque abre esta lista). */ items?: Array<{ date: string; label: string; amount: number; group: "cards" | "debts" | "recurring"; estimated: boolean }> } | null;
   committedIncome: { pct: number; income: number; obligations: number; basis: string } | null;
   receivables: { toDue: number; overdue: number; receivedInPeriod: number; count: number } | null;
   savings: { monthly: number | null; status: "ok" | "zero_real" | "insufficient_history" | "stale"; closedMonths: number; incomeBaseline: number | null; savingsRateMedian: number | null } | null;
@@ -868,7 +868,14 @@ function buildProjections(a: {
     // Fatura do mês fora da agenda (a Home a estima à parte): entra como estimativa, senão o total esconde o cartão.
     const cardDue = num(snapshot?.projection?.cardDueThisMonth) ?? 0;
     if (!groups.some((g) => g.key === "cards") && cardDue > 0) groups.unshift({ key: "cards", amount: round2(cardDue), estimated: true });
-    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) || groups.some((g) => g.estimated), horizonEnd };
+    const groupOf = (src: string) => groupDef.find((g) => g.sources.includes(src))?.key ?? null;
+    const SRC_LABEL: Record<string, string> = { card_statement: "Fatura do cartão", card_installment: "Parcela no cartão", debt_installment: "Parcela de dívida", recurring: "Recorrência", planned: "Planejado", donation_goal: "Doação" };
+    const dueItems: NonNullable<NonNullable<ProjectionsV2["commitments"]>["items"]> = items
+      .map((i) => ({ date: String(i.date), label: String(i.name ?? i.label ?? SRC_LABEL[String(i.source)] ?? "Compromisso"), amount: round2(num(i.amount) ?? 0), group: groupOf(String(i.source)), estimated: Boolean(i.estimated) }))
+      .filter((i): i is { date: string; label: string; amount: number; group: "cards" | "debts" | "recurring"; estimated: boolean } => i.group != null)
+      .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+    if (!items.some((i) => groupOf(String(i.source)) === "cards") && cardDue > 0) dueItems.unshift({ date: "", label: "Fatura do cartão do mês (estimada, sem data na agenda)", amount: round2(cardDue), group: "cards", estimated: true });
+    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) || groups.some((g) => g.estimated), horizonEnd, items: dueItems };
   } else if (input.commitmentMonths.length > 0) {
     out.commitments = { next30: 0, groups: [], months: input.commitmentMonths.slice(0, 6), hasEstimates: true, horizonEnd: null };
   }
@@ -1012,15 +1019,17 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
     }
   }
   const rec = a.projections.recoverable;
-  if (rec && rec.sources[0]) items.push({ key: `recoverable:${rec.sources[0].label}`, kind: "recoverable", nature: "saving", title: `${rec.sources[0].label}: maior potencial de economia`, body: `Seu perfil estima até ${fmt(rec.sources[0].monthly)} por mês recuperáveis aqui, dentro de ${fmt(rec.monthly)} no total.`, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro).", monthlyImpact: rec.sources[0].monthly, confidence: 0.7, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
+  if (rec && rec.sources[0]) items.push({ key: `recoverable:${rec.sources[0].label}`, kind: "recoverable", nature: "saving", title: `Revise os gastos com ${rec.sources[0].label.toLowerCase()}`, body: `Seu perfil estima até ${fmt(rec.sources[0].monthly)} por mês recuperáveis aqui, dentro de ${fmt(rec.monthly)} no total.`, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro).", monthlyImpact: rec.sources[0].monthly, confidence: 0.7, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
   // Organizar o caixa não é economizar: entra como ação de caixa, sem impacto mensal.
   for (const s of a.input.situationActions.slice(0, 3)) {
     // Ação de situação é organização de caixa: o valor estimado é o que ela protege no caixa, nunca economia mensal.
     items.push({ key: `situation:${s.key}`, kind: "situation", nature: "cash", title: s.title, body: s.explanation ?? "", basis: "Ação de organização do caixa: não gera economia mensal por si só.", monthlyImpact: 0, cashImpact: (s.impact ?? 0) > 0 ? round2(s.impact as number) : null, confidence: s.confidence ?? 0.6, score: 0, route: s.route, routeLabel: s.route ? "Abrir" : null });
   }
   for (const it of items) it.score = round2(it.monthlyImpact * it.confidence);
-  // Ordem: ações de caixa com urgência primeiro (não têm valor), depois economia por impacto × confiança.
-  items.sort((x, y) => (x.nature === y.nature ? y.score - x.score : x.nature === "cash" ? -1 : 1));
+  // Ordem (handoff Meu mês, indicador 23): urgência de caixa com valor a proteger primeiro; depois economia por
+  // impacto × confiança; por último ações de caixa sem valor nem urgência demonstrada.
+  const tier = (it: Recommendation) => (it.nature === "cash" ? ((it.cashImpact ?? 0) > 0 ? 0 : 2) : 1);
+  items.sort((x, y) => tier(x) - tier(y) || y.score - x.score || (x.key < y.key ? -1 : 1));
   const seen = new Set<string>();
   const top = items.filter((it) => !handled.has(it.key)).filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
   return { items: top };
