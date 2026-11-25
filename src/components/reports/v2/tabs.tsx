@@ -300,7 +300,7 @@ function WeekdayPanel({ b }: { b: BehaviorV2 }) {
 
 type SortKey = "spend" | "up" | "down";
 
-function CategoriesPanel({ b, compare, onCompare, month }: { b: BehaviorV2; compare: CompareKind; onCompare: (c: CompareKind) => void; month: string }) {
+export function CategoriesPanel({ b, compare, onCompare, month }: { b: BehaviorV2; compare: CompareKind; onCompare: (c: CompareKind) => void; month: string }) {
   const [view, setView] = useState<"cat" | "est">("cat");
   const [sort, setSort] = useState<SortKey>("spend");
   const [q, setQ] = useState("");

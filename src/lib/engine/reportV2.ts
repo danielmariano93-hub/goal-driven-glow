@@ -75,7 +75,7 @@ export interface ProfileLite {
 export interface ReceivableRow { balance: number; dueDate: string; state: string; paidAmount: number; paidAt: string | null }
 export interface CommitmentMonth { month: string; cards: number; debts: number; recurring: number }
 export interface PatternRow { label: string; status: string; upliftPct: number | null; absoluteDelta: number | null; sampleSize: number; confidence: number | null; coverage: number | null }
-export interface SituationActionRow { key: string; title: string; explanation: string | null; impact: number | null; route: string | null; confidence: number | null }
+export interface SituationActionRow { key: string; title: string; explanation: string | null; impact: number | null; route: string | null; confidence: number | null; /** Causa concreta (ex.: "A parcela de X é de R$ 1.566 e vence em 09/12"). */ detail?: string | null; /** Data em que o valor sai do caixa. */ dueDate?: string | null }
 
 // ---------------------------------------------------------------------------
 // Saída
@@ -176,11 +176,11 @@ export interface ProjectionStep { key: string; label: string; value: number; sig
 export interface ProjectionsV2 {
   consumption: { realized: number; structuralPending: number; structuralItems: Array<{ label: string; amount: number; date: string }>; adjustableFuture: number; total: number; low: number; high: number; method: string } | null;
   cash: { freeCash: number | null; steps: ProjectionStep[]; projectedEnd: number; /** Mesmo cálculo sem nenhuma renda prevista (confirmada, informada ou estimada); demais premissas iguais. */ withoutIncomeEnd: number; reconciles: boolean; expectedIncome: { amount: number; date: string; label: string; configured: boolean } | null; uncertainReceivables: number } | null;
-  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null } | null;
+  commitments: { next30: number; groups: Array<{ key: "cards" | "debts" | "recurring"; amount: number; estimated?: boolean }>; months: CommitmentMonth[]; hasEstimates: boolean; horizonEnd: string | null; /** Vencimentos do horizonte, com data e origem (o toque abre esta lista). */ items?: Array<{ date: string; label: string; amount: number; group: "cards" | "debts" | "recurring"; estimated: boolean }> } | null;
   committedIncome: { pct: number; income: number; obligations: number; basis: string } | null;
   receivables: { toDue: number; overdue: number; receivedInPeriod: number; count: number } | null;
   savings: { monthly: number | null; status: "ok" | "zero_real" | "insufficient_history" | "stale"; closedMonths: number; incomeBaseline: number | null; savingsRateMedian: number | null } | null;
-  recoverable: { monthly: number; sources: Array<{ label: string; monthly: number }> } | null;
+  recoverable: { monthly: number; sources: Array<{ label: string; monthly: number; /** gasto médio observado e padrão mais baixo recorrente, por mês */ observed?: number; baseline?: number }> } | null;
 }
 
 export interface EvolutionMonth { month: string; income: number; consumption: number; debtPaid: number; result: number; open: boolean; partial: boolean }
@@ -218,6 +218,8 @@ export interface Recommendation {
   /** Chave do estabelecimento (quando a ação é sobre um) e valor de partida, para medir depois. */
   /** Efeito protegido no caixa (ações de organização), sem ser economia. */
   cashImpact?: number | null;
+  /** Ação de caixa com risco demonstrado (o saldo previsto sem a próxima renda não cobre o valor). */
+  urgent?: boolean;
   /** Hipótese que o usuário pode ajustar: impacto = base × pct. */
   adjustable?: { base: number; pct: number };
   merchantKey?: string | null;
@@ -866,7 +868,14 @@ function buildProjections(a: {
     // Fatura do mês fora da agenda (a Home a estima à parte): entra como estimativa, senão o total esconde o cartão.
     const cardDue = num(snapshot?.projection?.cardDueThisMonth) ?? 0;
     if (!groups.some((g) => g.key === "cards") && cardDue > 0) groups.unshift({ key: "cards", amount: round2(cardDue), estimated: true });
-    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) || groups.some((g) => g.estimated), horizonEnd };
+    const groupOf = (src: string) => groupDef.find((g) => g.sources.includes(src))?.key ?? null;
+    const SRC_LABEL: Record<string, string> = { card_statement: "Fatura do cartão", card_installment: "Parcela no cartão", debt_installment: "Parcela de dívida", recurring: "Recorrência", planned: "Planejado", donation_goal: "Doação" };
+    const dueItems: NonNullable<NonNullable<ProjectionsV2["commitments"]>["items"]> = items
+      .map((i) => ({ date: String(i.date), label: String(i.name ?? i.label ?? SRC_LABEL[String(i.source)] ?? "Compromisso"), amount: round2(num(i.amount) ?? 0), group: groupOf(String(i.source)), estimated: Boolean(i.estimated) }))
+      .filter((i): i is { date: string; label: string; amount: number; group: "cards" | "debts" | "recurring"; estimated: boolean } => i.group != null)
+      .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+    if (!items.some((i) => groupOf(String(i.source)) === "cards") && cardDue > 0) dueItems.unshift({ date: "", label: "Fatura do cartão do mês (estimada, sem data na agenda)", amount: round2(cardDue), group: "cards", estimated: true });
+    out.commitments = { next30: round2(groups.reduce((s, g) => s + g.amount, 0)), groups, months: input.commitmentMonths.slice(0, 6), hasEstimates: Boolean(ag.hasEstimates) || groups.some((g) => g.estimated), horizonEnd, items: dueItems };
   } else if (input.commitmentMonths.length > 0) {
     out.commitments = { next30: 0, groups: [], months: input.commitmentMonths.slice(0, 6), hasEstimates: true, horizonEnd: null };
   }
@@ -901,7 +910,7 @@ function buildProjections(a: {
     const sumSrc = p.flexibleSources.reduce((s, x) => s + Math.max(0, x.recoverable_monthly), 0);
     if (rec > 0 && sumSrc > 0) {
       const k = rec / sumSrc;
-      out.recoverable = { monthly: round2(rec), sources: p.flexibleSources.filter((x) => x.recoverable_monthly > 0).map((x) => ({ label: x.label, monthly: round2(x.recoverable_monthly * k) })).sort((x, y) => y.monthly - x.monthly) };
+      out.recoverable = { monthly: round2(rec), sources: p.flexibleSources.filter((x) => x.recoverable_monthly > 0).map((x) => ({ label: x.label, monthly: round2(x.recoverable_monthly * k), observed: round2(x.observed_monthly), baseline: round2(x.baseline_monthly) })).sort((x, y) => y.monthly - x.monthly) };
     }
   }
   return out;
@@ -945,7 +954,9 @@ function buildEvolution(a: { rows: Cls[]; cls: ClassifyResult; month: string; to
       const projected = num(g.projectedSpend);
       const pct = Math.round((spent / limit) * 1000) / 1000;
       const projectedPct = projected != null ? Math.round((projected / limit) * 1000) / 1000 : null;
-      const verdict: "no_ritmo" | "atencao" | "vai_estourar" | "estourou" = pct >= 1 ? "estourou" : projectedPct != null && projectedPct > 1 ? "vai_estourar" : (projectedPct ?? pct) >= 0.85 ? "atencao" : "no_ritmo";
+      // Status do motor canônico de metas (o mesmo da aba Metas); o cálculo local só entra se o status faltar.
+      const CANON: Record<string, "no_ritmo" | "atencao" | "vai_estourar" | "estourou"> = { on_track: "no_ritmo", attention: "atencao", at_risk: "vai_estourar", exceeded: "estourou", limit_reached: "estourou" };
+      const verdict: "no_ritmo" | "atencao" | "vai_estourar" | "estourou" = CANON[String(g.status)] ?? (pct >= 1 ? "estourou" : projectedPct != null && projectedPct > 1 ? "vai_estourar" : (projectedPct ?? pct) >= 0.85 ? "atencao" : "no_ritmo");
       return { id: String(g.goal?.id ?? g.categoryName), category: String(g.categoryName ?? "Categoria"), spent: round2(spent), limit: round2(limit), pct, status: String(g.status), projectedPct, daysRemaining: num(g.daysRemaining), verdict };
     })
     .sort((x: any, y: any) => (y.projectedPct ?? y.pct) - (x.projectedPct ?? x.pct));
@@ -1010,15 +1021,39 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
     }
   }
   const rec = a.projections.recoverable;
-  if (rec && rec.sources[0]) items.push({ key: `recoverable:${rec.sources[0].label}`, kind: "recoverable", nature: "saving", title: `${rec.sources[0].label}: maior potencial de economia`, body: `Seu perfil estima até ${fmt(rec.sources[0].monthly)} por mês recuperáveis aqui, dentro de ${fmt(rec.monthly)} no total.`, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro).", monthlyImpact: rec.sources[0].monthly, confidence: 0.7, score: 0, route: "/app/metas", routeLabel: "Criar meta de gasto" });
+  if (rec && rec.sources[0]) {
+    const src = rec.sources[0];
+    const cat = a.behavior?.categories.find((c) => c.name.toLowerCase() === src.label.toLowerCase());
+    const last = new Date(Date.UTC(Number(a.month.slice(0, 4)), Number(a.month.slice(5, 7)), 0)).getUTCDate();
+    const body = src.observed != null && src.baseline != null && src.observed > 0
+      ? `Você gasta em média ${fmt(src.observed)}/mês com ${src.label.toLowerCase()}; no seu padrão mais baixo recorrente, ${fmt(src.baseline)}/mês. Voltar a esse padrão libera até ${fmt(src.monthly)}/mês.`
+      : `Seu perfil estima até ${fmt(src.monthly)} por mês recuperáveis em ${src.label.toLowerCase()}, dentro de ${fmt(rec.monthly)} no total.`;
+    items.push({ key: `recoverable:${src.label}`, kind: "recoverable", nature: "saving", title: `Revise os gastos com ${src.label.toLowerCase()}`, body, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro). Premissa: voltar a ele; não é promessa de economia.", monthlyImpact: src.monthly, confidence: 0.7, score: 0,
+      route: cat?.id ? `/app/lancamentos?category=${cat.id}&start=${a.month}-01&end=${a.month}-${String(last).padStart(2, "0")}` : "/app/metas",
+      routeLabel: cat?.id ? `Ver os gastos com ${src.label.toLowerCase()}` : "Criar meta de gasto" });
+  }
   // Organizar o caixa não é economizar: entra como ação de caixa, sem impacto mensal.
-  for (const s of a.input.situationActions.slice(0, 3)) {
-    // Ação de situação é organização de caixa: o valor estimado é o que ela protege no caixa, nunca economia mensal.
-    items.push({ key: `situation:${s.key}`, kind: "situation", nature: "cash", title: s.title, body: s.explanation ?? "", basis: "Ação de organização do caixa: não gera economia mensal por si só.", monthlyImpact: 0, cashImpact: (s.impact ?? 0) > 0 ? round2(s.impact as number) : null, confidence: s.confidence ?? 0.6, score: 0, route: s.route, routeLabel: s.route ? "Abrir" : null });
+  const cashNow = a.projections.cash;
+  const ddmmOf = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+  for (const s of [...a.input.situationActions].sort((x, y) => String(x.dueDate ?? "9") < String(y.dueDate ?? "9") ? -1 : 1).slice(0, 3)) {
+    // Ação de situação é organização de caixa: o valor é o que ela protege no caixa, nunca economia mensal.
+    const amt = (s.impact ?? 0) > 0 ? round2(s.impact as number) : null;
+    const covered = amt != null && cashNow ? cashNow.withoutIncomeEnd >= amt : null;
+    const detail = s.detail ?? s.explanation ?? "";
+    const coverNote = covered == null || !cashNow ? "" : covered
+      ? ` O saldo previsto para o fim do mês, mesmo sem a próxima renda (${fmt(cashNow.withoutIncomeEnd)}), já cobre esse valor.`
+      : ` Sem a próxima renda, o saldo previsto para o fim do mês (${fmt(cashNow.withoutIncomeEnd)}) não cobre esse valor.`;
+    items.push({ key: `situation:${s.key}`, kind: "situation", nature: "cash",
+      title: amt != null && s.dueDate ? `Reserve ${fmt(amt)} para ${ddmmOf(s.dueDate)}` : s.title,
+      body: `${detail}${detail && !/[.!?]$/.test(detail) ? "." : ""}${coverNote}`.trim(),
+      basis: "Ação de organização do caixa: não gera economia mensal. Urgente só quando o saldo previsto sem a próxima renda não cobre o valor.",
+      monthlyImpact: 0, cashImpact: amt, urgent: covered === false, confidence: s.confidence ?? 0.6, score: 0, route: s.route, routeLabel: s.route ? "Planejar o caixa" : null });
   }
   for (const it of items) it.score = round2(it.monthlyImpact * it.confidence);
-  // Ordem: ações de caixa com urgência primeiro (não têm valor), depois economia por impacto × confiança.
-  items.sort((x, y) => (x.nature === y.nature ? y.score - x.score : x.nature === "cash" ? -1 : 1));
+  // Ordem (handoff Meu mês, indicador 23): urgência de caixa com valor a proteger primeiro; depois economia por
+  // impacto × confiança; por último ações de caixa sem valor nem urgência demonstrada.
+  const tier = (it: Recommendation) => (it.nature === "cash" ? (it.urgent ? 0 : 2) : 1);
+  items.sort((x, y) => tier(x) - tier(y) || y.score - x.score || (x.key < y.key ? -1 : 1));
   const seen = new Set<string>();
   const top = items.filter((it) => !handled.has(it.key)).filter((it) => { const k = it.kind === "merchant" ? it.key : it.kind; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 3);
   return { items: top };

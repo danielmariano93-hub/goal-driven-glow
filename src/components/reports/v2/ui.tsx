@@ -242,7 +242,7 @@ export function Chip({ ratio, base }: { ratio: number; base: string }) {
   const up = ratio > 0.02; const down = ratio < -0.02;
   return (
     <span className={cn("inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums", up ? "bg-[#DC4C64]/10 text-[#DC4C64]" : down ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground")}>
-      {up ? <ArrowUpRight size={13} aria-hidden /> : down ? <ArrowDownRight size={13} aria-hidden /> : null}{up || down ? pct0(ratio).replace(/^[+−]/, "") : "estável"}<span className="sr-only">{up ? ` acima de ${base}` : down ? ` abaixo de ${base}` : ""}</span>
+      {up ? <ArrowUpRight size={13} aria-hidden /> : down ? <ArrowDownRight size={13} aria-hidden /> : null}{up || down ? pct0(ratio).replace(/^[+−]/, "") : "estável"}<span className="sr-only">{up ? ` acima; base: ${base}` : down ? ` abaixo; base: ${base}` : ""}</span>
     </span>
   );
 }

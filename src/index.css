@@ -144,6 +144,12 @@
     overflow-x: hidden;
   }
 
+  /* `clip` corta o excesso lateral como `hidden`, mas não cria contêiner de rolagem:
+     sem isso, nenhum `position: sticky` da página consegue ficar fixo. */
+  @supports (overflow-x: clip) {
+    body { overflow-x: clip; }
+  }
+
   #root, main, form, section {
     min-width: 0;
     max-width: 100%;
