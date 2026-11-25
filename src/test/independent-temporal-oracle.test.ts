@@ -77,3 +77,23 @@ describe("source-text temporal oracle independently verifies financial execution
     expect(verdict.violations.map(v => v.code)).toContain("original_request_vs_executed_window_mismatch");
   });
 });
+
+describe("o oráculo é só veto: o tempo é calculado pelo TimeSpec, não reescrito por regex", () => {
+  const today = "2026-11-24";
+  it("não reconhece intervalos ambíguos nem meses nomeados fora do par atual/anterior", () => {
+    for (const question of ["compara setembro com agosto", "compara esse mês do dia 1 ao dia 10 com outubro",
+      "quanto gastei mês passado", "compara novembro inteiro com outubro"]) {
+      expect(independentMonthComparison(question, today)).toBeNull();
+    }
+  });
+  it("o núcleo do agente não re-ancora nem remenda janelas depois do contrato do modelo", async () => {
+    const { readFileSync } = await import("node:fs");
+    const core = readFileSync("supabase/functions/_shared/agent/core/AgentCoreV2.ts", "utf8");
+    for (const gone of ["scopeForSingleComparison", "groundComparisonTurn", "sameWindowComparison", "alignTurnPeriods", "SameWindowGuard"]) {
+      expect(core).not.toContain(gone);
+    }
+    const oracle = readFileSync("supabase/functions/_shared/agent/core/IndependentTemporalOracle.ts", "utf8");
+    expect(oracle).not.toContain("groundComparisonTurn");
+    expect(oracle).not.toContain("scopeForSingleComparison");
+  });
+});
