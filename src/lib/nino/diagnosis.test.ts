@@ -21,7 +21,7 @@ describe("nino_diagnosis_contract.v1.1", () => {
 
   it("seleciona CTA determinístico e bloqueia rota externa", () => {
     expect(diagnosisActionLabel(situation, null)).toBe("Planejar agora");
-    expect(diagnosisRoute({ route: "https://example.com" } as never)).toBe("/app/nino");
+    expect(diagnosisRoute({ route: "https://example.com" } as never)).toBe("/app");
   });
 
   it("leva tarefas operacionais sem ação anexada ao filtro correto", () => {

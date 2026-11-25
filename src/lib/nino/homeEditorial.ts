@@ -550,7 +550,7 @@ function supportingFromPriority(priority: NinoPriority): NinoSupportingItem {
     title,
     supportingText: humanizeSupportingText(compactSentence(priority.body, SUPPORTING_BODY_MAX)),
     tone,
-    route: priorityRoute(priority) ?? "/app/nino",
+    route: priorityRoute(priority) ?? "/app",
     priority: editorialPriorityFor(priority, tone),
     subject: `feed:${priority.kind}`,
   };

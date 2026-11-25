@@ -2,7 +2,7 @@ import type { FinancialSituation, FinancialSituationAction } from "@/lib/nino/di
 
 const SAFE_NINO_ROUTE = /^\/app\/[A-Za-z0-9\-/?=&_.~:@!$'()*+,;[\]]*$/;
 
-export function diagnosisRoute(action?: FinancialSituationAction | null, fallback = "/app/nino") {
+export function diagnosisRoute(action?: FinancialSituationAction | null, fallback = "/app") {
   const route = action?.route?.trim() ?? "";
   if (!route || route.startsWith("//") || /[<>"\s\\]/.test(route)) return fallback;
   return SAFE_NINO_ROUTE.test(route.replace(/%[0-9A-Fa-f]{2}/g, "a")) ? route : fallback;
@@ -48,7 +48,7 @@ export function diagnosisRouteForSituation(
   }
   if (situation.situation_type === "behavioral_pattern") {
     if (evaluation.days_without_checkin != null) return "/app/mapa?action=checkin";
-    return situation.status === "observed" ? "/app/nino?section=aprendizados" : "/app/lancamentos";
+    return situation.status === "observed" ? "/app/relatorios?ato=mudou" : "/app/lancamentos";
   }
 
   if (situation.situation_type === "anticipation") return "/app/planejamento";

@@ -20,7 +20,7 @@ describe("resolveAppRoute: links antigos levam ao lugar certo", () => {
   it("apelidos e '/app/mais/<tela>'", () => {
     expect(resolveAppRoute("/app/mais/dividas")).toBe("/app/dividas");
     expect(resolveAppRoute("/app/mais/metas?goal=1")).toBe("/app/metas?goal=1");
-    expect(resolveAppRoute("/app/alertas")).toBe("/app/nino");
+    expect(resolveAppRoute("/app/alertas")).toBe("/app");
   });
   it("caminho válido passa intacto, com query", () => {
     expect(resolveAppRoute("/app/dividas?debt=1&action=pagar")).toBe("/app/dividas?debt=1&action=pagar");
@@ -34,7 +34,7 @@ describe("resolveAppRoute: links antigos levam ao lugar certo", () => {
   });
   it("safeRoute corrige antes de virar link quebrado", () => {
     expect(safeRoute({ route: "/app/mais/dividas" } as never)).toBe("/app/dividas");
-    expect(safeRoute({ route: "/app/nada-aqui" } as never)).toBe("/app/nino");
+    expect(safeRoute({ route: "/app/nada-aqui" } as never)).toBe("/app");
     expect(safeRoute({ route: "/app/metas" } as never)).toBe("/app/metas");
   });
 });

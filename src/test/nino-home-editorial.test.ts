@@ -220,7 +220,7 @@ describe("nino_home_editorial.v1", () => {
     const section = read("src/components/home/NinoGuidanceSection.tsx");
     expect(section).not.toContain("Também vale saber");
     expect(section).not.toContain("NinoInsightRow");
-    expect(section).toContain("Ver todas no Nino");
+    expect(section).toContain("Ver mais nos relatórios");
   });
 
   it("P. as ações do Spotlight ficam em uma linha só, em peso de link", () => {

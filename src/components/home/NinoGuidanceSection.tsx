@@ -100,12 +100,12 @@ export function NinoGuidanceSection({ diagnosis, context, nextStep, priorities, 
       />
 
       <Link
-        to="/app/nino"
-        aria-label="Ver todas as orientações do Nino"
+        to="/app/relatorios?ato=mudou"
+        aria-label="Ver as leituras do Nino nos relatórios"
         onClick={() => trackNinoEditorial("nino_view_all", { surface: "home" })}
         className="-mt-0.5 inline-flex min-h-[22px] items-center gap-1 px-1 text-[12.5px] font-semibold text-primary underline-offset-4 hover:underline"
       >
-        Ver todas no Nino
+        Ver mais nos relatórios
         <ArrowRight size={16} weight="bold" aria-hidden="true" />
       </Link>
     </div>

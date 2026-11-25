@@ -27,7 +27,7 @@ export function HomeCausasCard({ causes }: { causes: CauseLedger | null | undefi
         </p>
       )}
       {card.confidence === "media" && <p className="text-xs text-muted-foreground">Comparação com poucos meses de histórico: leia como indício, não como certeza.</p>}
-      {card.question && <Link to="/app/nino" className="text-sm font-semibold text-primary">{card.question}</Link>}
+      {card.question && <Link to="/app/relatorios?ato=mudou" className="text-sm font-semibold text-primary">{card.question}</Link>}
     </section>
   );
 }

@@ -50,7 +50,7 @@ const Dividas = lazyRoute(() => import("./pages/Dividas"));
 const Planejamento = lazyRoute(() => import("./pages/Planejamento"));
 const Relatorios = lazyRoute(() => import("./pages/RelatoriosInteligentes"));
 const RelatorioInteligenteDetalhe = lazyRoute(() => import("./pages/RelatorioInteligenteDetalhe"));
-const Nino = lazyRoute(() => import("./pages/Nino"));
+const Nino = lazyRoute(() => import("./pages/NinoRedirect"));
 const Emocoes = lazyRoute(() => import("./pages/Emocoes"));
 const TicketAlimentacao = lazyRoute(() => import("./pages/TicketAlimentacao"));
 const Perfil = lazyRoute(() => import("./pages/Perfil"));
@@ -204,11 +204,11 @@ const App = () => (
                 <Route path="cartoes" element={<Cartoes />} />
                 <Route path="assessor" element={<Assessor />} />
                 <Route path="nino" element={<Nino />} />
-                <Route path="assessor/acompanhamento" element={<Navigate to="/app/nino" replace />} />
+                <Route path="assessor/acompanhamento" element={<Navigate to="/app" replace />} />
                 <Route path="nino-hub" element={<NinoHub />} />
                 <Route path="nino-contexto" element={<NinoContextoV2 />} />
                 <Route path="alertas/:dedupKey" element={<ProactiveAlertDetail />} />
-                <Route path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />} />
+                <Route path="antecipacoes" element={<Navigate to="/app/relatorios?ato=vai" replace />} />
                 <Route path="antecipacoes/detalhe" element={<Antecipacoes />} />
                 <Route path="*" element={<AppRouteFallback />} />
 

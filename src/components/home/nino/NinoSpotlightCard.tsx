@@ -152,7 +152,7 @@ export function NinoSpotlightCard({
                 </button>
               ) : (
                 <Link
-                  to={primary.route ?? "/app/nino"}
+                  to={primary.route ?? "/app/relatorios?ato=vai"}
                   aria-label={primary.label}
                   onClick={trackPrimary}
                   className="inline-flex min-h-[28px] items-center gap-1 text-[13px] font-semibold text-primary underline-offset-4 hover:underline"
@@ -165,7 +165,7 @@ export function NinoSpotlightCard({
 
             {secondary ? (
               <Link
-                to={secondary.route ?? "/app/nino"}
+                to={secondary.route ?? "/app/relatorios?ato=vai"}
                 aria-label={secondary.label}
                 onClick={() =>
                   trackNinoEditorial("nino_spotlight_secondary_action", {

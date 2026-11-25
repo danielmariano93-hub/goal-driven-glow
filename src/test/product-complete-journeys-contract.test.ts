@@ -5,18 +5,18 @@ import { resolve } from "node:path";
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("jornadas completas de produto", () => {
-  it("unifica plano e aprendizado do Nino em uma só experiência", () => {
+  it("a aba Nino virou Relatórios em 3 atos; link antigo continua funcionando", () => {
     const app = read("src/App.tsx");
     const menu = read("src/pages/MaisMenu.tsx");
-    const nino = read("src/pages/Nino.tsx");
+    const reports = read("src/pages/RelatoriosInteligentes.tsx");
     expect(app).toContain('path="nino" element={<Nino />}');
-    expect(app).toContain('path="assessor/acompanhamento" element={<Navigate to="/app/nino" replace />}');
-    expect(app).toContain('path="antecipacoes" element={<Navigate to="/app/nino?section=prepare-se" replace />}');
+    expect(app).toContain('pages/NinoRedirect');
+    expect(app).toContain('path="antecipacoes" element={<Navigate to="/app/relatorios?ato=vai" replace />}');
     expect(menu).toContain("useMoreMenuContext");
     expect(menu).not.toContain('label: "O que o Nino aprendeu"');
-    expect(nino).toContain("useNinoDiagnosisContext");
-    expect(nino).toContain("Aprendizados");
-    expect(nino).toContain("Prepare-se");
+    expect(reports).toContain("useNinoDiagnosisContext");
+    expect(reports).toContain("Prepare-se");
+    expect(reports).toContain("Leituras do Nino");
   });
 
   it("oferece detalhe, edição, baixa e reversão na fatura", () => {

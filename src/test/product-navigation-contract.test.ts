@@ -108,8 +108,8 @@ describe("contrato de navegação do produto", () => {
 
   it("deep link e rota interna continuam funcionando fora do menu", () => {
     const deep = resolveActiveEntry("/app/alertas/algum-dedup");
-    expect(deep?.id).toBe("nino");
-    expect(resolveActiveEntry("/app/nino-contexto")?.id).toBe("nino");
+    expect(deep?.id).toBe("home");
+    expect(resolveActiveEntry("/app/nino-contexto")?.id).toBe("home");
     expect(resolveActiveEntry("/app/whatsapp")?.id).toBe("perfil");
   });
 });
