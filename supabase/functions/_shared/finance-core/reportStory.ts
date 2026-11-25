@@ -113,6 +113,23 @@ export interface IncomeView {
   incomplete: boolean;
 }
 
+/** O quanto dá para confiar nos números do mês: gasto sem categoria e meses de base do habitual. */
+export interface StoryQuality {
+  uncategorizedAmount: number;
+  uncategorizedShare: number;
+  habitualMonths: number;
+}
+
+/** Assinatura ou conta mensal que ficou mais cara (mesma cobrança, valor maior). */
+export interface PriceChange {
+  key: string;
+  label: string;
+  from: number;
+  to: number;
+  deltaAbs: number;
+  deltaPct: number;
+}
+
 export interface ReportStory {
   version: typeof REPORT_STORY_VERSION;
   /** Mês contado (YYYY-MM) e até que dia (janela de comparação). */
@@ -120,6 +137,8 @@ export interface ReportStory {
   windowDays: number;
   habitual: HabitualView | null;
   income: IncomeView | null;
+  quality: StoryQuality | null;
+  priceChanges: PriceChange[];
   cumulative: CumulativePoint[] | null;
   categories: CategoryHabitualRow[];
   variations: VariationRow[];
@@ -427,9 +446,47 @@ export function buildReportStory(input: StoryInput): ReportStory | null {
     }
   }
 
+  // ---- Qualidade do dado ----------------------------------------------------
+  const uncategorized = monthEntries.filter((e) => e.category_id == null).reduce((a, e) => a + e.amount, 0);
+  const quality: StoryQuality | null = total > 0
+    ? { uncategorizedAmount: round2(uncategorized), uncategorizedShare: Math.round((uncategorized / total) * 1000) / 1000, habitualMonths: refMonths.length }
+    : null;
+
+  // ---- Preços que subiram: mesma cobrança recorrente, valor maior -----------
+  const priceChanges: PriceChange[] = [];
+  {
+    type Month = { total: number; count: number };
+    const byMerchant = new Map<string, { label: string; months: Map<string, Month> }>();
+    for (const e of entries) {
+      if (!isSpend(e) || !e.merchant_key || !isDisplayableMerchant(e.merchant)) continue;
+      const m = monthOf(e.date);
+      if (m !== month && !candidateMonths.includes(m)) continue;
+      const row = byMerchant.get(e.merchant_key) ?? { label: e.merchant ?? e.merchant_key, months: new Map<string, Month>() };
+      const cell = row.months.get(m) ?? { total: 0, count: 0 };
+      cell.total += e.amount; cell.count += 1;
+      row.months.set(m, cell);
+      byMerchant.set(e.merchant_key, row);
+    }
+    for (const [key, row] of byMerchant) {
+      const cur = row.months.get(month);
+      const prior = candidateMonths.map((m) => row.months.get(m)).filter((c): c is Month => Boolean(c));
+      if (!cur || prior.length < HABITUAL_MIN_MONTHS) continue;
+      // Cobrança de assinatura: 1–2 lançamentos por mês e valor estável. Uso variável (Uber, mercado) não entra.
+      if (cur.count > 2 || prior.some((c) => c.count > 2)) continue;
+      const totals = prior.map((c) => c.total);
+      if (Math.max(...totals) / Math.max(1, Math.min(...totals)) > 1.08) continue;
+      const from = median(totals);
+      const delta = cur.total - from;
+      // Reajuste plausível: de 5% a 60%. Mais que isso é outra compra, não o mesmo preço.
+      if (from <= 0 || delta < 3 || delta / from < 0.05 || delta / from > 0.6) continue;
+      priceChanges.push({ key, label: row.label, from: round2(from), to: round2(cur.total), deltaAbs: round2(delta), deltaPct: Math.round((delta / from) * 1000) / 1000 });
+    }
+    priceChanges.sort((a, b) => b.deltaAbs - a.deltaAbs);
+  }
+
   return {
     version: REPORT_STORY_VERSION,
-    month, windowDays, habitual, income: incomeView, cumulative,
+    month, windowDays, habitual, income: incomeView, quality, priceChanges: priceChanges.slice(0, 3), cumulative,
     categories, variations: variations.slice(0, 5), weekday, split, sustainableSavings, recoverable, action,
   };
 }
@@ -444,6 +501,36 @@ export interface FutureGroup {
   amount: number;
 }
 
+export interface ExpectedIncome {
+  amount: number;
+  date: string;
+  label: string;
+  /** `configured`: renda informada no perfil; demais: estimada do histórico. */
+  source: string;
+}
+
+/** Como o mês deve fechar, em saldo (a base de gasto da Home é outra, então ela não entra aqui). */
+export interface BalanceOutlook {
+  /** Saldo de hoje + renda prevista − compromissos − fatura do cartão. */
+  freeAfterCommitments: number | null;
+  /** Mesmo cálculo, descontado o gasto variável previsto. */
+  projectedEnd: number | null;
+  expectedIncome: ExpectedIncome | null;
+}
+
+export interface SpendingGoalRow {
+  id: string;
+  categoryId: string | null;
+  category: string;
+  spent: number;
+  limit: number;
+  /** 0..1+ (não limitado: estourar a meta aparece como mais de 100%). */
+  pct: number;
+  status: "on_track" | "attention" | "at_risk" | "exceeded" | "limit_reached";
+  projected: number | null;
+  daysRemaining: number | null;
+}
+
 export interface FutureView {
   asOf: string;
   horizonStart: string;
@@ -452,6 +539,8 @@ export interface FutureView {
   balance: number | null;
   /** Saldo previsto no fim do mês (o mesmo da Home). */
   projectedEndBalance: number | null;
+  outlook: BalanceOutlook | null;
+  spendingGoals: SpendingGoalRow[];
   commitments: { total: number; groups: FutureGroup[]; hasEstimates: boolean } | null;
   receivable: { total: number; fromPeople: number; scheduled: number } | null;
   goal: { name: string; target: number; contributed: number; remaining: number; pct: number } | null;
@@ -499,8 +588,38 @@ export function buildFutureView(snapshot: any, today: string, receivableFromPeop
     ? { name: String(pick.name ?? "Meta"), target: round2(target), contributed: round2(contributed), remaining: round2(Math.max(0, target - contributed)), pct: Math.min(1, Math.round((contributed / target) * 1000) / 1000) }
     : null;
 
+  // Saldo do fim do mês e renda prevista: os mesmos números da Home.
+  const proj = snapshot.projection && typeof snapshot.projection === "object" ? snapshot.projection : null;
+  const incomeEvents: any[] = Array.isArray(proj?.estimatedIncomeEvents) ? proj.estimatedIncomeEvents : [];
+  const nextIncome = incomeEvents.filter((i) => typeof i?.date === "string" && i.date >= today && (num(i.amount) ?? 0) > 0).sort((a, b) => (a.date < b.date ? -1 : 1))[0];
+  const outlook: BalanceOutlook | null = proj
+    ? {
+        freeAfterCommitments: num(proj.freeAfterKnownCommitments),
+        projectedEnd: num(proj.projectedEndBalance),
+        expectedIncome: nextIncome ? { amount: round2(num(nextIncome.amount) ?? 0), date: nextIncome.date, label: String(nextIncome.label ?? "Renda prevista"), source: String(nextIncome.source ?? "") } : null,
+      }
+    : null;
+
+  // Metas de gasto por categoria que estão valendo hoje (ciclos já encerrados ou ainda não começados ficam de fora).
+  const LIVE = new Set(["on_track", "attention", "at_risk", "exceeded", "limit_reached"]);
+  const spendingGoals: SpendingGoalRow[] = (Array.isArray(snapshot.activeCategoryGoals) ? snapshot.activeCategoryGoals : [])
+    .filter((g: any) => LIVE.has(String(g?.status)) && typeof g?.period?.start === "string" && g.period.start <= today && g.period.end >= today && (num(g?.targetAmount) ?? 0) > 0)
+    .map((g: any) => ({
+      id: String(g.goal?.id ?? `${g.categoryName}-${g.period.start}`),
+      categoryId: g.goal?.category_id ? String(g.goal.category_id) : null,
+      category: String(g.categoryName ?? "Categoria"),
+      spent: round2(num(g.actualSpend) ?? 0),
+      limit: round2(num(g.targetAmount) ?? 0),
+      pct: Math.round(((num(g.actualSpend) ?? 0) / (num(g.targetAmount) as number)) * 1000) / 1000,
+      status: String(g.status) as SpendingGoalRow["status"],
+      projected: num(g.projectedSpend) != null ? round2(num(g.projectedSpend) as number) : null,
+      daysRemaining: num(g.daysRemaining),
+    }))
+    .sort((a: SpendingGoalRow, b: SpendingGoalRow) => b.pct - a.pct)
+    .slice(0, 4);
+
   return {
-    asOf: today, horizonStart, horizonEnd,
+    asOf: today, horizonStart, horizonEnd, outlook, spendingGoals,
     balance: num(snapshot.availableToday),
     projectedEndBalance: num(snapshot.projectedMonthEndAvailable),
     commitments, receivable, goal,

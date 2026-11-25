@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
-import { periodTitle } from "@/lib/engine/reportDashboard";
-import { CategoryBreakdown, EvolutionChart } from "@/components/reports/DashboardCharts";
-import { KpiStrip, PeriodBar, VerdictCard } from "@/components/reports/DashboardParts";
-import { ActionCard, CommitmentsCard, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MerchantsList, MonthSelector, OpportunityTiles, ReceivableCard, ReportTabs, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
+import { CategoriesTabContent } from "@/components/reports/CategoriesTab";
+import { ActionCard, BalanceOutlookCard, CommitmentsCard, DataQualityNote, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MonthSelector, OpportunityTiles, PriceChangesCard, ReceivableCard, ReportTabs, SpendingGoalsCard, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -45,6 +43,10 @@ export default function RelatoriosInteligentes() {
   const from = query.start;
   const to = query.end;
   const rangeValid = Boolean(from && to && from <= to && to <= today);
+
+  // O relatório é mensal: um link antigo com 7 dias, 3 meses ou período livre cai no mês atual.
+  const monthAligned = from.slice(8, 10) === "01" && from.slice(0, 7) === to.slice(0, 7);
+  useEffect(() => { if (!monthAligned) update({ preset: "month" }); }, [monthAligned, update]);
 
   // Link com ?ato= (Home, WhatsApp, antiga aba Nino) rola até a seção quando o painel já está na tela.
   const deepAct = params.get("ato");
@@ -106,16 +108,26 @@ export default function RelatoriosInteligentes() {
   }
 
   const story = dash?.story ?? null;
-  const previousLabel = dash?.previous ? periodTitle(dash.previous) : null;
-  const hasChanges = Boolean(story && (story.split || story.variations.length > 0 || story.weekday));
+  const hasChanges = Boolean(story && (story.split || story.variations.length > 0 || (story.priceChanges?.length ?? 0) > 0 || story.weekday));
   const future = dash?.future ?? null;
-  const hasFuture = Boolean(future && (future.commitments || future.receivable || future.goal)) || Boolean(story && (story.sustainableSavings || story.recoverable || story.action));
+  const hasFuture = Boolean(future && (future.outlook || future.commitments || future.receivable || future.goal || (future.spendingGoals?.length ?? 0) > 0)) || Boolean(story && (story.sustainableSavings || story.recoverable || story.action));
 
   return (
     <div className="space-y-4 pt-2 pb-8">
-      <header>
-        <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios</h1>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">Seu resumo financeiro com insights práticos.</p>
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl font-bold tracking-tight">Relatórios</h1>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">Seu resumo financeiro com insights práticos.</p>
+        </div>
+        <div className="flex shrink-0 gap-1.5 print:hidden">
+          <button type="button" aria-label="Exportar CSV" title="Exportar CSV" onClick={() => void handleExportCsv()} disabled={exporting}
+            className="grid h-9 w-9 place-items-center rounded-full border border-border text-muted-foreground disabled:opacity-60">
+            {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+          </button>
+          <button type="button" aria-label="Imprimir" title="Imprimir" onClick={() => window.print()} className="grid h-9 w-9 place-items-center rounded-full border border-border text-muted-foreground">
+            <Printer size={15} />
+          </button>
+        </div>
       </header>
 
       <MonthSelector
@@ -142,19 +154,16 @@ export default function RelatoriosInteligentes() {
           {tab === "geral" ? (
             <div role="tabpanel" id="painel-geral" aria-labelledby="aba-geral" className="space-y-6">
               <div className="space-y-3">
-                {story?.habitual ? (
+                {story ? (
                   <>
                     <ConsumptionHero d={dash} story={story} />
+                    <DataQualityNote story={story} />
                     <SummaryTrio d={dash} story={story} future={dash.future} />
                     <CumulativeChart story={story} />
                     <TopCategories story={story} windowEnd={dash.period.end} />
                   </>
                 ) : (
-                  <>
-                    <VerdictCard verdict={dash.verdict} filtered={dash.filtered} periodLabel={periodTitle(dash.period)} previousLabel={previousLabel} />
-                    <KpiStrip d={dash} />
-                    <EvolutionChart d={dash} />
-                  </>
+                  <p className="rounded-2xl border border-dashed border-border bg-card p-4 text-[13px] text-muted-foreground">Ainda não há gastos registrados neste mês.</p>
                 )}
               </div>
 
@@ -162,16 +171,19 @@ export default function RelatoriosInteligentes() {
                 <StorySection id="ato-mudou" title="O que mudou no seu mês" subtitle="Comparado ao seu padrão, veja onde estão as principais mudanças no seu consumo.">
                   <CostSplitCards story={story} />
                   <VariationsCard story={story} />
+                  <PriceChangesCard story={story} />
                   <WeekdayCard story={story} />
                 </StorySection>
               ) : null}
 
               {hasFuture ? (
                 <StorySection id="ato-vai" title="Para onde você vai" subtitle="Projeção dos próximos 30 dias e oportunidades para melhorar o seu resultado.">
+                  <BalanceOutlookCard future={future} />
                   <CommitmentsCard future={future} />
                   <ReceivableCard future={future} />
                   {story ? <OpportunityTiles story={story} /> : null}
-                  {story ? <ActionCard story={story} /> : null}
+                  {story ? <ActionCard story={story} future={future} /> : null}
+                  <SpendingGoalsCard future={future} />
                   <GoalProgressCard future={future} />
                 </StorySection>
               ) : null}
@@ -179,28 +191,8 @@ export default function RelatoriosInteligentes() {
           ) : null}
 
           {tab === "categorias" ? (
-            <div role="tabpanel" id="painel-categorias" aria-labelledby="aba-categorias" className="space-y-3">
-              <CategoryBreakdown d={dash} />
-            </div>
-          ) : null}
-
-          {tab === "estabelecimentos" ? (
-            <div role="tabpanel" id="painel-estabelecimentos" aria-labelledby="aba-estabelecimentos" className="space-y-3">
-              <MerchantsList d={dash} />
-            </div>
-          ) : null}
-
-          {tab === "mais" ? (
-            <div role="tabpanel" id="painel-mais" aria-labelledby="aba-mais" className="space-y-4">
-              <PeriodBar query={query} onChange={update} categories={dash.filterOptions.categories} today={today} comparisonAvailable={dash.coverage.comparisonAvailable} />
-              <div className="flex gap-2 print:hidden">
-                <button type="button" onClick={() => void handleExportCsv()} disabled={exporting} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs disabled:opacity-60">
-                  {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} CSV
-                </button>
-                <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs">
-                  <Printer size={12} /> Imprimir
-                </button>
-              </div>
+            <div role="tabpanel" id="painel-categorias" aria-labelledby="aba-categorias">
+              <CategoriesTabContent d={dash} compare={query.compare} onCompare={(compare) => update({ compare })} />
             </div>
           ) : null}
         </div>

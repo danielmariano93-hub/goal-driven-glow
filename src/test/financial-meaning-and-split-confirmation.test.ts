@@ -22,11 +22,12 @@ describe("financial concepts shown to the user", () => {
     expect(result.net).toBe(5715.43);
   });
 
-  it("keeps a single reports screen with a free period option", () => {
+  it("keeps a single reports screen, monthly, with the comparison choice inside Categorias e mais", () => {
     const reports = read("src/pages/RelatoriosInteligentes.tsx");
-    // Painel único: já abre calculado, com período livre (Personalizado).
-    expect(reports).toContain("<PeriodBar");
-    expect(read("src/lib/reports/dashboard/client.ts")).toContain('"Personalizado"');
+    // Painel único: já abre calculado, com seletor de mês e a escolha do período de comparação na aba Categorias e mais.
+    expect(reports).toContain("<MonthSelector");
+    expect(reports).toContain("CategoriesTabContent");
+    expect(read("src/components/reports/CategoriesTab.tsx")).toContain("Comparar com");
     expect(reports).not.toContain(">Saldo</p>");
   });
 

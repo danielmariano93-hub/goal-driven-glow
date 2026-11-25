@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowRight, BarChart3, Car, ChevronLeft, ChevronRight, ChevronDown, CalendarClock, CreditCard, Dumbbell, GraduationCap, HeartPulse, Home, Info, Landmark,
-  Layers, PawPrint, PiggyBank, Repeat, Scissors, Shirt, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Tag, Target, Ticket, TrendingUp,
+  AlertTriangle, ArrowRight, BarChart3, Car, ChevronLeft, ChevronRight, ChevronDown, CalendarClock, CreditCard, Dumbbell, GraduationCap, HeartPulse, Home, Info, Landmark,
+  Layers, PawPrint, ReceiptText, ShieldCheck, PiggyBank, Repeat, Scissors, Shirt, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Tag, Target, Ticket, TrendingUp,
   Utensils, Wallet, Zap, type LucideIcon,
 } from "lucide-react";
 import type { ReportDashboard } from "@/lib/engine/reportDashboard";
@@ -15,7 +15,8 @@ import { cn } from "@/lib/utils";
 
 /** Reais inteiros: análise, não extrato. Centavos continuam nos blocos de lançamentos. */
 export const brl0 = (n: number) => `R$ ${Math.round(n).toLocaleString("pt-BR")}`;
-const pctText = (ratio: number) => `${ratio >= 0 ? "+" : "−"}${Math.round(Math.abs(ratio) * 100)}%`;
+/** Variação em %; acima de 500% vira ">500%" (de R$ 21 para R$ 356 não é "+1590%" legível). */
+export const pctText = (ratio: number) => (Math.abs(ratio) > 5 ? `${ratio >= 0 ? "+" : "−"}>500%` : `${ratio >= 0 ? "+" : "−"}${Math.round(Math.abs(ratio) * 100)}%`);
 
 const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 export const monthName = (ym: string) => MONTHS[Number(ym.slice(5, 7)) - 1] ?? ym;
@@ -101,9 +102,7 @@ export function MonthSelector({ start, end, today, onPick }: { start: string; en
 
 export const REPORT_TABS = [
   { id: "geral", label: "Visão geral" },
-  { id: "categorias", label: "Categorias" },
-  { id: "estabelecimentos", label: "Estabelecimentos" },
-  { id: "mais", label: "Mais" },
+  { id: "categorias", label: "Categorias e mais" },
 ] as const;
 export type ReportTabId = (typeof REPORT_TABS)[number]["id"];
 export const parseTab = (v: string | null): ReportTabId => (REPORT_TABS.some((t) => t.id === v) ? (v as ReportTabId) : "geral");
@@ -141,10 +140,11 @@ export function StorySection({ id, title, subtitle, children }: { id: string; ti
 /** "Você consumiu R$ X", contra o habitual (a mesma janela de dias dos últimos meses fechados). */
 export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: ReportStory }) {
   const h = story.habitual;
-  if (!h) return null;
-  const above = h.deltaAbs > 0;
-  const flat = Math.abs(h.deltaPct ?? 0) < 0.03;
-  const sentence = flat ? "Seu gasto está dentro do habitual para este período." : above ? "Seu gasto está acima do habitual para este período." : "Seu gasto está abaixo do habitual para este período.";
+  const above = (h?.deltaAbs ?? 0) > 0;
+  const flat = Math.abs(h?.deltaPct ?? 0) < 0.03;
+  const sentence = !h
+    ? "Ainda não há histórico suficiente (2 meses fechados) para comparar com o seu habitual."
+    : flat ? "Seu gasto está dentro do habitual para este período." : above ? "Seu gasto está acima do habitual para este período." : "Seu gasto está abaixo do habitual para este período.";
   return (
     <section aria-label="Consumo do período" className="rounded-2xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
@@ -153,7 +153,7 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
           <p className="text-[15px] font-bold">Você consumiu</p>
           <p className="font-display text-[28px] font-bold leading-none tabular-nums">{brl0(d.totals.expense)}</p>
         </div>
-        {h.deltaPct != null ? (
+        {h && h.deltaPct != null ? (
           <div className="shrink-0 text-right">
             <VariationChip ratio={h.deltaPct} className="text-[14px]" />
             <p className="mt-1 text-[11px] leading-tight text-muted-foreground">vs. seu habitual<br />({brl0(h.expense)})</p>
@@ -162,9 +162,35 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
       </div>
       <p className="mt-3 flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
         {sentence}
-        <InfoTip label="habitual">Habitual é o valor típico (mediana) dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.</InfoTip>
+        {h ? <InfoTip label="habitual">Habitual é o valor típico (mediana) dos mesmos {story.windowDays} dias em {h.months.map((m) => monthName(m)).join(", ")}.</InfoTip> : null}
       </p>
     </section>
+  );
+}
+
+/**
+ * Aviso curto quando o dado limita a leitura: muito gasto sem categoria ou habitual com só 2 meses de base.
+ * Sem problema, não aparece nada.
+ */
+export function DataQualityNote({ story }: { story: ReportStory }) {
+  const q = story.quality;
+  if (!q) return null;
+  const uncategorized = q.uncategorizedShare >= 0.1;
+  const thin = story.habitual != null && q.habitualMonths < 3;
+  if (!uncategorized && !thin) return null;
+  return (
+    <aside aria-label="Qualidade dos dados" className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3">
+      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" aria-hidden />
+      <div className="min-w-0 text-[12px] leading-snug text-foreground">
+        {uncategorized ? (
+          <p>
+            {brl0(q.uncategorizedAmount)} ({Math.round(q.uncategorizedShare * 100)}%) dos gastos estão sem categoria, então as comparações por categoria ficam menos precisas.{" "}
+            <Link to="/app/lancamentos" className="font-semibold text-primary">Categorizar</Link>
+          </p>
+        ) : null}
+        {thin ? <p className={uncategorized ? "mt-1" : ""}>Seu habitual usa só {q.habitualMonths} meses de histórico; ele fica mais firme com 3.</p> : null}
+      </div>
+    </aside>
   );
 }
 
@@ -172,8 +198,9 @@ export function ConsumptionHero({ d, story }: { d: ReportDashboard; story: Repor
 export function SummaryTrio({ d, story, future }: { d: ReportDashboard; story: ReportStory | null | undefined; future: FutureView | null | undefined }) {
   // Salário que ainda não caiu: "Resultado" seria só o gasto com sinal negativo, o que engana. Mostra o que falta.
   const waiting = story?.income?.incomplete === true;
+  const expected = future?.outlook?.expectedIncome ?? null;
   const cells: Array<{ label: string; icon: LucideIcon; value: number | null; tone?: "good" | "bad"; note?: string }> = [
-    { label: "Receitas", icon: Wallet, value: d.totals.income, note: waiting ? `costuma ser ${brl0(story?.income?.typical ?? 0)}` : undefined },
+    { label: "Receitas", icon: Wallet, value: d.totals.income, note: waiting ? (expected ? `prevista para ${expected.date.slice(8, 10)}/${expected.date.slice(5, 7)}` : `costuma ser ${brl0(story?.income?.typical ?? 0)}`) : undefined },
     waiting
       ? { label: "Resultado", icon: TrendingUp, value: null, note: "aguardando a renda do mês" }
       : { label: "Resultado", icon: TrendingUp, value: d.totals.net, tone: d.totals.net >= 0 ? "good" : "bad" },
@@ -319,8 +346,36 @@ export function VariationsCard({ story }: { story: ReportStory }) {
               <p className="text-[12px] text-muted-foreground">{brl0(r.total)} no mês</p>
             </div>
             <span className="shrink-0 rounded-full bg-red-500/10 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-red-700">
-              +{brl0(r.deltaAbs)} (+{Math.round(r.deltaPct * 100)}%)
+              +{brl0(r.deltaAbs)} ({pctText(r.deltaPct)})
               <span className="sr-only"> acima do habitual</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Contas e assinaturas que ficaram mais caras (mesma cobrança, valor maior). */
+export function PriceChangesCard({ story }: { story: ReportStory }) {
+  const rows = (story.priceChanges ?? []).slice(0, 2);
+  if (rows.length === 0) return null;
+  return (
+    <section aria-label="Preços que subiram" className="rounded-2xl border border-border bg-card p-4 print:break-inside-avoid">
+      <p className="flex items-center gap-1 text-[15px] font-bold">Preços que subiram
+        <InfoTip label="preços que subiram">Cobranças mensais que se repetem com valor parecido e neste mês vieram mais caras. Vale conferir se mudou de plano ou se foi reajuste.</InfoTip>
+      </p>
+      <ul className="mt-3 space-y-3">
+        {rows.map((r) => (
+          <li key={r.key} className="flex items-center gap-3">
+            <IconBadge icon={ReceiptText} className="rounded-full" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[14px] font-semibold capitalize">{r.label}</p>
+              <p className="text-[12px] text-muted-foreground tabular-nums">de {brl0(r.from)} para {brl0(r.to)} por mês</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-red-500/10 px-2.5 py-1 text-[12px] font-semibold tabular-nums text-red-700">
+              +{brl0(r.deltaAbs)} (+{Math.round(r.deltaPct * 100)}%)
+              <span className="sr-only"> a mais por mês</span>
             </span>
           </li>
         ))}
@@ -370,6 +425,77 @@ export function WeekdayCard({ story }: { story: ReportStory }) {
 // ---------------------------------------------------------------------------
 // Tela 3 — Para onde você vai
 // ---------------------------------------------------------------------------
+
+const dayMonth = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** Como o mês deve fechar, em saldo: o que sobra depois de pagar tudo e o saldo previsto no fim do mês. */
+export function BalanceOutlookCard({ future }: { future: FutureView | null | undefined }) {
+  const o = future?.outlook;
+  if (!o || (o.freeAfterCommitments == null && o.projectedEnd == null)) return null;
+  const rows: Array<{ label: string; value: number; hint?: string; strong?: boolean }> = [];
+  if (o.expectedIncome) rows.push({ label: `Renda prevista · ${dayMonth(o.expectedIncome.date)}`, value: o.expectedIncome.amount, hint: o.expectedIncome.source === "configured" ? "informada no seu perfil" : "estimada pelo seu histórico" });
+  if (o.freeAfterCommitments != null) rows.push({ label: "Livre depois de pagar tudo", value: o.freeAfterCommitments, strong: true });
+  if (o.projectedEnd != null) rows.push({ label: "Saldo previsto no fim do mês", value: o.projectedEnd });
+  return (
+    <section aria-label="Como o mês deve fechar" className="rounded-2xl border border-border bg-card p-4 print:break-inside-avoid">
+      <p className="flex items-center gap-2 text-[14px] font-bold"><ShieldCheck size={18} className="text-primary" aria-hidden /> Como o mês deve fechar
+        <InfoTip label="como o mês deve fechar">Livre depois de pagar tudo = saldo de hoje + renda prevista − compromissos e fatura do cartão. O saldo previsto desconta também o ritmo de gasto até o fim do mês.</InfoTip>
+      </p>
+      <ul className="mt-3 space-y-2.5">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-start justify-between gap-3">
+            <span className="min-w-0 text-[13px]">
+              <span className={cn(r.strong && "font-semibold")}>{r.label}</span>
+              {r.hint ? <span className="block text-[11px] text-muted-foreground">{r.hint}</span> : null}
+            </span>
+            <span className={cn("shrink-0 tabular-nums", r.strong ? "font-display text-[20px] font-bold" : "text-[14px] font-semibold")}>{r.value < 0 ? "−" : ""}{brl0(Math.abs(r.value))}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const GOAL_STATUS: Record<string, { label: string; cls: string }> = {
+  on_track: { label: "No ritmo", cls: "bg-emerald-500/10 text-emerald-700" },
+  attention: { label: "Atenção", cls: "bg-amber-500/15 text-amber-700" },
+  at_risk: { label: "Em risco", cls: "bg-amber-500/15 text-amber-700" },
+  limit_reached: { label: "No limite", cls: "bg-amber-500/15 text-amber-700" },
+  exceeded: { label: "Estourou", cls: "bg-red-500/10 text-red-700" },
+};
+
+/** Metas de gasto por categoria que estão valendo hoje (as mesmas da aba Metas). */
+export function SpendingGoalsCard({ future }: { future: FutureView | null | undefined }) {
+  const goals = future?.spendingGoals ?? [];
+  if (goals.length === 0) return null;
+  return (
+    <Link to="/app/metas" aria-label="Metas de gasto" className="block rounded-2xl border border-border bg-card p-4 print:break-inside-avoid">
+      <p className="flex items-center justify-between text-[14px] font-bold"><span className="flex items-center gap-2"><Target size={18} className="text-primary" aria-hidden /> Metas de gasto</span><ChevronRight size={16} className="text-muted-foreground" aria-hidden /></p>
+      <ul className="mt-3 space-y-3.5">
+        {goals.map((g) => {
+          const st = GOAL_STATUS[g.status] ?? GOAL_STATUS.on_track;
+          const Icon = categoryIcon(g.category);
+          return (
+            <li key={g.id}>
+              <div className="flex items-center gap-2">
+                <Icon size={16} className="shrink-0 text-primary" aria-hidden />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{g.category}</span>
+                <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", st.cls)}>{st.label}</span>
+              </div>
+              <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-secondary" role="img" aria-label={`${Math.round(g.pct * 100)}% da meta de ${g.category}`}>
+                <div className={cn("h-full rounded-full", g.pct > 1 ? "bg-red-500" : "bg-primary")} style={{ width: `${Math.min(100, Math.max(2, g.pct * 100))}%` }} />
+              </div>
+              <p className="mt-1 flex justify-between text-[11.5px] text-muted-foreground tabular-nums">
+                <span>{brl0(g.spent)} de {brl0(g.limit)}</span>
+                <span>{Math.round(g.pct * 100)}%{g.daysRemaining != null && g.daysRemaining > 0 ? ` · faltam ${g.daysRemaining} dias` : ""}</span>
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+    </Link>
+  );
+}
 
 const COMMITMENT_ROWS: Record<string, { label: string; icon: LucideIcon }> = {
   cards: { label: "Parcelas (cartão e compras)", icon: CreditCard },
@@ -446,9 +572,11 @@ export function OpportunityTiles({ story }: { story: ReportStory }) {
   );
 }
 
-export function ActionCard({ story }: { story: ReportStory }) {
+export function ActionCard({ story, future }: { story: ReportStory; future?: FutureView | null }) {
   const a = story.action;
   if (!a) return null;
+  // Se a categoria da ação tem meta de gasto valendo, mostra quanto dela já foi usado.
+  const goal = a.categoryId ? future?.spendingGoals?.find((g) => g.categoryId === a.categoryId) ?? null : null;
   return (
     <Link to="/app/lancamentos" aria-label={`Ação recomendada: reduzir ${a.merchant}`} className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 print:break-inside-avoid">
       <IconBadge icon={Target} className="rounded-full" />
@@ -458,6 +586,7 @@ export function ActionCard({ story }: { story: ReportStory }) {
         <p className="mt-1 text-[12px] leading-snug text-muted-foreground">
           Você gastou {brl0(a.total)} em {a.merchant} neste mês. Voltar ao seu habitual ({brl0(a.habitual)}) é uma redução de {Math.round(a.reductionPct * 100)}%.
         </p>
+        {goal ? <p className="mt-1 text-[12px] font-semibold text-primary">Meta de {goal.category}: {Math.round(goal.pct * 100)}% usada ({brl0(goal.spent)} de {brl0(goal.limit)}).</p> : null}
       </div>
       <ChevronRight size={16} className="mt-1 shrink-0 text-muted-foreground" aria-hidden />
     </Link>
@@ -483,39 +612,3 @@ export function GoalProgressCard({ future }: { future: FutureView | null | undef
     </Link>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Abas Estabelecimentos
-// ---------------------------------------------------------------------------
-
-/** Estabelecimentos do período (somando as categorias), maiores primeiro. */
-export function MerchantsList({ d }: { d: ReportDashboard }) {
-  const acc = new Map<string, { label: string; total: number; previous: number }>();
-  for (const c of d.categories) {
-    for (const m of c.merchants) {
-      const cur = acc.get(m.key) ?? { label: m.label, total: 0, previous: 0 };
-      cur.total += m.total; cur.previous += m.previous;
-      acc.set(m.key, cur);
-    }
-  }
-  const rows = [...acc.values()].sort((a, b) => b.total - a.total).slice(0, 15);
-  if (rows.length === 0) return <p className="rounded-2xl border border-dashed border-border p-4 text-[12px] text-muted-foreground">Ainda não há estabelecimentos identificados neste período.</p>;
-  const max = Math.max(...rows.map((r) => r.total), 1);
-  return (
-    <section aria-label="Estabelecimentos" className="rounded-2xl border border-border bg-card p-4">
-      <p className="text-[15px] font-bold">Principais estabelecimentos</p>
-      <ul className="mt-3 space-y-3">
-        {rows.map((r) => (
-          <li key={r.label} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
-            <span className="truncate text-[13px] font-medium capitalize">{r.label}</span>
-            <span className="text-[13px] font-semibold tabular-nums">{brl0(r.total)}</span>
-            <span className="col-span-2 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden>
-              <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(3, (r.total / max) * 100)}%` }} />
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
