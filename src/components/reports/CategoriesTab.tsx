@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import type { CompareMode, DashCategoryRow, ReportDashboard } from "@/lib/engine/reportDashboard";
 import { COMPARE_OPTIONS } from "@/lib/reports/dashboard/client";
-import { brl0, categoryIcon } from "@/components/reports/StoryParts";
+import { brl0, categoryIcon, pctText } from "@/components/reports/StoryParts";
 import { cn } from "@/lib/utils";
 
 // Aba "Categorias e mais": para onde foi o dinheiro, por categoria e por estabelecimento, sempre com a
@@ -29,7 +29,7 @@ function ChangeChip({ change }: { change: Change }) {
     const up = change.kind === "up";
     return (
       <span className={cn("inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums", up ? "bg-red-500/10 text-red-700" : "bg-emerald-500/10 text-emerald-700")}>
-        {up ? "+" : "−"}{Math.round(Math.abs(change.ratio) * 100)}%
+        {pctText(change.ratio)}
         <span className="sr-only">{up ? " a mais" : " a menos"} que no período anterior</span>
       </span>
     );

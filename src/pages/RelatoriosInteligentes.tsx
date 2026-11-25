@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Download, Loader2, Printer, RefreshCw } from "lucide-react";
 import { useDashboardQuery, useReportDashboard } from "@/lib/reports/dashboard/client";
 import { CategoriesTabContent } from "@/components/reports/CategoriesTab";
-import { ActionCard, CommitmentsCard, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MonthSelector, OpportunityTiles, ReceivableCard, ReportTabs, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
+import { ActionCard, BalanceOutlookCard, CommitmentsCard, DataQualityNote, ConsumptionHero, CostSplitCards, CumulativeChart, GoalProgressCard, MonthSelector, OpportunityTiles, PriceChangesCard, ReceivableCard, ReportTabs, SpendingGoalsCard, StorySection, SummaryTrio, TopCategories, VariationsCard, WeekdayCard, parseTab, type ReportTabId } from "@/components/reports/StoryParts";
 import { notifyError } from "@/lib/ui/feedback";
 import { supabase } from "@/integrations/supabase/client";
 import { filterCanonicalReportTransactions, filterPeriod, toCsv, type ReportTxn } from "@/lib/reports/aggregations";
@@ -108,9 +108,9 @@ export default function RelatoriosInteligentes() {
   }
 
   const story = dash?.story ?? null;
-  const hasChanges = Boolean(story && (story.split || story.variations.length > 0 || story.weekday));
+  const hasChanges = Boolean(story && (story.split || story.variations.length > 0 || (story.priceChanges?.length ?? 0) > 0 || story.weekday));
   const future = dash?.future ?? null;
-  const hasFuture = Boolean(future && (future.commitments || future.receivable || future.goal)) || Boolean(story && (story.sustainableSavings || story.recoverable || story.action));
+  const hasFuture = Boolean(future && (future.outlook || future.commitments || future.receivable || future.goal || (future.spendingGoals?.length ?? 0) > 0)) || Boolean(story && (story.sustainableSavings || story.recoverable || story.action));
 
   return (
     <div className="space-y-4 pt-2 pb-8">
@@ -157,6 +157,7 @@ export default function RelatoriosInteligentes() {
                 {story ? (
                   <>
                     <ConsumptionHero d={dash} story={story} />
+                    <DataQualityNote story={story} />
                     <SummaryTrio d={dash} story={story} future={dash.future} />
                     <CumulativeChart story={story} />
                     <TopCategories story={story} windowEnd={dash.period.end} />
@@ -170,16 +171,19 @@ export default function RelatoriosInteligentes() {
                 <StorySection id="ato-mudou" title="O que mudou no seu mês" subtitle="Comparado ao seu padrão, veja onde estão as principais mudanças no seu consumo.">
                   <CostSplitCards story={story} />
                   <VariationsCard story={story} />
+                  <PriceChangesCard story={story} />
                   <WeekdayCard story={story} />
                 </StorySection>
               ) : null}
 
               {hasFuture ? (
                 <StorySection id="ato-vai" title="Para onde você vai" subtitle="Projeção dos próximos 30 dias e oportunidades para melhorar o seu resultado.">
+                  <BalanceOutlookCard future={future} />
                   <CommitmentsCard future={future} />
                   <ReceivableCard future={future} />
                   {story ? <OpportunityTiles story={story} /> : null}
-                  {story ? <ActionCard story={story} /> : null}
+                  {story ? <ActionCard story={story} future={future} /> : null}
+                  <SpendingGoalsCard future={future} />
                   <GoalProgressCard future={future} />
                 </StorySection>
               ) : null}

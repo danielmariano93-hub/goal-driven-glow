@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { CommitmentsCard, ConsumptionHero, CostSplitCards, MonthSelector, ReportTabs, StorySection, SummaryTrio, TopCategories, brl0, parseTab } from "@/components/reports/StoryParts";
+import { ActionCard, BalanceOutlookCard, CommitmentsCard, ConsumptionHero, DataQualityNote, PriceChangesCard, SpendingGoalsCard, CostSplitCards, MonthSelector, ReportTabs, StorySection, SummaryTrio, TopCategories, brl0, parseTab } from "@/components/reports/StoryParts";
 import { ninoRedirectTarget } from "@/lib/navigation/ninoRedirect";
 import { resolveAppRoute } from "@/lib/navigation/resolveRoute";
 import type { ReportDashboard } from "@/lib/engine/reportDashboard";
@@ -104,5 +104,71 @@ describe("Relatórios no desenho do protótipo", () => {
     expect(ninoRedirectTarget("mudancas")).toBe("/app/relatorios?ato=mudou");
     expect(ninoRedirectTarget("prepare-se")).toBe("/app/relatorios?ato=vai");
     expect(resolveAppRoute("/app/nino?section=aprendizados")).toBe("/app/relatorios?ato=mudou");
+  });
+});
+
+describe("itens novos do relatório", () => {
+  it("aviso de qualidade: só aparece com muito gasto sem categoria ou habitual de 2 meses", () => {
+    const ok = story({ quality: { uncategorizedAmount: 100, uncategorizedShare: 0.04, habitualMonths: 3 } });
+    const { container, rerender } = wrap(<DataQualityNote story={ok} />);
+    expect(container.innerHTML).toBe("");
+    rerender(<MemoryRouter><DataQualityNote story={story({ quality: { uncategorizedAmount: 1234, uncategorizedShare: 0.18, habitualMonths: 3 } })} /></MemoryRouter>);
+    expect(screen.getByText(/R\$ 1\.234 \(18%\) dos gastos estão sem categoria/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Categorizar" })).toBeTruthy();
+    rerender(<MemoryRouter><DataQualityNote story={story({ quality: { uncategorizedAmount: 0, uncategorizedShare: 0, habitualMonths: 2 } })} /></MemoryRouter>);
+    expect(screen.getByText(/só 2 meses de histórico/)).toBeTruthy();
+  });
+
+  it("preços que subiram: de/para e diferença; some sem dado", () => {
+    const s = story({ priceChanges: [{ key: "claro", label: "Claro", from: 202.59, to: 234.61, deltaAbs: 32.02, deltaPct: 0.158 }] });
+    const { container, rerender } = wrap(<PriceChangesCard story={s} />);
+    expect(screen.getByText("de R$ 203 para R$ 235 por mês")).toBeTruthy();
+    expect(screen.getByText(/\+R\$ 32 \(\+16%\)/)).toBeTruthy();
+    rerender(<MemoryRouter><PriceChangesCard story={story()} /></MemoryRouter>);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("como o mês deve fechar: renda prevista, livre depois de pagar tudo e saldo previsto", () => {
+    const f = { outlook: { freeAfterCommitments: 12100.7, projectedEnd: 11817.94, expectedIncome: { amount: 9430.44, date: "2026-11-27", label: "x", source: "configured" } } } as FutureView;
+    const { container, rerender } = wrap(<BalanceOutlookCard future={f} />);
+    expect(screen.getByText("Renda prevista · 27/11")).toBeTruthy();
+    expect(screen.getByText("informada no seu perfil")).toBeTruthy();
+    expect(screen.getByText("R$ 12.101")).toBeTruthy();
+    expect(screen.getByText("R$ 11.818")).toBeTruthy();
+    rerender(<MemoryRouter><BalanceOutlookCard future={{ outlook: null } as FutureView} /></MemoryRouter>);
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("metas de gasto: progresso real e status; estourada fica vermelha com mais de 100%", () => {
+    const f = { spendingGoals: [
+      { id: "1", categoryId: "t", category: "Transporte", spent: 512.49, limit: 958.61, pct: 0.535, status: "on_track", projected: 668, daysRemaining: 5 },
+      { id: "2", categoryId: "l", category: "Lazer", spent: 600, limit: 500, pct: 1.2, status: "exceeded", projected: 700, daysRemaining: 0 }] } as FutureView;
+    wrap(<SpendingGoalsCard future={f} />);
+    expect(screen.getByText("R$ 512 de R$ 959")).toBeTruthy();
+    expect(screen.getByText("No ritmo")).toBeTruthy();
+    expect(screen.getByText("Estourou")).toBeTruthy();
+    expect(screen.getByText("120%")).toBeTruthy();
+    expect(screen.getByText(/54% · faltam 5 dias/)).toBeTruthy();
+  });
+
+  it("ação recomendada mostra o uso da meta de gasto da mesma categoria", () => {
+    const s = story({ action: { merchant: "Uber", categoryId: "t", total: 356, habitual: 210, excess: 146, reductionPct: 0.41 } });
+    const f = { spendingGoals: [{ id: "1", categoryId: "t", category: "Transporte", spent: 512.49, limit: 958.61, pct: 0.535, status: "on_track", projected: 668, daysRemaining: 5 }] } as FutureView;
+    wrap(<ActionCard story={s} future={f} />);
+    expect(screen.getByText("Meta de Transporte: 54% usada (R$ 512 de R$ 959).")).toBeTruthy();
+  });
+
+  it("renda a caminho mostra a data prevista quando existe", () => {
+    wrap(<SummaryTrio d={dash({ totals: { expense: 1, income: 0, net: -1 } as ReportDashboard["totals"] })} story={story({ income: { current: 0, typical: 8527, incomplete: true } })} future={{ balance: 10, outlook: { freeAfterCommitments: null, projectedEnd: null, expectedIncome: { amount: 9430, date: "2026-11-27", label: "x", source: "configured" } } } as FutureView} />);
+    expect(screen.getByText("prevista para 27/11")).toBeTruthy();
+  });
+});
+
+describe("variação legível", () => {
+  it("acima de 500% vira >500%", async () => {
+    const { pctText } = await import("@/components/reports/StoryParts");
+    expect(pctText(0.5)).toBe("+50%");
+    expect(pctText(-0.07)).toBe("−7%");
+    expect(pctText(15.9)).toBe("+>500%");
   });
 });

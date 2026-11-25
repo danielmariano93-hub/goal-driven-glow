@@ -234,3 +234,65 @@ describe("coerência com o motor clássico do relatório", () => {
     expect(dash.totals.expense).toBeCloseTo(1670 + 80, 2);
   });
 });
+
+describe("qualidade do dado, preços que subiram, saldo do mês e metas de gasto", () => {
+  const sub = (ym: string, amount: number) => ex(`${ym}-10`, amount, "Serviços", "claro", { merchant: "Claro" });
+  const usage = (ym: string, n: number) => Array.from({ length: n }, (_, i) => ex(`${ym}-${String(3 + i).padStart(2, "0")}`, 30, "Transporte", "uber", { merchant: "Uber" }));
+  const run = (entries: DashEntry[]) => buildReportStory({ entries, today: "2026-11-24", start: "2026-11-01", end: "2026-11-24", essentialCategoryIds: [] })!;
+
+  it("gasto sem categoria: valor e proporção do mês", () => {
+    const s = run([...base, ...nov, { ...ex("2026-11-15", 300, "x"), category_id: null }]);
+    expect(s.quality).toMatchObject({ uncategorizedAmount: 300, habitualMonths: 3 });
+    expect(s.quality!.uncategorizedShare).toBeCloseTo(300 / 1970, 3);
+  });
+
+  it("assinatura que subiu aparece com de/para e diferença", () => {
+    const s = run([...base, ...nov, sub("2026-08", 202.59), sub("2026-09", 194.79), sub("2026-10", 202.59), sub("2026-11", 234.61)]);
+    expect(s.priceChanges).toHaveLength(1);
+    expect(s.priceChanges[0]).toMatchObject({ label: "Claro", from: 202.59, to: 234.61, deltaAbs: 32.02 });
+    expect(s.priceChanges[0].deltaPct).toBeCloseTo(0.158, 3);
+  });
+
+  it("uso variável (várias cobranças) e variações pequenas não viram 'preço que subiu'", () => {
+    const heavy = run([...base, ...nov, ...usage("2026-08", 4), ...usage("2026-09", 4), ...usage("2026-10", 4), ...usage("2026-11", 9)]);
+    expect(heavy.priceChanges).toEqual([]);
+    const tiny = run([...base, ...nov, sub("2026-08", 100), sub("2026-09", 100), sub("2026-10", 100), sub("2026-11", 102)]);
+    expect(tiny.priceChanges).toEqual([]);
+    const oneMonth = run([...base, ...nov, sub("2026-10", 100), sub("2026-11", 150)]);
+    expect(oneMonth.priceChanges).toEqual([]);
+  });
+
+  it("valor que já oscilava muito antes, ou salto grande demais, não conta como reajuste", () => {
+    expect(run([...base, ...nov, sub("2026-08", 100), sub("2026-09", 150), sub("2026-10", 100), sub("2026-11", 140)]).priceChanges).toEqual([]);
+    // 100 -> 250 (+150%) é outra compra, não o mesmo preço
+    expect(run([...base, ...nov, sub("2026-08", 100), sub("2026-09", 100), sub("2026-10", 100), sub("2026-11", 250)]).priceChanges).toEqual([]);
+  });
+
+  const snap = {
+    availableToday: 4791, commitmentAgenda: { pendingItems: [] }, goalProgress: [],
+    projection: { freeAfterKnownCommitments: 12100.7, projectedEndBalance: 11817.94, estimatedIncomeEvents: [
+      { date: "2026-11-10", label: "Já passou", amount: 1, source: "estimated" },
+      { date: "2026-11-27", label: "Renda informada no perfil", amount: 9430.44, source: "configured" }] },
+    activeCategoryGoals: [
+      { goal: { id: "g1" }, categoryName: "Transporte", status: "on_track", period: { start: "2026-11-01", end: "2026-11-30" }, targetAmount: 958.61, actualSpend: 512.49, projectedSpend: 668.37, daysRemaining: 5 },
+      { goal: { id: "g2" }, categoryName: "Lazer", status: "exceeded", period: { start: "2026-11-01", end: "2026-11-30" }, targetAmount: 500, actualSpend: 600, projectedSpend: 700, daysRemaining: 5 },
+      { goal: { id: "g3" }, categoryName: "Alimentação", status: "completed_ok", period: { start: "2026-10-01", end: "2026-10-31" }, targetAmount: 400, actualSpend: 90 },
+      { goal: { id: "g4" }, categoryName: "Pets", status: "scheduled", period: { start: "2026-12-01", end: "2026-12-31" }, targetAmount: 100, actualSpend: 0 }],
+  };
+
+  it("saldo do mês: livre depois de pagar tudo, saldo previsto e a próxima renda (só futura)", () => {
+    const f = buildFutureView(snap, "2026-11-24", 0, [])!;
+    expect(f.outlook).toEqual({ freeAfterCommitments: 12100.7, projectedEnd: 11817.94, expectedIncome: { amount: 9430.44, date: "2026-11-27", label: "Renda informada no perfil", source: "configured" } });
+  });
+
+  it("sem projeção no snapshot, o bloco some", () => {
+    expect(buildFutureView({ availableToday: 1, commitmentAgenda: { pendingItems: [] }, goalProgress: [] }, "2026-11-24", 0, [])!.outlook).toBeNull();
+  });
+
+  it("metas de gasto: só as que valem hoje, a mais usada primeiro, estourada passa de 100%", () => {
+    const g = buildFutureView(snap, "2026-11-24", 0, [])!.spendingGoals;
+    expect(g.map((x) => x.category)).toEqual(["Lazer", "Transporte"]);
+    expect(g[0]).toMatchObject({ pct: 1.2, status: "exceeded", spent: 600, limit: 500 });
+    expect(g[1]).toMatchObject({ pct: 0.535, projected: 668.37, daysRemaining: 5 });
+  });
+});
