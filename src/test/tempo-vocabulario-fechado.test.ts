@@ -38,11 +38,14 @@ describe("pedido do mês fechado tolera erro de digitação", () => {
   });
 });
 
-describe("o prompt do interpretador fixa o vocabulário e a prioridade sobre o resumo", () => {
+describe("o prompt do interpretador fixa o vocabulário fechado (spec) e a prioridade sobre o resumo", () => {
   const src = readFileSync("supabase/functions/_shared/agent/v3/SemanticInterpreterV3.ts", "utf8");
-  it("lista as duas expressões canônicas e a regra de prioridade", () => {
-    expect(src).toContain('"este mês até hoje","mesmos dias do mês anterior"');
-    expect(src).toContain('"este mês até hoje","mês anterior inteiro"');
+  it("pede spec em todo período, lista o vocabulário e proíbe o modelo de escrever datas", () => {
+    expect(src).toContain("PERÍODOS COM SPEC FECHADO");
+    for (const k of ["same_days_previous_month", "calendar_month", "rolling_days", "previous_rolling_days", "day_range", "since_day", "explicit_range"]) expect(src).toContain(k);
+    expect(src).toContain("NUNCA escreve datas");
+  });
+  it("mantém a prioridade da comparação sobre o resumo (35b)", () => {
     expect(src).toContain("TEM PRIORIDADE sobre 35b");
   });
 });
