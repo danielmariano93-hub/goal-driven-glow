@@ -92,7 +92,7 @@ export const PHRASES = {
     title: "{title}",
     body: "{body}",
     action: "{title}",
-    actionBody: "{basis}",
+    actionBody: "O gasto recente está acima do seu padrão. Veja no app os lançamentos que puxaram o valor.",
   },
   neutral_week: {
     title: "Semana sem mudanças relevantes",

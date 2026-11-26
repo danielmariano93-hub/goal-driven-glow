@@ -363,7 +363,7 @@ function actionCard(c: Ctx, dto: SummaryDTO, y: number, h: number) {
   const t = fit(dto.action.title, f.bold, T.section[0], W - p - 16);
   if (t.overflow) c.issues.push({ block: "action.title", kind: "overflow", detail: dto.action.title });
   drawText(page, t.text, X + p, y + 12 + T.caption[1] + 3, f.bold, T.section, C.text);
-  const maxLines = Math.max(1, Math.floor((h - (12 + T.caption[1] + 3 + T.section[1] + 3) - 10) / T.body[1]));
+  const maxLines = Math.max(1, Math.floor((h - (12 + T.caption[1] + 3 + T.section[1] + 3) - 6) / T.body[1]));
   const body = wrap(dto.action.body, f.reg, T.body[0], W - p - 16, maxLines);
   if (body.overflow) c.issues.push({ block: "action.body", kind: "overflow", detail: dto.action.body });
   body.lines.forEach((ln, k) => drawText(page, ln, X + p, y + 12 + T.caption[1] + 3 + T.section[1] + 3 + k * T.body[1], f.reg, T.body, C.muted));

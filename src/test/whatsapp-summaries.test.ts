@@ -217,7 +217,14 @@ describe("PDF", () => {
     ["resumo-semanal-risco", buildWeeklySummary(weeklyInput({ future: { ...weeklyInput().future, minBalance: { amount: -312.4, date: "2026-11-28" } } }))],
     ["resumo-semanal-vazio", buildWeeklySummary(weeklyInput({ rows: [], balances: { end: null, prevEnd: null } }))],
     ["resumo-mensal-parcial", buildMonthlySummary(monthlyInput({ quality: { pendingImports: true, uncategorizedShare: 0, notes: [] } }))],
+    ["resumo-mensal-oportunidade", buildMonthlySummary(monthlyInput({ goals: null, prev: { ...monthlyInput().prev!, consumption: 5900, result: 1080 }, opportunity: { title: "Revise os gastos com Restaurantes e delivery no fim de semana", body: "Você gastou em média R$ 1.834 por mês com Restaurantes nos últimos meses; o seu padrão mais baixo recorrente foi R$ 1.194. A diferença é de cerca de R$ 640 por mês.", basis: "Baseline: R$ 1.194 no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de R$ 640).", impact: 640 } }))],
   ];
+  it("oportunidade: ação em linguagem direta, sem termos técnicos", () => {
+    const d = cases.find(([n]) => n === "resumo-mensal-oportunidade")![1];
+    expect(d.insight.kind).toBe("opportunity");
+    expect(d.action.body).not.toMatch(/Baseline|Premissa/);
+    expect(d.insight.body.length).toBeLessThanOrEqual(180);
+  });
   for (const [name, dto] of cases) {
     it(`${name}: uma página, < 1 MB, sem texto cortado`, async () => {
       const r = await renderSummaryPdf(dto);
