@@ -102,7 +102,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const evoLines: SummaryLine[] = [
     { label: isPartial && i.asOf <= lastDay ? `Saldo em conta em ${ddmm(cutoff)}` : "Saldo em conta no fim do mês", value: bal == null ? "não disponível" : brl(bal), note: cb.delta_cents == null ? null : `${brl(cb.delta_cents, { sign: true })} ${vsPrev}` },
     { label: "Metas de gasto no limite", value: sg.length ? `${within} de ${sg.length}` : "nenhuma", tone: "neutral" },
-    { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "pagamentos de dívidas e empréstimos, fora do consumo" : null },
+    { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "pagamentos de dívida registrados, fora do consumo" : null },
     { label: "Patrimônio registrado", value: nw == null ? "não disponível" : brl(nw), note: nw == null ? null : nwCmp.text },
   ];
   const bars: EvolutionBar[] = i.trend.slice(-6).map((t) => ({ label: monthName(t.month).slice(0, 3), value_cents: Math.round(t.result * 100), partial: t.partial }));

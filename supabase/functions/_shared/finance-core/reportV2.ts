@@ -373,7 +373,10 @@ export function classifyLedger(entries: V2Entry[], debtSplits: Record<string, De
     if (e.kind === "income") { if (e.amount > 0) incomeRows.push({ date: e.date, month, amount: e.amount, category: e.category || "Receita" }); continue; }
     if (e.kind !== "expense" || e.amount === 0) continue;
     const base = { id: e.id ?? null, date: e.date, month, day: dayOfMonth(e.date), categoryId: e.category_id, merchantKey: e.merchant_key, merchant: e.merchant, chartDay: e.chart_carried ? null : (e.chart_date ?? e.date) };
-    const fromCategory = !e.debt_payment && e.amount > 0 && e.category_id != null && isDebtCategoryName(e.category);
+    // Só é pagamento de dívida o que tem registro de dívida: lançamento de pagamento de dívida, ou lançamento na
+    // categoria de dívida que tenha registro em `debt_payments`. Categoria de dívida sem registro é gasto comum
+    // (mesma regra da ponte do caixa da tela inicial; decisão do dono do produto em 26/11/2026).
+    const fromCategory = !e.debt_payment && e.amount > 0 && e.category_id != null && isDebtCategoryName(e.category) && !!(e.id && debtSplits[e.id]);
     if (e.debt_payment || fromCategory) {
       const split = e.id ? debtSplits[e.id] : undefined;
       const label = e.merchant ?? e.category ?? "Dívida";
