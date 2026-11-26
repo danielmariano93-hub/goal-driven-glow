@@ -15,6 +15,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       // Bridge npm:* Deno specifiers so vitest can import _shared modules.
       "npm:zod@3.23.8": "zod",
+      "npm:pdf-lib@1.17.1": "pdf-lib",
+      "npm:@pdf-lib/fontkit@1.1.1": "@pdf-lib/fontkit",
       "https://esm.sh/@supabase/supabase-js@2.45.4": "@supabase/supabase-js",
     },
   },
