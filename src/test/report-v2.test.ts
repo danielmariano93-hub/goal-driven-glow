@@ -108,7 +108,7 @@ describe("report_v2 — comportamento", () => {
     const lazer = b.categories.find((c) => c.name === "Lazer")!;
     expect(lazer.total).toBe(280);
     expect(lazer.previous).toBe(300); // 200 histórico + 100 cinema
-    const cine = b.merchants.find((m) => m.key === "cinema")!;
+    const cine = b.merchants.find((m) => m.label === "Cinemark")!;
     expect(cine.previous).toBe(100);
     expect(cine.deltaPct).toBe(1.5);
     expect(b.merchants.some((m) => m.key === "pix")).toBe(false);

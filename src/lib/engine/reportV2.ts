@@ -129,6 +129,8 @@ export interface CategoryRowV2 {
   deltaAbs: number;
   deltaPct: number | null;
   merchants: MerchantRowV2[];
+  /** Lançamentos que formam o total do período (até 100), para abrir exatamente eles. */
+  ids?: string[];
 }
 
 export interface MerchantRowV2 {
@@ -141,6 +143,7 @@ export interface MerchantRowV2 {
   previous: number;
   deltaAbs: number;
   deltaPct: number | null;
+  ids?: string[];
 }
 
 export interface DriverRow { name: string; impact: number; klass: Klass }
@@ -166,7 +169,7 @@ export interface BehaviorV2 {
     habitualWeekend: { weekendAvg: number; weekdayAvg: number } | null;
   } | null;
   signals: Signal[];
-  smallSpend: { ceiling: number; total: number; count: number; share: number; topMerchants: Array<{ label: string; total: number; count: number }>; history: Array<{ month: string; total: number }> } | null;
+  smallSpend: { /** lançamentos que formam o total (até 100) */ ids?: string[]; ceiling: number; total: number; count: number; share: number; topMerchants: Array<{ label: string; total: number; count: number }>; history: Array<{ month: string; total: number }> } | null;
   patterns: Array<{ label: string; status: string; upliftPct: number | null; absoluteDelta: number | null; sampleSize: number; confidence: number | null }>;
   priceChanges: Array<{ key: string; label: string; from: number; to: number; deltaAbs: number; deltaPct: number }>;
 }
@@ -294,6 +297,21 @@ function quantile(sorted: number[], q: number): number {
 }
 
 /** Só estabelecimentos reconhecíveis: PIX/transferência para pessoa e descrição longa de intermediário ficam de fora. */
+// Agrupa variações do mesmo estabelecimento ("Enel", "*Enel Distribuicao Sao Paulo*",
+// "Pagamento de Pix QR Code ENEL DISTRIBUICAO SAO PAULO") sob uma chave só.
+const MERCHANT_NOISE = [/^pagamento (de )?pix( qr code)?/, /^pix( qr code)?( para| enviado)?/, /^compra (no )?(debito|credito)/, /^pagamento (de )?boleto/, /^pagamento/, /^pgto/, /^(dl|pg|mp|ifd|pag|ec|pp|sumup|stone|cielo)\s*\*\s*/];
+const GENERIC_FIRST = new Set(["lojas", "loja", "supermercado", "supermercados", "mercado", "posto", "farmacia", "drogaria", "restaurante", "padaria", "auto", "casa", "comercial", "banco", "servicos", "distribuidora", "the", "cia", "rede", "clinica", "hospital", "academia", "escola", "bar", "cafe", "hotel"]);
+const BRAND_QUALIFIER = new Set(["eats", "one", "prime", "music", "plus", "pay", "store", "shop", "cash", "play", "drive", "cloud", "ads", "tv"]);
+export function merchantGroupKey(label: string): string {
+  let t = label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\*/g, " * ").replace(/\s+/g, " ").trim();
+  for (let i = 0; i < 3; i++) for (const re of MERCHANT_NOISE) t = t.replace(re, "").trim();
+  const toks = t.replace(/[^a-z0-9 ]+/g, " ").split(" ").filter((w) => w && !/\d/.test(w) && w.length > 1);
+  if (toks.length === 0) return label.toLowerCase().trim();
+  const first = toks[0];
+  if (GENERIC_FIRST.has(first) || first.length < 4) return toks.slice(0, 2).join(" ");
+  return toks[1] && BRAND_QUALIFIER.has(toks[1]) ? `${first} ${toks[1]}` : first;
+}
+
 export function isDisplayableMerchant(label: string | null | undefined): boolean {
   const text = String(label ?? "").trim();
   if (text.length < 2 || text.length > 28) return false;
@@ -310,6 +328,8 @@ const EXTRAORDINARY_FLOOR = 500;
 // ---------------------------------------------------------------------------
 
 export interface Cls {
+  /** Lançamento de origem (para levar o número aos lançamentos exatos). */
+  id?: string | null;
   date: string;
   month: string;
   day: number;
@@ -350,7 +370,7 @@ export function classifyLedger(entries: V2Entry[], debtSplits: Record<string, De
     const month = monthOf(e.date);
     if (e.kind === "income") { if (e.amount > 0) incomeRows.push({ date: e.date, month, amount: e.amount, category: e.category || "Receita" }); continue; }
     if (e.kind !== "expense" || e.amount === 0) continue;
-    const base = { date: e.date, month, day: dayOfMonth(e.date), categoryId: e.category_id, merchantKey: e.merchant_key, merchant: e.merchant, chartDay: e.chart_carried ? null : (e.chart_date ?? e.date) };
+    const base = { id: e.id ?? null, date: e.date, month, day: dayOfMonth(e.date), categoryId: e.category_id, merchantKey: e.merchant_key, merchant: e.merchant, chartDay: e.chart_carried ? null : (e.chart_date ?? e.date) };
     const fromCategory = !e.debt_payment && e.amount > 0 && e.category_id != null && isDebtCategoryName(e.category);
     if (e.debt_payment || fromCategory) {
       const split = e.id ? debtSplits[e.id] : undefined;
@@ -583,22 +603,32 @@ function buildBehavior(a: {
   const prev = previousMonth ? rows.filter((r) => r.month === previousMonth && r.day <= prevUpTo) : [];
 
   // Categorias
-  type CatAcc = { id: string | null; name: string; klass: Klass; total: number; count: number; previous: number; merchants: Map<string, { label: string; total: number; count: number; previous: number }> };
+  type MAcc = { label: string; total: number; count: number; previous: number; ids: string[] };
+  type CatAcc = { id: string | null; name: string; klass: Klass; total: number; count: number; previous: number; ids: string[]; merchants: Map<string, MAcc> };
   const cats = new Map<string, CatAcc>();
   const touch = (r: Cls) => {
     const k = r.categoryId ?? `__${r.category}`;
     let c = cats.get(k);
-    if (!c) { c = { id: r.categoryId, name: r.category, klass: r.klass, total: 0, count: 0, previous: 0, merchants: new Map() }; cats.set(k, c); }
+    if (!c) { c = { id: r.categoryId, name: r.category, klass: r.klass, total: 0, count: 0, previous: 0, ids: [], merchants: new Map() }; cats.set(k, c); }
     return c;
   };
+  // Um rótulo que sozinho não seria exibido (ex.: "Pagamento de Pix QR Code ENEL…") entra se pertence a um
+  // estabelecimento já reconhecido na mesma categoria ("Enel"); pix para pessoas continua fora.
+  const knownGroups = new Set<string>();
+  for (const r of [...cur, ...prev]) if (r.merchantKey && isDisplayableMerchant(r.merchant)) knownGroups.add(`${r.categoryId ?? r.category}|${merchantGroupKey(r.merchant ?? r.merchantKey)}`);
   const addMerchant = (c: CatAcc, r: Cls, side: "total" | "previous") => {
-    if (!r.merchantKey || !isDisplayableMerchant(r.merchant)) return;
-    const m = c.merchants.get(r.merchantKey) ?? { label: r.merchant ?? r.merchantKey, total: 0, count: 0, previous: 0 };
+    if (!r.merchantKey) return;
+    const label = r.merchant ?? r.merchantKey;
+    const key = merchantGroupKey(label);
+    if (!isDisplayableMerchant(r.merchant) && !knownGroups.has(`${r.categoryId ?? r.category}|${key}`)) return;
+    const m = c.merchants.get(key) ?? { label, total: 0, count: 0, previous: 0, ids: [] };
+    // Rótulo mais curto do grupo ("Enel" em vez de "Pagamento de Pix QR Code ENEL…").
+    if (label.length < m.label.length) m.label = label;
     m[side] += r.amount;
-    if (side === "total" && r.amount > 0) m.count += 1;
-    c.merchants.set(r.merchantKey, m);
+    if (side === "total") { if (r.amount > 0) m.count += 1; if (r.id && m.ids.length < 100) m.ids.push(r.id); }
+    c.merchants.set(key, m);
   };
-  for (const r of cur) { const c = touch(r); c.total += r.amount; if (r.amount > 0) c.count += 1; addMerchant(c, r, "total"); }
+  for (const r of cur) { const c = touch(r); c.total += r.amount; if (r.amount > 0) c.count += 1; if (r.id && c.ids.length < 100) c.ids.push(r.id); addMerchant(c, r, "total"); }
   for (const r of prev) { const c = touch(r); c.previous += r.amount; addMerchant(c, r, "previous"); }
 
   const total = a.consumption > 0 ? a.consumption : 1;
@@ -607,21 +637,22 @@ function buildBehavior(a: {
     const merchants: MerchantRowV2[] = [...c.merchants.entries()].filter(([, m]) => m.total > 0).map(([key, m]) => ({
       key, label: m.label, category: c.name, total: round2(m.total), count: m.count, ticket: m.count > 0 ? round2(m.total / m.count) : null,
       previous: round2(Math.max(0, m.previous)), deltaAbs: round2(m.total - Math.max(0, m.previous)),
-      deltaPct: previousMonth && m.previous > 0 ? Math.round(((m.total - m.previous) / m.previous) * 1000) / 1000 : null,
+      deltaPct: previousMonth && m.previous > 0 ? Math.round(((m.total - m.previous) / m.previous) * 1000) / 1000 : null, ids: m.ids,
     })).sort((x, y) => y.total - x.total);
     allMerchants.push(...merchants);
     return {
       id: c.id, name: c.name, klass: c.klass, total: round2(c.total), share: Math.round((c.total / total) * 1000) / 1000, count: c.count,
       ticket: c.count > 0 ? round2(c.total / c.count) : null, previous: round2(Math.max(0, c.previous)), deltaAbs: round2(c.total - Math.max(0, c.previous)),
-      deltaPct: previousMonth && c.previous > 0 ? Math.round(((c.total - c.previous) / c.previous) * 1000) / 1000 : null, merchants: merchants.slice(0, 8),
+      deltaPct: previousMonth && c.previous > 0 ? Math.round(((c.total - c.previous) / c.previous) * 1000) / 1000 : null, merchants: merchants.slice(0, 8), ids: c.ids,
     };
   });
   // Estabelecimentos: soma entre categorias onde o mesmo aparece
   const mAgg = new Map<string, MerchantRowV2>();
   for (const m of allMerchants) {
     const cur2 = mAgg.get(m.key);
-    if (!cur2) { mAgg.set(m.key, { ...m }); continue; }
+    if (!cur2) { mAgg.set(m.key, { ...m, ids: [...(m.ids ?? [])] }); continue; }
     cur2.total = round2(cur2.total + m.total); cur2.count += m.count; cur2.previous = round2(cur2.previous + m.previous);
+    cur2.ids = [...(cur2.ids ?? []), ...(m.ids ?? [])].slice(0, 100);
     cur2.ticket = cur2.count > 0 ? round2(cur2.total / cur2.count) : null;
     cur2.deltaAbs = round2(cur2.total - cur2.previous);
     cur2.deltaPct = previousMonth && cur2.previous > 0 ? Math.round(((cur2.total - cur2.previous) / cur2.previous) * 1000) / 1000 : null;
@@ -703,11 +734,14 @@ function buildBehavior(a: {
       const byM = new Map<string, { label: string; total: number; count: number }>();
       for (const r of smalls) {
         if (!r.merchantKey || !isDisplayableMerchant(r.merchant)) continue;
-        const e = byM.get(r.merchantKey) ?? { label: r.merchant ?? r.merchantKey, total: 0, count: 0 };
-        e.total += r.amount; e.count += 1; byM.set(r.merchantKey, e);
+        const lbl = r.merchant ?? r.merchantKey;
+        const gk = merchantGroupKey(lbl);
+        const e = byM.get(gk) ?? { label: lbl, total: 0, count: 0 };
+        if (lbl.length < e.label.length) e.label = lbl;
+        e.total += r.amount; e.count += 1; byM.set(gk, e);
       }
       const history = a.refMonths.slice(-3).map((m) => ({ month: m, total: round2(rows.filter((r) => r.month === m && r.day <= a.windowOf(m) && r.klass !== "estrutural" && r.amount > 0 && r.amount <= SMALL_SPEND_CEILING).reduce((s, r) => s + r.amount, 0)) }));
-      smallSpend = { ceiling: SMALL_SPEND_CEILING, total: round2(tot), count: smalls.length, share: a.consumption > 0 ? Math.round((tot / a.consumption) * 1000) / 1000 : 0, topMerchants: [...byM.values()].sort((x, y) => y.total - x.total).slice(0, 3).map((m) => ({ ...m, total: round2(m.total) })), history };
+      smallSpend = { ids: smalls.map((r) => r.id).filter((x): x is string => !!x).slice(0, 100), ceiling: SMALL_SPEND_CEILING, total: round2(tot), count: smalls.length, share: a.consumption > 0 ? Math.round((tot / a.consumption) * 1000) / 1000 : 0, topMerchants: [...byM.values()].sort((x, y) => y.total - x.total).slice(0, 3).map((m) => ({ ...m, total: round2(m.total) })), history };
     }
   }
 
@@ -1029,7 +1063,7 @@ function buildRecommendations(a: { behavior: BehaviorV2 | null; projections: Pro
       ? `Você gasta em média ${fmt(src.observed)}/mês com ${src.label.toLowerCase()}; no seu padrão mais baixo recorrente, ${fmt(src.baseline)}/mês. Voltar a esse padrão libera até ${fmt(src.monthly)}/mês.`
       : `Seu perfil estima até ${fmt(src.monthly)} por mês recuperáveis em ${src.label.toLowerCase()}, dentro de ${fmt(rec.monthly)} no total.`;
     items.push({ key: `recoverable:${src.label}`, kind: "recoverable", nature: "saving", title: `Revise os gastos com ${src.label.toLowerCase()}`, body, basis: "Baseline: o seu padrão mais baixo recorrente nesta categoria (perfil financeiro). Premissa: voltar a ele; não é promessa de economia.", monthlyImpact: src.monthly, confidence: 0.7, score: 0,
-      route: cat?.id ? `/app/lancamentos?category=${cat.id}&start=${a.month}-01&end=${a.month}-${String(last).padStart(2, "0")}` : "/app/metas",
+      route: cat?.ids?.length ? `/app/lancamentos?ids=${cat.ids.join(",")}` : cat?.id ? `/app/lancamentos?category=${cat.id}&start=${a.month}-01&end=${a.month}-${String(last).padStart(2, "0")}` : "/app/metas",
       routeLabel: cat?.id ? `Ver os gastos com ${src.label.toLowerCase()}` : "Criar meta de gasto" });
   }
   // Organizar o caixa não é economizar: entra como ação de caixa, sem impacto mensal.

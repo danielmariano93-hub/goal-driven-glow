@@ -77,11 +77,12 @@ describe("Relatórios v2 — período, drill-down, exportação e meses fechados
     fireEvent.change(screen.getByLabelText("Comparar com"), { target: { value: "year" } });
     await waitFor(() => expect(invoke.mock.calls.some((c) => (c[1] as { body: { compare: string } }).body.compare === "year")).toBe(true));
   });
-  it("drill-down: tocar na categoria leva aos lançamentos dela no mês", async () => {
+  it("drill-down: tocar na categoria abre exatamente os lançamentos que formam o valor", async () => {
     renderAt("/app/relatorios?versao=abas&aba=comportamento");
     const card = await screen.findByRole("region", { name: "Categorias e estabelecimentos" });
     fireEvent.click(within(card).getByText("Mercado"));
-    expect((await screen.findByTestId("destino")).textContent).toBe("/app/lancamentos?category=c-Mercado&start=2026-11-01&end=2026-11-31");
+    // Abre exatamente os lançamentos que formam o valor (cartão entra pelo mês da fatura).
+    expect((await screen.findByTestId("destino")).textContent).toMatch(/^\/app\/lancamentos\?ids=[^&]+$/);
   });
   it("exportação e impressão ficam no menu de ações", async () => {
     renderAt("/app/relatorios?versao=abas");

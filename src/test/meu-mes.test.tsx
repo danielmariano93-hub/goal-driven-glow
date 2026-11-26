@@ -169,3 +169,29 @@ describe("Meu mês — ajustes da revisão (metas e próximo passo)", () => {
     expect(report.recommendations.items[0].kind).not.toBe("situation");
   });
 });
+
+describe("Meu mês — números verificáveis", async () => {
+  const { merchantGroupKey, buildReportV2 } = await import("@/lib/engine/reportV2");
+  it("variações do mesmo estabelecimento viram um só", () => {
+    const k = merchantGroupKey("Enel");
+    expect(merchantGroupKey("*Enel Distribuicao Sao Paulo*")).toBe(k);
+    expect(merchantGroupKey("Pagamento de Pix QR Code ENEL DISTRIBUICAO SAO PAULO")).toBe(k);
+    expect(merchantGroupKey("Compra débito Dl*spotify P4960")).toBe(merchantGroupKey("Spotify"));
+    expect(merchantGroupKey("Lojas Renner FL")).not.toBe(merchantGroupKey("Lojas Americanas"));
+    expect(merchantGroupKey("Uber Eats")).not.toBe(merchantGroupKey("Uber"));
+  });
+  it("categoria traz os lançamentos exatos, inclusive compra no cartão do mês anterior que cai na fatura", () => {
+    const e = (id: string, date: string, amount: number, merchant: string) => ({ id, date, kind: "expense" as const, amount, category_id: "c-ass", category: "Assinaturas", merchant_key: merchant.toLowerCase(), merchant, chart_date: date });
+    // A compra de 27/10 no cartão já chega com `date` = competência (fatura de novembro).
+    const rep = buildReportV2({ today: "2026-11-25", month: "2026-11", compare: "previous", entries: [e("t1", "2026-11-01", 129.9, "Claude Code"), e("t2", "2026-11-03", 103.4, "Chat GPT"), e("t3", "2026-11-18", 23.9, "Spotify"), e("t4", "2026-11-24", 129.9, "Claude Code"), e("o1", "2026-10-05", 213.54, "Enel"), { ...e("t5", "2026-11-05", 213.54, "Enel"), category_id: "c-en", category: "Energia" }, { ...e("t6", "2026-11-24", 224.93, "Pagamento de Pix QR Code ENEL DISTRIBUICAO SAO PAULO"), category_id: "c-en", category: "Energia" }, { ...e("o2", "2026-10-01", 215.09, "*Enel Distribuicao Sao Paulo*"), category_id: "c-en", category: "Energia" }], debtSplits: {}, isStructuralCategory: () => false, profile: null, snapshot: null, monthlyFact: null, receivables: [], commitmentMonths: [], patterns: [], situationActions: [], savingsGoalIds: [], netWorthSeries: [] });
+    const ass = rep.behavior!.categories.find((c) => c.name === "Assinaturas")!;
+    expect(ass.total).toBe(387.1);
+    expect([...(ass.ids ?? [])].sort()).toEqual(["t1", "t2", "t3", "t4"]);
+    const enel = rep.behavior!.merchants.find((m) => m.category === "Energia")!;
+    expect(enel.total).toBe(438.47);
+    expect(enel.count).toBe(2);
+    expect(enel.label).toBe("Enel");
+    expect(enel.previous).toBe(215.09);
+    expect(rep.behavior!.merchants.filter((m) => m.category === "Energia")).toHaveLength(1);
+  });
+});
