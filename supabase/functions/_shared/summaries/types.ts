@@ -1,7 +1,7 @@
 // Nino Insights — resumos financeiros em PDF (semanal e mensal) entregues pelo WhatsApp.
 // Contrato do resumo: tudo que o PDF mostra sai daqui. Valores em centavos; ausência é `null`, nunca zero.
 
-export const SUMMARY_TEMPLATE_VERSION = "nino-summary-pdf.v2-mobile";
+export const SUMMARY_TEMPLATE_VERSION = "nino-summary-pdf.v2.1-mobile";
 export const SUMMARY_DATA_VERSION = "summary-dto.v2";
 
 export type SummaryType = "weekly" | "monthly";

@@ -35,6 +35,8 @@ export interface MonthlyInput {
   opportunity: { title: string; body: string; basis: string; impact: number } | null;
   cashRisk: { amount: number; date: string } | null;
   quality: { pendingImports: boolean; uncategorizedShare: number | null; notes: string[] };
+  /** Mês em andamento: renda prevista que ainda não entrou e consumo do mês anterior nos mesmos dias. */
+  open?: { expectedIncome: { amount: number; date: string } | null; prevSameDaysConsumption: number | null } | null;
   /** Linhas de consumo por data da compra (para o gráfico semana a semana). */
   rows?: SummaryRow[];
 }
@@ -53,14 +55,28 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const vsPrev = `vs. ${monthName(prevM)}`;
   const p = i.prev;
 
+  // Mês em andamento: nada é comparado com o mês anterior inteiro (seria desigual); consumo usa os mesmos dias,
+  // e o resultado antes da renda entrar não é tratado como prejuízo.
+  const monthIsOpen = i.asOf <= lastDay;
+  const dayN = Number(cutoff.slice(8, 10));
+  const sameDays = `vs. 1 a ${dayN}/${prevM.slice(5, 7)}`;
+  const expInc = monthIsOpen ? i.open?.expectedIncome ?? null : null;
+  const incomePendingText = expInc ? `renda de ${brl(Math.round(expInc.amount * 100))} prevista para ${ddmm(expInc.date)} ainda não entrou` : "a renda do mês ainda não entrou";
   const res = toCents(i.cur.result); const resRef = p ? toCents(p.result) : null;
-  const resCmp = compareCents(res, resRef, vsPrev);
-  const hero = metric({ id: "operating_result", label: "Resultado do mês", amount_cents: res, status: res == null ? "unavailable" : i.cur.resultPartial ? "partial" : "ok", reference_amount_cents: resRef, delta_cents: resCmp.delta_cents, delta_pct: null, delta_text: resCmp.delta_cents == null ? resCmp.text : `${brl(resCmp.delta_cents, { sign: true })} ${vsPrev}`, comparison_label: vsPrev, tone: res != null && res < 0 ? "risk" : "neutral", source: "report_v2.overview.result", reason: res == null ? "Sem receitas ou consumo no mês" : null, note: "receitas recebidas − consumo do mês" + (i.cur.resultPartial ? " · renda ainda não entrou por inteiro" : "") });
+  const resCmp = monthIsOpen ? { delta_cents: null, delta_pct: null, text: "mês em andamento" } : compareCents(res, resRef, vsPrev);
+  const heroDelta = monthIsOpen
+    ? (i.cur.resultPartial ? incomePendingText : `até ${ddmm(cutoff)} · compara no fechamento`)
+    : resCmp.delta_cents == null ? resCmp.text : `${brl(resCmp.delta_cents, { sign: true })} ${vsPrev}`;
+  const heroTone = monthIsOpen && i.cur.resultPartial ? "attention" : res != null && res < 0 ? "risk" : "neutral";
+  const hero = metric({ id: "operating_result", label: monthIsOpen ? "Resultado até agora" : "Resultado do mês", amount_cents: res, status: res == null ? "unavailable" : i.cur.resultPartial ? "partial" : "ok", reference_amount_cents: monthIsOpen ? null : resRef, delta_cents: resCmp.delta_cents, delta_pct: null, delta_text: heroDelta, comparison_label: monthIsOpen ? null : vsPrev, tone: heroTone, source: "report_v2.overview.result", reason: res == null ? "Sem receitas ou consumo no mês" : null, note: "receitas recebidas − consumo do mês" + (i.cur.resultPartial ? " · renda ainda não entrou por inteiro" : "") });
 
   const inc = toCents(i.cur.income); const incRef = p ? toCents(p.income) : null;
   const con = toCents(i.cur.consumption); const conRef = p ? toCents(p.consumption) : null;
   const bal = toCents(i.cur.endBalance); const balRef = p ? toCents(p.endBalance) : null;
-  const ci = compareCents(inc, incRef, vsPrev); const cc = compareCents(con, conRef, vsPrev, { spend: true }); const cb = compareCents(bal, balRef, vsPrev);
+  const prevSame = monthIsOpen ? toCents(i.open?.prevSameDaysConsumption ?? null) : null;
+  const ci = monthIsOpen ? { delta_cents: null, delta_pct: null, text: i.cur.resultPartial ? incomePendingText : `até ${ddmm(cutoff)}` } : compareCents(inc, incRef, vsPrev);
+  const cc = monthIsOpen ? (prevSame == null ? { delta_cents: null, delta_pct: null, text: `até ${ddmm(cutoff)}` } : compareCents(con, prevSame, sameDays, { spend: true })) : compareCents(con, conRef, vsPrev, { spend: true });
+  const cb = compareCents(bal, balRef, vsPrev);
   const kpis: SummaryMetric[] = [
     metric({ id: "income", label: "Receitas", amount_cents: inc, status: inc == null ? "unavailable" : "ok", reference_amount_cents: incRef, delta_cents: ci.delta_cents, delta_pct: ci.delta_pct, delta_text: ci.text, comparison_label: vsPrev, tone: "neutral", source: "report_v2.overview.income.realized", reason: null, note: "recebidas no mês" }),
     metric({ id: "consumption", label: "Consumo", amount_cents: con, status: con == null ? "unavailable" : "ok", reference_amount_cents: conRef, delta_cents: cc.delta_cents, delta_pct: cc.delta_pct, delta_text: cc.text, comparison_label: vsPrev, tone: "neutral", source: "report_v2.overview.consumption", reason: null, note: "líquido de estornos" }),
@@ -85,7 +101,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const evoLines: SummaryLine[] = [
     { label: isPartial && i.asOf <= lastDay ? `Saldo em conta em ${ddmm(cutoff)}` : "Saldo em conta no fim do mês", value: bal == null ? "não disponível" : brl(bal), note: cb.delta_cents == null ? null : `${brl(cb.delta_cents, { sign: true })} ${vsPrev}` },
     { label: "Metas de gasto no limite", value: sg.length ? `${within} de ${sg.length}` : "nenhuma", tone: "neutral" },
-    { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "principal pago, fora do consumo" : null },
+    { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "pagamentos de dívidas e empréstimos, fora do consumo" : null },
     { label: "Patrimônio registrado", value: nw == null ? "não disponível" : brl(nw), note: nw == null ? null : nwCmp.text },
   ];
   const bars: EvolutionBar[] = i.trend.slice(-6).map((t) => ({ label: monthName(t.month).slice(0, 3), value_cents: Math.round(t.result * 100), partial: t.partial }));
@@ -106,15 +122,16 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const uncat = i.quality.uncategorizedShare;
   if (i.quality.pendingImports || (uncat != null && uncat >= T.uncategorizedShare)) cands.push({ kind: "data_quality", phrase: "data_quality", vars: { reason: i.quality.pendingImports ? "Ainda há importações pendentes deste mês." : `${Math.round((uncat ?? 0) * 100)}% do consumo está sem categoria.` }, tone: "attention", severity: 2, deadline: null, impactCents: 0, evidence: 1, id: "M.data_quality" });
   if (share != null && share >= T.commitmentPressurePct && nc != null) cands.push({ kind: "commitment_pressure", phrase: "commitment_pressure", vars: { month: monthName(nextM), pct: pct(share, false), amount: brl(nc) }, tone: "attention", severity: share >= 0.8 ? 2 : 1, deadline: `${nextM}-01`, impactCents: nc, evidence: i.next.estimated ? 0.6 : 0.9, id: "M.commitment" });
-  const materialCons = cc.delta_cents != null && conRef != null && conRef > 0 && Math.abs(cc.delta_cents) >= T.materialCents && Math.abs(cc.delta_cents) / conRef >= T.materialPct;
+  const consRef = monthIsOpen ? prevSame : conRef;
+  const materialCons = cc.delta_cents != null && consRef != null && consRef > 0 && Math.abs(cc.delta_cents) >= T.materialCents && Math.abs(cc.delta_cents) / consRef >= T.materialPct;
   if (materialCons && cc.delta_cents! > 0) {
     const up = categories.filter((c) => (c.delta_cents ?? 0) > 0).sort((a, b) => (b.delta_cents ?? 0) - (a.delta_cents ?? 0))[0];
-    cands.push({ kind: "consumption_change", phrase: up ? "consumption_up" : "consumption_up_nocat", vars: { delta: brl(cc.delta_cents!), ref: `em ${monthName(prevM)}`, total: brl(con!), refTotal: brl(conRef!), cat: up?.name ?? "", catDelta: up ? brl(up.delta_cents!, { sign: true }) : "" }, tone: "attention", severity: 1, deadline: null, impactCents: cc.delta_cents!, evidence: 0.8, id: "M.consumption_up" });
+    cands.push({ kind: "consumption_change", phrase: up ? "consumption_up" : "consumption_up_nocat", vars: { delta: brl(cc.delta_cents!), ref: monthIsOpen ? `nos mesmos dias de ${monthName(prevM)}` : `em ${monthName(prevM)}`, total: brl(con!), refTotal: brl(consRef!), cat: up?.name ?? "", catDelta: up ? brl(up.delta_cents!, { sign: true }) : "" }, tone: "attention", severity: 1, deadline: null, impactCents: cc.delta_cents!, evidence: 0.8, id: "M.consumption_up" });
   }
   const monthOpen = i.asOf <= lastDay;
   for (const g of sg) if (g.verdict === "estourou" || (monthOpen && g.verdict === "vai_estourar")) cands.push({ kind: "goal_risk", phrase: monthOpen ? "goal_risk" : "goal_over", vars: { cat: g.category, pct: pct(g.pct, false), days: Math.max(0, Number(lastDay.slice(8)) - Number(cutoff.slice(8))), month: monthName(m), next: monthName(nextM) }, tone: "attention", severity: g.verdict === "estourou" ? 2 : 1, deadline: null, impactCents: 0, evidence: 0.8, id: `M.goal:${g.category}` });
   // Melhora sustentada: resultado melhor que o mês anterior e consumo abaixo, com resultado positivo.
-  if (res != null && resRef != null && res > resRef && res > 0 && cc.delta_cents != null && cc.delta_cents < 0 && materialCons) {
+  if (!monthIsOpen && res != null && resRef != null && res > resRef && res > 0 && cc.delta_cents != null && cc.delta_cents < 0 && materialCons) {
     cands.push({ kind: "sustained_improvement", phrase: "improvement_month", vars: { delta: brl(res - resRef), result: brl(res), ref: brl(resRef), detail: `O consumo ficou ${brl(-cc.delta_cents)} abaixo de ${monthName(prevM)}.`, month: monthName(m) }, tone: "good", severity: 0, deadline: null, impactCents: res - resRef, evidence: 0.8, id: "M.improvement" });
   }
   if (i.opportunity && i.opportunity.impact > 0) cands.push({ kind: "opportunity", phrase: "opportunity", vars: { title: i.opportunity.title, body: i.opportunity.body, basis: i.opportunity.basis }, tone: "neutral", severity: 0, deadline: null, impactCents: Math.round(i.opportunity.impact * 100), evidence: 0.6, id: "M.opportunity" });
@@ -141,10 +158,12 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
     title: clamp(`Resumo de ${monthName(m)} de ${m.slice(0, 4)}`, TEXT_LIMITS.title),
     subtitle: i.asOf <= lastDay ? `Mês em andamento · dados até ${ddmm(cutoff)} · comparado a ${monthName(prevM)}` : `Mês fechado · comparado a ${monthName(prevM)}`,
     hero,
-    hero_side: { label: `Resultado de ${monthName(prevM)}`, value: resRef == null ? "sem histórico" : brl(resRef), note: p && p.consumption != null ? `com consumo de ${brl(toCents(p.consumption)!)}` : null },
+    hero_side: monthIsOpen
+      ? { label: "Mês em andamento", value: `dados até ${ddmm(cutoff)}`, note: `${monthName(prevM)} fechou em ${resRef == null ? "—" : brl(resRef)}` }
+      : { label: `Resultado de ${monthName(prevM)}`, value: resRef == null ? "sem histórico" : brl(resRef), note: p && p.consumption != null ? `com consumo de ${brl(toCents(p.consumption)!)}` : null },
     hero_row: [
       { label: "Receitas", value: inc == null ? "não disponível" : brl(inc), note: ci.delta_cents == null ? ci.text : `${brl(ci.delta_cents, { sign: true })} ${vsPrev}` },
-      { label: "Consumo", value: con == null ? "não disponível" : brl(con), note: cc.delta_cents == null ? cc.text : `${brl(cc.delta_cents, { sign: true })} ${vsPrev}` },
+      { label: "Consumo", value: con == null ? "não disponível" : brl(con), note: cc.delta_cents == null ? cc.text : `${brl(cc.delta_cents, { sign: true })} ${monthIsOpen ? sameDays : vsPrev}` },
     ],
     facts: [
       { label: future[0].label, value: future[0].value, note: future[0].note },
