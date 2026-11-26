@@ -91,7 +91,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const share = nc != null && incomeBase != null && incomeBase > 0 ? nc / incomeBase : null;
   const future: SummaryLine[] = [
     { label: `Compromissos de ${monthName(nextM)}`, value: nc == null ? "não disponível" : nc === 0 ? "nenhum registrado" : brl(nc), note: nc ? `cartões, parcelas e contas fixas${i.next.estimated ? " · inclui estimativas" : ""}` : null },
-    { label: "Peso na renda mensal", value: share == null ? "sem renda informada" : pct(share, false), tone: share != null && share >= T.commitmentPressurePct ? "attention" : "neutral", note: incomeBase ? `renda mensal de referência: ${brl(incomeBase)}` : null },
+    { label: "Peso na renda mensal", value: share == null ? "sem renda" : pct(share, false), tone: share != null && share >= T.commitmentPressurePct ? "attention" : "neutral", note: incomeBase ? `renda mensal de referência: ${brl(incomeBase)}` : "informe sua renda mensal no app" },
     { label: "A receber de outras pessoas", value: i.next.toReceive == null || i.next.toReceive === 0 ? "nada pendente" : brl(Math.round(i.next.toReceive * 100)), note: i.next.overdueReceivables ? `${brl(Math.round(i.next.overdueReceivables * 100))} já vencidos, fora da conta acima` : null },
   ];
 
