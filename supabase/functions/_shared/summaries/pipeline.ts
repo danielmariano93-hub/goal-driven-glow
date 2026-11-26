@@ -75,8 +75,9 @@ export async function produceSummary(sb: any, req: ProduceRequest): Promise<Prod
   const dto = await buildDto(sb, req.userId, req.period, { timezone: tz, today, now: req.now });
   const key = dedupeKey(req.userId, dto, req.channel);
 
-  const { data: existing } = await sb.from("financial_summary_deliveries").select("id,status,storage_path,size_bytes,file_sha256").eq("dedupe_key", key).maybeSingle();
-  if (existing?.storage_path && !["failed_final", "cancelled"].includes(String(existing.status))) {
+  const { data: existing } = await sb.from("financial_summary_deliveries").select("id,status,storage_path,size_bytes,file_sha256,template_version").eq("dedupe_key", key).maybeSingle();
+  // Só reaproveita o arquivo se for da mesma versão do layout (layout novo gera de novo).
+  if (existing?.storage_path && existing.template_version === dto.template_version && !["failed_final", "cancelled"].includes(String(existing.status))) {
     return { deliveryId: existing.id, dto, storagePath: existing.storage_path, sizeBytes: existing.size_bytes ?? 0, sha256: existing.file_sha256 ?? "", reused: true };
   }
   const base = {
