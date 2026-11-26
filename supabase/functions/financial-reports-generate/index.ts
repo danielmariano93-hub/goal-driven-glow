@@ -516,7 +516,17 @@ async function generateForUser(
 
   // ---------------- entrega WhatsApp (fila) ----------------
   const wantsWhatsApp = prefs.report_channel === "whatsapp" || prefs.report_channel === "both";
-  if (wantsWhatsApp) {
+  // Com os resumos em PDF ligados para o usuário, o PDF (financial-summaries-dispatch) substitui o texto
+  // semanal/mensal no WhatsApp; o relatório do app continua sendo gravado normalmente.
+  const pdfReplacesText = wantsWhatsApp && (reportType === "weekly" || reportType === "monthly")
+    && (await sb.from("financial_feature_flags").select("use_whatsapp_pdf_summaries").eq("user_id", userId).maybeSingle()).data?.use_whatsapp_pdf_summaries === true;
+  if (pdfReplacesText) {
+    await sb.from("financial_report_deliveries").upsert({
+      report_id: reportId, user_id: userId, channel: "whatsapp",
+      status: "skipped", error_code: "replaced_by_pdf_summary",
+    }, { onConflict: "report_id,channel" });
+  }
+  if (wantsWhatsApp && !pdfReplacesText) {
     const { data: link } = await sb
       .from("whatsapp_links")
       .select("phone_e164")

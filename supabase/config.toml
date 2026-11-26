@@ -29,6 +29,10 @@ verify_jwt = false
 # function can validate that secret.
 verify_jwt = false
 
+[functions.financial-summaries-dispatch]
+# Só service role ou x-cron-secret (checado no handler).
+verify_jwt = false
+
 [functions.financial-reports-generate]
 # Weekly/monthly cron calls also authenticate inside the handler with
 # x-cron-secret. User-triggered calls remain protected by the handler JWT check.

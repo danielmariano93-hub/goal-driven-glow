@@ -23,6 +23,8 @@ export interface MessagingProvider {
   normalizeAddress(raw: string): string | null;
   sendText(to: string, body: string): Promise<{ provider_message_id: string }>;
   sendImage?(to: string, mediaUrl: string, caption?: string): Promise<{ provider_message_id: string }>;
+  /** Documento (PDF) por URL; o provedor baixa o arquivo e entrega como anexo com nome. */
+  sendFile?(to: string, file: { url: string; mimetype: string; filename: string }, caption?: string): Promise<{ provider_message_id: string }>;
   getHealth(): Promise<{ ok: boolean; latency_ms: number; error?: string }>;
   getSessionStatus(): Promise<{ status: string; error?: string }>;
   startSession?(): Promise<void | { ok: boolean; error?: string }>;
