@@ -101,6 +101,11 @@ export default function Lancamentos() {
       const uncategorized = sp.get("filtro") === "sem-categoria" || undefined;
       const ids = (sp.get("ids") ?? "").split(",").filter(Boolean);
       const base = loadFilters();
+      if (ids.length) {
+        // Vindo de um número do relatório: mostra exatamente os lançamentos que o formam,
+        // sem filtros antigos que escondam algum (ex.: compra no cartão de outro mês da fatura).
+        return { ...base, categoryId: undefined, accountId: undefined, type: "all", from: undefined, to: undefined, uncategorized: undefined, ids, search: undefined };
+      }
       if (category || start || end || uncategorized || ids.length) {
         return {
           ...base,
@@ -482,6 +487,13 @@ export default function Lancamentos() {
                 <X size={12} /> Limpar período
               </button>
             )}
+
+            {filters.ids?.length ? (
+              <div role="status" className="flex items-start justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-4">
+                <span>Mostrando os {filters.ids.length} lançamentos que formam o número do relatório. Compras no cartão contam no mês da fatura, mesmo feitas no mês anterior.</span>
+                <button type="button" onClick={() => setFilters((f) => ({ ...f, ids: undefined }))} className="shrink-0 font-semibold text-primary">Ver todos</button>
+              </div>
+            ) : null}
 
             {filters.uncategorized ? (
               <button

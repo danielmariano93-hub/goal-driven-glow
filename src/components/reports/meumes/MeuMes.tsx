@@ -316,7 +316,7 @@ function SpendTrend({ o, rep }: { o: OverviewV2; rep: ReportV2 }) {
       <ChartReadout>
         {s ? <span className="flex flex-wrap items-center justify-between gap-x-3">
           <span>Dia {s.day}: <b>{brl0(s.current)}</b> acumulado · habitual {brl0(s.habitual)} · diferença <b>{signed0(s.current - s.habitual)}</b></span>
-          <Link to={`/app/lancamentos?start=${rep.month}-01&end=${rep.month}-${String(s.day).padStart(2, "0")}`} className="inline-flex min-h-[32px] items-center font-semibold text-[#6D3BFF]">Lançamentos até o dia {s.day} ›</Link>
+          <Link to={`/app/lancamentos?start=${rep.month}-01&end=${rep.month}-${String(s.day).padStart(2, "0")}`} className="inline-flex min-h-[32px] items-center font-semibold text-[#6D3BFF]">Lançamentos de 1 a {s.day} (pela data da compra) ›</Link>
         </span> : <>Toque no gráfico para ver um dia: acumulado, habitual e diferença.</>}
       </ChartReadout>
     </figure>
@@ -339,7 +339,7 @@ function CategoryMix({ rep }: { rep: ReportV2 }) {
   return (
     <div>
       <Sub>Para onde foi seu dinheiro</Sub>
-      <p className="text-xs leading-4 text-[#666274]">Participação no consumo{compared && b.previousRange ? ` · variação vs. ${ddmm(b.previousRange.start)}–${ddmm(b.previousRange.end)} (mês anterior, mesmos dias)` : ""}</p>
+      <p className="text-xs leading-4 text-[#666274]">Toque numa categoria para ver os lançamentos · compra no cartão conta no mês da fatura{compared && b.previousRange ? ` · variação vs. ${ddmm(b.previousRange.start)}–${ddmm(b.previousRange.end)} (mês anterior, mesmos dias)` : ""}</p>
       {segmented ? (
         <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-[#EAE4F7]" role="img" aria-label={rows.map((r) => `${r.label} ${Math.round((r.value / o.consumption) * 100)}%`).join(", ")}>
           {rows.map((r, i) => <span key={r.key} style={{ width: `${(r.value / o.consumption) * 100}%`, background: SEG[i] }} className={i > 0 ? "border-l-2 border-card" : ""} />)}
@@ -351,7 +351,7 @@ function CategoryMix({ rep }: { rep: ReportV2 }) {
           return (
             <li key={r.key} className="flex min-h-[44px] items-center gap-2.5 py-2">
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: segmented ? SEG[i] : C.line }} aria-hidden />
-              <span className="min-w-0 flex-1 truncate text-sm leading-5">{r.label}</span>
+              {cat?.ids?.length ? <Link to={`/app/lancamentos?ids=${cat.ids.join(",")}`} className="min-w-0 flex-1 truncate text-sm leading-5 underline decoration-[#DDD8E9] underline-offset-4">{r.label}</Link> : <span className="min-w-0 flex-1 truncate text-sm leading-5">{r.label}</span>}
               <span className="w-10 shrink-0 text-right text-xs tabular-nums text-[#666274]">{o.consumption > 0 ? `${Math.round((r.value / o.consumption) * 100)}%` : "—"}</span>
               <span className="w-[76px] shrink-0 text-right text-sm font-semibold tabular-nums">{r.value < 0 ? "−" : ""}{brl0(Math.abs(r.value))}</span>
               {compared ? <span className="w-[58px] shrink-0 text-right">{cat?.deltaPct != null ? <Chip ratio={cat.deltaPct} base="o mês anterior" /> : <span className="text-xs text-[#666274]">{cat ? "novo" : ""}</span>}</span> : null}
@@ -421,7 +421,7 @@ function GastosChapter({ rep, compare, onCompare, month }: { rep: ReportV2; comp
       </div>
       <Explore onClick={() => sheet.show("cats")}>Ver categorias, estabelecimentos e lançamentos</Explore>
       {rep.behavior ? (
-        <DisclosureSheet {...sheet.props("cats")} title="Categorias e estabelecimentos" description="Ranking completo, com quantidade, ticket e lançamentos.">
+        <DisclosureSheet {...sheet.props("cats")} title="Categorias e estabelecimentos" description="Toque numa linha para ver exatamente os lançamentos que formam o valor. Compra no cartão conta no mês da fatura.">
           <CategoriesPanel b={rep.behavior} compare={compare} onCompare={onCompare} month={month} />
         </DisclosureSheet>
       ) : null}
@@ -458,7 +458,7 @@ function HabitosChapter({ rep, month }: { rep: ReportV2; month: string }) {
             <Amount v={ss.total} size="sec" className="mt-1 text-[#21164F] dark:text-foreground" />
             <p className="text-sm leading-[21px] text-[#666274]">{ss.count} compras de até R$ {ss.ceiling}, fora os fixos · {Math.round(ss.share * 100)}% do consumo</p>
             {ss.topMerchants.length ? <p className="mt-1 text-xs leading-4 text-[#666274]">Mais frequentes: {ss.topMerchants.map((m) => `${m.label} (${m.count})`).join(", ")}</p> : null}
-            <Explore to={`/app/lancamentos?start=${month}-01&end=${end}&max=${ss.ceiling}`}>Ver lançamentos</Explore>
+            <Explore to={ss.ids?.length ? `/app/lancamentos?ids=${ss.ids.join(",")}` : `/app/lancamentos?start=${month}-01&end=${end}`}>Ver lançamentos</Explore>
           </Block>
         ) : null}
         {w ? (

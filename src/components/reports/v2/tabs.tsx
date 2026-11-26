@@ -341,7 +341,7 @@ export function CategoriesPanel({ b, compare, onCompare, month }: { b: BehaviorV
           bar: isCat ? { ratio: (c as BehaviorV2["categories"][number]).share } : undefined,
           detail: `${c.count} ${c.count === 1 ? "compra" : "compras"}${c.count > 1 && c.ticket != null ? ` · ${brl0(c.ticket)} cada` : ""}${compared ? ` · antes ${brl0(c.previous)}` : ""}`,
           trailing: compared ? (c.deltaPct != null ? <Chip ratio={c.deltaPct} base="o período anterior" /> : <span className="text-xs text-muted-foreground">novo</span>) : undefined,
-          onClick: catId ? () => navigate(`/app/lancamentos?category=${catId}&start=${month}-01&end=${month}-31`) : undefined,
+          onClick: c.ids?.length ? () => navigate(`/app/lancamentos?ids=${c.ids!.join(",")}`) : catId ? () => navigate(`/app/lancamentos?category=${catId}&start=${month}-01&end=${month}-31`) : undefined,
         };
       })} />
       {list.length > limit ? <button type="button" onClick={() => setLimit((n) => n + 10)} className="mt-1 min-h-[44px] w-full rounded-full border border-border text-sm font-semibold text-primary print:hidden">Ver mais ({list.length - limit})</button> : null}
