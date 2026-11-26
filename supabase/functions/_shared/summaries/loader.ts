@@ -158,7 +158,7 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
     goals,
     netWorth: { current: open ? (nw?.current ?? null) : nwAt(month), previous: nwAt(prevM) },
     trend: months.map((x) => ({ month: x.month, result: x.result, partial: x.partial || x.open })),
-    next: { commitments: commitTotal, estimated: !!live.projections.commitments?.hasEstimates, incomeBaseline: live.projections.committedIncome?.income ?? null, overdueReceivables: rec?.overdue ?? null, toReceive: rec?.toDue ?? null },
+    next: { commitments: commitTotal, estimated: !!live.projections.commitments?.hasEstimates, incomeBaseline: live.projections.committedIncome?.income ?? live.projections.savings?.incomeBaseline ?? null, overdueReceivables: rec?.overdue ?? null, toReceive: rec?.toDue ?? null },
     opportunity: opp ? { title: opp.title, body: opp.body, basis: opp.basis, impact: opp.monthlyImpact } : null,
     cashRisk,
     quality: { pendingImports: pending, uncategorizedShare: null, notes: [] },

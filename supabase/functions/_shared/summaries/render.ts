@@ -343,9 +343,11 @@ function futureCard(c: Ctx, title: string, lines: SummaryLine[], y: number) {
     const ox = k > 0 ? 0 : 0;
     const top = y + 12 + T.section[1] + 6;
     drawText(page, fit(l.label, f.semi, T.caption[0], inner).text, cx + ox, top, f.semi, T.caption, C.muted);
-    const vf = fit(l.value, f.bold, 15, inner);
+    // Valor em 15 pt; texto longo (ex.: "sem renda informada") desce para 13 pt antes de contar como cortado.
+    const vsize = textWidth(l.value, f.bold, 15) <= inner ? 15 : 13;
+    const vf = fit(l.value, f.bold, vsize, inner);
     if (vf.overflow) c.issues.push({ block: "future", kind: "overflow", detail: l.value });
-    drawText(page, vf.text, cx + ox, top + T.caption[1] + 3, f.bold, [15, 19], TONE[l.tone ?? "neutral"]);
+    drawText(page, vf.text, cx + ox, top + T.caption[1] + 3, f.bold, [vsize, 19], TONE[l.tone ?? "neutral"]);
     if (l.note) wrap(l.note, f.reg, T.footer[0], inner, 2).lines.forEach((ln, j) => drawText(page, ln, cx + ox, top + T.caption[1] + 3 + 19 + 3 + j * T.footer[1], f.reg, T.footer, C.muted));
   });
 }
