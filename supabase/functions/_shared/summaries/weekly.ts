@@ -2,7 +2,8 @@
 // (consumo por data da compra, estorno negativo, sem transferência própria, fatura ou principal de dívida).
 import { compareCents } from "./compare.ts";
 import { choose, SUMMARY_THRESHOLDS as T, type Candidate } from "./editorial.ts";
-import { addDays, brl, clamp, ddmm, monthName, pct, rangeLabel, shiftMonth, daysInMonth } from "./format.ts";
+import { addDays, brl, clamp, ddmm, monthName, pct, rangeLabel, shiftMonth, daysInMonth, shortDelta } from "./format.ts";
+import { buildWeekBars } from "./weekBars.ts";
 import { SUMMARY_DATA_VERSION, SUMMARY_TEMPLATE_VERSION, TEXT_LIMITS, type SummaryCategory, type SummaryDTO, type SummaryLine, type SummaryMetric } from "./types.ts";
 
 export interface SummaryRow { id?: string | null; /** data da compra (ISO) */ day: string; /** consumo em reais; estorno negativo */ amount: number; category: string; /** pequeno gasto (≤ R$ 50, não estrutural) */ small: boolean }
@@ -16,7 +17,8 @@ export interface WeeklyInput {
   weekStart: string;
   generatedAt: string;
   rows: SummaryRow[];
-  balances: { end: number | null; prevEnd: number | null };
+  /** Saldo em conta hoje (o mesmo "Disponível hoje" da tela inicial) e o saldo de abertura do mês (ponte do caixa). */
+  balances: { today: number | null; monthOpening: number | null };
   future: {
     projectedEnd: number | null; projectedEndDate: string;
     income: { amount: number; date: string; status: "received" | "expected" } | null;
@@ -64,9 +66,10 @@ export function buildWeeklySummary(i: WeeklyInput): SummaryDTO {
   const smallRef = hasHistory ? sumCents(ref.filter((r) => r.small)) : null;
   const smallCmp = compareCents(smallCur, smallRef, "vs. semana anterior", { spend: true });
 
-  const balEnd = i.balances.end == null ? null : Math.round(i.balances.end * 100);
-  const balPrev = i.balances.prevEnd == null ? null : Math.round(i.balances.prevEnd * 100);
-  const balCmp = compareCents(balEnd, balPrev, "vs. fim da semana anterior");
+  const balEnd = i.balances.today == null ? null : Math.round(i.balances.today * 100);
+  const balPrev = i.balances.monthOpening == null ? null : Math.round(i.balances.monthOpening * 100);
+  const sinceLabel = `desde 01/${i.asOf.slice(5, 7)}`;
+  const balCmp = compareCents(balEnd, balPrev, sinceLabel);
 
   // Categorias da semana (top 3 por valor) com a diferença contra o período de comparação.
   const byCat = new Map<string, { cur: number; ref: number }>();
@@ -89,7 +92,7 @@ export function buildWeeklySummary(i: WeeklyInput): SummaryDTO {
 
   const kpis: SummaryMetric[] = [
     metric({ id: "mtd_consumption", label: `Consumo em ${monthName(ym)}`, amount_cents: mtd, status: "ok", reference_amount_cents: mtdRef, delta_cents: mtdCmp.delta_cents, delta_pct: mtdCmp.delta_pct, delta_text: mtdCmp.text, comparison_label: `1 a ${dayN}`, tone: "neutral", source: "ledger.purchase_date", reason: null, note: `1 a ${ddmm(cutoff)}` }),
-    metric({ id: "account_balance", label: "Saldo em contas", amount_cents: balEnd, status: balEnd == null ? "unavailable" : "ok", reference_amount_cents: balPrev, delta_cents: balCmp.delta_cents, delta_pct: balCmp.delta_pct, delta_text: balCmp.text, comparison_label: "fim da semana anterior", tone: "neutral", source: "account_balance_snapshots", reason: balEnd == null ? "Sem saldo de conta registrado" : null, note: `em ${ddmm(cutoff)}` }),
+    metric({ id: "account_balance", label: "Saldo em conta hoje", amount_cents: balEnd, status: balEnd == null ? "unavailable" : "ok", reference_amount_cents: balPrev, delta_cents: balCmp.delta_cents, delta_pct: balCmp.delta_pct, delta_text: balCmp.text, comparison_label: sinceLabel, tone: "neutral", source: "financial_current_snapshots.availableToday", reason: balEnd == null ? "Sem saldo de hoje" : null, note: `em ${ddmm(i.asOf)} · o mesmo da tela inicial` }),
     metric({ id: "small_spend", label: "Pequenos gastos", amount_cents: smallCur, status: "ok", reference_amount_cents: smallRef, delta_cents: smallCmp.delta_cents, delta_pct: smallCmp.delta_pct, delta_text: smallCmp.text, comparison_label: "semana anterior", tone: "neutral", source: "ledger.small_spend", reason: null, note: `${cur.filter((r) => r.small && r.amount > 0).length} compras de até R$ 50` }),
   ];
 
@@ -156,6 +159,17 @@ export function buildWeeklySummary(i: WeeklyInput): SummaryDTO {
     hero_side: risk
       ? { label: "Consumo da semana", value: brl(curC), note: cmp.delta_cents == null ? cmp.text : `${brl(cmp.delta_cents, { sign: true })}${cmp.delta_pct == null ? "" : ` (${pct(cmp.delta_pct)})`} vs. anterior` }
       : { label: days >= 7 ? "7 dias anteriores" : `Mesmos ${days} dias da semana anterior`, value: refC == null ? "sem histórico" : brl(refC), note: refC == null ? "primeira semana com lançamentos" : `${ddmm(refStart)} a ${ddmm(addDays(refEnd, -1))}` },
+    hero_row: [
+      { label: `Acumulado em ${monthName(ym)}`, value: brl(mtd), note: mtdRef == null ? "sem comparação" : `${shortDelta(mtd, mtdRef) ?? brl(mtd - mtdRef, { sign: true })} vs. 1 a ${dayN}/${prevYm.slice(5, 7)}` },
+      { label: `Saldo em conta hoje`, value: balEnd == null ? "não disponível" : brl(balEnd), note: balEnd == null ? null : `${ddmm(i.asOf)} · igual à tela inicial` },
+    ],
+    facts: [
+      { label: `Saldo previsto em ${ddmm(i.future.projectedEndDate)}`, value: future[0].value, tone: future[0].tone, note: i.future.projectedEnd == null ? null : "com a renda prevista e os vencimentos" },
+      { label: "Próxima renda", value: future[1].value, note: future[1].note },
+      { label: "Vencimentos em 7 dias", value: future[2].value, note: future[2].note },
+      { label: "Pequenos gastos (até R$ 50)", value: brl(smallCur), note: smallRef == null ? null : `${smallCmp.delta_cents == null ? smallCmp.text : brl(smallCmp.delta_cents, { sign: true })} vs. semana anterior` },
+    ],
+    week_bars: buildWeekBars(i.rows, ym, cutoff, hasPrevMonth),
     kpis, categories, categories_title: "Onde você mais gastou", categories_empty: categories.length ? null : "Nenhum lançamento registrado na semana.",
     future_title: "Olhando para frente", future, evolution: null, insight, action, quality_flags: flags, caveat: clamp(caveat, TEXT_LIMITS.caveat),
     metrics: risk ? [hero, consumoMetric, ...kpis] : [hero, ...kpis],

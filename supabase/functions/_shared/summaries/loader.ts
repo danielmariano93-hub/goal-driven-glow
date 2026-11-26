@@ -79,7 +79,8 @@ export async function loadWeeklyInput(sb: any, userId: string, opts: { today: st
     loadConsumptionRows(sb, userId, cutoff.slice(0, 7), 2),
   ]);
   const available = rep.overview?.balance.available ?? null;
-  const bal = await balanceAt(sb, userId, today, available, [cutoff, addDays(weekStart, -1)]);
+  // Saldo: o mesmo "Disponível hoje" da tela inicial; a referência é o saldo de abertura do mês (ponte do caixa).
+  const opening = rep.overview?.cashBridge?.opening ?? null;
   const cash = rep.projections.cash;
   const items = rep.projections.commitments?.items ?? [];
   const inc = cash?.expectedIncome ?? null;
@@ -89,7 +90,7 @@ export async function loadWeeklyInput(sb: any, userId: string, opts: { today: st
   return {
     userId, timezone: opts.timezone, asOf: today, weekStart, generatedAt: (opts.now ?? new Date()).toISOString(),
     rows: cons.rows,
-    balances: { end: bal[cutoff] ?? null, prevEnd: bal[addDays(weekStart, -1)] ?? null },
+    balances: { today: available, monthOpening: opening },
     future: {
       projectedEnd: cash?.projectedEnd ?? null,
       projectedEndDate: `${today.slice(0, 7)}-${String(daysInMonth(today.slice(0, 7))).padStart(2, "0")}`,
@@ -122,12 +123,13 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
   const lastDay = `${month}-${String(daysInMonth(month)).padStart(2, "0")}`;
   const prevLast = `${prevM}-${String(daysInMonth(prevM)).padStart(2, "0")}`;
   const open = today <= lastDay;
-  const [rep, prevRep, todayRep, cycles, pending] = await Promise.all([
+  const [rep, prevRep, todayRep, cycles, pending, cons] = await Promise.all([
     loadReportV2(sb, userId, today, { month, compare: "previous" }),
     loadReportV2(sb, userId, today, { month: prevM, compare: "previous" }),
     open ? Promise.resolve(null) : loadReportV2(sb, userId, today, { month: today.slice(0, 7), compare: "previous" }),
     safe<any[]>([], async () => (await sb.from("category_spending_goal_cycles").select("category_id,target_snapshot,actual_spend,final_status,start_date,end_date").eq("user_id", userId).eq("start_date", `${month}-01`)).data ?? []),
     pendingImports(sb, userId, `${month}-01`, `${nextM}-01`),
+    loadConsumptionRows(sb, userId, month, 2),
   ]);
   const live = todayRep ?? rep;
   const available = live.overview?.balance.available ?? null;
@@ -173,5 +175,6 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
     opportunity: opp ? { title: opp.title, body: opp.body, basis: opp.basis, impact: opp.monthlyImpact } : null,
     cashRisk,
     quality: { pendingImports: pending, uncategorizedShare: null, notes: [] },
+    rows: cons.rows,
   };
 }

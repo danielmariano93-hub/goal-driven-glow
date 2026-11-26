@@ -1,8 +1,8 @@
 // Nino Insights — resumos financeiros em PDF (semanal e mensal) entregues pelo WhatsApp.
 // Contrato do resumo: tudo que o PDF mostra sai daqui. Valores em centavos; ausência é `null`, nunca zero.
 
-export const SUMMARY_TEMPLATE_VERSION = "nino-summary-pdf.v1";
-export const SUMMARY_DATA_VERSION = "summary-dto.v1";
+export const SUMMARY_TEMPLATE_VERSION = "nino-summary-pdf.v2-mobile";
+export const SUMMARY_DATA_VERSION = "summary-dto.v2";
 
 export type SummaryType = "weekly" | "monthly";
 export type MetricStatus = "ok" | "partial" | "unavailable" | "no_data";
@@ -49,6 +49,10 @@ export interface SummaryAction { rule_id: string; title: string; body: string }
 
 export interface EvolutionBar { label: string; value_cents: number; partial: boolean }
 
+/** Consumo por bloco de 7 dias do mês (1–7, 8–14, …) contra os mesmos dias do mês anterior. */
+export interface WeekBar { label: string; current_cents: number | null; previous_cents: number | null; partial: boolean }
+export interface WeekBars { title: string; current_label: string; previous_label: string; bars: WeekBar[]; note: string; total_current_cents: number; total_previous_cents: number | null }
+
 export interface SummaryDTO {
   report_id: string;
   user_id: string;
@@ -69,6 +73,11 @@ export interface SummaryDTO {
   hero: SummaryMetric;
   /** Coluna direita do destaque: a base da comparação ou, no risco de caixa, o consumo do período. */
   hero_side: { label: string; value: string; note: string | null };
+  /** Linha de baixo do destaque (até 2 números secundários, ex.: acumulado do mês e saldo de hoje). */
+  hero_row: SummaryLine[];
+  /** Grade de fatos (2 colunas) no layout de celular. */
+  facts: SummaryLine[];
+  week_bars: WeekBars | null;
   kpis: SummaryMetric[];
   categories: SummaryCategory[];
   categories_title: string;

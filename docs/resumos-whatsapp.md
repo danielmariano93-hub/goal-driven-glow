@@ -33,9 +33,15 @@ Dois PDFs de uma página (semanal e mensal), enviados pelo WhatsApp no horário 
 | 5. Agendamento, preferências, observabilidade | `financial-summaries-dispatch` (cron de hora em hora, segunda e dia 2 no horário da pessoa), migração com entregas, estados, deduplicação, retenção de 30 dias, heartbeat e logs |
 | 6. Piloto | **Aguardando aprovação** (seção 7) |
 
-### Layout (igual nos dois, ordem fixa)
+### Layout (v2, pensado para o celular)
 
-Cabeçalho (64) → destaque em degradê do Nino (125) → três indicadores em cartões separados (82) → onde mais gastou com barras (135; no mensal divide espaço com "Sua evolução" e mini gráfico de 6 meses com zero visível) → o que mais chamou atenção (90) → olhando para frente, três colunas separadas (100) → seu próximo passo → rodapé com data de corte, atualização, ressalva e versão (40). Tokens e tipografia da especificação; **divergência pedida pelo dono do produto**: destaque com o degradê do cartão da Home (#17102E → #3C1B78 → #6B2CFF) em vez de superfície lisa, e cada indicador em cartão próprio.
+Revisão pedida pelo dono do produto depois do piloto: página na **largura de uma tela de celular (390 pt)**, com altura do tamanho do conteúdo (uma página só). Abre no WhatsApp sem precisar dar zoom. **Diverge da especificação original (A4)** por decisão do dono do produto.
+
+Segue o design system do app (tokens de `src/index.css`): fundo #F5F4FA, cartões brancos com borda #E8E6EF e raio 18, destaque com o mesmo degradê e raio 24 do "Disponível hoje", rótulos 11/semibold em roxo (#6D2EFF), títulos 15/20, corpo 13/18, DM Sans.
+
+Ordem: cabeçalho → destaque (consumo da semana ou resultado do mês; embaixo, **acumulado do mês** e **saldo em conta hoje** — no mensal, receitas e consumo) → **semana a semana** (blocos de 7 dias do mês contra os mesmos dias do mês anterior; no semanal, as barras somam exatamente o acumulado do mês) → onde mais gastou → sua evolução (mensal) → o que mais chamou atenção → olhando para frente (grade 2×2) → seu próximo passo → rodapé.
+
+**Saldo:** o resumo mostra o mesmo "Disponível hoje" da tela inicial, com a data escrita. Antes mostrava um saldo calculado para o último dia da semana, sem dizer a data, o que confundia.
 
 ### Regras de comparação
 
@@ -64,7 +70,7 @@ Prioridade fixa: risco de caixa → qualidade dos dados → pressão de compromi
 
 ## 5. Limitações
 
-- **L1** Saldo em data passada é derivado (saldo de hoje − movimentos posteriores). Lançamento esquecido entre a data e hoje desloca o saldo histórico.
+- **L1** No semanal o saldo é o de hoje (igual à tela inicial). No mensal, o saldo do fim do mês é calculado: saldo de hoje menos os movimentos depois do fim do mês (confere com a ponte do caixa da Home).
 - **L2** O motor não publica o menor saldo diário previsto; o risco de caixa usa o saldo do fim do mês. Um aperto no meio do mês que se resolve até o dia 30 não aparece como risco.
 - **L3** "Próximo mês" usa a soma de cartões, parcelas e recorrências do motor; fatura estimada sem data entra marcada como estimativa.
 - **L4** Metas de mês fechado só existem quando há ciclo gravado (`category_spending_goal_cycles`); sem ciclo, a linha mostra "sem metas de gasto".

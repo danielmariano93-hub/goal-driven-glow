@@ -57,3 +57,22 @@ export function fill(template: string, vars: Record<string, string | number>): s
 }
 
 export const toneColor: Record<Tone, string> = { neutral: "#21164F", good: "#168361", risk: "#B52D46", attention: "#946000" };
+
+/** Blocos de 7 dias do mês: 1–7, 8–14, 15–21, 22–28, 29–fim. */
+export function monthBlocks(ym: string): Array<{ from: number; to: number; label: string }> {
+  const last = daysInMonth(ym);
+  const out: Array<{ from: number; to: number; label: string }> = [];
+  for (let d = 1; d <= last; d += 7) {
+    const to = d + 6 >= 29 && d === 29 ? last : Math.min(d + 6, last);
+    out.push({ from: d, to, label: `${d}–${to}` });
+    if (to === last) break;
+  }
+  return out;
+}
+
+/** "−63%" curto para notas. */
+export function shortDelta(cur: number | null, ref: number | null): string | null {
+  if (cur == null || ref == null || ref <= 0) return null;
+  const p = Math.round(((cur - ref) / ref) * 100);
+  return `${p > 0 ? "+" : ""}${p}%`;
+}

@@ -26,7 +26,7 @@ export const weeklyInput = (over: Partial<WeeklyInput> = {}): WeeklyInput => ({
   weekStart: "2026-11-16",
   generatedAt: "2026-11-23T11:00:00.000Z",
   rows: weeklyRows,
-  balances: { end: 4210.37, prevEnd: 4785.12 },
+  balances: { today: 4210.37, monthOpening: 4785.12 },
   future: {
     projectedEnd: 2330.81, projectedEndDate: "2026-11-30",
     income: { amount: 6500, date: "2026-12-05", status: "expected" },
