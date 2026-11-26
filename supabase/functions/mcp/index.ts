@@ -148,6 +148,8 @@ var EXCLUDED_MOVEMENT_KINDS = /* @__PURE__ */ new Set([
   "external_transfer_in",
   "external_transfer_out"
 ]);
+var NON_CONSUMPTION_CATEGORY_SOURCE = "(aplica[c\xE7]|investiment|poupan|d[i\xED]vida|empr[e\xE9]stimo|financiament|divis[a\xE3]o|reembols|fatura|transfer[e\xEA]ncia)";
+var NON_CONSUMPTION_CATEGORY_RX = new RegExp(NON_CONSUMPTION_CATEGORY_SOURCE, "i");
 function isRealMonthlyMovement(t) {
   if (t.status !== "confirmed") return false;
   if (t.type === "transfer") return false;

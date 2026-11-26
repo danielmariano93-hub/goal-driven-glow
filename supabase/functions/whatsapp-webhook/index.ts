@@ -42,6 +42,7 @@ import { recordWhatsappPipelineEvent } from "../_shared/messaging/pipelineTeleme
 import { runtimeStamp } from "../_shared/agent/core/RuntimeContract.ts";
 import { handleWeekendReply } from "../_shared/proactive/weekendCommitments.ts";
 import { handleHabitReply } from "../_shared/habits/whatsappReply.ts";
+import { handleSummaryReply } from "../_shared/summaries/whatsappReply.ts";
 import { recordAction, recordInteraction } from "../_shared/proactive/engagement.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -846,6 +847,33 @@ Deno.serve(async (req) => {
           stage: "agent_completed", user_id: link.user_id as string,
           inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),
           metadata: { path: `weekend_${weekendReply.action}` },
+        });
+        await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
+        return;
+      }
+      // Resumos em PDF (só com a flag `use_whatsapp_pdf_summaries`): "resumo da semana", "fechamento de outubro",
+      // "reenvie", "desative semanal", "mude para 9h". O PDF em si é a resposta; erro ou dúvida segue para o agente.
+      const summaryReply = await handleSummaryReply(sb, { userId: link.user_id as string, text: turnText, inboundMessageId: inbound_message_id, supabaseUrl: SUPABASE_URL, serviceRole: SERVICE_ROLE })
+        .catch((e: unknown) => {
+          console.warn("[webhook] summary_reply_failed", String((e as Error)?.message ?? "").slice(0, 160));
+          return null;
+        });
+      if (summaryReply) {
+        await recordAction(sb, link.user_id as string, summaryReply.action);
+        stopHints();
+        if (summaryReply.reply) {
+          await sb.from("outbound_messages").insert({
+            user_id: link.user_id, to_phone: evt.from_phone, kind: "agent",
+            channel: "whatsapp", inbound_message_id,
+            idempotency_key: `summary-reply:${inbound_message_id}`,
+            status: "queued", body: summaryReply.reply,
+          });
+        }
+        triggerDispatcher();
+        await recordWhatsappPipelineEvent(sb, {
+          stage: "agent_completed", user_id: link.user_id as string,
+          inbound_message_id, provider_message_id: evt.provider_message_id, session: getSessionName(),
+          metadata: { path: summaryReply.action },
         });
         await sb.from("inbound_messages").update({ processed_at: new Date().toISOString() }).eq("id", inbound_message_id);
         return;

@@ -343,6 +343,20 @@ export const wahaProvider: MessagingProvider & WahaExtras = {
     const data = (await res.json().catch(() => ({}))) as { id?: string };
     return { provider_message_id: data.id ?? crypto.randomUUID() };
   },
+  async sendFile(to: string, file: { url: string; mimetype: string; filename: string }, caption?: string) {
+    if (!this.configured) throw new Error("waha_not_configured");
+    const e164 = normalizeBrPhone(to);
+    if (!e164) throw new Error("invalid_phone_e164");
+    const chatId = e164.replace(/^\+/, "") + "@c.us";
+    const res = await safeFetch(`${WAHA_API_URL}/api/sendFile`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ session: WAHA_SESSION, chatId, file: { mimetype: file.mimetype, filename: file.filename, url: file.url }, caption: caption ?? undefined }),
+    });
+    if (!res.ok) throw new Error(`waha_send_file_failed_${res.status}`);
+    const data = (await res.json().catch(() => ({}))) as { id?: string };
+    return { provider_message_id: data.id ?? crypto.randomUUID() };
+  },
   async getHealth() {
     if (!this.configured) return { ok: false, latency_ms: 0, error: "not_configured" };
     const t0 = performance.now();

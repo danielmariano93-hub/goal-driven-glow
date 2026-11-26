@@ -62,10 +62,11 @@ Deno.serve(async (req) => {
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
   let mediaFailures = 0;
   for (const m of rows) {
+    let isSummaryPdf = false;
     try {
       // Verifica se a linha carrega artefato para envio como imagem
       const { data: extra } = await sb.from("outbound_messages")
-        .select("artifact_id,media_url,media_mime,user_id,inbound_message_id").eq("id", m.id).maybeSingle();
+        .select("artifact_id,media_url,media_mime,user_id,inbound_message_id,metadata").eq("id", m.id).maybeSingle();
       let providerId: string | null = null;
       let mediaUrl: string | null = extra?.media_url ?? null;
       // Texto de fallback vindo do artefato (números do motor, nunca recalculado)
@@ -115,7 +116,19 @@ Deno.serve(async (req) => {
       // (mantém EXATAMENTE os números do motor) sobre o body do LLM.
       const textBody = artifactFallbackText ?? m.body;
 
-      if (mediaUrl && provider.sendImage) {
+      const meta = ((extra as any)?.metadata ?? {}) as Record<string, unknown>;
+      isSummaryPdf = extra?.media_mime === "application/pdf" && typeof meta.storage_path === "string";
+      if (isSummaryPdf) {
+        // Resumo em PDF: link assinado curto gerado agora (o arquivo fica privado) e envio como documento.
+        // Sem fallback em texto: o resumo não vai sem o PDF; a linha volta para a fila com espera crescente.
+        if (!provider.sendFile) throw new Error("provider_without_send_file");
+        const bucket = typeof meta.storage_bucket === "string" ? meta.storage_bucket : "financial-summaries";
+        const signed = await sb.storage.from(bucket).createSignedUrl(String(meta.storage_path), 15 * 60);
+        if (signed.error || !signed.data?.signedUrl) throw new Error(`summary_sign_failed:${String(signed.error?.message ?? "none").slice(0, 60)}`);
+        const r = await provider.sendFile(m.to_phone, { url: signed.data.signedUrl, mimetype: "application/pdf", filename: typeof meta.filename === "string" ? meta.filename : "Nino-resumo.pdf" }, m.body);
+        providerId = r.provider_message_id;
+        await sb.from("outbound_messages").update({ media_status: "sent" }).eq("id", m.id);
+      } else if (mediaUrl && provider.sendImage) {
         try {
           const r = await provider.sendImage(m.to_phone, mediaUrl, textBody);
           providerId = r.provider_message_id;
@@ -176,8 +189,11 @@ Deno.serve(async (req) => {
     } catch (e) {
       // claim_outbound_batch já incrementou attempts antes de retornar a linha.
       const attempts = Number(m.attempts);
-      const backoffMs = Math.min(60_000 * Math.pow(2, attempts), 30 * 60_000);
-      const dead = attempts >= 6;
+      // Resumo em PDF: 3 tentativas com espera exponencial e variação aleatória (evita rajadas).
+      const backoffMs = isSummaryPdf
+        ? Math.min(60_000 * Math.pow(2, attempts), 30 * 60_000) * (0.8 + Math.random() * 0.4)
+        : Math.min(60_000 * Math.pow(2, attempts), 30 * 60_000);
+      const dead = isSummaryPdf ? attempts >= 3 : attempts >= 6;
       await sb.from("outbound_messages").update({
         status: dead ? "dead" : "queued",
         next_attempt_at: new Date(Date.now() + backoffMs).toISOString(),
