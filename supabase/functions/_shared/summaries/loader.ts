@@ -62,9 +62,13 @@ export async function balanceAt(sb: any, userId: string, today: string, availabl
 }
 
 async function pendingImports(sb: any, userId: string, from: string, toExcl: string): Promise<boolean> {
-  const rows = await safe<any[]>([], async () => (await sb.from("document_imports").select("status,period_start,period_end").eq("user_id", userId)
+  const rows = await safe<any[]>([], async () => (await sb.from("document_imports").select("status,period_start,period_end,created_at").eq("user_id", userId)
     .not("status", "in", "(confirmed,canceled,expired,failed,rolled_back,partially_confirmed)").limit(50)).data ?? []);
-  return rows.some((r) => !r.period_start || !r.period_end || (String(r.period_start) < toExcl && String(r.period_end) >= from));
+  // Sem período informado: só conta se a importação foi criada durante o mês ou até 10 dias depois dele.
+  const late = addDays(toExcl, 10);
+  return rows.some((r) => (!r.period_start || !r.period_end)
+    ? String(r.created_at ?? "").slice(0, 10) >= from && String(r.created_at ?? "").slice(0, 10) < late
+    : String(r.period_start) < toExcl && String(r.period_end) >= from);
 }
 
 export async function loadWeeklyInput(sb: any, userId: string, opts: { today: string; weekStart: string; timezone: string; now?: Date }): Promise<WeeklyInput> {
@@ -143,8 +147,15 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
   const series = nw?.series ?? [];
   const nwAt = (m: string) => series.filter((s) => s.month <= m).slice(-1)[0]?.value ?? null;
   const months = live.evolution.months.filter((x) => x.month <= month).slice(-6);
-  const nextCommit = live.projections.commitments?.months.find((x) => x.month === nextM) ?? null;
-  const commitTotal = nextCommit ? Math.round((nextCommit.cards + nextCommit.debts + nextCommit.recurring) * 100) / 100 : null;
+  // O mensal sai no dia 2: o "próximo mês" costuma ser o mês corrente, que não está na grade de meses futuros.
+  // Nesse caso, soma os vencimentos datados que ainda caem nele (a partir de hoje).
+  const commits = live.projections.commitments;
+  const nextCommit = commits?.months.find((x) => x.month === nextM) ?? null;
+  const itemsInNext = (commits?.items ?? []).filter((it) => it.date.slice(0, 7) === nextM && it.date >= today);
+  const commitTotal = nextCommit
+    ? Math.round((nextCommit.cards + nextCommit.debts + nextCommit.recurring) * 100) / 100
+    : commits && nextM === today.slice(0, 7) ? Math.round(itemsInNext.reduce((s, it) => s + it.amount, 0) * 100) / 100 : null;
+  const commitEstimated = nextCommit ? !!commits?.hasEstimates : itemsInNext.some((it) => it.estimated);
   const rec = live.projections.receivables;
   const opp = rep.recommendations.items.find((r) => r.nature === "saving" && r.monthlyImpact > 0) ?? null;
   const cash = live.projections.cash;
@@ -158,7 +169,7 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
     goals,
     netWorth: { current: open ? (nw?.current ?? null) : nwAt(month), previous: nwAt(prevM) },
     trend: months.map((x) => ({ month: x.month, result: x.result, partial: x.partial || x.open })),
-    next: { commitments: commitTotal, estimated: !!live.projections.commitments?.hasEstimates, incomeBaseline: live.projections.committedIncome?.income ?? live.projections.savings?.incomeBaseline ?? null, overdueReceivables: rec?.overdue ?? null, toReceive: rec?.toDue ?? null },
+    next: { commitments: commitTotal, estimated: commitEstimated, incomeBaseline: live.projections.committedIncome?.income ?? live.projections.savings?.incomeBaseline ?? null, overdueReceivables: rec?.overdue ?? null, toReceive: rec?.toDue ?? null },
     opportunity: opp ? { title: opp.title, body: opp.body, basis: opp.basis, impact: opp.monthlyImpact } : null,
     cashRisk,
     quality: { pendingImports: pending, uncategorizedShare: null, notes: [] },
