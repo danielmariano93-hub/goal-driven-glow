@@ -61,7 +61,8 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const dayN = Number(cutoff.slice(8, 10));
   const sameDays = `vs. 1 a ${dayN}/${prevM.slice(5, 7)}`;
   const expInc = monthIsOpen ? i.open?.expectedIncome ?? null : null;
-  const incomePendingText = expInc ? `renda de ${brl(Math.round(expInc.amount * 100))} prevista para ${ddmm(expInc.date)} ainda não entrou` : "a renda do mês ainda não entrou";
+  const incomePendingText = expInc ? `renda de ${brl(Math.round(expInc.amount * 100))} ainda não entrou` : "a renda do mês ainda não entrou";
+  const incomePendingNote = expInc ? `renda prevista: ${brl(Math.round(expInc.amount * 100))} em ${ddmm(expInc.date)}` : "a renda do mês ainda não entrou";
   const res = toCents(i.cur.result); const resRef = p ? toCents(p.result) : null;
   const resCmp = monthIsOpen ? { delta_cents: null, delta_pct: null, text: "mês em andamento" } : compareCents(res, resRef, vsPrev);
   const heroDelta = monthIsOpen
@@ -74,7 +75,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const con = toCents(i.cur.consumption); const conRef = p ? toCents(p.consumption) : null;
   const bal = toCents(i.cur.endBalance); const balRef = p ? toCents(p.endBalance) : null;
   const prevSame = monthIsOpen ? toCents(i.open?.prevSameDaysConsumption ?? null) : null;
-  const ci = monthIsOpen ? { delta_cents: null, delta_pct: null, text: i.cur.resultPartial ? incomePendingText : `até ${ddmm(cutoff)}` } : compareCents(inc, incRef, vsPrev);
+  const ci = monthIsOpen ? { delta_cents: null, delta_pct: null, text: i.cur.resultPartial ? incomePendingNote : `até ${ddmm(cutoff)}` } : compareCents(inc, incRef, vsPrev);
   const cc = monthIsOpen ? (prevSame == null ? { delta_cents: null, delta_pct: null, text: `até ${ddmm(cutoff)}` } : compareCents(con, prevSame, sameDays, { spend: true })) : compareCents(con, conRef, vsPrev, { spend: true });
   const cb = compareCents(bal, balRef, vsPrev);
   const kpis: SummaryMetric[] = [
