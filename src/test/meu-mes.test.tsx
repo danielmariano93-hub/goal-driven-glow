@@ -39,10 +39,12 @@ describe("Meu mês — estrutura (handoff one page)", () => {
     await ready();
     const hero = document.getElementById("momento")!;
     expect(within(hero).getByText("Disponível hoje")).toBeTruthy();
-    expect(within(hero).getByText("R$ 3.554")).toBeTruthy();
+    // Consumo inclui os 3 Pix na categoria de dívida sem registro de dívida (R$ 649,48), como na ponte do caixa.
+    expect(within(hero).getByText("R$ 4.203")).toBeTruthy();
     expect(within(hero).getByText("R$ 11.783")).toBeTruthy();
     expect(within(hero).getByText(/Próxima entrada prevista/)).toBeTruthy();
-    expect(within(hero).getByText(/pode estar subestimado/)).toBeTruthy();
+    // Sem pagamento de dívida sem separação de juros, não há aviso de consumo subestimado.
+    expect(within(hero).queryByText(/pode estar subestimado/)).toBeNull();
   });
   it("04: saldo esperado, cenário sem renda e consumo projetado; ponte e simulador com restauração", async () => {
     renderAt("/app/relatorios");

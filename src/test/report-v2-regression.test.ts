@@ -35,13 +35,21 @@ describe("regressão — livro canônico e relatório", () => {
     expect(r.overview!.debt.items.find((d) => d.label && d.amount === 500)!.split).toBe(false);
     expect(r.quality.find((q) => q.code === "debt_unsplit")!.affects).toContain("01 Consumo");
   });
-  it("Pix para financeira lançado em categoria de dívida é pagamento de dívida, não consumo", () => {
+  it("categoria de dívida sem registro de pagamento de dívida é gasto comum (igual à ponte do caixa)", () => {
     expect(isDebtCategoryName("Dívidas e empréstimos")).toBe(true);
     expect(isDebtCategoryName("Mercado")).toBe(false);
     const e = ledger([...hist(), tx({ amount: 649.48, category_id: "c-div" }), tx({ amount: 80, category_id: "c-mercado" })]);
     const r = buildReportV2(input(e));
-    expect(r.overview!.consumption).toBe(80);
-    expect(r.overview!.debt.items[0]).toMatchObject({ fromCategory: true, split: false });
+    expect(r.overview!.consumption).toBe(729.48);
+    expect(r.overview!.debt.items).toHaveLength(0);
+    expect(r.overview!.debtPaid).toBe(0);
+  });
+  it("categoria de dívida com registro em debt_payments continua pagamento de dívida", () => {
+    const rows = [...hist(), tx({ id: "pix-div", amount: 649.48, category_id: "c-div" }), tx({ amount: 80, category_id: "c-mercado" })];
+    const r = buildReportV2(input(ledger(rows), { debtSplits: { "pix-div": { principal: 600, interest: 49.48 } } }));
+    expect(r.overview!.debtPaid).toBe(600);
+    expect(r.overview!.debt.items[0]).toMatchObject({ fromCategory: true, split: true });
+    expect(r.overview!.consumption).toBe(129.48);
   });
   it("parcela antecipada no cartão vai para o mês em que venceria, não para o da fatura", () => {
     const e = ledger([...hist(), tx({ amount: 300, category_id: "c-lazer", payment_method: "credit_card", credit_card_id: "k1", occurred_at: "2026-10-20", competence_date: "2026-11-05", economic_competence_date: "2026-10-05", installment_anticipated: true })]);
