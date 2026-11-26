@@ -79,7 +79,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const nwCmp = compareCents(nw, nwRef, vsPrev);
   const debt = toCents(i.cur.debtPaid);
   const evoLines: SummaryLine[] = [
-    { label: "Metas de gasto dentro do limite", value: sg.length ? `${within} de ${sg.length}` : "sem metas de gasto", tone: "neutral" },
+    { label: "Metas de gasto no limite", value: sg.length ? `${within} de ${sg.length}` : "nenhuma", tone: "neutral" },
     { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "principal pago, fora do consumo" : null },
     { label: "Patrimônio registrado", value: nw == null ? "não disponível" : brl(nw), note: nw == null ? null : nwCmp.text },
   ];
@@ -91,7 +91,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const share = nc != null && incomeBase != null && incomeBase > 0 ? nc / incomeBase : null;
   const future: SummaryLine[] = [
     { label: `Compromissos de ${monthName(nextM)}`, value: nc == null ? "não disponível" : nc === 0 ? "nenhum registrado" : brl(nc), note: nc ? `cartões, parcelas e contas fixas${i.next.estimated ? " · inclui estimativas" : ""}` : null },
-    { label: "Peso na renda mensal", value: share == null ? "sem renda" : pct(share, false), tone: share != null && share >= T.commitmentPressurePct ? "attention" : "neutral", note: incomeBase ? `renda mensal de referência: ${brl(incomeBase)}` : "informe sua renda mensal no app" },
+    { label: "Peso na renda mensal", value: share == null ? (incomeBase == null ? "sem renda" : "não disponível") : pct(share, false), tone: share != null && share >= T.commitmentPressurePct ? "attention" : "neutral", note: incomeBase ? `renda mensal de referência: ${brl(incomeBase)}` : "informe sua renda mensal no app" },
     { label: "A receber de outras pessoas", value: i.next.toReceive == null || i.next.toReceive === 0 ? "nada pendente" : brl(Math.round(i.next.toReceive * 100)), note: i.next.overdueReceivables ? `${brl(Math.round(i.next.overdueReceivables * 100))} já vencidos, fora da conta acima` : null },
   ];
 

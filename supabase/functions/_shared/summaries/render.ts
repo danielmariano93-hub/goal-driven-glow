@@ -31,6 +31,7 @@ const GAP = 8;
 /** Alturas dos blocos (especificação). A ação ocupa o espaço que sobra até o rodapé. */
 const H = { header: 64, hero: 125, kpis: 82, cats: 135, insight: 90, future: 100, action: 75, footer: 40 } as const;
 
+const addDaysIso = (iso: string, d: number) => { const t = new Date(`${iso}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + d); return t.toISOString().slice(0, 10); };
 const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 interface Fonts { reg: PDFFont; semi: PDFFont; bold: PDFFont }
@@ -229,7 +230,8 @@ function hero(c: Ctx, dto: SummaryDTO, y: number) {
   const sideNote = side.note ? wrap(side.note, f.reg, T.caption[0], rw, 1) : null;
   if (sideNote?.overflow) c.issues.push({ block: "hero.side", kind: "overflow", detail: side.note! });
   if (sideNote) sideNote.lines.forEach((ln, k) => drawText(page, ln, rx, y + 20 + T.caption[1] + 4 + T.kpi[1] + 2 + k * T.caption[1], f.reg, T.caption, "#FFFFFF", 0.72));
-  const st = dto.is_partial ? "Período em andamento" : "Período fechado";
+  const open = dto.as_of < addDaysIso(dto.period_end_exclusive, -1);
+  const st = !dto.is_partial ? "Período fechado" : open ? "Período em andamento" : "Fechamento parcial";
   drawText(page, st, rx, y + H.hero - 20 - T.caption[1] * 2, f.semi, T.caption, "#FFFFFF", 0.82);
   drawText(page, `Corte em ${ddmmyyyy(dto.as_of)}`, rx, y + H.hero - 20 - T.caption[1], f.reg, T.caption, "#FFFFFF", 0.72);
 }
