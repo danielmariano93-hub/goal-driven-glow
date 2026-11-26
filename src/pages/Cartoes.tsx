@@ -27,8 +27,12 @@ const creditBalanceOf = (row: { signed_total?: number | null }) =>
 type StatementItemRow = {
   id: string; statement_id: string; legacy_transaction_id: string | null;
   item_kind: string; description: string; amount: number; occurred_at: string | null;
+  /** Espelho da categoria (da transação vinculada ou, sem ela, da compra). */
+  category_id?: string | null;
   transaction?: { category_id: string | null } | null;
 };
+/** Categoria canônica do item: a da transação (onde ficam as edições manuais); sem transação, a do item. */
+const itemCategoryId = (item: StatementItemRow) => item.transaction?.category_id ?? item.category_id ?? null;
 
 type StatementPaymentRow = {
   id: string; paid_at: string; amount: number; account_id: string | null; transaction_id: string | null;
@@ -690,7 +694,7 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
           .select("id,credit_card_id,competence_month,due_date,stated_total,signed_total,reconciled_total,opening_balance,paid_amount,outstanding_amount,reconciliation_difference,status,source_document_id")
           .eq("id", statement.id).maybeSingle(),
         (supabase as any).from("credit_card_statement_items")
-          .select("id,statement_id,legacy_transaction_id,item_kind,description,amount,occurred_at,transaction:transactions(category_id)")
+          .select("id,statement_id,legacy_transaction_id,item_kind,description,amount,occurred_at,category_id,transaction:transactions(category_id)")
           .eq("statement_id", statement.id).order("occurred_at", { ascending: true }),
         (supabase as any).from("credit_card_payment_allocations")
           .select("payment:credit_card_payments(id,paid_at,amount,account_id,transaction_id,account:accounts(name))")
@@ -737,7 +741,7 @@ function StatementDetailSheet({ statement, categories, onClose, onPay, onChanged
     const { data, error } = await (supabase as any).rpc("update_credit_card_statement_item", {
       p_item_id: item.id,
       p_description: patch.description ?? item.description,
-      p_category_id: patch.category_id === undefined ? item.transaction?.category_id ?? null : patch.category_id,
+      p_category_id: patch.category_id === undefined ? itemCategoryId(item) : patch.category_id,
       p_amount: patch.amount ?? Math.abs(Number(item.amount)),
       p_occurred_at: patch.occurred_at || item.occurred_at,
       p_item_kind: patch.item_kind ?? item.item_kind,
@@ -971,13 +975,13 @@ function StatementItemCreator({ categories, defaultDate, suggestedAmount, sugges
 
 function StatementItemEditor({ item, categories, saving, locked, onSave, onDelete }: { item: StatementItemRow; categories: Array<{id:string;name:string}>; saving: boolean; locked: boolean; onSave: (item: StatementItemRow, patch: {description?:string;category_id?:string|null;amount?:number;occurred_at?:string;item_kind?:string}) => Promise<void>; onDelete: (item: StatementItemRow) => Promise<void> }) {
   const [description, setDescription] = useState(item.description);
-  const [categoryId, setCategoryId] = useState(item.transaction?.category_id ?? "");
+  const [categoryId, setCategoryId] = useState(itemCategoryId(item) ?? "");
   const [amount, setAmount] = useState(Math.abs(Number(item.amount)).toFixed(2).replace(".", ","));
   const [occurredAt, setOccurredAt] = useState(item.occurred_at ?? "");
   const [itemKind, setItemKind] = useState(item.item_kind);
   const numericAmount = parseAmount(amount);
   const isCredit = CREDIT_KINDS.includes(itemKind);
-  const dirty = description !== item.description || categoryId !== (item.transaction?.category_id ?? "") || (Number.isFinite(numericAmount) && numericAmount !== Math.abs(Number(item.amount))) || occurredAt !== (item.occurred_at ?? "") || itemKind !== item.item_kind;
+  const dirty = description !== item.description || categoryId !== (itemCategoryId(item) ?? "") || (Number.isFinite(numericAmount) && numericAmount !== Math.abs(Number(item.amount))) || occurredAt !== (item.occurred_at ?? "") || itemKind !== item.item_kind;
   return <article className="rounded-lg border border-border bg-card p-3">
     <div className="flex items-start justify-between gap-3">
       <input value={description} onChange={(e)=>setDescription(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"/>
