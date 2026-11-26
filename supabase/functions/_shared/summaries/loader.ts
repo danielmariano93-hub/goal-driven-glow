@@ -175,6 +175,11 @@ export async function loadMonthlyInput(sb: any, userId: string, opts: { today: s
     opportunity: opp ? { title: opp.title, body: opp.body, basis: opp.basis, impact: opp.monthlyImpact } : null,
     cashRisk,
     quality: { pendingImports: pending, uncategorizedShare: null, notes: [] },
+    open: open ? {
+      expectedIncome: rep.overview?.income.expected ?? (rep.projections.cash?.expectedIncome ? { amount: rep.projections.cash.expectedIncome.amount, date: rep.projections.cash.expectedIncome.date } : null),
+      // Consumo do mês anterior nos mesmos dias = soma das categorias comparadas (o relatório já compara os mesmos dias).
+      prevSameDaysConsumption: rep.behavior?.previousRange ? Math.round(rep.behavior.categories.reduce((s2, c) => s2 + c.previous, 0) * 100) / 100 : null,
+    } : null,
     rows: cons.rows,
   };
 }

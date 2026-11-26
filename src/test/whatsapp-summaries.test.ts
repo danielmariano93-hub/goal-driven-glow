@@ -197,6 +197,16 @@ describe("resumo mensal — reconciliação", () => {
     expect(p.hero.status).toBe("partial");
     expect(p.quality_flags).toContain("income_pending");
   });
+  it("mês em andamento: sem comparar com o mês anterior inteiro; renda pendente não vira prejuízo", () => {
+    const o = buildMonthlySummary(monthlyInput({ month: "2026-11", asOf: "2026-11-26", cur: { income: 0, consumption: 5186.49, result: -5186.49, resultPartial: true, endBalance: 3870.03, debtPaid: 2388.57, hasEntries: true }, open: { expectedIncome: { amount: 9430.44, date: "2026-11-27" }, prevSameDaysConsumption: 8000 } }));
+    expect(o.hero.label).toBe("Resultado até agora");
+    expect(o.hero.tone).toBe("attention");
+    expect(o.hero.delta_text).toBe("renda de R$ 9.430,44 prevista para 27/11 ainda não entrou");
+    expect(o.hero.reference_amount_cents).toBeNull();
+    expect(o.hero_row[0].note).toBe("renda de R$ 9.430,44 prevista para 27/11 ainda não entrou");
+    expect(o.hero_row[1].note).toBe(`${brl(518649 - 800000, { sign: true })} vs. 1 a 26/10`);
+    expect(o.hero_side.label).toBe("Mês em andamento");
+  });
   it("fevereiro: comparação com janeiro e fim em 01/03", () => {
     const f = buildMonthlySummary(monthlyInput({ month: "2027-02", asOf: "2027-03-02" }));
     expect(f.period_end_exclusive).toBe("2027-03-01");
