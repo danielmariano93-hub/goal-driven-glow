@@ -1,6 +1,8 @@
-// Desenho do resumo em PDF: A4 (595×842 pt), uma página, texto selecionável, fontes embutidas, só vetor.
-// Layout, cores e ordem são fixos aqui (nada disso vem de IA). Paleta do Nino: o destaque usa o mesmo
-// degradê do cartão da Home; cada indicador fica no próprio cartão.
+// Desenho do resumo em PDF, pensado para o celular: página na largura de uma tela (390 pt, como o app),
+// altura do tamanho do conteúdo, uma página só, texto selecionável, fontes embutidas, só vetor.
+// Segue o design system do Nino (mesmos tokens do app): fundo #F5F4FA, cartões brancos com borda #E8E6EF
+// e raio 18, destaque com o degradê do "Disponível hoje" (raio 24), DM Sans, rótulos 11/semibold em roxo.
+// Layout, cores e ordem são fixos aqui (nada disso vem de IA).
 // deno-lint-ignore-file no-explicit-any
 import {
   PDFDocument, PDFName, PDFOperator, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo,
@@ -9,29 +11,29 @@ import {
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 import { DM_SANS_BOLD, DM_SANS_REGULAR, DM_SANS_SEMIBOLD } from "./fonts.ts";
 import { brl, ddmmyyyy } from "./format.ts";
-import type { SummaryDTO, SummaryLine, SummaryMetric, Tone } from "./types.ts";
+import type { SummaryDTO, SummaryLine, Tone } from "./types.ts";
 
 // ---------------------------------------------------------------------------
-// Tokens
+// Tokens (src/index.css do app)
 // ---------------------------------------------------------------------------
 
-export const PAGE = { w: 595, h: 842, margin: 32 } as const;
+/** Página alta de trabalho; no fim a área visível é recortada para a altura usada. */
+export const PAGE = { w: 390, h: 3000, margin: 16 } as const;
 const hex = (h: string): RGB => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
 export const C = {
-  bg: "#F8F7FC", surface: "#FFFFFF", primary: "#6D3BFF", violet: "#8B5CF6", border: "#DDD8E9", insight: "#EAE4F7",
-  text: "#21164F", muted: "#666274", good: "#168361", risk: "#B52D46", attention: "#946000",
-  heroFrom: "#17102E", heroMid: "#3C1B78", heroTo: "#6B2CFF",
+  bg: "#F5F4FA", surface: "#FFFFFF", border: "#E8E6EF", text: "#101019", muted: "#6C6D7F", primary: "#6D2EFF",
+  secondary: "#F4F0FF", neutralBg: "#F3F3F7", good: "#158962", risk: "#C94F68", attention: "#B45309",
+  heroFrom: "#17102E", heroMid: "#3C1B78", heroTo: "#6B2CFF", barFrom: "#6D4AFF", barTo: "#8B5CF6", barPrev: "#DCD3FF",
 } as const;
 const TONE: Record<Tone, string> = { neutral: C.text, good: C.good, risk: C.risk, attention: C.attention };
-/** Tamanho / entrelinha da especificação. */
+/** Tamanho / entrelinha, iguais às classes usadas no app. */
 const T = {
-  logo: [24, 28], title: [22, 27], hero: [32, 36], kpi: [19, 23], section: [13, 17], body: [11, 15], caption: [10, 13], footer: [9, 12],
+  logo: [20, 24], title: [22, 28], sub: [12, 16], eyebrow: [11, 14], cardTitle: [15, 20], body: [13, 18], small: [11, 14],
+  heroLabel: [12, 16], hero: [30, 36], heroSecondary: [18, 22], value: [17, 22], footer: [10, 14],
 } as const;
-const GAP = 8;
-/** Alturas dos blocos (especificação). A ação ocupa o espaço que sobra até o rodapé. */
-const H = { header: 64, hero: 125, kpis: 82, cats: 135, insight: 90, future: 100, action: 75, footer: 40 } as const;
+const GAP = 12;
+const PAD = 16;
 
-const addDaysIso = (iso: string, d: number) => { const t = new Date(`${iso}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + d); return t.toISOString().slice(0, 10); };
 const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 interface Fonts { reg: PDFFont; semi: PDFFont; bold: PDFFont }
@@ -180,8 +182,9 @@ function gradientRect(doc: PDFDocument, page: PDFPage, x: number, yTop: number, 
   page.pushOperators(pushGraphicsState(), ...roundedPathOps(x, yTop, w, h, r), clip(), endPath(), PDFOperator.of("sh" as any, [PDFName.of(name)]), popGraphicsState());
 }
 
+
 // ---------------------------------------------------------------------------
-// Blocos
+// Blocos (cada um desenha a partir de y e devolve a altura usada)
 // ---------------------------------------------------------------------------
 
 export interface RenderIssue { block: string; kind: "overflow" | "missing"; detail: string }
@@ -189,203 +192,261 @@ interface Ctx { doc: PDFDocument; page: PDFPage; f: Fonts; issues: RenderIssue[]
 
 const X = PAGE.margin;
 const W = PAGE.w - PAGE.margin * 2;
+const IN = W - PAD * 2;
 
-function header(c: Ctx, dto: SummaryDTO, y: number) {
-  const { page, f } = c;
-  const t = fit(dto.title, f.bold, T.title[0], W - 110);
-  if (t.overflow) c.issues.push({ block: "header", kind: "overflow", detail: dto.title });
-  drawText(page, t.text, X, y + 4, f.bold, T.title, C.text);
-  drawText(page, fit(dto.subtitle, f.reg, T.caption[0], W - 110).text, X, y + 4 + T.title[1] + 4, f.reg, T.caption, C.muted);
-  // Logotipo: palavra "nino" em degradê roxo não é possível em texto selecionável; usa a cor primária.
-  drawRight(page, "nino", X + W, y + 2, f.bold, T.logo, C.primary);
-  drawRight(page, "Insights", X + W, y + 2 + T.logo[1], f.semi, T.footer, C.violet);
-  page.drawLine({ start: { x: X, y: PAGE.h - (y + H.header - 4) }, end: { x: X + W, y: PAGE.h - (y + H.header - 4) }, thickness: 0.75, color: hex(C.border) });
+/** Texto em várias linhas; devolve a altura. Corte vira problema registrado (o PDF não sai). */
+function para(c: Ctx, block: string, text: string, x: number, y: number, width: number, font: PDFFont, spec: readonly [number, number], color: string, maxLines: number, opacity = 1): number {
+  const w = wrap(text, font, spec[0], width, maxLines);
+  if (w.overflow) c.issues.push({ block, kind: "overflow", detail: text });
+  w.lines.forEach((ln, k) => drawText(c.page, ln, x, y + k * spec[1], font, spec, color, opacity));
+  return w.lines.length * spec[1];
 }
 
-function hero(c: Ctx, dto: SummaryDTO, y: number) {
+function eyebrow(c: Ctx, text: string, x: number, y: number, color: string = C.primary): number {
+  drawText(c.page, text, x, y, c.f.semi, T.eyebrow, color);
+  return T.eyebrow[1];
+}
+
+function header(c: Ctx, dto: SummaryDTO, y: number): number {
+  const { page, f } = c;
+  drawText(page, "nino", X, y, f.bold, T.logo, C.primary);
+  const chip = dto.type === "weekly" ? "Resumo semanal" : "Resumo mensal";
+  const cw = textWidth(chip, f.semi, T.eyebrow[0]) + 20;
+  page.drawSvgPath(svgRounded(cw, 24, 12), { x: X + W - cw, y: PAGE.h - y, color: hex(C.secondary), borderWidth: 0 });
+  drawText(page, chip, X + W - cw + 10, y + 5, f.semi, T.eyebrow, C.primary);
+  let h = T.logo[1] + 10;
+  h += para(c, "header.title", dto.title.replace(/^Resumo da semana · /, "Semana de ").replace(/^Resumo de (.)/, (_m, ch: string) => ch.toUpperCase()), X, y + h, W, f.bold, T.title, C.text, 2);
+  h += 2;
+  h += para(c, "header.subtitle", dto.subtitle, X, y + h, W, f.reg, T.sub, C.muted, 2);
+  return h;
+}
+
+function hero(c: Ctx, dto: SummaryDTO, y: number): number {
   const { doc, page, f } = c;
-  gradientRect(doc, page, X, y, W, H.hero, 16, [[0, C.heroFrom], [0.54, C.heroMid], [1, C.heroTo]]);
   const m = dto.hero;
-  const pad = 20;
-  const leftW = W * 0.6 - pad;
-  drawText(page, m.label, X + pad, y + 16, f.semi, T.body, "#FFFFFF", 0.82);
+  const p = 20; const iw = W - p * 2;
+  // Mede antes de desenhar o fundo (o degradê vai por baixo do texto).
+  const rowW = (iw - 16) / 2;
+  const rowNotes = dto.hero_row.map((r) => wrap(r.note ?? "", f.reg, T.small[0], rowW, 2).lines.length);
+  const sideText = `${dto.hero_side.label}: ${dto.hero_side.value}${dto.hero_side.note ? ` · ${dto.hero_side.note}` : ""}`;
+  const sideLines = wrap(sideText, f.reg, T.sub[0], iw, 2).lines.length;
+  const rowH = dto.hero_row.length ? 14 + T.small[1] + 2 + T.heroSecondary[1] + 2 + Math.max(...rowNotes, 0) * T.small[1] : 0;
+  const h = p + T.heroLabel[1] + 4 + T.hero[1] + 8 + 24 + 8 + sideLines * T.sub[1] + rowH + p;
+  gradientRect(doc, page, X, y, W, h, 24, [[0, C.heroFrom], [0.54, C.heroMid], [1, C.heroTo]]);
+
+  let cy = y + p;
+  drawText(page, m.label.toUpperCase(), X + p, cy, f.semi, T.heroLabel, "#FFFFFF", 0.8); cy += T.heroLabel[1] + 4;
   const value = m.amount_cents == null ? "não disponível" : brl(m.amount_cents);
-  drawText(page, value, X + pad, y + 16 + T.body[1] + 4, f.bold, T.hero, "#FFFFFF");
-  // Selo da comparação (texto em branco; cor só quando o tom é risco/atenção).
-  const chip = fit(m.delta_text, f.semi, T.caption[0], leftW - 16);
-  const chipW = textWidth(chip.text, f.semi, T.caption[0]) + 16;
-  const chipY = y + 16 + T.body[1] + 4 + T.hero[1] + 6;
+  const vf = fit(value, f.bold, T.hero[0], iw);
+  if (vf.overflow) c.issues.push({ block: "hero.value", kind: "overflow", detail: value });
+  drawText(page, vf.text, X + p, cy, f.bold, T.hero, "#FFFFFF"); cy += T.hero[1] + 8;
   const alarm = m.tone === "risk" || m.tone === "attention";
-  page.drawSvgPath(svgRounded(chipW, 20, 10), { x: X + pad, y: PAGE.h - chipY, color: hex(alarm ? TONE[m.tone] : "#FFFFFF"), opacity: alarm ? 1 : 0.14, borderWidth: 0 });
-  drawText(page, chip.text, X + pad + 8, chipY + 3.5, f.semi, T.caption, "#FFFFFF");
-  if (m.note) drawText(page, fit(m.note, f.reg, T.caption[0], leftW).text, X + pad, chipY + 20 + 6, f.reg, T.caption, "#FFFFFF", 0.72);
-
-  // Coluna direita: base da comparação, separada por um fio.
-  const rx = X + W * 0.62;
-  const rw = X + W - pad - rx;
-  page.drawLine({ start: { x: rx - 12, y: PAGE.h - (y + 18) }, end: { x: rx - 12, y: PAGE.h - (y + H.hero - 18) }, thickness: 0.75, color: hex("#FFFFFF"), opacity: 0.18 });
-  const side = dto.hero_side;
-  drawText(page, fit(side.label, f.reg, T.caption[0], rw).text, rx, y + 20, f.reg, T.caption, "#FFFFFF", 0.72);
-  drawText(page, fit(side.value, f.bold, T.kpi[0], rw).text, rx, y + 20 + T.caption[1] + 4, f.bold, T.kpi, "#FFFFFF", 0.92);
-  const sideNote = side.note ? wrap(side.note, f.reg, T.caption[0], rw, 1) : null;
-  if (sideNote?.overflow) c.issues.push({ block: "hero.side", kind: "overflow", detail: side.note! });
-  if (sideNote) sideNote.lines.forEach((ln, k) => drawText(page, ln, rx, y + 20 + T.caption[1] + 4 + T.kpi[1] + 2 + k * T.caption[1], f.reg, T.caption, "#FFFFFF", 0.72));
-  const open = dto.as_of < addDaysIso(dto.period_end_exclusive, -1);
-  const st = !dto.is_partial ? "Período fechado" : open ? "Período em andamento" : "Fechamento parcial";
-  drawText(page, st, rx, y + H.hero - 20 - T.caption[1] * 2, f.semi, T.caption, "#FFFFFF", 0.82);
-  drawText(page, `Corte em ${ddmmyyyy(dto.as_of)}`, rx, y + H.hero - 20 - T.caption[1], f.reg, T.caption, "#FFFFFF", 0.72);
-}
-
-function kpiCards(c: Ctx, kpis: SummaryMetric[], y: number) {
-  const { page, f } = c;
-  const gap = 12;
-  const w = (W - gap * 2) / 3;
-  kpis.slice(0, 3).forEach((m, idx) => {
-    const x = X + idx * (w + gap);
-    card(page, x, y, w, H.kpis, { r: 12 });
-    const p = 12;
-    drawText(page, fit(m.label, f.semi, T.caption[0], w - p * 2).text, x + p, y + 10, f.semi, T.caption, C.muted);
-    const value = m.amount_cents == null ? "não disponível" : brl(m.amount_cents);
-    const vf = fit(value, f.bold, m.amount_cents == null ? T.body[0] : T.kpi[0], w - p * 2);
-    if (vf.overflow) c.issues.push({ block: `kpi:${m.id}`, kind: "overflow", detail: value });
-    drawText(page, vf.text, x + p, y + 10 + T.caption[1] + 3, f.bold, m.amount_cents == null ? [T.body[0], T.kpi[1]] : T.kpi, m.amount_cents == null ? C.muted : TONE[m.tone]);
-    const d = m.amount_cents == null ? (m.reason ?? "não disponível") : m.delta_text;
-    const df = wrap(d, f.reg, T.caption[0], w - p * 2, 2);
-    df.lines.forEach((ln, k) => drawText(page, ln, x + p, y + 10 + T.caption[1] + 3 + T.kpi[1] + 2 + k * T.caption[1], f.reg, T.caption, C.muted));
-  });
-}
-
-function categoriesCard(c: Ctx, dto: SummaryDTO, x: number, y: number, w: number) {
-  const { page, f, doc } = c;
-  card(page, x, y, w, H.cats);
-  const p = 14;
-  drawText(page, dto.categories_title, x + p, y + 12, f.bold, T.section, C.text);
-  if (!dto.categories.length) {
-    drawText(page, dto.categories_empty ?? "Nenhum lançamento registrado.", x + p, y + 12 + T.section[1] + 10, f.reg, T.body, C.muted);
-    return;
+  const chip = fit(m.delta_text, f.semi, T.sub[0], iw - 20);
+  if (chip.overflow) c.issues.push({ block: "hero.chip", kind: "overflow", detail: m.delta_text });
+  const chipW = textWidth(chip.text, f.semi, T.sub[0]) + 20;
+  page.drawSvgPath(svgRounded(chipW, 24, 12), { x: X + p, y: PAGE.h - cy, color: hex(alarm ? TONE[m.tone] : "#FFFFFF"), opacity: alarm ? 1 : 0.16, borderWidth: 0 });
+  drawText(page, chip.text, X + p + 10, cy + 4, f.semi, T.sub, "#FFFFFF"); cy += 24 + 8;
+  cy += para(c, "hero.side", sideText, X + p, cy, iw, f.reg, T.sub, "#FFFFFF", 2, 0.8);
+  if (dto.hero_row.length) {
+    cy += 10;
+    page.drawLine({ start: { x: X + p, y: PAGE.h - cy }, end: { x: X + W - p, y: PAGE.h - cy }, thickness: 0.75, color: hex("#FFFFFF"), opacity: 0.2 });
+    cy += 4;
+    dto.hero_row.slice(0, 2).forEach((r, k) => {
+      const rx = X + p + k * (rowW + 16);
+      if (k > 0) page.drawLine({ start: { x: rx - 8, y: PAGE.h - cy }, end: { x: rx - 8, y: PAGE.h - (cy + rowH - 14) }, thickness: 0.75, color: hex("#FFFFFF"), opacity: 0.2 });
+      drawText(page, fit(r.label, f.reg, T.small[0], rowW).text, rx, cy, f.reg, T.small, "#FFFFFF", 0.78);
+      const rv = fit(r.value, f.bold, T.heroSecondary[0], rowW);
+      if (rv.overflow) c.issues.push({ block: "hero.row", kind: "overflow", detail: r.value });
+      drawText(page, rv.text, rx, cy + T.small[1] + 2, f.bold, T.heroSecondary, "#FFFFFF");
+      if (r.note) para(c, "hero.row.note", r.note, rx, cy + T.small[1] + 2 + T.heroSecondary[1] + 2, rowW, f.reg, T.small, "#FFFFFF", 2, 0.72);
+    });
   }
-  const rowH = 30;
-  const top = y + 12 + T.section[1] + 6;
-  const deltaW = Math.min(150, w * 0.36);
-  dto.categories.forEach((cat, k) => {
-    const ry = top + k * rowH;
-    const amount = brl(cat.amount_cents);
-    const aw = textWidth(amount, f.bold, T.body[0]);
-    drawText(page, fit(cat.name, f.semi, T.body[0], w - p * 2 - aw - 12).text, x + p, ry, f.semi, T.body, C.text);
-    drawRight(page, amount, x + w - p, ry, f.bold, T.body, C.text);
-    const barY = ry + T.body[1] + 3;
-    const barW = w - p * 2 - deltaW - 10;
-    page.drawSvgPath(svgRounded(barW, 6, 3), { x: x + p, y: PAGE.h - barY, color: hex(C.insight), borderWidth: 0 });
-    if (cat.bar != null && cat.bar > 0) gradientRect(doc, page, x + p, barY, Math.max(6, barW * cat.bar), 6, 3, [[0, "#6D4AFF"], [1, C.violet]], 90);
-    drawRight(page, fit(cat.delta_text, f.reg, T.caption[0], deltaW).text, x + w - p, barY - 4, f.reg, T.caption, C.muted);
+  return h;
+}
+
+function cardFrame(c: Ctx, y: number, h: number, fill: string = C.surface, border: string | null = C.border) {
+  card(c.page, X, y, W, h, { r: 18, fill, border });
+}
+
+/** Mede um bloco desenhando numa página descartável. */
+function measure(c: Ctx, fn: (cc: Ctx, y: number) => number): number {
+  const scratch = c.doc.addPage([PAGE.w, PAGE.h]);
+  const h = fn({ ...c, page: scratch, issues: [] }, 0);
+  c.doc.removePage(c.doc.getPageCount() - 1);
+  return h;
+}
+
+function boxed(c: Ctx, y: number, inner: (cc: Ctx, y: number) => number, fill: string = C.surface, border: string | null = C.border): number {
+  const h = measure(c, (cc, yy) => inner(cc, yy + PAD)) + PAD * 2;
+  cardFrame(c, y, h, fill, border);
+  inner(c, y + PAD);
+  return h;
+}
+
+function weekBarsCard(c: Ctx, dto: SummaryDTO, y: number): number {
+  const wb = dto.week_bars;
+  if (!wb) return -GAP;
+  return boxed(c, y, (cc, yy) => {
+    const { page, f } = cc;
+    let cy = yy;
+    cy += eyebrow(cc, wb.title, X + PAD, cy) + 2;
+    drawText(page, `${wb.current_label} × ${wb.previous_label}`, X + PAD, cy, f.bold, T.cardTitle, C.text); cy += T.cardTitle[1] + 8;
+    // Legenda.
+    const leg = (x: number, color: string, label: string) => { page.drawSvgPath(svgRounded(10, 10, 3), { x, y: PAGE.h - (cy + 2), color: hex(color), borderWidth: 0 }); drawText(page, label, x + 14, cy, f.reg, T.small, C.muted); return 14 + textWidth(label, f.reg, T.small[0]) + 14; };
+    let lx = X + PAD; lx += leg(lx, C.primary, wb.current_label); leg(lx, C.barPrev, wb.previous_label);
+    cy += T.small[1] + 10;
+    const chartH = 96; const labelsH = 16;
+    const n = wb.bars.length; const slot = IN / n; const bw = Math.min(18, slot * 0.28);
+    const max = Math.max(1, ...wb.bars.flatMap((b) => [b.current_cents ?? 0, b.previous_cents ?? 0]));
+    const base = cy + 14 + chartH;
+    wb.bars.forEach((b, k) => {
+      const cx = X + PAD + k * slot + slot / 2;
+      const ph = b.previous_cents == null ? 0 : Math.max(b.previous_cents > 0 ? 2 : 0, (Math.max(0, b.previous_cents) / max) * chartH);
+      if (ph > 0) page.drawSvgPath(svgRounded(bw, ph, Math.min(4, ph / 2)), { x: cx + 1, y: PAGE.h - (base - ph), color: hex(C.barPrev), borderWidth: 0 });
+      if (b.current_cents != null) {
+        const ch = Math.max(b.current_cents > 0 ? 2 : 0, (Math.max(0, b.current_cents) / max) * chartH);
+        if (ch > 0) {
+          if (b.partial) page.drawSvgPath(svgRounded(bw, ch, Math.min(4, ch / 2)), { x: cx - bw - 1, y: PAGE.h - (base - ch), color: hex(C.primary), opacity: 0.5, borderWidth: 0 });
+          else gradientRect(cc.doc, page, cx - bw - 1, base - ch, bw, ch, Math.min(4, ch / 2), [[0, C.barFrom], [1, C.barTo]], 180);
+        }
+        const v = brl(b.current_cents, { noCents: true }).replace("R$ ", "");
+        const vw = textWidth(v, f.semi, T.footer[0]);
+        drawText(page, v, cx - bw / 2 - 1 - vw / 2, base - ch - 14, f.semi, T.footer, C.text);
+      }
+      const lw = textWidth(b.label, f.reg, T.small[0]);
+      drawText(page, b.label, cx - lw / 2, base + 4, f.reg, T.small, b.current_cents == null ? C.muted : C.text, b.current_cents == null ? 0.6 : 1);
+    });
+    page.drawLine({ start: { x: X + PAD, y: PAGE.h - base }, end: { x: X + W - PAD, y: PAGE.h - base }, thickness: 0.75, color: hex(C.border) });
+    cy = base + labelsH + 8;
+    const tot = `${wb.current_label}: ${brl(wb.total_current_cents)}${wb.total_previous_cents == null ? "" : ` · ${wb.previous_label}, mesmos dias: ${brl(wb.total_previous_cents)}`}`;
+    cy += para(cc, "weekbars.total", tot, X + PAD, cy, IN, f.semi, T.small, C.text, 2) + 2;
+    cy += para(cc, "weekbars.note", wb.bars.some((b) => b.partial) ? `${wb.note} Barra clara = semana em andamento.` : wb.note, X + PAD, cy, IN, f.reg, T.small, C.muted, 3);
+    return cy - yy;
   });
 }
 
-function evolutionCard(c: Ctx, dto: SummaryDTO, x: number, y: number, w: number) {
-  const { page, f } = c;
-  card(page, x, y, w, H.cats);
-  const p = 14;
-  drawText(page, "Sua evolução", x + p, y + 12, f.bold, T.section, C.text);
-  const lines = dto.evolution?.lines ?? [];
-  lines.forEach((l, k) => {
-    const ly = y + 12 + T.section[1] + 4 + k * 15;
-    const vw = textWidth(l.value, f.semi, T.caption[0]);
-    drawText(page, fit(l.label, f.reg, T.caption[0], w - p * 2 - vw - 8).text, x + p, ly, f.reg, T.caption, C.muted);
-    drawRight(page, l.value, x + w - p, ly, f.semi, T.caption, TONE[l.tone ?? "neutral"]);
-  });
-  // Mini gráfico do resultado mensal: zero visível, barra do mês parcial tracejada.
-  const bars = dto.evolution?.bars ?? [];
-  const chartTop = y + 12 + T.section[1] + 4 + lines.length * 15 + 6;
-  const chartH = H.cats - (chartTop - y) - 12 - 11;
-  if (bars.length < 2 || chartH < 16) return;
-  const max = Math.max(1, ...bars.map((b) => Math.abs(b.value_cents)));
-  const hasNeg = bars.some((b) => b.value_cents < 0);
-  const hasPos = bars.some((b) => b.value_cents > 0);
-  const zeroY = hasNeg && hasPos ? chartTop + chartH / 2 : hasNeg ? chartTop : chartTop + chartH;
-  const scale = (hasNeg && hasPos ? chartH / 2 : chartH) / max;
-  const slot = (w - p * 2) / bars.length;
-  const bw = Math.min(18, slot * 0.55);
-  bars.forEach((b, k) => {
-    const bx = x + p + k * slot + (slot - bw) / 2;
-    const bh = Math.max(1, Math.abs(b.value_cents) * scale);
-    const by = b.value_cents >= 0 ? zeroY - bh : zeroY;
-    const color = b.value_cents < 0 ? C.risk : C.violet;
-    page.drawRectangle({ x: bx, y: PAGE.h - by - bh, width: bw, height: bh, color: b.partial ? undefined : hex(color), borderColor: b.partial ? hex(color) : undefined, borderWidth: b.partial ? 0.75 : 0, borderDashArray: b.partial ? [2, 1.5] : undefined, opacity: 1 });
-    const lw = textWidth(b.label, f.reg, T.footer[0]);
-    drawText(page, b.label, x + p + k * slot + (slot - lw) / 2, chartTop + chartH + 1, f.reg, T.footer, C.muted);
-  });
-  page.drawLine({ start: { x: x + p, y: PAGE.h - zeroY }, end: { x: x + w - p, y: PAGE.h - zeroY }, thickness: 0.75, color: hex(C.muted) });
-}
-
-function insightCard(c: Ctx, dto: SummaryDTO, y: number) {
-  const { page, f } = c;
-  card(page, X, y, W, H.insight, { r: 12, fill: C.insight, border: null });
-  page.drawSvgPath(svgRounded(4, H.insight - 24, 2), { x: X + 12, y: PAGE.h - (y + 12), color: hex(TONE[dto.insight.tone] === C.text ? C.primary : TONE[dto.insight.tone]), borderWidth: 0 });
-  const p = 26;
-  drawText(page, "O que mais chamou atenção", X + p, y + 12, f.bold, T.caption, C.primary);
-  const t = fit(dto.insight.title, f.bold, T.section[0], W - p - 16);
-  if (t.overflow) c.issues.push({ block: "insight.title", kind: "overflow", detail: dto.insight.title });
-  drawText(page, t.text, X + p, y + 12 + T.caption[1] + 3, f.bold, T.section, C.text);
-  const body = wrap(dto.insight.body, f.reg, T.body[0], W - p - 16, 2);
-  if (body.overflow) c.issues.push({ block: "insight.body", kind: "overflow", detail: dto.insight.body });
-  body.lines.forEach((ln, k) => drawText(page, ln, X + p, y + 12 + T.caption[1] + 3 + T.section[1] + 3 + k * T.body[1], f.reg, T.body, C.text));
-}
-
-function futureCard(c: Ctx, title: string, lines: SummaryLine[], y: number) {
-  const { page, f } = c;
-  card(page, X, y, W, H.future);
-  const p = 14;
-  drawText(page, title, X + p, y + 12, f.bold, T.section, C.text);
-  const cols = lines.slice(0, 3);
-  const cw = (W - p * 2) / cols.length;
-  cols.forEach((l, k) => {
-    const cx = X + p + k * cw;
-    const inner = cw - (k < cols.length - 1 ? 16 : 0);
-    if (k > 0) page.drawLine({ start: { x: cx - 8, y: PAGE.h - (y + 12 + T.section[1] + 6) }, end: { x: cx - 8, y: PAGE.h - (y + H.future - 12) }, thickness: 0.75, color: hex(C.border) });
-    const ox = k > 0 ? 0 : 0;
-    const top = y + 12 + T.section[1] + 6;
-    drawText(page, fit(l.label, f.semi, T.caption[0], inner).text, cx + ox, top, f.semi, T.caption, C.muted);
-    // Valor em 15 pt; texto longo (ex.: "sem renda informada") desce para 13 pt antes de contar como cortado.
-    const vsize = textWidth(l.value, f.bold, 15) <= inner ? 15 : 13;
-    const vf = fit(l.value, f.bold, vsize, inner);
-    if (vf.overflow) c.issues.push({ block: "future", kind: "overflow", detail: l.value });
-    drawText(page, vf.text, cx + ox, top + T.caption[1] + 3, f.bold, [vsize, 19], TONE[l.tone ?? "neutral"]);
-    if (l.note) wrap(l.note, f.reg, T.footer[0], inner, 2).lines.forEach((ln, j) => drawText(page, ln, cx + ox, top + T.caption[1] + 3 + 19 + 3 + j * T.footer[1], f.reg, T.footer, C.muted));
+function categoriesCard(c: Ctx, dto: SummaryDTO, y: number): number {
+  return boxed(c, y, (cc, yy) => {
+    const { page, f, doc } = cc;
+    let cy = yy;
+    cy += eyebrow(cc, dto.categories_title, X + PAD, cy) + 8;
+    if (!dto.categories.length) return cy - yy + para(cc, "categories.empty", dto.categories_empty ?? "Nenhum lançamento registrado.", X + PAD, cy, IN, f.reg, T.body, C.muted, 2);
+    dto.categories.forEach((cat, k) => {
+      if (k > 0) cy += 10;
+      const amount = brl(cat.amount_cents);
+      const aw = textWidth(amount, f.bold, T.body[0]);
+      drawText(page, fit(cat.name, f.semi, T.body[0], IN - aw - 12).text, X + PAD, cy, f.semi, T.body, C.text);
+      drawRight(page, amount, X + W - PAD, cy, f.bold, T.body, C.text);
+      cy += T.body[1] + 4;
+      const dw = Math.min(130, textWidth(cat.delta_text, f.reg, T.small[0]) + 4);
+      const barW = IN - dw - 10;
+      page.drawSvgPath(svgRounded(barW, 6, 3), { x: X + PAD, y: PAGE.h - (cy + 4), color: hex(C.neutralBg), borderWidth: 0 });
+      if (cat.bar != null && cat.bar > 0) gradientRect(doc, page, X + PAD, cy + 4, Math.max(6, barW * cat.bar), 6, 3, [[0, C.barFrom], [1, C.barTo]], 90);
+      const df = fit(cat.delta_text, f.reg, T.small[0], 130);
+      drawRight(page, df.text, X + W - PAD, cy, f.reg, T.small, C.muted);
+      cy += T.small[1];
+    });
+    return cy - yy;
   });
 }
 
-function actionCard(c: Ctx, dto: SummaryDTO, y: number, h: number) {
-  const { page, f, doc } = c;
-  card(page, X, y, W, h, { r: 12, border: C.border });
-  gradientRect(doc, page, X + 12, y + 12, 4, h - 24, 2, [[0, "#6D4AFF"], [1, C.violet]], 180);
-  const p = 26;
-  drawText(page, "Seu próximo passo", X + p, y + 12, f.bold, T.caption, C.primary);
-  const t = fit(dto.action.title, f.bold, T.section[0], W - p - 16);
-  if (t.overflow) c.issues.push({ block: "action.title", kind: "overflow", detail: dto.action.title });
-  drawText(page, t.text, X + p, y + 12 + T.caption[1] + 3, f.bold, T.section, C.text);
-  const maxLines = Math.max(1, Math.floor((h - (12 + T.caption[1] + 3 + T.section[1] + 3) - 6) / T.body[1]));
-  const body = wrap(dto.action.body, f.reg, T.body[0], W - p - 16, maxLines);
-  if (body.overflow) c.issues.push({ block: "action.body", kind: "overflow", detail: dto.action.body });
-  body.lines.forEach((ln, k) => drawText(page, ln, X + p, y + 12 + T.caption[1] + 3 + T.section[1] + 3 + k * T.body[1], f.reg, T.body, C.muted));
+function factsCard(c: Ctx, title: string, facts: SummaryLine[], y: number): number {
+  if (!facts.length) return -GAP;
+  return boxed(c, y, (cc, yy) => {
+    const { page, f } = cc;
+    let cy = yy;
+    cy += eyebrow(cc, title, X + PAD, cy) + 10;
+    const colW = (IN - 16) / 2;
+    for (let r = 0; r < facts.length; r += 2) {
+      const pair = facts.slice(r, r + 2);
+      if (r > 0) { page.drawLine({ start: { x: X + PAD, y: PAGE.h - (cy - 6) }, end: { x: X + W - PAD, y: PAGE.h - (cy - 6) }, thickness: 0.75, color: hex(C.border) }); cy += 6; }
+      const heights = pair.map((l, k) => {
+        const fx = X + PAD + k * (colW + 16);
+        let hh = para(cc, "facts.label", l.label, fx, cy, colW, f.semi, T.small, C.muted, 2) + 2;
+        const vsize: readonly [number, number] = textWidth(l.value, f.bold, T.value[0]) <= colW ? T.value : [14, 22];
+        const vf = fit(l.value, f.bold, vsize[0], colW);
+        if (vf.overflow) cc.issues.push({ block: "facts.value", kind: "overflow", detail: l.value });
+        drawText(page, vf.text, fx, cy + hh, f.bold, vsize, TONE[l.tone ?? "neutral"]); hh += T.value[1] + 2;
+        if (l.note) hh += para(cc, "facts.note", l.note, fx, cy + hh, colW, f.reg, T.small, C.muted, 3);
+        return hh;
+      });
+      if (pair.length === 2) page.drawLine({ start: { x: X + PAD + colW + 8, y: PAGE.h - cy }, end: { x: X + PAD + colW + 8, y: PAGE.h - (cy + Math.max(...heights)) }, thickness: 0.75, color: hex(C.border) });
+      cy += Math.max(...heights) + 12;
+    }
+    return cy - yy - 12;
+  });
 }
 
-function footer(c: Ctx, dto: SummaryDTO, y: number, updatedAt: string) {
+function evolutionCard(c: Ctx, dto: SummaryDTO, y: number): number {
+  const ev = dto.evolution;
+  if (!ev) return -GAP;
+  return boxed(c, y, (cc, yy) => {
+    const { page, f } = cc;
+    let cy = yy;
+    cy += eyebrow(cc, "Sua evolução", X + PAD, cy) + 8;
+    ev.lines.forEach((l) => {
+      const vw = textWidth(l.value, f.bold, T.body[0]);
+      drawText(page, fit(l.label, f.reg, T.body[0], IN - vw - 10).text, X + PAD, cy, f.reg, T.body, C.muted);
+      drawRight(page, l.value, X + W - PAD, cy, f.bold, T.body, TONE[l.tone ?? "neutral"]);
+      cy += T.body[1];
+      if (l.note) { drawRight(page, fit(l.note, f.reg, T.small[0], IN).text, X + W - PAD, cy, f.reg, T.small, C.muted); cy += T.small[1]; }
+      cy += 6;
+    });
+    const bars = ev.bars;
+    if (bars.length >= 2) {
+      cy += 4;
+      drawText(page, "Resultado mensal (receitas − consumo)", X + PAD, cy, f.semi, T.small, C.text); cy += T.small[1] + 8;
+      const chartH = 64;
+      const max = Math.max(1, ...bars.map((b) => Math.abs(b.value_cents)));
+      const hasNeg = bars.some((b) => b.value_cents < 0); const hasPos = bars.some((b) => b.value_cents > 0);
+      const zeroY = hasNeg && hasPos ? cy + chartH / 2 : hasNeg ? cy : cy + chartH;
+      const scale = (hasNeg && hasPos ? chartH / 2 : chartH) / max;
+      const slot = IN / bars.length; const bw = Math.min(22, slot * 0.5);
+      bars.forEach((b, k) => {
+        const bx = X + PAD + k * slot + (slot - bw) / 2;
+        const bh = Math.max(1.5, Math.abs(b.value_cents) * scale);
+        const by = b.value_cents >= 0 ? zeroY - bh : zeroY;
+        const color = b.value_cents < 0 ? C.risk : C.primary;
+        page.drawSvgPath(svgRounded(bw, bh, Math.min(3, bh / 2)), { x: bx, y: PAGE.h - by, color: hex(color), opacity: b.partial ? 0.45 : 1, borderWidth: 0 });
+        const lw = textWidth(b.label, f.reg, T.small[0]);
+        drawText(page, b.label, X + PAD + k * slot + (slot - lw) / 2, cy + chartH + 4, f.reg, T.small, C.muted);
+      });
+      page.drawLine({ start: { x: X + PAD, y: PAGE.h - zeroY }, end: { x: X + W - PAD, y: PAGE.h - zeroY }, thickness: 0.75, color: hex(C.muted) });
+      cy += chartH + 4 + T.small[1];
+    }
+    return cy - yy;
+  });
+}
+
+function textCard(c: Ctx, label: string, title: string, body: string, tone: Tone, y: number, soft: boolean, block: string): number {
+  const inner = (cc: Ctx, yy: number) => {
+    let cy = yy;
+    cy += eyebrow(cc, label, X + PAD + 12, cy) + 4;
+    cy += para(cc, `${block}.title`, title, X + PAD + 12, cy, IN - 12, cc.f.bold, T.cardTitle, C.text, 2) + 4;
+    cy += para(cc, `${block}.body`, body, X + PAD + 12, cy, IN - 12, cc.f.reg, T.body, soft ? C.text : C.muted, 4);
+    return cy - yy;
+  };
+  const h = boxed(c, y, inner, soft ? C.secondary : C.surface, soft ? null : C.border);
+  const accent = tone === "neutral" || tone === "good" ? (tone === "good" ? C.good : C.primary) : TONE[tone];
+  c.page.drawSvgPath(svgRounded(3, h - PAD * 2, 1.5), { x: X + PAD, y: PAGE.h - (y + PAD), color: hex(accent), borderWidth: 0 });
+  return h;
+}
+
+function footer(c: Ctx, dto: SummaryDTO, y: number, updatedAt: string): number {
   const { page, f } = c;
   page.drawLine({ start: { x: X, y: PAGE.h - y }, end: { x: X + W, y: PAGE.h - y }, thickness: 0.75, color: hex(C.border) });
-  const l1 = `Data de corte: ${ddmmyyyy(dto.as_of)} · Atualizado em ${updatedAt} · ${dto.template_version}`;
-  drawText(page, fit(l1, f.reg, T.footer[0], W).text, X, y + 6, f.reg, T.footer, C.muted);
-  if (dto.caveat) {
-    const cv = fit(dto.caveat, f.reg, T.footer[0], W);
-    if (cv.overflow) c.issues.push({ block: "footer.caveat", kind: "overflow", detail: dto.caveat });
-    drawText(page, cv.text, X, y + 6 + T.footer[1] + 2, f.reg, T.footer, C.muted);
-  }
+  let cy = y + 8;
+  cy += para(c, "footer", `Data de corte ${ddmmyyyy(dto.as_of)} · atualizado em ${updatedAt}`, X, cy, W, f.reg, T.footer, C.muted, 2);
+  if (dto.caveat) cy += para(c, "footer.caveat", dto.caveat, X, cy, W, f.reg, T.footer, C.muted, 3);
+  cy += para(c, "footer.version", `Nino Insights · ${dto.template_version}`, X, cy, W, f.reg, T.footer, C.muted, 1);
+  return cy - y;
 }
 
 // ---------------------------------------------------------------------------
 // Documento
 // ---------------------------------------------------------------------------
 
-/** "26/11/2026 08:00 (America/Sao_Paulo)" a partir do instante e do fuso. */
+/** "26/11/2026 08:00" no fuso do usuário. */
 export function localStamp(iso: string, tz: string): string {
   try {
     const d = new Date(iso);
@@ -395,7 +456,7 @@ export function localStamp(iso: string, tz: string): string {
   } catch { return iso.slice(0, 16).replace("T", " "); }
 }
 
-export interface RenderResult { bytes: Uint8Array; pages: number; issues: RenderIssue[]; sizeBytes: number }
+export interface RenderResult { bytes: Uint8Array; pages: number; issues: RenderIssue[]; sizeBytes: number; heightPt: number }
 
 export async function renderSummaryPdf(dto: SummaryDTO): Promise<RenderResult> {
   const doc = await PDFDocument.create();
@@ -403,9 +464,8 @@ export async function renderSummaryPdf(dto: SummaryDTO): Promise<RenderResult> {
   const bytesOf = [b64(DM_SANS_REGULAR), b64(DM_SANS_SEMIBOLD), b64(DM_SANS_BOLD)];
   const [reg, semi, bold] = await Promise.all(bytesOf.map((b) => doc.embedFont(b, { subset: true })));
   [reg, semi, bold].forEach((f, k) => FACES.set(f, (fontkit as any).create(bytesOf[k])));
-  const t = dto.type === "weekly" ? "Resumo semanal" : "Resumo mensal";
   doc.setTitle(`${dto.title} · Nino`);
-  doc.setSubject(t);
+  doc.setSubject(dto.type === "weekly" ? "Resumo semanal" : "Resumo mensal");
   doc.setAuthor("Nino");
   doc.setCreator(dto.template_version);
   doc.setProducer("Nino Insights");
@@ -416,24 +476,21 @@ export async function renderSummaryPdf(dto: SummaryDTO): Promise<RenderResult> {
   page.drawRectangle({ x: 0, y: 0, width: PAGE.w, height: PAGE.h, color: hex(C.bg) });
   const c: Ctx = { doc, page, f: { reg, semi, bold }, issues: [] };
 
-  let y = PAGE.margin;
-  header(c, dto, y); y += H.header + GAP;
-  hero(c, dto, y); y += H.hero + GAP;
-  kpiCards(c, dto.kpis, y); y += H.kpis + GAP;
-  if (dto.type === "monthly") {
-    const lw = Math.round(W * 0.55);
-    categoriesCard(c, dto, X, y, lw);
-    evolutionCard(c, dto, X + lw + 12, y, W - lw - 12);
-  } else categoriesCard(c, dto, X, y, W);
-  y += H.cats + GAP;
-  insightCard(c, dto, y); y += H.insight + GAP;
-  futureCard(c, dto.future_title, dto.future, y); y += H.future + GAP;
-  const footerY = PAGE.h - PAGE.margin - H.footer;
-  const actionH = footerY - GAP - y;
-  if (actionH < H.action) c.issues.push({ block: "action", kind: "overflow", detail: `altura ${actionH}` });
-  actionCard(c, dto, y, actionH);
-  footer(c, dto, footerY + 6, localStamp(dto.generated_at, dto.timezone));
+  let y = 20;
+  y += header(c, dto, y) + 16;
+  y += hero(c, dto, y) + GAP;
+  y += weekBarsCard(c, dto, y) + GAP;
+  y += categoriesCard(c, dto, y) + GAP;
+  if (dto.type === "monthly") y += evolutionCard(c, dto, y) + GAP;
+  y += textCard(c, "O que mais chamou atenção", dto.insight.title, dto.insight.body, dto.insight.tone, y, true, "insight") + GAP;
+  y += factsCard(c, dto.future_title, dto.facts, y) + GAP;
+  y += textCard(c, "Seu próximo passo", dto.action.title, dto.action.body, "neutral", y, false, "action") + 16;
+  y += footer(c, dto, y, localStamp(dto.generated_at, dto.timezone)) + 20;
 
+  // Recorta a página na altura usada (o conteúdo fica no topo da página de trabalho).
+  const used = Math.ceil(y);
+  page.setMediaBox(0, PAGE.h - used, PAGE.w, used);
+  page.setCropBox(0, PAGE.h - used, PAGE.w, used);
   const bytes = await doc.save({ useObjectStreams: true });
-  return { bytes, pages: doc.getPageCount(), issues: c.issues, sizeBytes: bytes.byteLength };
+  return { bytes, pages: doc.getPageCount(), issues: c.issues, sizeBytes: bytes.byteLength, heightPt: used };
 }

@@ -1,6 +1,8 @@
 // Resumo mensal (mês civil × mês anterior). Puro: recebe os números do relatório canônico (report_v2)
 // do mês e do mês anterior, sem recalcular o motor financeiro.
 import { compareCents } from "./compare.ts";
+import { buildWeekBars } from "./weekBars.ts";
+import type { SummaryRow } from "./weekly.ts";
 import { choose, SUMMARY_THRESHOLDS as T, type Candidate } from "./editorial.ts";
 import { addDays, brl, clamp, ddmm, monthName, pct, shiftMonth, daysInMonth, toCents } from "./format.ts";
 import { SUMMARY_DATA_VERSION, SUMMARY_TEMPLATE_VERSION, TEXT_LIMITS, type EvolutionBar, type SummaryCategory, type SummaryDTO, type SummaryLine, type SummaryMetric } from "./types.ts";
@@ -33,6 +35,8 @@ export interface MonthlyInput {
   opportunity: { title: string; body: string; basis: string; impact: number } | null;
   cashRisk: { amount: number; date: string } | null;
   quality: { pendingImports: boolean; uncategorizedShare: number | null; notes: string[] };
+  /** Linhas de consumo por data da compra (para o gráfico semana a semana). */
+  rows?: SummaryRow[];
 }
 
 const metric = (o: Omit<SummaryMetric, "unit">): SummaryMetric => ({ unit: "BRL", ...o });
@@ -79,6 +83,7 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
   const nwCmp = compareCents(nw, nwRef, vsPrev);
   const debt = toCents(i.cur.debtPaid);
   const evoLines: SummaryLine[] = [
+    { label: isPartial && i.asOf <= lastDay ? `Saldo em conta em ${ddmm(cutoff)}` : "Saldo em conta no fim do mês", value: bal == null ? "não disponível" : brl(bal), note: cb.delta_cents == null ? null : `${brl(cb.delta_cents, { sign: true })} ${vsPrev}` },
     { label: "Metas de gasto no limite", value: sg.length ? `${within} de ${sg.length}` : "nenhuma", tone: "neutral" },
     { label: "Dívidas amortizadas", value: debt == null ? "não disponível" : debt === 0 ? "nenhuma no mês" : brl(debt), note: debt ? "principal pago, fora do consumo" : null },
     { label: "Patrimônio registrado", value: nw == null ? "não disponível" : brl(nw), note: nw == null ? null : nwCmp.text },
@@ -137,6 +142,16 @@ export function buildMonthlySummary(i: MonthlyInput): SummaryDTO {
     subtitle: i.asOf <= lastDay ? `Mês em andamento · dados até ${ddmm(cutoff)} · comparado a ${monthName(prevM)}` : `Mês fechado · comparado a ${monthName(prevM)}`,
     hero,
     hero_side: { label: `Resultado de ${monthName(prevM)}`, value: resRef == null ? "sem histórico" : brl(resRef), note: p && p.consumption != null ? `com consumo de ${brl(toCents(p.consumption)!)}` : null },
+    hero_row: [
+      { label: "Receitas", value: inc == null ? "não disponível" : brl(inc), note: ci.delta_cents == null ? ci.text : `${brl(ci.delta_cents, { sign: true })} ${vsPrev}` },
+      { label: "Consumo", value: con == null ? "não disponível" : brl(con), note: cc.delta_cents == null ? cc.text : `${brl(cc.delta_cents, { sign: true })} ${vsPrev}` },
+    ],
+    facts: [
+      { label: future[0].label, value: future[0].value, note: future[0].note },
+      { label: future[1].label, value: future[1].value, tone: future[1].tone, note: future[1].note },
+      { label: future[2].label, value: future[2].value, note: future[2].note },
+    ],
+    week_bars: i.rows ? { ...buildWeekBars(i.rows, m, cutoff, !!p), note: "Gasto por data da compra, em blocos de 7 dias. O consumo do mês conta o cartão pela fatura, por isso os totais podem ser diferentes." } : null,
     kpis, categories, categories_title: "Onde você mais gastou", categories_empty: categories.length ? null : "Nenhum lançamento registrado no mês.",
     future_title: `Olhando para ${monthName(nextM)}`, future, evolution: { lines: evoLines, bars }, insight, action, quality_flags: flags, caveat: clamp(caveat, TEXT_LIMITS.caveat),
     metrics: [hero, ...kpis],

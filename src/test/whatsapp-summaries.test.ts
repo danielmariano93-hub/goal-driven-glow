@@ -97,6 +97,22 @@ describe("resumo semanal — reconciliação em centavos", () => {
     expect(r.action.title).toBe("Reserve R$ 312,40 até 28/11");
     expect(r.metrics.some((m) => m.id === "weekly_consumption" && m.amount_cents === 52865)).toBe(true);
   });
+  it("semana a semana: blocos de 7 dias somam o acumulado do mês; mês anterior nos mesmos dias", () => {
+    const wb = d.week_bars!;
+    expect(wb.bars.map((b) => b.label)).toEqual(["1–7", "8–14", "15–21", "22–28", "29–30"]);
+    const mtd = d.kpis.find((k) => k.id === "mtd_consumption")!;
+    expect(wb.total_current_cents).toBe(mtd.amount_cents);
+    expect(wb.total_previous_cents).toBe(mtd.reference_amount_cents);
+    expect(wb.bars[3]).toMatchObject({ current_cents: cents(27.5), partial: true });
+    expect(wb.bars[4].current_cents).toBeNull();
+    expect(wb.bars[0].previous_cents).toBe(cents(420 + 1800));
+  });
+  it("destaque traz o acumulado do mês e o saldo de hoje (o mesmo da tela inicial)", () => {
+    expect(d.hero_row[0]).toMatchObject({ label: "Acumulado em novembro", value: brl(d.kpis[0].amount_cents!) });
+    expect(d.hero_row[1].label).toBe("Saldo em conta hoje");
+    expect(d.hero_row[1].value).toBe("R$ 4.210,37");
+    expect(d.hero_row[1].note).toContain("tela inicial");
+  });
   it("semana parcial compara os mesmos dias", () => {
     const p = buildWeeklySummary(weeklyInput({ asOf: "2026-11-18" }));
     expect(p.is_partial).toBe(true);
@@ -118,7 +134,7 @@ describe("resumo semanal — reconciliação em centavos", () => {
     expect(z.hero.delta_text).toBe("novo gasto vs. 7 dias anteriores");
   });
   it("sem saldo de conta: nulo, não zero", () => {
-    const n = buildWeeklySummary(weeklyInput({ balances: { end: null, prevEnd: null } }));
+    const n = buildWeeklySummary(weeklyInput({ balances: { today: null, monthOpening: null } }));
     const bal = n.kpis.find((k) => k.id === "account_balance")!;
     expect(bal.amount_cents).toBeNull();
     expect(bal.status).toBe("unavailable");
@@ -151,7 +167,8 @@ describe("resumo mensal — reconciliação", () => {
   it("categorias top 3 e evolução", () => {
     expect(d.categories.map((c) => c.name)).toEqual(["Moradia", "Mercado", "Restaurantes"]);
     expect(d.categories[0].delta_text).toBe("sem variação");
-    expect(d.evolution!.lines[0].value).toBe("2 de 3");
+    expect(d.evolution!.lines[1].value).toBe("2 de 3");
+    expect(d.evolution!.lines[0].value).toBe("R$ 4.920,18");
     expect(d.evolution!.bars).toHaveLength(6);
   });
   it("próximo mês: compromissos e relação com a renda; recebíveis vencidos à parte", () => {
@@ -213,9 +230,9 @@ describe("PDF", () => {
   const out = process.env.SUMMARY_PREVIEW_DIR;
   const cases: Array<[string, SummaryDTO]> = [
     ["resumo-semanal", buildWeeklySummary(weeklyInput())],
-    ["resumo-mensal", buildMonthlySummary(monthlyInput())],
+    ["resumo-mensal", buildMonthlySummary(monthlyInput({ rows: weeklyRows }))],
     ["resumo-semanal-risco", buildWeeklySummary(weeklyInput({ future: { ...weeklyInput().future, minBalance: { amount: -312.4, date: "2026-11-28" } } }))],
-    ["resumo-semanal-vazio", buildWeeklySummary(weeklyInput({ rows: [], balances: { end: null, prevEnd: null } }))],
+    ["resumo-semanal-vazio", buildWeeklySummary(weeklyInput({ rows: [], balances: { today: null, monthOpening: null } }))],
     ["resumo-mensal-parcial", buildMonthlySummary(monthlyInput({ quality: { pendingImports: true, uncategorizedShare: 0, notes: [] } }))],
     ["resumo-mensal-oportunidade", buildMonthlySummary(monthlyInput({ goals: null, prev: { ...monthlyInput().prev!, consumption: 5900, result: 1080 }, opportunity: { title: "Revise os gastos com Restaurantes e delivery no fim de semana", body: "Você gastou em média R$ 1.834 por mês com Restaurantes nos últimos meses; o seu padrão mais baixo recorrente foi R$ 1.194. A diferença é de cerca de R$ 640 por mês.", basis: "Baseline: R$ 1.194 no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de R$ 640).", impact: 640 } }))],
   ];
