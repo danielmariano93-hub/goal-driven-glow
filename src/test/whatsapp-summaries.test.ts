@@ -201,9 +201,9 @@ describe("resumo mensal — reconciliação", () => {
     const o = buildMonthlySummary(monthlyInput({ month: "2026-11", asOf: "2026-11-26", cur: { income: 0, consumption: 5186.49, result: -5186.49, resultPartial: true, endBalance: 3870.03, debtPaid: 2388.57, hasEntries: true }, open: { expectedIncome: { amount: 9430.44, date: "2026-11-27" }, prevSameDaysConsumption: 8000 } }));
     expect(o.hero.label).toBe("Resultado até agora");
     expect(o.hero.tone).toBe("attention");
-    expect(o.hero.delta_text).toBe("renda de R$ 9.430,44 prevista para 27/11 ainda não entrou");
+    expect(o.hero.delta_text).toBe("renda de R$ 9.430,44 ainda não entrou");
     expect(o.hero.reference_amount_cents).toBeNull();
-    expect(o.hero_row[0].note).toBe("renda de R$ 9.430,44 prevista para 27/11 ainda não entrou");
+    expect(o.hero_row[0].note).toBe("renda prevista: R$ 9.430,44 em 27/11");
     expect(o.hero_row[1].note).toBe(`${brl(518649 - 800000, { sign: true })} vs. 1 a 26/10`);
     expect(o.hero_side.label).toBe("Mês em andamento");
   });
@@ -244,6 +244,7 @@ describe("PDF", () => {
     ["resumo-semanal-risco", buildWeeklySummary(weeklyInput({ future: { ...weeklyInput().future, minBalance: { amount: -312.4, date: "2026-11-28" } } }))],
     ["resumo-semanal-vazio", buildWeeklySummary(weeklyInput({ rows: [], balances: { today: null, monthOpening: null } }))],
     ["resumo-mensal-parcial", buildMonthlySummary(monthlyInput({ quality: { pendingImports: true, uncategorizedShare: 0, notes: [] } }))],
+    ["resumo-mensal-aberto", buildMonthlySummary(monthlyInput({ month: "2026-11", asOf: "2026-11-26", rows: weeklyRows, cur: { income: 0, consumption: 5186.49, result: -5186.49, resultPartial: true, endBalance: 3870.03, debtPaid: 2388.57, hasEntries: true }, open: { expectedIncome: { amount: 19430.44, date: "2026-11-27" }, prevSameDaysConsumption: 8000 } }))],
     ["resumo-mensal-oportunidade", buildMonthlySummary(monthlyInput({ goals: null, prev: { ...monthlyInput().prev!, consumption: 5900, result: 1080 }, opportunity: { title: "Revise os gastos com Restaurantes e delivery no fim de semana", body: "Você gastou em média R$ 1.834 por mês com Restaurantes nos últimos meses; o seu padrão mais baixo recorrente foi R$ 1.194. A diferença é de cerca de R$ 640 por mês.", basis: "Baseline: R$ 1.194 no mesmo período do mês anterior. Premissa: voltar a esse nível (diferença de R$ 640).", impact: 640 } }))],
   ];
   it("oportunidade: ação em linguagem direta, sem termos técnicos", () => {
