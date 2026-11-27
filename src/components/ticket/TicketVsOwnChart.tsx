@@ -22,6 +22,7 @@ export function TicketVsOwnChart({ cycles: months, today }: { cycles: FoodSource
       <div className="flex items-baseline justify-between"><h2 className="font-bold">Ticket ou bolso</h2><span className="text-xs text-muted-foreground">alimentação por ciclo</span></div>
       <div>
         <div className="text-xs text-muted-foreground">Alimentação paga com Ticket no ciclo de {range(d, today)}{d.partial ? " (em andamento)" : ""}</div>
+        {d.incomplete && d.data_from && <div data-testid="ticket-vs-own-incomplete" className="mt-1 rounded-lg bg-warning/20 px-2.5 py-1.5 text-xs text-foreground">Ciclo incompleto: o Nino só tem lançamentos do Ticket a partir de {dm(d.data_from)} e não tem a recarga deste ciclo.</div>}
         <div className="flex items-center gap-2">
           <span className="text-[28px] font-bold tabular-nums">{d.total > 0 ? `${d.ticket_pct}%` : "—"}</span>
           {pp !== null && d.total > 0 && (
@@ -58,7 +59,7 @@ export function TicketVsOwnChart({ cycles: months, today }: { cycles: FoodSource
                   </>
                 )}
               </span>
-              <span className={`text-center text-xs ${on ? "font-bold text-primary" : "text-muted-foreground"}`}>{monthName(m.label_month).slice(0, 3)}{m.partial ? "*" : ""}</span>
+              <span className={`text-center text-xs ${on ? "font-bold text-primary" : "text-muted-foreground"}`}>{monthName(m.label_month).slice(0, 3)}{m.partial ? "*" : ""}{m.incomplete ? "†" : ""}</span>
             </button>
           );
         })}
@@ -79,7 +80,7 @@ export function TicketVsOwnChart({ cycles: months, today }: { cycles: FoodSource
             : <><strong className="font-semibold">Mais comida no bolso.</strong> O Ticket cobriu {d.ticket_pct}%, contra {prev.ticket_pct}% no ciclo anterior. Do seu bolso saíram {formatBRL(d.own)}.</>}
         </p>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">Cada barra é um ciclo do Ticket, da recarga até a véspera da próxima, com o nome do mês em que termina. Dinheiro próprio: contas e cartões nas categorias de alimentação e mercado, pela data da compra.{months.some((m) => m.partial) ? " * ciclo em andamento." : ""}</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">Cada barra é um ciclo do Ticket, da recarga até a véspera da próxima, com o nome do mês em que termina. Dinheiro próprio: contas e cartões nas categorias de alimentação e mercado, pela data da compra.{months.some((m) => m.partial) ? " * ciclo em andamento." : ""}{months.some((m) => m.incomplete) ? " † ciclo com dados incompletos." : ""}</p>
     </section>
   );
 }
