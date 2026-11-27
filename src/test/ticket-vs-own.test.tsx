@@ -9,7 +9,7 @@ const w = { credit_day: 27 };
 describe("foodSourceByCycle", () => {
   it("agrupa por ciclo de recarga (a recarga real antecipada marca o início), não por mês do calendário", () => {
     const entries = [
-      e("old", "2026-09-10", 500),                       // antes da 1ª recarga lançada: fora
+      e("old", "2026-09-10", 500),                       // antes da 1ª recarga lançada: ciclo incompleto
       e("c1", "2026-09-25", 1281.06, "credit"),
       e("a", "2026-09-26", 600), e("b", "2026-10-26", 680), // ciclo 25/09–26/10
       e("c2", "2026-10-27", 1227.16, "credit"),
@@ -17,9 +17,19 @@ describe("foodSourceByCycle", () => {
     ];
     const own = [{ occurred_at: "2026-10-01", amount: 100 }, { occurred_at: "2026-11-20", amount: 300 }, { occurred_at: "2026-09-01", amount: 999 }];
     const c = foodSourceByCycle(w, entries, own, "2026-11-27");
-    expect(c.map((x) => [x.start, x.end, x.label_month])).toEqual([["2026-09-25", "2026-10-26", "2026-10"], ["2026-10-27", "2026-11-26", "2026-11"]]);
-    expect(c[0]).toMatchObject({ ticket: 1280, own: 100, partial: false });
-    expect(c[1]).toMatchObject({ ticket: 1220, own: 300, partial: false });
+    expect(c.map((x) => [x.start, x.end, x.label_month, x.incomplete])).toEqual([["2026-08-27", "2026-09-24", "2026-09", true], ["2026-09-25", "2026-10-26", "2026-10", false], ["2026-10-27", "2026-11-26", "2026-11", false]]);
+    expect(c[0]).toMatchObject({ ticket: 500, own: 999 });
+    expect(c[1]).toMatchObject({ ticket: 1280, own: 100, partial: false });
+    expect(c[2]).toMatchObject({ ticket: 1220, own: 300, partial: false });
+  });
+  it("mostra o ciclo sem recarga lançada, marcado como incompleto a partir do primeiro dado", () => {
+    const entries = [e("x", "2026-09-01", 26), e("y", "2026-09-24", 74), e("c1", "2026-09-25", 1281, "credit"), e("a", "2026-10-01", 500)];
+    const c = foodSourceByCycle(w, entries, [{ occurred_at: "2026-08-30", amount: 40 }], "2026-10-20");
+    expect(c[0]).toMatchObject({ start: "2026-08-27", end: "2026-09-24", ticket: 100, own: 40, incomplete: true, data_from: "2026-09-01" });
+    expect(c[1]).toMatchObject({ start: "2026-09-25", incomplete: false, data_from: null, partial: true });
+    render(<TicketVsOwnChart cycles={c} today="2026-10-20" />);
+    fireEvent.click(screen.getByRole("button", { name: /^Ciclo de 27\/08/ }));
+    expect(screen.getByTestId("ticket-vs-own-incomplete").textContent).toContain("a partir de 01/09");
   });
   it("o ciclo em andamento só entra quando já tem gasto", () => {
     const entries = [e("c1", "2026-10-27", 1000, "credit"), e("a", "2026-11-01", 900), e("b", "2026-11-28", 30)];
