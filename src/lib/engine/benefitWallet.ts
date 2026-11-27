@@ -419,8 +419,10 @@ export function suggestions(state: BenefitState, pattern: WeekdayPattern, mercha
   return out;
 }
 
-/** Categorias que contam como comida paga do bolso ("vazamento" do Ticket). Uma só lista para app e agente. */
-const FOOD_CATEGORY_KEYS = new Set(["restaurante", "restaurantes", "mercado", "supermercado", "delivery", "padaria", "lanche", "lanches", "alimentacao", "ifood"]);
+/** Categorias que contam como comida paga do bolso nas análises do Ticket Alimentação. Uma só lista para app e agente.
+ *  Mercado/supermercado ficam de fora: o Ticket Alimentação do dono da conta só vale para refeição, e as compras de
+ *  mercado são de outro benefício (Ticket Mercado), que o Nino ainda não acompanha. */
+const FOOD_CATEGORY_KEYS = new Set(["restaurante", "restaurantes", "delivery", "padaria", "lanche", "lanches", "alimentacao", "ifood"]);
 export const benefitFoodKey = (name: unknown) => String(name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 export const isBenefitFoodCategory = (name: unknown) => FOOD_CATEGORY_KEYS.has(benefitFoodKey(name));
 

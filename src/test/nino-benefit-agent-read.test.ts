@@ -104,7 +104,7 @@ describe("vazamento: comida paga do bolso no ciclo", () => {
     const origFrom = base.from;
     base.from = (table: string) => {
       if (table === "categories") {
-        const q: any = { select: () => q, or: () => q, then: (r: any) => r({ data: [{ id: "c1", name: "Restaurante" }, { id: "c2", name: "Mercado" }, { id: "c3", name: "Transporte" }], error: null }) };
+        const q: any = { select: () => q, or: () => q, then: (r: any) => r({ data: [{ id: "c1", name: "Restaurante" }, { id: "c2", name: "Delivery" }, { id: "c3", name: "Transporte" }], error: null }) };
         return q;
       }
       if (table === "transactions") {
@@ -123,7 +123,7 @@ describe("vazamento: comida paga do bolso no ciclo", () => {
     ]);
     const out = await get_benefit_status({ sb, user_id: "u1", conversation_id: "c" } as never);
     const leak = (out as any).result.food_outside_ticket;
-    expect(leak).toEqual({ amount: 100.5, count: 2, categories: ["Mercado", "Restaurante"] });
+    expect(leak).toEqual({ amount: 100.5, count: 2, categories: ["Delivery", "Restaurante"] });
     expect(semanticBlockText("get_benefit_status", (out as any).result)).toMatch(/Fora do Ticket, você gastou \*R\$\s100,50\* com alimentação/);
   });
   it("sem comida no ciclo, não menciona vazamento", async () => {

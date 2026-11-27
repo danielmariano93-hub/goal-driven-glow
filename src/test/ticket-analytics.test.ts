@@ -140,3 +140,11 @@ describe("P2: o que mudou, etapas do ciclo, previsão e troca de fonte", () => {
     expect(sourceSwap(rk, 0)).toBeNull();
   });
 });
+
+import { isBenefitFoodCategory } from "@/lib/engine/benefitWallet";
+describe("Ticket Alimentação não conta mercado", () => {
+  it("mercado e supermercado são outro benefício; refeição continua", () => {
+    expect(["Mercado", "Supermercado", "mercado"].map(isBenefitFoodCategory)).toEqual([false, false, false]);
+    expect(["Alimentação", "Restaurante", "Delivery", "iFood", "Padaria", "Lanche"].map(isBenefitFoodCategory)).toEqual([true, true, true, true, true, true]);
+  });
+});
