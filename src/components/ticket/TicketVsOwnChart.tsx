@@ -95,7 +95,7 @@ export function TicketVsOwnChart({ cycles: months, today, selectedStart, onSelec
             : <><strong className="font-semibold">Mais comida no bolso.</strong> O Ticket cobriu {d.ticket_pct}%, contra {prev!.ticket_pct}% no ciclo anterior. Do seu bolso saíram {formatBRL(d.own)}.</>}
         </p>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">Cada barra é um ciclo do Ticket, da recarga até a véspera da próxima, com o nome do mês em que termina. Dinheiro próprio: contas e cartões nas categorias de alimentação e mercado, pela data da compra. A participação pode subir mesmo quando o bolso gasta mais; por isso os valores aparecem junto.{months.some((m) => m.partial) ? " * ciclo em andamento." : ""}{months.some((m) => m.incomplete) ? " † ciclo com dados incompletos." : ""}</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">Cada barra é um ciclo do Ticket, da recarga até a véspera da próxima, com o nome do mês em que termina. Dinheiro próprio: contas e cartões nas categorias de alimentação (refeição, restaurante, delivery, padaria, lanche), pela data da compra. Mercado fica de fora: é outro benefício. A participação pode subir mesmo quando o bolso gasta mais; por isso os valores aparecem junto.{months.some((m) => m.partial) ? " * ciclo em andamento." : ""}{months.some((m) => m.incomplete) ? " † ciclo com dados incompletos." : ""}</p>
     </section>
   );
 }

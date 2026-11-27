@@ -6,7 +6,7 @@ import {
   type BenefitStatus, type BenefitWalletConfig,
 } from "@/lib/engine/benefitWallet";
 import {
-  backtestForecast, cycleStages, dailyKpis, knownWindow, merchantRanking, ownAfterDepletion, performance, sourceSwap, ticketFoodRows, weekdayAverages, weekdayForecast, weekdayPeak,
+  backtestForecast, cycleStages, dailyKpis, knownWindow, merchantRanking, ownAfterDepletion, performance, sourceSwap, ticketFoodRows, weekdayAverages, weekdayCapOpportunity, weekdayForecast, weekdayPeak,
   WEEKDAY_FULL, WEEKDAY_PLURAL, type FoodRow, type SourceFilter, type StatementRow,
 } from "@/lib/engine/ticketAnalytics";
 import type { BenefitEntryRow, OwnFoodRow } from "@/lib/db/benefitWallet";
@@ -149,10 +149,18 @@ export function TicketView({ wallet, entries, own, ownReady, today, onAdd, onEdi
   const rest = state.balance !== null && state.rate.per_day > 0 ? restDaysToFit(state.balance, state.cycle.days_left, state.rate.per_day) : null;
   const tl = todayLine(state, brl2, dm);
   const curCycle = cycles[cycles.length - 1];
+  const capCycle = cycles[defaultIdx];
+  const capWin = capCycle ? knownWindow(capCycle, today, spentToday) : null;
+  const capOpp = capWin ? weekdayCapOpportunity(weekdayAverages(rows, "ticket", capWin.from, capWin.to)) : null;
   const wkNow = curCycle && state.balance !== null && state.cycle.days_left > 0 ? weekdayForecast(rows, today, benefitAddDays(state.cycle.next, -1)) : null;
   const swap = ownReady && perfResumo?.cycle.open ? sourceSwap(merchantRanking(rows, perfResumo.window, null), proj?.leftover ?? null) : null;
   const opps = [
-    ...tips.map((t) => ({ id: t.id as string, title: t.title, body: t.body, badge: t.monthly_saving !== null ? `~ ${brl2(t.monthly_saving)}/mês` : null, cta: null as null | { label: string; run: () => void } })),
+    ...(capOpp && capWin ? [{
+      id: "weekday_cap", title: `Teto de ${brl2(capOpp.cap)} às ${WEEKDAY_PLURAL[capOpp.weekday]}`,
+      body: `No ciclo de ${dm(capWin.from)} a ${dm(capWin.to)}, ${WEEKDAY_FULL[capOpp.weekday].toLowerCase()} custou em média ${brl2(capOpp.avg)} por dia no Ticket, ${num1(capOpp.ratio)} vezes a média dos outros dias (${brl2(capOpp.others_avg)}). Com esse teto, você segura cerca de ${brl2(capOpp.monthly)} por ciclo.`,
+      badge: `~ ${brl2(capOpp.monthly)}/ciclo`, cta: null as null | { label: string; run: () => void },
+    }] : []),
+    ...tips.filter((t) => t.id !== "weekday_cap").map((t) => ({ id: t.id as string, title: t.title, body: t.body, badge: t.monthly_saving !== null ? `~ ${brl2(t.monthly_saving)}/mês` : null, cta: null as null | { label: string; run: () => void } })),
     ...(swap ? [{
       id: "source_swap", title: "Pagar com Ticket onde ele já é aceito",
       body: `Neste período saíram ${brl2(swap.amount)}${swap.capped ? " (limitado ao que deve sobrar no Ticket)" : ""} do bolso em lugares onde você já usou o Ticket: ${swap.merchants.join(", ")}. Não é economia: o gasto é o mesmo, só muda a fonte.`,
@@ -355,7 +363,7 @@ export function TicketView({ wallet, entries, own, ownReady, today, onAdd, onEdi
               <button type="button" onClick={() => { const next = dismissed.filter((d) => !d.endsWith(`:${state.cycle.start}`)); setDismissed(next); try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)); } catch { /* sem armazenamento */ } }}
                 className="self-start px-1 text-xs font-semibold text-primary">Mostrar as dispensadas</button>
             )}
-            <p className="px-1 text-xs text-muted-foreground">Estimativas a partir do ciclo atual; não somam entre si e não são economia garantida.</p>
+            <p className="px-1 text-xs text-muted-foreground">Estimativas a partir do último ciclo com dados suficientes; não somam entre si e não são economia garantida.</p>
           </section>
         </div>
       )}

@@ -25,7 +25,7 @@ Arquivos novos: `src/lib/engine/ticketAnalytics.ts`, `src/components/ticket/{Tic
 | Autonomia | saldo ÷ ritmo; dias sem cobertura = máx(0, dias restantes − autonomia) | `dailyKpis` |
 | Projeção | saldo − ritmo × dias restantes; sobra = máx(0, ·), falta = máx(0, −·) | `project` (sem mudança) |
 | Cobertura do Ticket | T ÷ (T + B) | `totalsIn` |
-| Desembolso próprio | B = despesas reais confirmadas nas categorias de comida, pela data da compra | `useBenefitOwnFoodRows` |
+| Desembolso próprio | B = despesas reais confirmadas nas categorias de refeição (sem mercado, que é outro benefício), pela data da compra | `useBenefitOwnFoodRows` |
 | Comparação | ciclo aberto: mesmos dias decorridos do ciclo anterior; encerrado: ciclo anterior inteiro; ciclo incompleto: indisponível | `performance` |
 | Média por dia da semana | soma do dia ÷ ocorrências do dia na janela conhecida (dias sem compra = 0; dias desconhecidos fora) | `weekdayAverages` |
 | Ranking | agrupado por nome normalizado (`normalizeMerchant`); sem nome = "Não identificado" | `merchantRanking` |
