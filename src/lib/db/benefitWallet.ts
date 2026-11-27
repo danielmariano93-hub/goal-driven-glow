@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { BenefitEntry, BenefitKind, BenefitWalletConfig } from "@/lib/engine/benefitWallet";
 import type { BenefitStatementItem } from "@/lib/engine/benefitStatement";
 import { isBenefitFoodCategory } from "@/lib/engine/benefitWallet";
+import { fetchAllPages } from "@/lib/db/pagedSelect";
 
 // Ticket Alimentação (contexto separado do livro-razão). As tabelas ainda não estão nos tipos gerados do Supabase.
 type Row = Record<string, unknown>;
@@ -218,6 +219,30 @@ export function useBenefitFoodLeak(from: string | undefined, to: string, enabled
         count: rows.length,
         categories: [...new Set(rows.map((r) => food.get(r.category_id as string)).filter(Boolean) as string[])].sort(),
       };
+    },
+  });
+}
+
+/** Despesas de comida pagas do bolso desde `from` (mesma regra de `useBenefitFoodLeak`), para o gráfico "Ticket ou bolso". */
+export function useBenefitOwnFoodRows(from: string | undefined, to: string, enabled: boolean) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ["benefit-own-food-rows", user?.id, from, to],
+    enabled: !!user && enabled && !!from,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<Array<{ occurred_at: string; amount: number }>> => {
+      const cats = await supabase.from("categories").select("id,name").or(`user_id.eq.${user!.id},user_id.is.null`);
+      if (cats.error) throw cats.error;
+      const food = (cats.data ?? []).filter((c) => isBenefitFoodCategory(c.name)).map((c) => c.id as string);
+      if (!food.length) return [];
+      const rows = await fetchAllPages<{ occurred_at: string; amount: number; movement_kind: string | null; status: string | null }>((a, b) =>
+        supabase.from("transactions").select("id,occurred_at,amount,movement_kind,status")
+          .eq("user_id", user!.id).eq("type", "expense").gte("occurred_at", from!).lte("occurred_at", to).in("category_id", food)
+          .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b) as never,
+      { source: "benefit_own_food" });
+      return rows
+        .filter((r) => (r.movement_kind ?? "transaction") === "transaction" && (r.status ?? "confirmed") === "confirmed")
+        .map((r) => ({ occurred_at: String(r.occurred_at), amount: Number(r.amount || 0) }));
     },
   });
 }
