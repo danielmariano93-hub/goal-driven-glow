@@ -148,3 +148,20 @@ describe("Ticket Alimentação não conta mercado", () => {
     expect(["Alimentação", "Restaurante", "Delivery", "iFood", "Padaria", "Lanche"].map(isBenefitFoodCategory)).toEqual([true, true, true, true, true, true]);
   });
 });
+
+import { weekdayCapOpportunity } from "@/lib/engine/ticketAnalytics";
+describe("Teto no dia mais caro usa a mesma base do 'No período'", () => {
+  it("média e média dos outros são as do insight do ciclo", () => {
+    const rows: FoodRow[] = [];
+    for (let d = new Date(Date.UTC(2026, 9, 27)); d <= new Date(Date.UTC(2026, 10, 26)); d.setUTCDate(d.getUTCDate() + 1)) {
+      const iso = d.toISOString().slice(0, 10);
+      rows.push(row(iso, d.getUTCDay() === 3 ? 82 : 30));
+    }
+    const w = weekdayAverages(rows, "ticket", "2026-10-27", "2026-11-26");
+    const peak = weekdayPeak(w)!;
+    const opp = weekdayCapOpportunity(w)!;
+    expect(opp.avg).toBe(peak.avg);
+    expect(opp.others_avg).toBe(peak.others_avg);
+    expect(opp.cap).toBe(50);
+  });
+});

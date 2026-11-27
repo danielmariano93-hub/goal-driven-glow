@@ -310,3 +310,18 @@ export function sourceSwap(ranking: MerchantRow[], projectedLeftover: number | n
   const amount = round2(Math.min(own, projectedLeftover));
   return { amount, merchants: where.sort((a, b) => b.own - a.own).slice(0, 3).map((m) => m.label), capped: amount < own };
 }
+
+// ---------------------------------------------------------------- Oportunidade: teto no dia mais caro
+
+const roundTo5 = (n: number) => Math.max(5, Math.round(n / 5) * 5);
+/** "Teto no dia mais caro", calculado na MESMA base do insight "No período" (ciclo e fonte Ticket), para o Resumo e
+ *  as Análises dizerem o mesmo número. Regra igual à de antes: dia com ≥ 25% do gasto e ≥ 1,5× a média dos outros;
+ *  teto = 1,6 × média dos outros (múltiplo de 5); impacto = (média − teto) × ocorrências por ciclo (~4,3). */
+export function weekdayCapOpportunity(w: WeekdayAverages): { weekday: number; cap: number; avg: number; others_avg: number; ratio: number; monthly: number } | null {
+  const p = weekdayPeak(w);
+  if (!p || p.share_pct < 25 || p.ratio < 1.5 || p.others_avg <= 0) return null;
+  const cap = roundTo5(p.others_avg * 1.6);
+  const saving = Math.max(0, p.avg - cap) * 4.3;
+  if (saving < 10) return null;
+  return { weekday: p.weekday, cap, avg: p.avg, others_avg: p.others_avg, ratio: p.ratio, monthly: Math.round(saving / 5) * 5 };
+}
