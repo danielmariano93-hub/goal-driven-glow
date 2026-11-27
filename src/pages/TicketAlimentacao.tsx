@@ -6,13 +6,14 @@ import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { formatBRL, todayISO } from "@/lib/engine/facts";
 import {
-  balanceSeries, computeBenefitState, merchantBreakdown, suggestions, weekdayPattern, whatIf,
+  balanceSeries, computeBenefitState, foodSourceByMonth, merchantBreakdown, suggestions, weekdayPattern, whatIf,
   type BenefitStatus,
 } from "@/lib/engine/benefitWallet";
-import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitFoodLeak, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
+import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitFoodLeak, useBenefitOwnFoodRows, useBenefitWallet, useDeleteBenefitEntry } from "@/lib/db/benefitWallet";
 import { BurnDownChart } from "@/components/ticket/BurnDownChart";
 import { EntryList } from "@/components/ticket/EntryList";
 import { WeekdayBars } from "@/components/ticket/WeekdayBars";
+import { TicketVsOwnChart } from "@/components/ticket/TicketVsOwnChart";
 import { EntrySheet, type Mode as EntryMode } from "@/components/ticket/EntrySheet";
 import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
@@ -35,6 +36,12 @@ export default function TicketAlimentacao() {
   const cycleStartForLeak = useMemo(() => (walletQ.data ? computeBenefitState(walletQ.data, entriesQ.data ?? [], todayISO()).cycle.start : undefined), [walletQ.data, entriesQ.data]);
   const leak = useBenefitFoodLeak(cycleStartForLeak, todayISO(), !!walletQ.data);
   const today = todayISO();
+  const firstSpendMonth = useMemo(() => {
+    const first = (entriesQ.data ?? []).filter((e) => e.kind === "spend").reduce<string | null>((m, e) => (m === null || e.occurred_on < m ? e.occurred_on : m), null);
+    return first ? `${first.slice(0, 7)}-01` : undefined;
+  }, [entriesQ.data]);
+  const ownFood = useBenefitOwnFoodRows(firstSpendMonth, today, !!walletQ.data);
+  const bySource = useMemo(() => foodSourceByMonth(entriesQ.data ?? [], ownFood.data ?? [], today), [entriesQ.data, ownFood.data, today]);
   const [tab, setTab] = useState<"resumo" | "padroes">("resumo");
   const [sheet, setSheet] = useState(false);
   const [sheetMode, setSheetMode] = useState<EntryMode>("spend");
@@ -246,6 +253,7 @@ export default function TicketAlimentacao() {
               )}
             </section>
           )}
+          {hasSpends && ownFood.isSuccess && bySource.length > 0 && <TicketVsOwnChart months={bySource} today={today} />}
           {leak.data && leak.data.amount > 0 && (
             <section className="surface-card flex flex-col gap-1 p-5">
               <h2 className="font-bold">Comida fora do Ticket</h2>
