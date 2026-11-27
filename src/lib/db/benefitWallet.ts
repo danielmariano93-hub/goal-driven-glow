@@ -223,26 +223,31 @@ export function useBenefitFoodLeak(from: string | undefined, to: string, enabled
   });
 }
 
-/** Despesas de comida pagas do bolso desde `from` (mesma regra de `useBenefitFoodLeak`), para o gráfico "Ticket ou bolso". */
+/** Gasto de comida pago do bolso (conta ou cartão), para as análises do Ticket. */
+export type OwnFoodRow = { id: string; occurred_at: string; amount: number; merchant: string | null };
+
+/** Despesas de comida pagas do bolso desde `from` (mesma regra de `useBenefitFoodLeak`): despesas reais confirmadas
+ *  nas categorias de comida, pela data da compra. Leitura paginada. */
 export function useBenefitOwnFoodRows(from: string | undefined, to: string, enabled: boolean) {
   const { user } = useAuth();
   return useQuery({
     queryKey: ["benefit-own-food-rows", user?.id, from, to],
     enabled: !!user && enabled && !!from,
     staleTime: 5 * 60_000,
-    queryFn: async (): Promise<Array<{ occurred_at: string; amount: number }>> => {
+    queryFn: async (): Promise<OwnFoodRow[]> => {
       const cats = await supabase.from("categories").select("id,name").or(`user_id.eq.${user!.id},user_id.is.null`);
       if (cats.error) throw cats.error;
       const food = (cats.data ?? []).filter((c) => isBenefitFoodCategory(c.name)).map((c) => c.id as string);
       if (!food.length) return [];
-      const rows = await fetchAllPages<{ occurred_at: string; amount: number; movement_kind: string | null; status: string | null }>((a, b) =>
-        supabase.from("transactions").select("id,occurred_at,amount,movement_kind,status")
+      type Row = { id: string; occurred_at: string; amount: number; movement_kind: string | null; status: string | null; merchant_name: string | null; friendly_description: string | null; description: string | null };
+      const rows = await fetchAllPages<Row>((a, b) =>
+        supabase.from("transactions").select("id,occurred_at,amount,movement_kind,status,merchant_name,friendly_description,description")
           .eq("user_id", user!.id).eq("type", "expense").gte("occurred_at", from!).lte("occurred_at", to).in("category_id", food)
           .order("occurred_at", { ascending: true }).order("id", { ascending: true }).range(a, b) as never,
       { source: "benefit_own_food" });
       return rows
         .filter((r) => (r.movement_kind ?? "transaction") === "transaction" && (r.status ?? "confirmed") === "confirmed")
-        .map((r) => ({ occurred_at: String(r.occurred_at), amount: Number(r.amount || 0) }));
+        .map((r) => ({ id: String(r.id), occurred_at: String(r.occurred_at).slice(0, 10), amount: Number(r.amount || 0), merchant: r.merchant_name || r.friendly_description || r.description || null }));
     },
   });
 }
