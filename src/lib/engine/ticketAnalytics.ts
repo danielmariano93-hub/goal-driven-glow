@@ -204,3 +204,109 @@ export function statementTotals(rows: StatementRow[]) {
     credits: credits.length,
   };
 }
+
+// ---------------------------------------------------------------- O que mudou (decomposição frequência × valor médio)
+
+export interface ChangeDecomposition { kind: "new" | "stopped" | "change"; before: number; after: number; freq_effect: number; avg_effect: number; total: number; n0: number; n1: number; m0: number; m1: number }
+/** Gasto = frequência × valor médio. Efeito frequência = (N1 − N0) × M0; efeito valor médio = N1 × (M1 − M0).
+ *  Soma = gasto atual − anterior. É decomposição contábil, não prova de causa. */
+export function decomposeChange(n0: number, total0: number, n1: number, total1: number): ChangeDecomposition {
+  const m0 = n0 > 0 ? total0 / n0 : 0;
+  const m1 = n1 > 0 ? total1 / n1 : 0;
+  const kind = n0 === 0 ? "new" : n1 === 0 ? "stopped" : "change";
+  const freq = kind === "change" ? (n1 - n0) * m0 : 0;
+  const avg = kind === "change" ? n1 * (m1 - m0) : 0;
+  return { kind, before: round2(total0), after: round2(total1), freq_effect: round2(freq), avg_effect: round2(avg), total: round2(total1 - total0), n0, n1, m0: round2(m0), m1: round2(m1) };
+}
+
+// ---------------------------------------------------------------- Quando seu bolso pesa mais (etapas do ciclo)
+
+export interface CycleStage { label: string; from: string; to: string; days: number; ticket: number; own: number; total: number; ticket_pct: number | null; own_per_day: number; total_per_day: number }
+/** Etapas do ciclo: dias 1–7, 8–14, 15–21 e 22 até o fim, cortadas na janela conhecida. Médias por dia porque as
+ *  etapas têm tamanhos diferentes. */
+export function cycleStages(rows: FoodRow[], cycleStart: string, win: { from: string; to: string }): { stages: CycleStage[]; final_own_share: number | null } {
+  const bounds: Array<[string, number, number | null]> = [["Dias 1–7", 0, 6], ["Dias 8–14", 7, 13], ["Dias 15–21", 14, 20], ["Dia 22 ao fim", 21, null]];
+  const stages: CycleStage[] = [];
+  for (const [label, a, b] of bounds) {
+    const s = benefitAddDays(cycleStart, a);
+    const e = b === null ? win.to : benefitAddDays(cycleStart, b);
+    const from = s < win.from ? win.from : s;
+    const to = e > win.to ? win.to : e;
+    if (to < from) continue;
+    const t = totalsIn(rows, from, to);
+    stages.push({ label, from, to, days: t.days, ticket: t.ticket, own: t.own, total: t.total, ticket_pct: t.coverage_pct, own_per_day: round2(t.own / t.days), total_per_day: round2(t.total / t.days) });
+  }
+  const ownTotal = stages.reduce((a, s) => a + s.own, 0);
+  const last = stages[stages.length - 1];
+  return { stages, final_own_share: ownTotal > 0 && last && last.label === "Dia 22 ao fim" ? Math.round((last.own / ownTotal) * 100) : null };
+}
+
+/** Associação temporal: quanto do bolso saiu em dias em que o Ticket começou o dia com menos que um dia típico de
+ *  consumo. `balanceAt(d)` devolve o saldo do Ticket no fim do dia `d` (null quando não dá para reconstruir). */
+export function ownAfterDepletion(rows: FoodRow[], win: { from: string; to: string }, typicalDay: number, balanceAt: (d: string) => number | null) {
+  let known = 0; let unknown = 0; let ownLow = 0; let ownTotal = 0; let lowDays = 0;
+  for (let d = win.from; d <= win.to; d = benefitAddDays(d, 1)) {
+    const start = balanceAt(benefitAddDays(d, -1));
+    const own = rows.filter((r) => r.source === "own" && r.date === d).reduce((a, r) => a + r.amount, 0);
+    ownTotal += own;
+    if (start === null) { unknown += 1; continue; }
+    known += 1;
+    if (start < typicalDay) { lowDays += 1; ownLow += own; }
+  }
+  return { reliable: unknown === 0 && known > 0, low_days: lowDays, own_low: round2(ownLow), own_total: round2(ownTotal), share: ownTotal > 0 ? Math.round((ownLow / ownTotal) * 100) : null };
+}
+
+// ---------------------------------------------------------------- Previsão por dia da semana (P2, com teste retroativo)
+
+export const WEEKDAY_FORECAST_VERSION = "ticket_weekday_forecast.v1";
+/** Consumo previsto de `from` a `to` pela média de cada dia da semana nas `weeks` semanas fechadas antes de `from`. */
+export function weekdayForecast(rows: FoodRow[], from: string, to: string, weeks = 8): number | null {
+  const histTo = benefitAddDays(from, -1);
+  const ticketDates = rows.filter((r) => r.source === "ticket").map((r) => r.date).sort();
+  if (!ticketDates.length) return null;
+  const histFromWanted = benefitAddDays(from, -weeks * 7);
+  const histFrom = ticketDates[0] > histFromWanted ? ticketDates[0] : histFromWanted;
+  if (daysBetween(histFrom, histTo) + 1 < 28) return null;
+  const avgs = weekdayAverages(rows, "ticket", histFrom, histTo).by_weekday.map((d) => d.avg ?? 0);
+  let sum = 0;
+  for (let d = from; d <= to; d = benefitAddDays(d, 1)) sum += avgs[weekdayOf(d)];
+  return round2(sum);
+}
+/** Ritmo constante: média dos 14 dias fechados antes de `from` × dias restantes (mesma regra do ritmo do Resumo). */
+export function constantForecast(rows: FoodRow[], from: string, to: string): number | null {
+  const a = benefitAddDays(from, -14); const b = benefitAddDays(from, -1);
+  const first = rows.filter((r) => r.source === "ticket").reduce<string | null>((m, r) => (m === null || r.date < m ? r.date : m), null);
+  if (!first || first > a) return null;
+  const rate = totalsIn(rows, a, b).ticket / 14;
+  return round2(rate * (daysBetween(from, to) + 1));
+}
+export interface ForecastBacktest { version: string; cut_day: number; cases: Array<{ start: string; end: string; actual: number; constant: number; weekday: number }>; mae_constant: number | null; mae_weekday: number | null; better: boolean }
+/** Teste fora da amostra: em cada ciclo encerrado e completo, prevê do dia `cutDay` ao fim com cada modelo e compara
+ *  com o que de fato foi gasto. O modelo por dia da semana só "ganha" com pelo menos 2 ciclos e erro menor em todos. */
+export function backtestForecast(cycles: TicketCycle[], rows: FoodRow[], cutDay = 10): ForecastBacktest {
+  const cases: ForecastBacktest["cases"] = [];
+  for (const c of cycles) {
+    if (c.open || c.incomplete) continue;
+    const from = benefitAddDays(c.start, cutDay - 1);
+    if (from > c.end) continue;
+    const wk = weekdayForecast(rows, from, c.end);
+    const ct = constantForecast(rows, from, c.end);
+    if (wk === null || ct === null) continue;
+    cases.push({ start: c.start, end: c.end, actual: totalsIn(rows, from, c.end).ticket, constant: ct, weekday: wk });
+  }
+  const mae = (k: "constant" | "weekday") => (cases.length ? round2(cases.reduce((a, x) => a + Math.abs(x[k] - x.actual), 0) / cases.length) : null);
+  const better = cases.length >= 2 && cases.every((x) => Math.abs(x.weekday - x.actual) < Math.abs(x.constant - x.actual));
+  return { version: WEEKDAY_FORECAST_VERSION, cut_day: cutDay, cases, mae_constant: mae("constant"), mae_weekday: mae("weekday"), better };
+}
+
+// ---------------------------------------------------------------- Oportunidade: trocar a fonte
+
+/** Comida paga do bolso em lugares onde o Ticket já foi aceito neste ciclo, limitada ao que deve sobrar no Ticket.
+ *  Não é economia de consumo: o gasto total não muda, só sai do Ticket em vez do bolso. */
+export function sourceSwap(ranking: MerchantRow[], projectedLeftover: number | null): { amount: number; merchants: string[]; capped: boolean } | null {
+  const where = ranking.filter((m) => m.key !== "__none__" && m.ticket > 0 && m.own > 0);
+  const own = round2(where.reduce((a, m) => a + m.own, 0));
+  if (own < 20 || projectedLeftover === null || projectedLeftover <= 0) return null;
+  const amount = round2(Math.min(own, projectedLeftover));
+  return { amount, merchants: where.sort((a, b) => b.own - a.own).slice(0, 3).map((m) => m.label), capped: amount < own };
+}

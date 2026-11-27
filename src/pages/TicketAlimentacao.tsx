@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { todayISO } from "@/lib/engine/facts";
@@ -8,7 +8,7 @@ import { useBenefitEnabled, useBenefitEntries, type BenefitEntryRow, useBenefitO
 import { EntrySheet, type Mode as EntryMode } from "@/components/ticket/EntrySheet";
 import { StatementImportSheet } from "@/components/ticket/StatementImportSheet";
 import { SetupWallet } from "@/components/ticket/SetupWallet";
-import { TicketView } from "@/components/ticket/TicketView";
+import { TicketView, type TicketTab } from "@/components/ticket/TicketView";
 
 /** Ticket Alimentação: carrega os dados e abre as três abas (Resumo, Análises, Extrato). Registrar, importar,
  *  editar e excluir usam os mesmos fluxos de antes. */
@@ -25,6 +25,11 @@ export default function TicketAlimentacao() {
   const openSheet = (m: EntryMode) => { setSheetMode(m); setSheet(true); };
   const [editing, setEditing] = useState<BenefitEntryRow | null>(null);
   const [importing, setImporting] = useState(false);
+  // Aba e ciclo ficam no endereço: voltar, recarregar ou compartilhar mantêm a mesma visão.
+  const [params, setParams] = useSearchParams();
+  const tabParam = params.get("aba");
+  const initialTab: TicketTab = tabParam === "analises" || tabParam === "extrato" ? tabParam : "resumo";
+  const initialCycle = params.get("ciclo");
 
   if (enabled.isLoading || (enabled.data && walletQ.isLoading)) return <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   if (!enabled.data) return <Navigate to="/app" replace />;
@@ -60,6 +65,14 @@ export default function TicketAlimentacao() {
         onAdd={openSheet}
         onEdit={setEditing}
         removing={remove.isPending}
+        initialTab={initialTab}
+        initialCycleStart={initialCycle}
+        onStateChange={({ tab, cycleStart }) => {
+          const next = new URLSearchParams(params);
+          if (tab === "resumo") next.delete("aba"); else next.set("aba", tab);
+          if (cycleStart) next.set("ciclo", cycleStart); else next.delete("ciclo");
+          if (next.toString() !== params.toString()) setParams(next, { replace: true });
+        }}
         onRemove={(id) => remove.mutate(id, { onSuccess: () => toast.success("Lançamento excluído"), onError: () => toast.error("Não consegui excluir agora.") })}
       />
       <EntrySheet open={sheet} onOpenChange={setSheet} walletId={wallet.id} today={today} initialMode={sheetMode} />

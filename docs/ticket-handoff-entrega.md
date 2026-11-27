@@ -42,8 +42,19 @@ Arquivos novos: `src/lib/engine/ticketAnalytics.ts`, `src/components/ticket/{Tic
 - **Variações** em texto neutro, sem verde só porque a cobertura subiu (pedido do handoff).
 - **"Comida fora do Ticket" e "Para onde foi"** saíram: o primeiro é o "bolso" do "Ticket ou bolso"; o segundo virou o ranking com as duas fontes.
 
-## 5. Pendências (P2 e limites)
+## 5. Itens P2 (entregues em seguida)
 
-- Não implementado: decomposição frequência × valor médio, "Quando seu bolso pesa mais", previsão por dia da semana, eventos de analytics (`ticket_tab_view` etc.).
-- O seletor de ciclo e os filtros não vão para o endereço da página (voltam ao padrão se a página for recarregada).
+| Item | Como ficou |
+|---|---|
+| O que mudou | No detalhe de cada estabelecimento: cascata Antes → efeito frequência → efeito valor médio → Agora (`decomposeChange`). Novo estabelecimento e gasto que parou são tratados à parte. |
+| Quando seu bolso pesa mais | Etapas 1–7, 8–14, 15–21 e 22–fim, em média por dia; toque mostra datas, Ticket, bolso, parte do Ticket e dias; concentração do bolso no fim do ciclo; associação com saldo baixo só quando o saldo de todos os dias é reconstruível (`cycleStages`, `ownAfterDepletion`). |
+| Previsão por dia da semana | `weekdayForecast` + teste retroativo (`backtestForecast`, versão `ticket_weekday_forecast.v1`, corte no dia 10). Só substituiria o ritmo constante com 2+ ciclos e erro menor em todos; hoje (2 ciclos) errou mais (R$ 272 × R$ 210), então aparece como "em teste". |
+| Eventos | `ticket_tab_view`, `chart_select`, `simulation_change`, `drilldown_open`, `opportunity_action`, sem valores nem nomes (`src/lib/analytics/ticketEvents.ts`, mesmo padrão do bloco editorial: buffer + dataLayer). |
+| Estado guardado | Aba e ciclo no endereço (`?aba=analises&ciclo=2026-10-27`); filtros na sessão; oportunidades dispensadas por ciclo no aparelho. |
+| Oportunidades | Ganhou "Pagar com Ticket onde ele já é aceito" (bolso em lugares onde o Ticket já foi usado, limitado à sobra prevista; não é economia) e "Dispensar" em cada uma. |
+
+## 6. Limites que ficam
+
+- Saldo histórico só existe a partir da primeira leitura de saldo (03/11); antes disso a associação "bolso depois de o Ticket acabar" aparece como indisponível.
+- Eventos não vão para um banco: o app não tem tabela genérica de eventos; ficam no dataLayer, como os do bloco editorial.
 - Ciclo de setembro: continua com a lacuna de ≥ R$ 154 de gastos não lançados (ver `docs/auditoria-ticket-agosto-2026.md`).

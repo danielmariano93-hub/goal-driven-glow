@@ -101,3 +101,42 @@ describe("Extrato", () => {
     expect(statementTotals(rows)).toEqual({ consumption: 65.94, purchases: 3, credits_total: 1227.16, credits: 1 });
   });
 });
+
+import { backtestForecast, cycleStages, decomposeChange, ownAfterDepletion, sourceSwap, weekdayForecast } from "@/lib/engine/ticketAnalytics";
+
+describe("P2: o que mudou, etapas do ciclo, previsão e troca de fonte", () => {
+  it("decomposição: 6 × 50 → 8 × 56,25 = efeito frequência 100 + valor médio 50 = 150", () => {
+    expect(decomposeChange(6, 300, 8, 450)).toMatchObject({ kind: "change", freq_effect: 100, avg_effect: 50, total: 150 });
+    expect(decomposeChange(0, 0, 3, 90).kind).toBe("new");
+    expect(decomposeChange(2, 40, 0, 0)).toMatchObject({ kind: "stopped", total: -40, freq_effect: 0 });
+  });
+  it("etapas do ciclo cortam na janela conhecida e medem a concentração do bolso no fim", () => {
+    const rows = [row("2026-10-28", 70), row("2026-11-20", 30, "own"), row("2026-11-22", 90, "own"), row("2026-11-01", 10, "own")];
+    const st = cycleStages(rows, "2026-10-27", { from: "2026-10-27", to: "2026-11-26" });
+    expect(st.stages.map((s) => [s.label, s.days])).toEqual([["Dias 1–7", 7], ["Dias 8–14", 7], ["Dias 15–21", 7], ["Dia 22 ao fim", 10]]);
+    expect(st.stages[3]).toMatchObject({ own: 120, own_per_day: 12 });
+    expect(st.final_own_share).toBe(92);
+    expect(cycleStages(rows, "2026-10-27", { from: "2026-10-27", to: "2026-11-05" }).stages.length).toBe(2);
+  });
+  it("bolso depois do Ticket acabar: associação só com saldo reconstruível", () => {
+    const rows = [row("2026-11-10", 20, "own"), row("2026-11-12", 30, "own")];
+    const bal = (d: string) => (d >= "2026-11-11" ? 5 : 200);
+    expect(ownAfterDepletion(rows, { from: "2026-11-10", to: "2026-11-12" }, 30, bal)).toMatchObject({ reliable: true, own_low: 30, own_total: 50, share: 60 });
+    expect(ownAfterDepletion(rows, { from: "2026-11-10", to: "2026-11-12" }, 30, () => null).reliable).toBe(false);
+  });
+  it("previsão por dia da semana precisa de 28 dias de histórico; o modelo só ganha com 2 ciclos melhores", () => {
+    const hist = Array.from({ length: 70 }, (_, i) => { const d = new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10); return row(d, new Date(`${d}T12:00:00Z`).getUTCDay() === 3 ? 80 : 20); });
+    expect(weekdayForecast(hist.slice(0, 10), "2026-09-11", "2026-09-20")).toBeNull();
+    const f = weekdayForecast(hist, "2026-11-02", "2026-11-08")!; // 1 quarta (80) + 6 outros dias (20)
+    expect(f).toBe(200);
+    const bt = backtestForecast([{ start: "2026-10-01", end: "2026-10-31", label_month: "2026-10", open: false, incomplete: false, data_from: null, has_credit: true }], hist);
+    expect(bt.cases.length).toBe(1);
+    expect(bt.better).toBe(false);
+  });
+  it("troca de fonte: só onde o Ticket já foi aceito, limitada à sobra prevista", () => {
+    const rk = merchantRanking([row("2026-11-02", 50, "ticket", "Souk4u"), row("2026-11-03", 120, "own", "Souk4u"), row("2026-11-03", 90, "own", "iFood")], { from: "2026-11-01", to: "2026-11-30" }, null);
+    expect(sourceSwap(rk, 300)).toEqual({ amount: 120, merchants: ["Souk4u"], capped: false });
+    expect(sourceSwap(rk, 80)).toMatchObject({ amount: 80, capped: true });
+    expect(sourceSwap(rk, 0)).toBeNull();
+  });
+});

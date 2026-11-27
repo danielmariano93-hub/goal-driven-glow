@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { TicketView } from "@/components/ticket/TicketView";
 import type { BenefitEntryRow, OwnFoodRow } from "@/lib/db/benefitWallet";
@@ -15,6 +15,7 @@ const own: OwnFoodRow[] = [{ id: "o1", occurred_at: "2026-11-04", amount: 40, me
 const props = { wallet, entries, own, ownReady: true, today: "2026-11-20", onAdd: vi.fn(), onEdit: vi.fn(), onRemove: vi.fn(), removing: false };
 
 window.scrollTo = vi.fn() as never;
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 
 describe("Ticket em três abas", () => {
   it("Resumo mostra saldo, próxima recarga, limite/margem/autonomia e desempenho", () => {
@@ -49,5 +50,30 @@ describe("Ticket em três abas", () => {
     expect(props.onRemove).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Excluir" }));
     expect(props.onRemove).toHaveBeenCalledTimes(1);
+  });
+});
+
+import { readTicketEvents, resetTicketEvents } from "@/lib/analytics/ticketEvents";
+
+describe("Ticket: itens P2, estado e eventos", () => {
+  it("Análises mostra 'Quando seu bolso pesa mais' e a seleção de ciclo avisa a página", () => {
+    const onStateChange = vi.fn();
+    render(<TicketView {...props} initialTab="analises" onStateChange={onStateChange} />);
+    expect(screen.getByTestId("ticket-cycle-stages")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ciclo anterior" }));
+    expect(onStateChange).toHaveBeenLastCalledWith({ tab: "analises", cycleStart: "2026-09-25" });
+  });
+  it("abre no ciclo que veio do endereço", () => {
+    render(<TicketView {...props} initialTab="extrato" initialCycleStart="2026-09-25" />);
+    expect(screen.getByTestId("ticket-cycle-selector").textContent).toContain("25/09");
+  });
+  it("eventos não carregam valores em reais nem nomes", () => {
+    resetTicketEvents();
+    render(<TicketView {...props} initialTab="analises" />);
+    fireEvent.click(screen.getByRole("button", { name: /^Quarta-feira: média/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Extrato" }));
+    const ev = readTicketEvents();
+    expect(ev.map((e) => e.event)).toEqual(expect.arrayContaining(["chart_select", "ticket_tab_view"]));
+    expect(JSON.stringify(ev)).not.toMatch(/R\$|Restaurante|Hirota|\d+,\d{2}/);
   });
 });
