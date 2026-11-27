@@ -82,7 +82,7 @@ describe("Resumo: limite, margem, autonomia e projeção", () => {
     expect(project(1234.32, 30, 45, "2026-11-27").shortfall).toBe(115.68);
   });
   it("estado real não quebra sem leitura", () => {
-    const s = computeBenefitState({ id: "w", name: "T", monthly_credit: 1000, credit_day: 27, carries_over: true }, [], "2026-11-27");
+    const s = computeBenefitState({ monthly_credit: 1000, credit_day: 27, carries_over: true } as never, [], "2026-11-27");
     expect(dailyKpis(s)).toMatchObject({ rate: null, limit: null, autonomy_days: null });
   });
 });
