@@ -23,8 +23,11 @@ describe("Anotar: Ticket como forma de pagamento", () => {
     expect(src).toContain("{isTicket ? null : <div>");
   });
   it("a tela do Ticket tem botões com rótulo para registrar gasto, saldo e crédito", () => {
+    // Os botões ficam no Resumo (TicketView); a página só abre o formulário no modo pedido.
+    const view = readFileSync("src/components/ticket/TicketView.tsx", "utf8");
     expect(ticketPage).toContain("Registrar gasto");
-    expect(ticketPage).toContain('openSheet("reading")');
-    expect(ticketPage).toContain('openSheet("credit")');
+    expect(ticketPage).toContain("onAdd={openSheet}");
+    expect(view).toContain('onAdd("reading")');
+    expect(view).toContain('onAdd("credit")');
   });
 });

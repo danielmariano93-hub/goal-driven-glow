@@ -426,6 +426,29 @@ const FOOD_CATEGORY_KEYS = new Set(["restaurante", "restaurantes", "mercado", "s
 export const benefitFoodKey = (name: unknown) => String(name ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 export const isBenefitFoodCategory = (name: unknown) => FOOD_CATEGORY_KEYS.has(benefitFoodKey(name));
 
+/** Ciclos do Ticket, da recarga até a véspera da próxima. A recarga real lançada (até 3 dias antes/depois do dia
+ *  previsto) marca o início; sem ela, vale o dia previsto. Vai do ciclo do primeiro lançamento até o ciclo de `today`.
+ *  `incomplete`: sem recarga lançada e com dados começando depois do início do ciclo (`data_from`). */
+export interface TicketCycle { start: string; end: string; label_month: string; open: boolean; incomplete: boolean; data_from: string | null; has_credit: boolean }
+export function ticketCycles(w: Pick<BenefitWalletConfig, "credit_day">, entries: BenefitEntry[], today: string): TicketCycle[] {
+  const known = entries.filter((e) => e.occurred_on <= today);
+  if (!known.length) return [];
+  const credits = known.filter((e) => e.kind === "credit").map((e) => e.occurred_on).sort();
+  const firstEntry = known.reduce((m, e) => (e.occurred_on < m ? e.occurred_on : m), known[0].occurred_on);
+  const origin = cycleBounds(w.credit_day, firstEntry).start;
+  const nominal = [origin, ...creditDatesBetween(w.credit_day, origin, benefitAddDays(today, 40))];
+  const starts = [...new Set(nominal.map((d) => credits.find((c) => Math.abs(daysBetween(c, d)) <= 3) ?? d))].sort()
+    .filter((d, i, a) => i === 0 || daysBetween(a[i - 1], d) > 5);
+  const out: TicketCycle[] = [];
+  for (let i = 0; i < starts.length - 1 && starts[i] <= today; i++) {
+    const start = starts[i]; const end = benefitAddDays(starts[i + 1], -1);
+    const hasCredit = credits.some((c) => c >= start && c <= end);
+    const incomplete = !hasCredit && firstEntry > start;
+    out.push({ start, end, label_month: end.slice(0, 7), open: end >= today, incomplete, data_from: incomplete ? firstEntry : null, has_credit: hasCredit });
+  }
+  return out;
+}
+
 /** Alimentação por CICLO do Ticket (da recarga até a véspera da próxima), separada por fonte: Ticket (gastos lançados
  *  na carteira) × dinheiro próprio (despesas de contas/cartões nas categorias de comida, mesma regra do "Comida fora do
  *  Ticket"), pela data da compra. A recarga real lançada (até 3 dias antes/depois do dia previsto) marca o início do ciclo.
@@ -436,27 +459,15 @@ export interface FoodSourceCycle { start: string; end: string; label_month: stri
 export function foodSourceByCycle(w: Pick<BenefitWalletConfig, "credit_day">, entries: BenefitEntry[], own: Array<{ occurred_at: string; amount: number }>, today: string): FoodSourceCycle[] {
   const spends = entries.filter((e) => e.kind === "spend" && e.occurred_on <= today);
   if (!spends.length) return [];
-  const credits = entries.filter((e) => e.kind === "credit" && e.occurred_on <= today).map((e) => e.occurred_on).sort();
-  const firstSpend = spends.reduce((m, e) => (e.occurred_on < m ? e.occurred_on : m), spends[0].occurred_on);
-  const firstEntry = entries.reduce((m, e) => (e.occurred_on < m ? e.occurred_on : m), firstSpend);
-  const origin = cycleBounds(w.credit_day, firstEntry).start;
-  // Recargas: datas previstas desde a origem, trocadas pela recarga real lançada perto delas.
-  const nominal = [origin, ...creditDatesBetween(w.credit_day, origin, benefitAddDays(today, 40))];
-  const starts = [...new Set(nominal.map((d) => credits.find((c) => Math.abs(daysBetween(c, d)) <= 3) ?? d))].sort()
-    .filter((d, i, a) => i === 0 || daysBetween(a[i - 1], d) > 5);
   const out: FoodSourceCycle[] = [];
-  for (let i = 0; i < starts.length - 1 && starts[i] <= today; i++) {
-    const start = starts[i]; const end = benefitAddDays(starts[i + 1], -1);
-    const inside = (d: string) => d >= start && d <= end && d <= today;
+  for (const c of ticketCycles(w, entries, today)) {
+    const inside = (d: string) => d >= c.start && d <= c.end && d <= today;
     const t = round2(spends.filter((e) => inside(e.occurred_on)).reduce((a, e) => a + Math.abs(Number(e.amount) || 0), 0));
     const o = round2(own.filter((r) => inside(String(r.occurred_at).slice(0, 10))).reduce((a, r) => a + Math.abs(Number(r.amount) || 0), 0));
     const total = round2(t + o);
-    const partial = end >= today;
-    if (partial && total === 0) continue;
+    if (c.open && total === 0) continue;
     const tp = total > 0 ? Math.round((t / total) * 100) : 0;
-    const hasCredit = credits.some((c) => c >= start && c <= end);
-    const incomplete = !hasCredit && firstEntry > start;
-    out.push({ start, end, label_month: end.slice(0, 7), ticket: t, own: o, total, ticket_pct: tp, own_pct: total > 0 ? 100 - tp : 0, partial, incomplete, data_from: incomplete ? firstEntry : null });
+    out.push({ start: c.start, end: c.end, label_month: c.label_month, ticket: t, own: o, total, ticket_pct: tp, own_pct: total > 0 ? 100 - tp : 0, partial: c.open, incomplete: c.incomplete, data_from: c.data_from });
   }
   return out;
 }
